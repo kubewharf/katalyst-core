@@ -163,11 +163,11 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 	var allocatedDevices []string
 	memoryAllocationInfo := p.GetState().GetAllocationInfo(v1.ResourceName(defaultPreAllocateResourceName), resReq.PodUid, resReq.ContainerName)
-	// GPU memory should have been allocated at this stage.
-	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu memory state.
+	// gpu compute should have been allocated at this stage.
+	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu compute state.
 	if memoryAllocationInfo == nil || memoryAllocationInfo.TopologyAwareAllocations == nil {
-		// When GPU memory allocation info is nil, invoke the GPU allocate strategy to perform GPU allocation
-		general.InfoS("GPU memory allocation info is nil, invoking GPU allocate strategy",
+		// When gpu compute allocation info is nil, invoke the GPU allocate strategy to perform GPU allocation
+		general.InfoS("gpu compute allocation info is nil, invoking GPU allocate strategy",
 			"podNamespace", resReq.PodNamespace,
 			"podName", resReq.PodName,
 			"containerName", resReq.ContainerName)
@@ -203,7 +203,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 		allocatedDevices = result.AllocatedDevices
 	} else {
-		// when GPU memory allocation info exists
+		// when gpu compute allocation info exists
 		for gpuID := range memoryAllocationInfo.TopologyAwareAllocations {
 			allocatedDevices = append(allocatedDevices, gpuID)
 		}

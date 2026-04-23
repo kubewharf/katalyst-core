@@ -19,13 +19,13 @@ package manager
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/deviceaffinity"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_compute"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // registerDefaultFilterStrategies register filtering strategies
 func registerDefaultFilterStrategies(manager *StrategyManager) {
-	if err := manager.RegisterFilteringStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
+	if err := manager.RegisterFilteringStrategy(gpu_compute.NewGPUComputeStrategy()); err != nil {
 		general.Errorf("Failed to register filtering strategy: %v", err)
 	}
 
@@ -36,7 +36,7 @@ func registerDefaultFilterStrategies(manager *StrategyManager) {
 
 // registerDefaultSortingStrategies register sorting strategies
 func registerDefaultSortingStrategies(manager *StrategyManager) {
-	if err := manager.RegisterSortingStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
+	if err := manager.RegisterSortingStrategy(gpu_compute.NewGPUComputeStrategy()); err != nil {
 		general.Errorf("Failed to register sorting strategy: %v", err)
 	}
 }
@@ -55,9 +55,9 @@ func registerDefaultBindingStrategies(manager *StrategyManager) {
 // registerDefaultAllocationStrategies register allocation strategies
 func registerDefaultAllocationStrategies(manager *StrategyManager) {
 	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault,
-		[]string{canonical.StrategyNameCanonical, gpu_memory.StrategyNameGPUMemory},
-		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical); err != nil {
-		general.Errorf("Failed to register gpu-memory-default strategy: %v", err)
+		[]string{canonical.StrategyNameCanonical, gpu_compute.StrategyNameGPUCompute},
+		gpu_compute.StrategyNameGPUCompute, canonical.StrategyNameCanonical); err != nil {
+		general.Errorf("Failed to register gpu-compute-default strategy: %v", err)
 	}
 }
 

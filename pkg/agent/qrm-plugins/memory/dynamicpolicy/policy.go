@@ -27,6 +27,7 @@ import (
 	"github.com/cilium/ebpf"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
@@ -601,7 +602,9 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		return nil, err
 	}
 
-	resourceReqInt, _, err := util.GetQuantityMapFromResourceReq(req)
+	allowedResources := sets.NewString(p.ResourceName())
+	allowedResources.Insert(p.extraResourceNames...)
+	resourceReqInt, _, err := util.GetQuantityMapFromResourceReq(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -960,7 +963,9 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 	}()
 
-	resourceReqInt, _, err := util.GetQuantityMapFromResourceReq(req)
+	allowedResources := sets.NewString(p.ResourceName())
+	allowedResources.Insert(p.extraResourceNames...)
+	resourceReqInt, _, err := util.GetQuantityMapFromResourceReq(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}

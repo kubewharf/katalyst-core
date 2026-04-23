@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpu_memory
+package gpu_compute
 
 import (
 	"testing"
@@ -31,7 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func TestGPUMemoryStrategy_Filter(t *testing.T) {
+func TestGPUComputeStrategy_Filter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -59,7 +59,7 @@ func TestGPUMemoryStrategy_Filter(t *testing.T) {
 			expectedErr: true,
 		},
 		{
-			name: "gpu memory does not exist, just allocate every device",
+			name: "gpu compute does not exist, just allocate every device",
 			ctx: &allocate.AllocationContext{
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
@@ -84,7 +84,7 @@ func TestGPUMemoryStrategy_Filter(t *testing.T) {
 			expectedFilteredDevices: []string{"gpu-0", "gpu-1", "gpu-2"},
 		},
 		{
-			name: "gpu memory is 0, so we use all the available devices",
+			name: "gpu compute is 0, so we use all the available devices",
 			ctx: &allocate.AllocationContext{
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
@@ -109,7 +109,7 @@ func TestGPUMemoryStrategy_Filter(t *testing.T) {
 			expectedFilteredDevices: []string{"gpu-0", "gpu-1", "gpu-2"},
 		},
 		{
-			name: "allocate available devices with available gpu memory",
+			name: "allocate available devices with available gpu compute",
 			ctx: &allocate.AllocationContext{
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
@@ -141,7 +141,7 @@ func TestGPUMemoryStrategy_Filter(t *testing.T) {
 			expectedFilteredDevices: []string{"gpu-0", "gpu-1", "gpu-2"},
 		},
 		{
-			name: "exclude devices with not enough gpu memory",
+			name: "exclude devices with not enough gpu compute",
 			ctx: &allocate.AllocationContext{
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
@@ -161,6 +161,7 @@ func TestGPUMemoryStrategy_Filter(t *testing.T) {
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
 					GPUMemoryAllocatablePerGPU: *resource.NewQuantity(2, resource.DecimalSI),
+					MilliGPUAllocatablePerGPU:  *resource.NewQuantity(1000, resource.DecimalSI),
 				},
 				MachineState: map[v1.ResourceName]state.AllocationMap{
 					consts.ResourceGPUMemory: {
@@ -201,13 +202,127 @@ func TestGPUMemoryStrategy_Filter(t *testing.T) {
 			availableDevices:        []string{"gpu-0", "gpu-1", "gpu-2", "gpu-3"},
 			expectedFilteredDevices: []string{"gpu-1", "gpu-2"},
 		},
+		{
+			name: "exclude devices with not enough milligpu",
+			ctx: &allocate.AllocationContext{
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-0": {},
+						"gpu-1": {},
+						"gpu-2": {},
+					},
+				},
+				ResourceReq: &v1alpha1.ResourceRequest{
+					ResourceRequests: map[string]float64{
+						string(consts.ResourceGPUMemory): 4,
+						string(consts.ResourceMilliGPU):  1000,
+					},
+				},
+				DeviceReq: &v1alpha1.DeviceRequest{
+					DeviceRequest: 2, // requires 2 memory and 500 milligpu per device
+				},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+					GPUMemoryAllocatablePerGPU: *resource.NewQuantity(8, resource.DecimalSI),
+					MilliGPUAllocatablePerGPU:  *resource.NewQuantity(1000, resource.DecimalSI),
+				},
+				MachineState: map[v1.ResourceName]state.AllocationMap{
+					consts.ResourceGPUMemory: {
+						"gpu-0": {},
+						"gpu-1": {},
+						"gpu-2": {},
+					},
+					consts.ResourceMilliGPU: {
+						// 600 milligpu allocated, only 400 left, which is < 500
+						"gpu-0": {
+							PodEntries: map[string]state.ContainerEntries{
+								"pod-0": {
+									"container-0": &state.AllocationInfo{
+										AllocatedAllocation: state.Allocation{
+											Quantity: 600,
+										},
+									},
+								},
+							},
+						},
+						"gpu-1": {},
+						"gpu-2": {},
+					},
+				},
+			},
+			availableDevices:        []string{"gpu-0", "gpu-1", "gpu-2"},
+			expectedFilteredDevices: []string{"gpu-1", "gpu-2"},
+		},
+		{
+			name: "exclude devices with not enough gpu compute and not enough milligpu",
+			ctx: &allocate.AllocationContext{
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-0": {},
+						"gpu-1": {},
+						"gpu-2": {},
+						"gpu-3": {},
+					},
+				},
+				ResourceReq: &v1alpha1.ResourceRequest{
+					ResourceRequests: map[string]float64{
+						string(consts.ResourceGPUMemory): 4,
+						string(consts.ResourceMilliGPU):  1000,
+					},
+				},
+				DeviceReq: &v1alpha1.DeviceRequest{
+					DeviceRequest: 2, // requires 2 memory and 500 milligpu per device
+				},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+					GPUMemoryAllocatablePerGPU: *resource.NewQuantity(8, resource.DecimalSI),
+					MilliGPUAllocatablePerGPU:  *resource.NewQuantity(1000, resource.DecimalSI),
+				},
+				MachineState: map[v1.ResourceName]state.AllocationMap{
+					consts.ResourceGPUMemory: {
+						// 7 GB allocated, only 1 GB left, which is < 2
+						"gpu-0": {
+							PodEntries: map[string]state.ContainerEntries{
+								"pod-0": {
+									"container-0": &state.AllocationInfo{
+										AllocatedAllocation: state.Allocation{
+											Quantity: 7,
+										},
+									},
+								},
+							},
+						},
+						"gpu-1": {},
+						"gpu-2": {},
+						"gpu-3": {},
+					},
+					consts.ResourceMilliGPU: {
+						"gpu-0": {},
+						"gpu-1": {
+							// 600 milligpu allocated, only 400 left, which is < 500
+							PodEntries: map[string]state.ContainerEntries{
+								"pod-0": {
+									"container-0": &state.AllocationInfo{
+										AllocatedAllocation: state.Allocation{
+											Quantity: 600,
+										},
+									},
+								},
+							},
+						},
+						"gpu-2": {},
+						"gpu-3": {},
+					},
+				},
+			},
+			availableDevices:        []string{"gpu-0", "gpu-1", "gpu-2", "gpu-3"},
+			expectedFilteredDevices: []string{"gpu-2", "gpu-3"},
+		},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			strategy := NewGPUMemoryStrategy()
+			strategy := NewGPUComputeStrategy()
 			filteredDevices, err := strategy.Filter(tt.ctx, tt.availableDevices)
 			if tt.expectedErr {
 				assert.Error(t, err)

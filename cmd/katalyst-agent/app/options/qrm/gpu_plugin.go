@@ -32,7 +32,6 @@ type GPUOptions struct {
 	SkipGPUStateCorruption        bool
 	RDMADeviceNames               []string
 	RequiredDeviceAffinity        bool
-	ExtraResources                []string
 	FractionalGPUPrefersSpreading bool
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
@@ -47,7 +46,6 @@ func NewGPUOptions() *GPUOptions {
 		RDMADeviceNames:               []string{},
 		GPUStrategyOptions:            gpustrategy.NewGPUStrategyOptions(),
 		RequiredDeviceAffinity:        true,
-		ExtraResources:                []string{},
 		FractionalGPUPrefersSpreading: false,
 	}
 }
@@ -67,7 +65,6 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.RDMADeviceNames, "rdma-resource-names", o.RDMADeviceNames, "The name of the RDMA resource")
 	fs.BoolVar(&o.RequiredDeviceAffinity, "gpu-required-device-affinity", o.RequiredDeviceAffinity,
 		"required device affinity, and when true it will cause pods to admit fail if unable to meet device affinity")
-	fs.StringSliceVar(&o.ExtraResources, "gpu-extra-resources", o.ExtraResources, "The name of the extra resources")
 	fs.BoolVar(&o.FractionalGPUPrefersSpreading, "fractional-gpu-prefers-spreading",
 		o.FractionalGPUPrefersSpreading, "whether fractional GPU prefers spreading across devices")
 	o.GPUStrategyOptions.AddFlags(fss)
@@ -89,7 +86,6 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.SkipGPUStateCorruption = o.SkipGPUStateCorruption
 	conf.RDMADeviceNames = o.RDMADeviceNames
 	conf.RequiredDeviceAffinity = o.RequiredDeviceAffinity
-	conf.ExtraResources = o.ExtraResources
 	conf.FractionalGPUPrefersSpreading = o.FractionalGPUPrefersSpreading
 	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
 		return err

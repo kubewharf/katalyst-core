@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpumemory
+package gpucompute
 
 import (
 	"context"
@@ -44,29 +44,33 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-type GPUMemPlugin struct {
+// TODO: change name
+type GPUComputePlugin struct {
 	sync.Mutex
 	*baseplugin.BasePlugin
 }
 
-// NewGPUMemPlugin creates and returns a new GPU memory resource plugin
-func NewGPUMemPlugin(base *baseplugin.BasePlugin) resourceplugin.ResourcePlugin {
+// NewGPUComputePlugin creates and returns a new GPU compute resource plugin
+func NewGPUComputePlugin(base *baseplugin.BasePlugin) resourceplugin.ResourcePlugin {
 	// string(consts.ResourceGPUMemory) is the key used for state management in the QRM framework,
 	// while GPUDeviceNames are the actual resource names used to fetch the device topologies.
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceGPUMemory),
 		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, float64(base.Conf.GPUMemoryAllocatablePerGPU.Value())))
-	return &GPUMemPlugin{
+	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceMilliGPU),
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, float64(base.Conf.MilliGPUAllocatablePerGPU.Value())))
+	return &GPUComputePlugin{
 		BasePlugin: base,
 	}
 }
 
 // ResourceName returns the name of the main resource this plugin manages
-func (p *GPUMemPlugin) ResourceName() string {
+// TODO: use config for main resource
+func (p *GPUComputePlugin) ResourceName() string {
 	return string(consts.ResourceGPUMemory)
 }
 
 // GetTopologyHints returns topology hints for a given resource request
-func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
+func (p *GPUComputePlugin) GetTopologyHints(ctx context.Context, req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, req, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -76,7 +80,12 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 	}
 
 	// Get all resource quantities from the request
-	_, floatQuantity, err := util.GetQuantityMapFromResourceReq(req)
+	pluginResources := p.getAllPluginResources()
+	allowedResources := sets.NewString()
+	for _, r := range pluginResources {
+		allowedResources.Insert(string(r))
+	}
+	_, floatQuantity, err := util.GetQuantityMapFromResourceReq(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("GetQuantityMapFromResourceReq failed with error: %v", err)
 	}
@@ -104,8 +113,6 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 	gpuState := p.GetState().GetMachineState()[gpuconsts.GPUDeviceType]
 	resourceMachineState := p.GetState().GetMachineState()
 
-	// Collect plugin's resources first
-	pluginResources := p.getAllPluginResources()
 	// Collect allocationInfo only for plugin's resources in the request
 	allocationInfoMap := make(map[v1.ResourceName]*state.AllocationInfo)
 	// Also, collect which of plugin's resources are requested
@@ -127,7 +134,7 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 		}
 
 		// Regenerate hints for all resources
-		hints, err = regenerateGPUMemoryHints(allocationInfoMap, false)
+		hints, err = regenerateGPUComputeHints(allocationInfoMap, false)
 		if err != nil {
 			return nil, err
 		}
@@ -140,17 +147,15 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 				if len(podEntries[req.PodUid]) == 0 {
 					delete(podEntries, req.PodUid)
 				}
-
-				var generateErr error
-				_, generateErr = p.GenerateResourceStateFromPodEntries(string(resName), podEntries)
-				if generateErr != nil {
-					general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed for resource %s with error: %v",
-						req.PodNamespace, req.PodName, req.ContainerName, resName, generateErr)
-					return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed for resource %s with error: %v", resName, generateErr)
-				}
 			}
+			podResourceEntries := p.GetState().GetPodResourceEntries()
 			// Refresh resourceMachineState after regenerating
-			resourceMachineState = p.GetState().GetMachineState()
+			resourceMachineState, err = p.GenerateMachineStateFromPodEntries(podResourceEntries)
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			}
 		}
 	}
 
@@ -177,19 +182,15 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 }
 
 // getGPUTopology returns the appropriate GPU device topology based on the requested device names
-func (p *GPUMemPlugin) getGPUTopology(gpuNames sets.String) (*machine.DeviceTopology, error) {
+func (p *GPUComputePlugin) getGPUTopology(gpuNames sets.String) (*machine.DeviceTopology, error) {
 	switch {
 	case gpuNames.Len() == 1:
 		deviceName := gpuNames.List()[0]
 		return p.DeviceTopologyRegistry.GetDeviceTopology(deviceName)
 	case gpuNames.Len() == 0 && len(p.Conf.GPUDeviceNames) > 0:
-		topologiesMap, err := p.DeviceTopologyRegistry.GetDeviceTopologies(p.Conf.GPUDeviceNames)
+		topology, err := p.DeviceTopologyRegistry.GetLatestDeviceTopology(p.Conf.GPUDeviceNames)
 		if err != nil {
 			return nil, err
-		}
-		topology := machine.PickLatestDeviceTopology(topologiesMap)
-		if topology == nil {
-			return nil, fmt.Errorf("no latest device topology available")
 		}
 		return topology, nil
 	default:
@@ -198,7 +199,7 @@ func (p *GPUMemPlugin) getGPUTopology(gpuNames sets.String) (*machine.DeviceTopo
 }
 
 // calculateHints calculates topology hints for the given resource request
-func (p *GPUMemPlugin) calculateHints(
+func (p *GPUComputePlugin) calculateHints(
 	resourceQuantities map[v1.ResourceName]float64, gpuReq float64, gpuNames sets.String,
 	resourceMachineState state.AllocationResourcesMap, gpuState state.AllocationMap,
 	req *pluginapi.ResourceRequest,
@@ -209,61 +210,29 @@ func (p *GPUMemPlugin) calculateHints(
 	}
 
 	// Check if milligpu is requested and handle gpuReq
-	if hasMilligpuRequest(req) && gpuReq != 0 {
-		return nil, fmt.Errorf("milligpu requested but gpuReq is not 0")
+	if hasMilligpuRequest(req) && gpuNames.Len() > 0 {
+		return nil, fmt.Errorf("milligpu requested but gpu device is also requested")
 	}
 
 	general.Infof("resourceQuantities: %v, gpuReq: %f", resourceQuantities, gpuReq)
 
-	spreading := p.Conf.FractionalGPUPrefersSpreading
-
 	numaToAvailableGPUCount := make(map[int]float64)
-	resourceToNumaToAllocatedGPUResource := make(map[v1.ResourceName]map[int]float64)
 	pluginResources := p.getAllPluginResources()
 
-	// Precompute requested plugin resources once instead of checking each time
-	requestedResNames := make([]v1.ResourceName, 0)
-	for _, resName := range pluginResources {
-		if _, requested := resourceQuantities[resName]; requested {
-			requestedResNames = append(requestedResNames, resName)
-		}
-	}
+	// Variables to track max allocation per resource and which GPU has that max
+	resourceToMaxAllocatedValue := make(map[v1.ResourceName]float64)
+	resourceToMaxAllocatedGPUID := make(map[v1.ResourceName]string)
+	// Also store GPU info and resAllocatedMap for quick look-up
+	gpuIDToInfo := make(map[string]machine.DeviceInfo)
+	gpuIDToResAllocatedMap := make(map[string]map[v1.ResourceName]float64)
 
-	// Collect all unique numa nodes and initialize resourceToNumaToAllocatedGPUResource
-	allNumaNodes := sets.NewInt()
-	for _, info := range gpuTopology.Devices {
-		if info.Health != deviceplugin.Healthy {
-			continue
-		}
-		for _, numaNode := range info.GetNUMANodes() {
-			allNumaNodes.Insert(numaNode)
-		}
-	}
-	for _, resName := range requestedResNames {
-		resourceToNumaToAllocatedGPUResource[resName] = make(map[int]float64)
-		for _, numaNode := range allNumaNodes.List() {
-			resourceToNumaToAllocatedGPUResource[resName][numaNode] = 0
-		}
-	}
-
-	// Single loop over GPUs to: sum allocations, check available GPUs
+	// Single loop over GPUs:
 	for gpuID, info := range gpuTopology.Devices {
 		if info.Health != deviceplugin.Healthy {
 			continue
 		}
 
-		// Step 1: sum allocations for each resource on this GPU's numa nodes
-		for _, resName := range requestedResNames {
-			var allocated float64
-			if resMachineState, ok := resourceMachineState[resName]; ok {
-				allocated = resMachineState[gpuID].GetQuantityAllocated()
-			}
-			for _, numaNode := range info.GetNUMANodes() {
-				resourceToNumaToAllocatedGPUResource[resName][numaNode] += allocated
-			}
-		}
-
-		// Step 2: check if this GPU is available
+		// Step 1: check if GPU is available (not already allocated)
 		gpuAllocated := gpuState[gpuID].GetQuantityAllocatedWithFilter(func(ai *state.AllocationInfo) bool {
 			return gpuNames.Has(ai.DeviceName)
 		})
@@ -271,19 +240,22 @@ func (p *GPUMemPlugin) calculateHints(
 			continue // skip already allocated
 		}
 
-		// Step 3: check if all requested resources fit on this GPU
+		// Store this GPU's info for later
+		gpuIDToInfo[gpuID] = info
+
+		// Step 2: check if all requested resources fit on this GPU
 		deviceFitsAllResources := true
-		for _, resName := range requestedResNames {
+		// Store the allocated values for each resource here so we don't look them up twice!
+		resAllocatedMap := make(map[v1.ResourceName]float64)
+		for resName := range resourceQuantities {
 			reqQuantity := resourceQuantities[resName]
 			allocatablePerGPU := p.getResourceAllocatableQuantity(string(resName))
 			if allocatablePerGPU.IsZero() {
 				deviceFitsAllResources = false
 				break
 			}
-			perGPUReqQuantity := reqQuantity
-			if gpuReq > 0 {
-				perGPUReqQuantity = reqQuantity / gpuReq
-			}
+
+			perGPUReqQuantity := reqQuantity / gpuReq
 			if perGPUReqQuantity > float64(allocatablePerGPU.Value()) {
 				return nil, fmt.Errorf("per GPU requested quantity %f for resource %s exceeds allocatable %d per GPU", perGPUReqQuantity, resName, allocatablePerGPU.Value())
 			}
@@ -291,18 +263,32 @@ func (p *GPUMemPlugin) calculateHints(
 			if resMachineState, ok := resourceMachineState[resName]; ok {
 				allocated = resMachineState[gpuID].GetQuantityAllocated()
 			}
+			resAllocatedMap[resName] = allocated
 			if allocated+perGPUReqQuantity > float64(allocatablePerGPU.Value()) {
 				deviceFitsAllResources = false
 				break
 			}
+
+			// Update max allocation tracking for this resource
+			if allocated > resourceToMaxAllocatedValue[resName] {
+				resourceToMaxAllocatedValue[resName] = allocated
+				resourceToMaxAllocatedGPUID[resName] = gpuID
+			}
 		}
 
+		// Store this GPU's resAllocatedMap for later
+		gpuIDToResAllocatedMap[gpuID] = resAllocatedMap
+
 		if deviceFitsAllResources {
+			// Update numaToAvailableGPUCount
 			for _, numaNode := range info.GetNUMANodes() {
 				numaToAvailableGPUCount[numaNode] += 1
 			}
 		}
 	}
+
+	// Find common numa node if all resources agree on the same GPU
+	commonNUMANode := findCommonNUMANode(resourceQuantities, resourceToMaxAllocatedGPUID, gpuIDToInfo)
 
 	numaNodes := make([]int, 0, p.MetaServer.NumNUMANodes)
 	for numaNode := range p.MetaServer.NUMAToCPUs {
@@ -359,16 +345,16 @@ func (p *GPUMemPlugin) calculateHints(
 		})
 	})
 
-	// prefer numa nodes with appropriate allocated gpu resources
-	p.preferGPUAllocatedHints(availableNumaHints, resourceToNumaToAllocatedGPUResource, spreading)
+	// Prefer hints that include common numa node if all resources agree on it
+	preferCommonNUMANode(availableNumaHints, commonNUMANode)
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,
 	//       we return an error instead of an empty array.
 	//       we should resolve this issue if we need to manage multi-resource in one plugin.
 	if len(availableNumaHints) == 0 {
-		general.Warningf("got no available gpu memory hints for pod: %s/%s, container: %s",
+		general.Warningf("got no available gpu compute hints for pod: %s/%s, container: %s",
 			req.PodNamespace, req.PodName, req.ContainerName)
-		return nil, gpuutil.ErrNoAvailableGPUMemoryHints
+		return nil, gpuutil.ErrNoAvailableGPUComputeHints
 	}
 
 	// Create hints map with all requested resources that are plugin's resources
@@ -384,86 +370,62 @@ func (p *GPUMemPlugin) calculateHints(
 	return hints, nil
 }
 
-// preferGPUAllocatedHints updates the preferred topology hints to prefer hints that include numa nodes
-// that are the most (for packing) or least (for spreading) allocated across all resources. If all resources
-// agree on a single best numa node, only hints including that node are marked as preferred; otherwise, no
-// changes are made to hint preferences.
-func (p *GPUMemPlugin) preferGPUAllocatedHints(
-	hints []*pluginapi.TopologyHint, resourceToNumaToAllocatedGPUResource map[v1.ResourceName]map[int]float64, spreading bool,
-) {
-	if len(hints) == 0 {
-		return
+// findCommonNUMANode checks if all requested resources agree on the same GPU, and if so returns the numa node of that GPU.
+func findCommonNUMANode(resourceQuantities map[v1.ResourceName]float64, resourceToMaxAllocatedGPUID map[v1.ResourceName]string, gpuIDToInfo map[string]machine.DeviceInfo) *int {
+	if len(resourceQuantities) == 0 {
+		return nil
 	}
 
-	hasAllocations := false
-outer:
-	for _, numaToAllocated := range resourceToNumaToAllocatedGPUResource {
-		for _, allocated := range numaToAllocated {
-			if allocated > 0 {
-				hasAllocations = true
-				break outer
-			}
-		}
-	}
-	if !hasAllocations {
-		return
-	}
-
-	resourceToBestNuma := make(map[v1.ResourceName]int)
-	for resName, numaToAllocated := range resourceToNumaToAllocatedGPUResource {
-		if len(numaToAllocated) == 0 {
-			continue
-		}
-
-		// Get first numa node as initial best
-		var bestNuma int
-		var bestValue float64
-		for numa, allocated := range numaToAllocated {
-			bestNuma = numa
-			bestValue = allocated
-			break
-		}
-
-		// Iterate rest of numa nodes to find best
-		for numa, allocated := range numaToAllocated {
-			if spreading {
-				if allocated < bestValue {
-					bestNuma = numa
-					bestValue = allocated
-				}
-			} else {
-				if allocated > bestValue {
-					bestNuma = numa
-					bestValue = allocated
-				}
-			}
-		}
-
-		resourceToBestNuma[resName] = bestNuma
-	}
-
-	if len(resourceToBestNuma) == 0 {
-		return
-	}
-
-	// Check if all resources have the same best numa node
-	var commonBestNuma int
-	for _, numa := range resourceToBestNuma {
-		commonBestNuma = numa
+	var firstResName v1.ResourceName
+	for resName := range resourceQuantities {
+		firstResName = resName
 		break
 	}
+	commonGPUID := resourceToMaxAllocatedGPUID[firstResName]
+	if commonGPUID == "" {
+		return nil
+	}
 
-	for _, numa := range resourceToBestNuma {
-		if numa != commonBestNuma {
-			return
+	hasCommonGPU := true
+	for resName := range resourceQuantities {
+		if resName == firstResName {
+			continue
+		}
+		if resourceToMaxAllocatedGPUID[resName] != commonGPUID {
+			hasCommonGPU = false
+			break
 		}
 	}
 
-	// All resources agree on the same best numa node
+	if hasCommonGPU {
+		if commonGPUInfo, exists := gpuIDToInfo[commonGPUID]; exists {
+			numaNodes := commonGPUInfo.GetNUMANodes()
+			if len(numaNodes) > 0 {
+				node := numaNodes[0]
+				return &node
+			}
+		}
+	}
+
+	return nil
+}
+
+// preferCommonNUMANode updates the preferred topology hints to prefer hints that include the common numa node.
+// If there is a common numa node, first marks all hints as NOT preferred, then only hints including that node are marked as preferred; otherwise, no changes are made.
+func preferCommonNUMANode(hints []*pluginapi.TopologyHint, commonNUMANode *int) {
+	if commonNUMANode == nil || len(hints) == 0 {
+		return
+	}
+
+	// Step 1: first mark all hints' Preferred as false
 	for _, hint := range hints {
 		hint.Preferred = false
-		for _, nodeID := range hint.Nodes {
-			if int(nodeID) == commonBestNuma {
+	}
+
+	// Step 2: then, set Preferred to true only for those hints that include commonNUMANode
+	for _, hint := range hints {
+		for _, node := range hint.Nodes {
+			if int(node) == *commonNUMANode {
 				hint.Preferred = true
 				break
 			}
@@ -505,7 +467,7 @@ func generateTopologyAwareQuantities(deviceID string, numaNodes []int, quantity 
 }
 
 // GetTopologyAwareResources returns topology-aware resources for a given pod/container
-func (p *GPUMemPlugin) GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (map[string]*pluginapi.GetTopologyAwareResourcesResponse, error) {
+func (p *GPUComputePlugin) GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (map[string]*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
 
 	// Get all resources: main + extra
@@ -561,7 +523,7 @@ func (p *GPUMemPlugin) GetTopologyAwareResources(ctx context.Context, podUID, co
 }
 
 // getResourceAllocatableQuantity returns the allocatable quantity for a given resource name
-func (p *GPUMemPlugin) getResourceAllocatableQuantity(resourceName string) resource.Quantity {
+func (p *GPUComputePlugin) getResourceAllocatableQuantity(resourceName string) resource.Quantity {
 	switch resourceName {
 	case string(consts.ResourceGPUMemory):
 		return p.Conf.GPUMemoryAllocatablePerGPU
@@ -573,7 +535,7 @@ func (p *GPUMemPlugin) getResourceAllocatableQuantity(resourceName string) resou
 }
 
 // GetTopologyAwareAllocatableResources returns topology-aware allocatable resources
-func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources(ctx context.Context) (map[string]*pluginapi.AllocatableTopologyAwareResource, error) {
+func (p *GPUComputePlugin) GetTopologyAwareAllocatableResources(ctx context.Context) (map[string]*pluginapi.AllocatableTopologyAwareResource, error) {
 	general.InfofV(4, "called")
 
 	p.Lock()
@@ -625,12 +587,13 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources(ctx context.Context)
 	return allocatableResources, nil
 }
 
-func (p *GPUMemPlugin) GetExtraResources() []string {
+// TODO: make sure extra resource dont include main resource
+func (p *GPUComputePlugin) GetExtraResources() []string {
 	return []string{string(consts.ResourceMilliGPU)}
 }
 
 // getAllPluginResources returns all resources managed by this plugin
-func (p *GPUMemPlugin) getAllPluginResources() []v1.ResourceName {
+func (p *GPUComputePlugin) getAllPluginResources() []v1.ResourceName {
 	resources := []v1.ResourceName{v1.ResourceName(p.ResourceName())}
 	for _, extra := range p.GetExtraResources() {
 		resources = append(resources, v1.ResourceName(extra))
@@ -644,24 +607,13 @@ func hasMilligpuRequest(resourceReq *pluginapi.ResourceRequest) bool {
 	return exists
 }
 
-// RegisterExtraResourceStateGenerator registers a state generator for the given extra resource
-func (p *GPUMemPlugin) RegisterExtraResourceStateGenerator(extraResource string) error {
-	// Only register extra resources that this plugin handles
-	if extraResource == string(consts.ResourceMilliGPU) {
-		p.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(extraResource,
-			state.NewGenericDefaultResourceStateGenerator(p.Conf.GPUDeviceNames, p.DeviceTopologyRegistry, float64(p.Conf.MilliGPUAllocatablePerGPU.Value())))
-		return nil
-	}
-	return fmt.Errorf("extra resource %s not supported by %s plugin", extraResource, p.ResourceName())
-}
-
-// Allocate allocates GPU memory resources to a container based on the given request
-func (p *GPUMemPlugin) Allocate(
+// Allocate allocates GPU compute resources to a container based on the given request
+func (p *GPUComputePlugin) Allocate(
 	ctx context.Context, resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	quantity, exists := resourceReq.ResourceRequests[p.ResourceName()]
 	if !exists || quantity == 0 {
-		general.InfoS("No GPU memory annotation detected and no GPU memory requested, returning empty response",
+		general.InfoS("No GPU compute annotation detected and no GPU compute requested, returning empty response",
 			"podNamespace", resourceReq.PodNamespace,
 			"podName", resourceReq.PodName,
 			"containerName", resourceReq.ContainerName)
@@ -676,9 +628,13 @@ func (p *GPUMemPlugin) Allocate(
 		return nil, err
 	}
 
-	_, gpuMemory, err := util.GetQuantityFromResourceRequests(resourceReq.ResourceRequests, p.ResourceName(), nil)
+	allowedResources := sets.NewString()
+	for _, r := range p.getAllPluginResources() {
+		allowedResources.Insert(string(r))
+	}
+	_, resourceQuantities, err := util.GetQuantityMapFromResourceReq(resourceReq, allowedResources)
 	if err != nil {
-		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+		return nil, fmt.Errorf("getQuantityMapFromResourceReq failed with error: %v", err)
 	}
 
 	general.InfoS("called",
@@ -687,7 +643,7 @@ func (p *GPUMemPlugin) Allocate(
 		"containerName", resourceReq.ContainerName,
 		"qosLevel", qosLevel,
 		"reqAnnotations", resourceReq.Annotations,
-		"gpuMemory", gpuMemory,
+		"resourceQuantities", resourceQuantities,
 		"deviceReq", deviceReq.String())
 
 	p.Lock()
@@ -729,6 +685,11 @@ func (p *GPUMemPlugin) Allocate(
 		return resp, nil
 	}
 
+	// Check if we have both device request and milligpu request
+	if hasMilligpuRequest(resourceReq) && deviceReq != nil {
+		return nil, fmt.Errorf("milligpu requested together with GPU device request")
+	}
+
 	if deviceReq == nil {
 		if !hasMilligpuRequest(resourceReq) {
 			general.InfoS("Nil device request, returning empty response",
@@ -738,37 +699,42 @@ func (p *GPUMemPlugin) Allocate(
 			// if deviceReq is nil and no milligpu requested, return empty response to re-allocate after device allocation
 			return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
 		}
-		// deviceReq is nil but we have milligpu requested, use allocateWithoutGPUDevices
-		return p.allocateWithoutGPUDevices(ctx, resourceReq, gpuMemory, qosLevel)
-	}
-
-	// Check if we have both device request and milligpu request
-	if hasMilligpuRequest(resourceReq) {
-		return nil, fmt.Errorf("milligpu requested together with GPU device request")
+		// deviceReq is nil but we have milligpu requested, generate our own device request
+		generatedDeviceReq, err := p.generateDeviceRequestForMilliGPU(resourceReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate device request for milligpu: %w", err)
+		}
+		deviceReq = generatedDeviceReq
 	}
 
 	general.Infof("deviceReq: %v", deviceReq.String())
 
-	// Use allocateWithGPUDevices for when we have deviceReq
-	return p.allocateWithGPUDevices(ctx, resourceReq, deviceReq, gpuMemory, qosLevel)
+	// Use allocate for when we have deviceReq
+	return p.allocate(ctx, resourceReq, deviceReq, resourceQuantities, qosLevel)
 }
 
-// allocateWithGPUDevices allocates GPU memory resources when physical GPU devices are requested
-func (p *GPUMemPlugin) allocateWithGPUDevices(
+// allocate allocates GPU compute resources when physical GPU devices are requested
+func (p *GPUComputePlugin) allocate(
 	ctx context.Context,
 	resourceReq *pluginapi.ResourceRequest,
 	deviceReq *pluginapi.DeviceRequest,
-	gpuMemory float64,
+	resourceQuantities map[v1.ResourceName]float64,
 	qosLevel string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
-	// Get GPU topology using the specific device resource name
-	gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(deviceReq.DeviceName)
+	// Get GPU topology using the specific device resource name if present, else fallback to latest topology of allowed devices
+	var gpuTopology *machine.DeviceTopology
+	var err error
+	if deviceReq.DeviceName != "" {
+		gpuTopology, err = p.DeviceTopologyRegistry.GetDeviceTopology(deviceReq.DeviceName)
+	} else {
+		gpuTopology, err = p.DeviceTopologyRegistry.GetLatestDeviceTopology(p.Conf.GPUDeviceNames)
+	}
 	if err != nil {
 		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, fmt.Errorf("failed to get gpu topology: %v", err)
 	}
 
-	// Use the strategy framework to allocate GPU memory
+	// Use the strategy framework to allocate GPU compute
 	result, err := manager.AllocateGPUUsingStrategy(
 		resourceReq,
 		deviceReq,
@@ -794,234 +760,104 @@ func (p *GPUMemPlugin) allocateWithGPUDevices(
 		return nil, fmt.Errorf("failed to get hint nodes: %w", err)
 	}
 
-	newAllocation := &state.AllocationInfo{
-		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resourceReq, commonstate.EmptyOwnerPoolName, qosLevel),
-		AllocatedAllocation: state.Allocation{
-			Quantity:  gpuMemory,
-			NUMANodes: hintNodes.ToSliceInt(),
-		},
-		TopologyAwareAllocations: make(map[string]state.Allocation),
-	}
-
-	gpuMemoryPerGPU := gpuMemory / float64(deviceReq.DeviceRequest)
-	for _, deviceID := range result.AllocatedDevices {
-		info, ok := gpuTopology.Devices[deviceID]
-		if !ok {
-			return nil, fmt.Errorf("failed to get gpu info for device: %s", deviceID)
-		}
-
-		newAllocation.TopologyAwareAllocations[deviceID] = state.Allocation{
-			Quantity:  gpuMemoryPerGPU,
-			NUMANodes: info.NumaNodes,
-		}
-	}
-
-	// Set allocation info in state
-	p.GetState().SetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName, newAllocation, false)
-
-	machineState, stateErr := p.GenerateResourceStateFromPodEntries(string(consts.ResourceGPUMemory), nil)
-	if stateErr != nil {
-		general.ErrorS(stateErr, "GenerateResourceStateFromPodEntries failed",
-			"podNamespace", resourceReq.PodNamespace,
-			"podName", resourceReq.PodName,
-			"containerName", resourceReq.ContainerName,
-			"gpuMemory", gpuMemory)
-		return nil, fmt.Errorf("GenerateResourceStateFromPodEntries failed with error: %v", stateErr)
-	}
-
-	// update state cache
-	p.GetState().SetResourceState(consts.ResourceGPUMemory, machineState, true)
-
-	allocationInfoMap := map[string]*state.AllocationInfo{
-		p.ResourceName(): newAllocation,
-	}
-	return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName())
-}
-
-// allocateWithoutGPUDevices allocates GPU memory resources without a physical GPU device request (TODO)
-func (p *GPUMemPlugin) allocateWithoutGPUDevices(
-	ctx context.Context,
-	resourceReq *pluginapi.ResourceRequest,
-	gpuMemory float64,
-	qosLevel string,
-) (*pluginapi.ResourceAllocationResponse, error) {
-	// Step 1: Extract required info
-	pluginResources := p.getAllPluginResources()
-	_, resourceQuantities, err := util.GetQuantityMapFromResourceReq(resourceReq)
-	if err != nil {
-		return nil, err
-	}
-
-	_, gpuNames, err := gpuutil.GetGPUCount(resourceReq, p.Conf.GPUDeviceNames)
-	if err != nil {
-		return nil, err
-	}
-
-	requestedResNames := make([]v1.ResourceName, 0)
-	for _, resName := range pluginResources {
-		if _, ok := resourceQuantities[resName]; ok {
-			requestedResNames = append(requestedResNames, resName)
-		}
-	}
-
-	resourceMachineState := p.GetState().GetMachineState()
-	gpuTopology, err := p.getGPUTopology(gpuNames)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Iterate over each GPU to check health, allocation, and resource fit
-	// Create resource-to-unallocated-to-GPUs map
-	resourceToUnallocatedToGPUs := make(map[v1.ResourceName]map[float64][]string)
-	for _, resName := range requestedResNames {
-		resourceToUnallocatedToGPUs[resName] = make(map[float64][]string)
-	}
-
-	for gpuID, info := range gpuTopology.Devices {
-		if info.Health != deviceplugin.Healthy {
-			continue
-		}
-
-		// Check if the whole GPU is already allocated
-		gpuState := resourceMachineState[v1.ResourceName(p.ResourceName())]
-		gpuAllocated := gpuState[gpuID].GetQuantityAllocatedWithFilter(func(ai *state.AllocationInfo) bool {
-			return gpuNames.Has(ai.DeviceName)
-		})
-		if gpuAllocated > 0 {
-			continue
-		}
-
-		// Check if all requested resources fit
-		deviceFitsAllResources := true
-		resUnallocatedMap := make(map[v1.ResourceName]float64)
-		for _, resName := range requestedResNames {
-			reqQuantity := resourceQuantities[resName]
-			allocatablePerGPU := p.getResourceAllocatableQuantity(string(resName))
-			if allocatablePerGPU.IsZero() {
-				deviceFitsAllResources = false
-				break
-			}
-			perGPUReqQuantity := reqQuantity
-			if perGPUReqQuantity > float64(allocatablePerGPU.Value()) {
-				return nil, fmt.Errorf("per GPU requested quantity %f for resource %s exceeds allocatable %d per GPU", perGPUReqQuantity, resName, allocatablePerGPU.Value())
-			}
-			var allocated float64
-			if resMachineState, ok := resourceMachineState[resName]; ok {
-				allocated = resMachineState[gpuID].GetQuantityAllocated()
-			}
-			if allocated+perGPUReqQuantity > float64(allocatablePerGPU.Value()) {
-				deviceFitsAllResources = false
-				break
-			}
-			allocatableQuantity := p.getResourceAllocatableQuantity(string(resName))
-			unallocated := float64(allocatableQuantity.Value()) - allocated
-			resUnallocatedMap[resName] = unallocated
-		}
-
-		if deviceFitsAllResources {
-			// Populate resourceToUnallocatedToGPUs map
-			for _, resName := range requestedResNames {
-				unallocated := resUnallocatedMap[resName]
-				resourceToUnallocatedToGPUs[resName][unallocated] = append(resourceToUnallocatedToGPUs[resName][unallocated], gpuID)
-			}
-		}
-	}
-
-	// Step 4: Implement allocation logic
-	spreading := p.Conf.FractionalGPUPrefersSpreading
-
-	// Get best GPU IDs for each resource based on spreading policy
-	resourceToBestGPUs := make(map[v1.ResourceName][]string)
-	for resName, unallocatedToGPUs := range resourceToUnallocatedToGPUs {
-		if len(unallocatedToGPUs) == 0 {
-			continue
-		}
-
-		// Collect all unallocated quantities and sort them
-		unallocatedQuantities := make([]float64, 0, len(unallocatedToGPUs))
-		for unallocated := range unallocatedToGPUs {
-			unallocatedQuantities = append(unallocatedQuantities, unallocated)
-		}
-
-		// Sort based on spreading policy
-		if spreading {
-			// Spreading: sort descending to get most unallocated
-			sort.Sort(sort.Reverse(sort.Float64Slice(unallocatedQuantities)))
-		} else {
-			// Packing: sort ascending to get least unallocated
-			sort.Float64s(unallocatedQuantities)
-		}
-
-		// Get best GPU IDs (first entry after sorting)
-		if len(unallocatedQuantities) > 0 {
-			bestUnallocated := unallocatedQuantities[0]
-			resourceToBestGPUs[resName] = unallocatedToGPUs[bestUnallocated]
-		}
-	}
-
-	selectedGPUID := findBestCommonGPU(resourceToBestGPUs)
-
-	// If no GPU ID selected, return empty response
-	if selectedGPUID == "" {
-		general.InfoS("allocateWithoutGPUDevices: No suitable GPU found, returning empty response")
-		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
-	}
-
-	// Get GPU info for selected GPU
-	gpuInfo, ok := gpuTopology.Devices[selectedGPUID]
-	if !ok {
-		general.Errorf("allocateWithoutGPUDevices: Selected GPU %s not found in topology", selectedGPUID)
-		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
-	}
-
-	// Update state for each requested resource
 	allocationInfoMap := make(map[string]*state.AllocationInfo)
-	for _, resName := range requestedResNames {
-		// Create a separate allocation for each resource with the correct quantity
-		resourceAllocation := &state.AllocationInfo{
+
+	for resName, quantity := range resourceQuantities {
+		newAllocation := &state.AllocationInfo{
 			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resourceReq, commonstate.EmptyOwnerPoolName, qosLevel),
 			AllocatedAllocation: state.Allocation{
-				Quantity:  resourceQuantities[resName],
-				NUMANodes: gpuInfo.NumaNodes,
+				Quantity:  quantity,
+				NUMANodes: hintNodes.ToSliceInt(),
 			},
-			TopologyAwareAllocations: map[string]state.Allocation{
-				selectedGPUID: {
-					Quantity:  resourceQuantities[resName],
-					NUMANodes: gpuInfo.NumaNodes,
-				},
-			},
+			TopologyAwareAllocations: make(map[string]state.Allocation),
 		}
-		p.GetState().SetAllocationInfo(resName, resourceReq.PodUid, resourceReq.ContainerName, resourceAllocation, false)
-		allocationInfoMap[string(resName)] = resourceAllocation
 
-		// Generate and update resource state for each requested resource
+		resQuantityPerGPU := quantity / float64(deviceReq.DeviceRequest)
+		for _, deviceID := range result.AllocatedDevices {
+			info, ok := gpuTopology.Devices[deviceID]
+			if !ok {
+				return nil, fmt.Errorf("failed to get gpu info for device: %s", deviceID)
+			}
+
+			newAllocation.TopologyAwareAllocations[deviceID] = state.Allocation{
+				Quantity:  resQuantityPerGPU,
+				NUMANodes: info.NumaNodes,
+			}
+		}
+
+		// Set allocation info in state
+		p.GetState().SetAllocationInfo(resName, resourceReq.PodUid, resourceReq.ContainerName, newAllocation, false)
+
 		machineState, stateErr := p.GenerateResourceStateFromPodEntries(string(resName), nil)
 		if stateErr != nil {
 			general.ErrorS(stateErr, "GenerateResourceStateFromPodEntries failed",
 				"podNamespace", resourceReq.PodNamespace,
 				"podName", resourceReq.PodName,
 				"containerName", resourceReq.ContainerName,
-				"resource", resName)
-			// Continue even if one resource fails to generate state
-			continue
+				"resourceQuantity", quantity)
+			return nil, fmt.Errorf("GenerateResourceStateFromPodEntries failed with error: %v", stateErr)
 		}
 
-		// Update state cache
+		// update state cache
 		p.GetState().SetResourceState(resName, machineState, true)
+		allocationInfoMap[string(resName)] = newAllocation
 	}
-
-	general.InfoS("allocateWithoutGPUDevices: Allocation successful",
-		"selectedGPU", selectedGPUID,
-		"podName", resourceReq.PodName,
-		"containerName", resourceReq.ContainerName)
 
 	return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName())
 }
 
-// regenerateGPUMemoryHints regenerates hints for container that'd already been allocated resources,
+func (p *GPUComputePlugin) generateDeviceRequestForMilliGPU(resourceReq *pluginapi.ResourceRequest) (*pluginapi.DeviceRequest, error) {
+	// Get topology to find all available healthy devices
+	gpuTopology, err := p.getGPUTopology(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gpu topology: %w", err)
+	}
+
+	var allHealthyDevices []string
+	for deviceID, info := range gpuTopology.Devices {
+		if info.Health == deviceplugin.Healthy {
+			allHealthyDevices = append(allHealthyDevices, deviceID)
+		}
+	}
+
+	// Create a preliminary DeviceRequest
+	deviceReq := &pluginapi.DeviceRequest{
+		DeviceRequest:    1,
+		Hint:             resourceReq.GetHint(),
+		AvailableDevices: allHealthyDevices,
+	}
+
+	// Filter out occupied devices from AvailableDevices
+	allocationResourcesMap := p.GetState().GetMachineState()
+	filteredDevices := make([]string, 0, len(deviceReq.AvailableDevices))
+	for _, deviceID := range deviceReq.AvailableDevices {
+		deviceOccupied := false
+		for resourceName, allocationMap := range allocationResourcesMap {
+			// Only check gpu_device resource
+			if string(resourceName) != gpuconsts.GPUDeviceType {
+				continue
+			}
+			if allocationState, exists := allocationMap[deviceID]; exists {
+				if len(allocationState.PodEntries) > 0 {
+					deviceOccupied = true
+					break
+				}
+			}
+		}
+		if !deviceOccupied {
+			filteredDevices = append(filteredDevices, deviceID)
+		}
+	}
+	deviceReq.AvailableDevices = filteredDevices
+
+	return deviceReq, nil
+}
+
+// regenerateGPUComputeHints regenerates hints for container that'd already been allocated resources,
 // and regenerateHints will assemble hints based on already-existed AllocationInfo for each resource,
 // without any calculation logics at all
-func regenerateGPUMemoryHints(
+// TODO: change name
+func regenerateGPUComputeHints(
 	allocationInfoMap map[v1.ResourceName]*state.AllocationInfo, regenerate bool,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	if len(allocationInfoMap) == 0 {
@@ -1073,47 +909,4 @@ func regenerateGPUMemoryHints(
 	}
 
 	return hints, nil
-}
-
-// findBestCommonGPU selects a single GPU ID that is common to all resources' best GPU lists.
-// If no common GPU exists, it picks the first GPU from the first resource's best list.
-// Returns empty string if no best GPUs are available for any resource.
-//
-// Parameters:
-//   - resourceToBestGPUs: map from resource name to a slice of best GPU IDs for that resource.
-//     The best GPU IDs are sorted in order of preference for the given resource.
-//
-// Returns:
-//   - selectedGPUID: the best GPU ID to use for allocation, or empty string if no suitable GPU found.
-func findBestCommonGPU(resourceToBestGPUs map[v1.ResourceName][]string) string {
-	if len(resourceToBestGPUs) == 0 {
-		return ""
-	}
-
-	// Extract the first resource's best GPUs as the starting candidate set
-	var firstResourceGPUs []string
-	for _, gpus := range resourceToBestGPUs {
-		firstResourceGPUs = gpus
-		break
-	}
-	if len(firstResourceGPUs) == 0 {
-		return ""
-	}
-
-	// Find the intersection of all resources' best GPU lists
-	gpuSet := sets.NewString(firstResourceGPUs...)
-	for _, gpus := range resourceToBestGPUs {
-		gpuSet = gpuSet.Intersection(sets.NewString(gpus...))
-		if gpuSet.Len() == 0 {
-			break
-		}
-	}
-
-	// If there's a common GPU, pick the first one (since lists are sorted by preference)
-	if gpuSet.Len() > 0 {
-		return gpuSet.List()[0]
-	}
-
-	// No common GPU found; fall back to the first GPU from the first resource's list
-	return firstResourceGPUs[0]
 }

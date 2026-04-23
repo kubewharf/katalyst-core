@@ -25,12 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var ErrNoAvailableGPUMemoryHints = pkgerrors.New("no available gpu memory hints")
+var ErrNoAvailableGPUComputeHints = pkgerrors.New("no available gpu compute hints")
 
 func GetNUMANodesCountToFitGPUReq(
 	gpuReq float64, cpuTopology *machine.CPUTopology, gpuTopology *machine.DeviceTopology,
@@ -90,6 +91,15 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 
 		gpuCount += request
 		gpuNames.Insert(resourceName)
+	}
+
+	if gpuCount == 0 {
+		// Check if there is a milligpu request
+		if _, hasMilligpu := req.ResourceRequests[string(consts.ResourceMilliGPU)]; hasMilligpu {
+			return 1, nil, nil
+		}
+
+		return 0, gpuNames, fmt.Errorf("no available GPU count")
 	}
 
 	return gpuCount, gpuNames, nil

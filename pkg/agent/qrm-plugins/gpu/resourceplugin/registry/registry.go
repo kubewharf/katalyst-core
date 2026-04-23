@@ -20,7 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/gpumemory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/gpucompute"
 )
 
 type InitFunc func(plugin *baseplugin.BasePlugin) resourceplugin.ResourcePlugin
@@ -36,5 +36,5 @@ func GetRegisteredResourcePlugin() map[string]InitFunc {
 }
 
 func init() {
-	RegisterResourcePlugin(gpuconsts.GPUMemPluginName, gpumemory.NewGPUMemPlugin)
+	RegisterResourcePlugin(gpuconsts.GPUMemPluginName, gpucompute.NewGPUComputePlugin)
 }

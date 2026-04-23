@@ -85,8 +85,3 @@ func (r ResourcePluginStub) Allocate(_ context.Context, resourceReq *pluginapi.R
 func (r ResourcePluginStub) GetExtraResources() []string {
 	return []string{}
 }
-
-func (r ResourcePluginStub) RegisterExtraResourceStateGenerator(extraResource string) error {
-	// Stub implementation
-	return nil
-}

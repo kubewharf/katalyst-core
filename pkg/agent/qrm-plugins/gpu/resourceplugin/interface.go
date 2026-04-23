@@ -37,6 +37,4 @@ type ResourcePlugin interface {
 	) (*pluginapi.ResourceAllocationResponse, error)
 
 	GetExtraResources() []string
-
-	RegisterExtraResourceStateGenerator(extraResource string) error
 }

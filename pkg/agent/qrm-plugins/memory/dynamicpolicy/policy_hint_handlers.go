@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper"
 
@@ -139,7 +140,9 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 			})
 	}
 
-	requestedResources, _, err := util.GetPodAggregatedRequestResourceMap(req)
+	allowedResources := sets.NewString(p.ResourceName())
+	allowedResources.Insert(p.extraResourceNames...)
+	requestedResources, _, err := util.GetPodAggregatedRequestResourceMap(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("get pod aggregated request map failed with error %v", err)
 	}
