@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -90,10 +91,15 @@ func (m *managerImpl) UpdateCPUBurst(conf *config.Configuration, dynamicConfig *
 			continue
 		}
 
+		var mainContainerName string
+		if conf.EnableCPUBurstForMainContainerOnly {
+			mainContainerName = qrmutil.GetMainContainer(pod, conf.MainContainerAnnotationKey)
+		}
+
 		switch cpuBurstPolicy {
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed:
 			// For closed policy, we just set the cpu burst value to be 0.
-			if err = m.updateCPUBurstByPercent(0, pod); err != nil {
+			if err = m.updateCPUBurstByPercent(0, pod, mainContainerName); err != nil {
 				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
 					consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed, pod.Name, err))
 			}
@@ -107,7 +113,7 @@ func (m *managerImpl) UpdateCPUBurst(conf *config.Configuration, dynamicConfig *
 				continue
 			}
 
-			if err = m.updateCPUBurstByPercent(cpuBurstPercent, pod); err != nil {
+			if err = m.updateCPUBurstByPercent(cpuBurstPercent, pod, mainContainerName); err != nil {
 				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
 					consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic, pod.Name, err))
 			}
@@ -123,13 +129,20 @@ func (m *managerImpl) UpdateCPUBurst(conf *config.Configuration, dynamicConfig *
 
 // updateCPUBurstByPercent updates the value of cpu burst for static policy by taking the
 // cpu quota from cgroup and calculating the cpu burst value by taking cpu quota * percent / 100.
-func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod) error {
+// If the main container name is not empty, we update the cpu burst only for that container,
+// otherwise we update the cpu burst for all containers.
+func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod, mainContainerName string) error {
 	var errList []error
 	podUID := string(pod.GetUID())
 	podName := pod.Name
 
 	for _, container := range pod.Spec.Containers {
 		containerName := container.Name
+		// skip updating the container if the container is not the main container
+		if mainContainerName != "" && containerName != mainContainerName {
+			continue
+		}
+
 		containerID, err := m.metaServer.GetContainerID(podUID, containerName)
 		if err != nil {
 			general.Errorf("get container id failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
