@@ -40,8 +40,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic"
 	networkreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/reactor"
+	networkvalidator "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconfig "github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -109,7 +111,8 @@ type StaticPolicy struct {
 
 	lowPriorityGroups map[string]*qrmgeneral.NetworkGroup
 
-	nicAllocationReactor reactor.AllocationReactor
+	nicAllocationReactor   reactor.AllocationReactor
+	nicAnnotationValidator validator.AnnotationValidator
 
 	nicManager nic.NICManager
 
@@ -186,6 +189,11 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 				agentCtx.MetaServer.PodFetcher,
 				agentCtx.Client.KubeClient,
 			))
+	}
+
+	policyImplement.nicAnnotationValidator = validator.DummyAnnotationValidator{}
+	if conf.EnableNICAnnotationValidator {
+		policyImplement.nicAnnotationValidator = networkvalidator.NewNICAnnotationValidator(conf)
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
@@ -666,6 +674,23 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	if req == nil {
 		return nil, fmt.Errorf("Allocate got nil req")
+	}
+
+	valid, err := p.nicAnnotationValidator.ValidatePodAnnotation(ctx, req.Annotations)
+	if !valid || err != nil {
+		general.Warningf("pod annotations verification failed: %v", err)
+
+		metricTags := []metrics.MetricTag{
+			{Key: "pod_uid", Val: req.PodUid},
+			{Key: "pod_namespace", Val: req.PodNamespace},
+			{Key: "pod_name", Val: req.PodName},
+			{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
+		}
+		p.emitter.StoreInt64(util.MetricNamePodAnnotationVerificationFailed, 1, metrics.MetricTypeNameRaw, metricTags...)
+
+		if !p.qrmConfig.NICAnnotationValidatorDryRun {
+			return nil, fmt.Errorf("pod annotations verification failed: %v", err)
+		}
 	}
 
 	existReallocAnno, isReallocation := util.IsReallocation(req.Annotations)
