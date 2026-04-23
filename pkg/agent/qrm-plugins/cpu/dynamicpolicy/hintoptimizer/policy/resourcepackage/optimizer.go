@@ -19,7 +19,6 @@ package resourcepackage
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -45,9 +44,6 @@ type resourcePackageHintOptimizer struct {
 	rpm     resourcepackage.ResourcePackageManager
 	emitter metrics.MetricEmitter
 	state   state.State
-
-	mux                sync.RWMutex
-	resourcePackageMap rputil.NUMAResourcePackageItems
 }
 
 // NewResourcePackageHintOptimizer creates a new resourcePackageHintOptimizer.
