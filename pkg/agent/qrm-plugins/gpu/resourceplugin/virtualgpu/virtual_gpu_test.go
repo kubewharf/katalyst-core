@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpucompute
+package virtualgpu
 
 import (
 	"context"
@@ -138,7 +138,7 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 	return basePlugin
 }
 
-func TestGPUComputePlugin_GetTopologyHints(t *testing.T) {
+func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -815,9 +815,9 @@ func TestGPUComputePlugin_GetTopologyHints(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
-			resourcePlugin := NewGPUComputePlugin(basePlugin)
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
 
-			gpuComputePlugin, ok := resourcePlugin.(*GPUComputePlugin)
+			gpuComputePlugin, ok := resourcePlugin.(*VirtualGPUPlugin)
 			assert.True(t, ok)
 
 			if tt.allocationInfo != nil {
@@ -849,7 +849,7 @@ func TestGPUComputePlugin_GetTopologyHints(t *testing.T) {
 	}
 }
 
-func TestGPUComputePlugin_Allocate(t *testing.T) {
+func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1457,9 +1457,9 @@ func TestGPUComputePlugin_Allocate(t *testing.T) {
 				basePlugin.GetState().SetMachineState(*tt.allocationResourcesMap, true)
 			}
 
-			resourcePlugin := NewGPUComputePlugin(basePlugin)
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
 
-			gpuComputePlugin, ok := resourcePlugin.(*GPUComputePlugin)
+			gpuComputePlugin, ok := resourcePlugin.(*VirtualGPUPlugin)
 			assert.True(t, ok)
 
 			if tt.allocationInfo != nil {
@@ -1500,7 +1500,7 @@ func TestGPUComputePlugin_Allocate(t *testing.T) {
 	}
 }
 
-func TestGPUComputePlugin_GetTopologyAwareResources(t *testing.T) {
+func TestVirtualGPUPlugin_GetTopologyAwareResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1655,9 +1655,9 @@ func TestGPUComputePlugin_GetTopologyAwareResources(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
-			resourcePlugin := NewGPUComputePlugin(basePlugin)
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
 
-			gpuComputePlugin, ok := resourcePlugin.(*GPUComputePlugin)
+			gpuComputePlugin, ok := resourcePlugin.(*VirtualGPUPlugin)
 			assert.True(t, ok)
 
 			if tt.allocationInfo != nil {
@@ -1678,7 +1678,7 @@ func TestGPUComputePlugin_GetTopologyAwareResources(t *testing.T) {
 	}
 }
 
-func TestGPUComputePlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
+func TestVirtualGPUPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1909,9 +1909,9 @@ func TestGPUComputePlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
-			resourcePlugin := NewGPUComputePlugin(basePlugin)
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
 
-			gpuComputePlugin, ok := resourcePlugin.(*GPUComputePlugin)
+			gpuComputePlugin, ok := resourcePlugin.(*VirtualGPUPlugin)
 			assert.True(t, ok)
 
 			if tt.deviceTopology != nil {

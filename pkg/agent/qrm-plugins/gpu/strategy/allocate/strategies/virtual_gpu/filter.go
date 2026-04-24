@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpu_compute
+package virtual_gpu
 
 import (
 	"fmt"
@@ -30,7 +30,7 @@ import (
 
 // Filter filters the available GPU devices based on available GPU resources (memory & milligpu)
 // It returns devices that have enough available resources for all the requests
-func (s *GPUComputeStrategy) Filter(ctx *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
+func (s *VirtualGPUStrategy) Filter(ctx *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
 	if ctx.DeviceTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
@@ -55,7 +55,7 @@ func (s *GPUComputeStrategy) Filter(ctx *allocate.AllocationContext, allAvailabl
 	return filteredDevices, nil
 }
 
-func (s *GPUComputeStrategy) filterGPUDevices(
+func (s *VirtualGPUStrategy) filterGPUDevices(
 	ctx *allocate.AllocationContext,
 	resourceRequests map[v1.ResourceName]float64,
 	allAvailableDevices []string,

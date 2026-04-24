@@ -31,7 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var ErrNoAvailableGPUComputeHints = pkgerrors.New("no available gpu compute hints")
+var ErrNoAvailableVirtualGPUHints = pkgerrors.New("no available gpu compute hints")
 
 func GetNUMANodesCountToFitGPUReq(
 	gpuReq float64, cpuTopology *machine.CPUTopology, gpuTopology *machine.DeviceTopology,

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpu_compute
+package virtual_gpu
 
 import (
 	"fmt"
@@ -29,8 +29,8 @@ import (
 
 // Sort sorts the filtered GPU devices based on available GPU compute
 // It prioritizes devices with less available memory and considers NUMA affinity
-// TODO: support multiple resources, prioritize gpu_compute for sorting, then milligpu
-func (s *GPUComputeStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
+// TODO: support multiple resources, prioritize virtual_gpu for sorting, then milligpu
+func (s *VirtualGPUStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
 	if ctx.DeviceTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
@@ -81,7 +81,7 @@ func (s *GPUComputeStrategy) Sort(ctx *allocate.AllocationContext, filteredDevic
 		if devices[i].NUMAAffinity != devices[j].NUMAAffinity {
 			return devices[i].NUMAAffinity && !devices[j].NUMAAffinity
 		}
-		// Next, check available GPU compute
+		// Next, check available GPU memory
 		if devices[i].AvailableMemory != devices[j].AvailableMemory {
 			if spreading {
 				return devices[i].AvailableMemory > devices[j].AvailableMemory

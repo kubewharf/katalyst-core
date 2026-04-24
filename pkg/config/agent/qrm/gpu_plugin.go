@@ -40,10 +40,20 @@ type GPUQRMPluginConfig struct {
 	RequiredDeviceAffinity bool
 	// FractionalGPUPrefersSpreading whether fractional GPU (such as gpu memory) prefers spreading across devices
 	FractionalGPUPrefersSpreading bool
-	// GPUMemoryWeightEnvKey is the environment variable key for GPU memory weight
-	GPUMemoryWeightEnvKey string
-	// MilliGPUWeightEnvKey is the environment variable key for MilliGPU weight
-	MilliGPUWeightEnvKey string
+	// VMemWeightEnvKey is the environment variable key for GPU memory weight
+	VMemWeightEnvKey string
+	// MilliGPUComputeWeightEnvKey is the environment variable key for MilliGPU compute weight
+	MilliGPUComputeWeightEnvKey string
+	// MilliGPUTimesliceEnvKey is the environment variable key for MilliGPU timeslice
+	MilliGPUTimesliceEnvKey string
+	// MilliGPUComputePolicyEnvKey is the environment variable key for MilliGPU compute policy
+	MilliGPUComputePolicyEnvKey string
+	// GPUSelectionResultKey is the annotation key for GPU selection result
+	GPUSelectionResultKey string
+	// MilliGPUTimesliceEnvValue is the environment variable value for MilliGPU timeslice
+	MilliGPUTimesliceEnvValue int
+	// MilliGPUComputePolicyEnvValue is the environment variable value for MilliGPU compute policy
+	MilliGPUComputePolicyEnvValue int
 
 	*gpustrategy.GPUStrategyConfig
 }
