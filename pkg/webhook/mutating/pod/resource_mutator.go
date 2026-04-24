@@ -112,7 +112,7 @@ func (r *WebhookPodResourceMutator) MutatePod(pod *core.Pod, namespace string) (
 
 	workload, err := katalystutil.GetWorkloadForVPA(vpa, workloadLister)
 	if err != nil {
-		klog.Warning("didn't to find workload of pod %v/%v, err: %v", pod.Namespace, pod.Name, err)
+		klog.Warningf("didn't to find workload of pod %v/%v, err: %v", pod.Namespace, pod.Name, err)
 		return false, nil
 	}
 

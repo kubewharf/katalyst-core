@@ -145,7 +145,7 @@ func (m *ManagerImpl) getTopologyAwareResources(pod *v1.Pod, container *v1.Conta
 	defer m.mutex.RUnlock()
 	for resourceName, eI := range m.endpoints {
 		if eI.E.IsStopped() {
-			klog.Warningf("[ORM] resource %s endpoints %s stopped, pod: %s, container: %s", resourceName, pod.Name, container.Name)
+			klog.Warningf("[ORM] resource %s endpoints stopped, pod: %s, container: %s", resourceName, pod.Name, container.Name)
 			continue
 		}
 
@@ -194,7 +194,7 @@ func (m *ManagerImpl) getTopologyAwareAllocatableResources() (*pluginapi.GetTopo
 	defer m.mutex.RUnlock()
 	for resourceName, eI := range m.endpoints {
 		if eI.E.IsStopped() {
-			klog.Warningf("[ORM] resource %s endpoints %s stopped", resourceName)
+			klog.Warningf("[ORM] resource %s endpoints stopped", resourceName)
 			continue
 		}
 

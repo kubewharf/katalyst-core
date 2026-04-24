@@ -32,7 +32,7 @@ func (tm *TopologyMatch) nativeSingleNUMAContainerLevelHandler(pod *v1.Pod, zone
 }
 
 func (tm *TopologyMatch) nativeSingleNUMAPodLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
-	klog.V(5).Info("native Single NUMA node pod handler for pod %s/%s", pod.Namespace, pod.Name)
+	klog.V(5).Infof("native Single NUMA node pod handler for pod %s/%s", pod.Namespace, pod.Name)
 
 	resources := util.GetPodEffectiveRequest(pod)
 

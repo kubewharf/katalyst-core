@@ -1,6 +1,6 @@
 module github.com/kubewharf/katalyst-core
 
-go 1.18
+go 1.21
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
@@ -66,7 +66,7 @@ require (
 	k8s.io/component-base v0.25.0
 	k8s.io/component-helpers v0.24.16
 	k8s.io/cri-api v0.25.3
-	k8s.io/klog/v2 v2.80.1
+	k8s.io/klog/v2 v2.140.0
 	k8s.io/kube-aggregator v0.24.6
 	k8s.io/kubelet v0.24.6
 	k8s.io/kubernetes v1.24.16
@@ -97,7 +97,7 @@ require (
 	github.com/emicklei/go-restful v2.16.0+incompatible // indirect
 	github.com/emicklei/go-restful-swagger12 v0.0.0-20201014110547-68ccff494617 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
-	github.com/go-logr/logr v1.2.3 // indirect
+	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/swag v0.19.15 // indirect

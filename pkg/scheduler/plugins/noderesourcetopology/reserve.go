@@ -52,7 +52,7 @@ func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleStat
 				}
 			}
 			if numaCapacity == nil {
-				klog.Warningf("[TopologyMatch] reserve get node %v NUMA capacity fail")
+				klog.Warningf("[TopologyMatch] reserve get node %v NUMA capacity fail", nodeName)
 			} else {
 				adjustExclusivePodRequest(podCopy, *numaCapacity, tm.alignedResources)
 			}
