@@ -56,6 +56,7 @@ const (
 	MetricNameMemoryHandleAdvisorCPUSetMems           = "memory_handle_advisor_cpuset_mems"
 	MetricNameMemoryHandlerAdvisorMemoryOffload       = "memory_handler_advisor_memory_offloading"
 	MetricNameMemoryHandlerAdvisorDyingMemcgReclaim   = "memory_handler_advisor_dying_memcg_reclaim"
+	MetricNameMemoryHandlerAdvisorMemoryOffloadTime   = "memory_handler_advisor_memory_offloading_time"
 	MetricNameMemoryHandlerAdvisorMemoryNUMAHeadroom  = "memory_handler_advisor_memory_numa_headroom"
 	MetricNameMemoryOOMPriorityDeleteFailed           = "memory_oom_priority_delete_failed"
 	MetricNameMemoryOOMPriorityUpdateFailed           = "memory_oom_priority_update_failed"

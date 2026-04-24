@@ -36,6 +36,7 @@ const (
 	DefaultTMOPSIPolicyPSIAvg60Threshold               float64                = 0.1
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64                = 0.99
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64                = 0.6
+	DefaultTMOReservedInactiveFile                     uint64                 = 0
 )
 
 type TransparentMemoryOffloadingConfiguration struct {
@@ -67,6 +68,7 @@ type TMODefaultConfigurations struct {
 	DefaultTMOPSIPolicyPSIAvg60Threshold               float64
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64
+	DefaultTMOReservedInactiveFile                     uint64
 }
 
 func NewTMODefaultConfigurations() *TMODefaultConfigurations {
@@ -79,24 +81,27 @@ func NewTMODefaultConfigurations() *TMODefaultConfigurations {
 		DefaultTMOPSIPolicyPSIAvg60Threshold:               DefaultTMOPSIPolicyPSIAvg60Threshold,
 		DefaultTMORefaultPolicyReclaimAccuracyTarget:       DefaultTMORefaultPolicyReclaimAccuracyTarget,
 		DefaultTMORefaultPolicyReclaimScanEfficiencyTarget: DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
+		DefaultTMOReservedInactiveFile:                     DefaultTMOReservedInactiveFile,
 	}
 }
 
 type TMOConfigDetail struct {
-	EnableTMO  bool
-	EnableSwap bool
-	Interval   time.Duration
-	PolicyName v1alpha1.TMOPolicyName
+	EnableTMO            bool
+	EnableSwap           bool
+	Interval             time.Duration
+	PolicyName           v1alpha1.TMOPolicyName
+	ReservedInactiveFile uint64
 	*PSIPolicyConf
 	*RefaultPolicyConf
 }
 
 func NewTMOConfigDetail(defaultConfigs *TMODefaultConfigurations) *TMOConfigDetail {
 	return &TMOConfigDetail{
-		EnableTMO:  defaultConfigs.DefaultEnableTMO,
-		EnableSwap: defaultConfigs.DefaultEnableSwap,
-		Interval:   defaultConfigs.DefaultTMOInterval,
-		PolicyName: defaultConfigs.DefaultTMOPolicyName,
+		EnableTMO:            defaultConfigs.DefaultEnableTMO,
+		EnableSwap:           defaultConfigs.DefaultEnableSwap,
+		Interval:             defaultConfigs.DefaultTMOInterval,
+		PolicyName:           defaultConfigs.DefaultTMOPolicyName,
+		ReservedInactiveFile: defaultConfigs.DefaultTMOReservedInactiveFile,
 		PSIPolicyConf: &PSIPolicyConf{
 			MaxProbe:          defaultConfigs.DefaultTMOMaxProbe,
 			PsiAvg60Threshold: defaultConfigs.DefaultTMOPSIPolicyPSIAvg60Threshold,
@@ -137,6 +142,9 @@ func ApplyTMOConfigDetail(tmoConfigDetail *TMOConfigDetail, tmoConfigDetailDynam
 	}
 	if tmoConfigDetailDynamic.PolicyName != nil {
 		tmoConfigDetail.PolicyName = *tmoConfigDetailDynamic.PolicyName
+	}
+	if tmoConfigDetailDynamic.ReservedInactiveFile != nil {
+		tmoConfigDetail.ReservedInactiveFile = *tmoConfigDetailDynamic.ReservedInactiveFile
 	}
 	if psiPolicyConfDynamic := tmoConfigDetailDynamic.PSIPolicyConf; psiPolicyConfDynamic != nil {
 		if psiPolicyConfDynamic.MaxProbe != nil {
