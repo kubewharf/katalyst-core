@@ -29,24 +29,32 @@ import (
 )
 
 var (
-	instance GroupPriority
+	instance *threadSafeGroupPriority
 	once     sync.Once
 )
 
-func GetInstance() GroupPriority {
+func GetInstance() *threadSafeGroupPriority {
 	once.Do(func() {
-		instance = make(GroupPriority, len(resctrlMajorGroupWeights))
+		instance = &threadSafeGroupPriority{
+			weights: make(map[string]int, len(resctrlMajorGroupWeights)),
+		}
 		for key, value := range resctrlMajorGroupWeights {
-			instance[key] = value
+			instance.weights[key] = value
 		}
 	})
 	return instance
 }
 
-type GroupPriority map[string]int
+type threadSafeGroupPriority struct {
+	mu      sync.RWMutex
+	weights map[string]int
+}
 
-func (g GroupPriority) GetWeight(name string) int {
-	baseWeight, ok := g[getMajor(name)]
+func (g *threadSafeGroupPriority) GetWeight(name string) int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	baseWeight, ok := g.weights[getMajor(name)]
 	if !ok {
 		return defaultWeight
 	}
@@ -54,7 +62,7 @@ func (g GroupPriority) GetWeight(name string) int {
 	return baseWeight + getSubWeight(name)
 }
 
-func (g GroupPriority) SortGroups(groups []string) []sets.String {
+func (g *threadSafeGroupPriority) SortGroups(groups []string) []sets.String {
 	sort.Slice(groups, func(i, j int) bool {
 		return g.GetWeight(groups[i]) > g.GetWeight(groups[j])
 	})
@@ -62,7 +70,7 @@ func (g GroupPriority) SortGroups(groups []string) []sets.String {
 	return g.mergeGroupsByWeight(groups)
 }
 
-func (g GroupPriority) mergeGroupsByWeight(groups []string) []sets.String {
+func (g *threadSafeGroupPriority) mergeGroupsByWeight(groups []string) []sets.String {
 	var mergedGroups []sets.String
 	for _, group := range groups {
 		if len(mergedGroups) == 0 {
@@ -87,7 +95,7 @@ func (g GroupPriority) mergeGroupsByWeight(groups []string) []sets.String {
 	return mergedGroups
 }
 
-func (g GroupPriority) getWeightOfEquivGroup(equivGroups sets.String) (int, error) {
+func (g *threadSafeGroupPriority) getWeightOfEquivGroup(equivGroups sets.String) (int, error) {
 	repGroup, err := resource.GetGroupRepresentative(equivGroups)
 	if err != nil {
 		return 0, errors.Wrap(err, fmt.Sprintf("failed to get representative of groups %v", equivGroups))
@@ -96,6 +104,9 @@ func (g GroupPriority) getWeightOfEquivGroup(equivGroups sets.String) (int, erro
 	return g.GetWeight(repGroup), nil
 }
 
-func (g GroupPriority) AddWeight(name string, weight int) {
-	g[name] = weight
+func (g *threadSafeGroupPriority) AddWeight(name string, weight int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.weights[name] = weight
 }
