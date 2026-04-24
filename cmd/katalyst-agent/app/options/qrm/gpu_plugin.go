@@ -35,8 +35,13 @@ type GPUOptions struct {
 	RequiredDeviceAffinity        bool
 	EnableKubeletCheckpointFallback bool
 	FractionalGPUPrefersSpreading bool
-	GPUMemoryWeightEnvKey         string
-	MilliGPUWeightEnvKey          string
+	VMemWeightEnvKey              string
+	MilliGPUComputeWeightEnvKey   string
+	MilliGPUTimesliceEnvKey       string
+	MilliGPUComputePolicyEnvKey   string
+	GPUSelectionResultKey         string
+	MilliGPUTimesliceEnvValue     int
+	MilliGPUComputePolicyEnvValue int
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
 }
@@ -52,8 +57,9 @@ func NewGPUOptions() *GPUOptions {
 		RequiredDeviceAffinity:        true,
 		EnableKubeletCheckpointFallback: true,
 		FractionalGPUPrefersSpreading: false,
-		GPUMemoryWeightEnvKey:         consts.ResourceGPUMemoryWeightEnvKey,
-		MilliGPUWeightEnvKey:          consts.ResourceMilliGPUWeightEnvKey,
+		GPUSelectionResultKey:         consts.PodAnnotationGPUSelectionResultKey,
+		MilliGPUTimesliceEnvValue:     300,
+		MilliGPUComputePolicyEnvValue: 0,
 	}
 }
 
@@ -72,14 +78,24 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.RDMADeviceNames, "rdma-resource-names", o.RDMADeviceNames, "The name of the RDMA resource")
 	fs.BoolVar(&o.RequiredDeviceAffinity, "gpu-required-device-affinity", o.RequiredDeviceAffinity,
 		"required device affinity, and when true it will cause pods to admit fail if unable to meet device affinity")
-	fs.BoolVar(&o.FractionalGPUPrefersSpreading, "fractional-gpu-prefers-spreading",
-		o.FractionalGPUPrefersSpreading, "whether fractional GPU prefers spreading across devices")
 	fs.BoolVar(&o.EnableKubeletCheckpointFallback, "enable-kubelet-checkpoint-fallback", o.EnableKubeletCheckpointFallback,
 		"enable fallback to kubelet device plugin checkpoint for device allocation.")
-	fs.StringVar(&o.GPUMemoryWeightEnvKey, "gpu-memory-weight-env-key",
-		o.GPUMemoryWeightEnvKey, "The environment variable key for GPU memory weight")
-	fs.StringVar(&o.MilliGPUWeightEnvKey, "gpu-milligpu-weight-env-key",
-		o.MilliGPUWeightEnvKey, "The environment variable key for MilliGPU weight")
+	fs.BoolVar(&o.FractionalGPUPrefersSpreading, "fractional-gpu-prefers-spreading",
+		o.FractionalGPUPrefersSpreading, "whether fractional GPU prefers spreading across devices")
+	fs.StringVar(&o.VMemWeightEnvKey, "gpu-vmem-weight-env-key",
+		o.VMemWeightEnvKey, "The environment variable key for GPU memory weight")
+	fs.StringVar(&o.MilliGPUComputeWeightEnvKey, "gpu-milligpu-compute-weight-env-key",
+		o.MilliGPUComputeWeightEnvKey, "The environment variable key for MilliGPU compute weight")
+	fs.StringVar(&o.MilliGPUTimesliceEnvKey, "gpu-milligpu-timeslice-env-key",
+		o.MilliGPUTimesliceEnvKey, "The environment variable key for MilliGPU timeslice")
+	fs.StringVar(&o.MilliGPUComputePolicyEnvKey, "gpu-milligpu-compute-policy-env-key",
+		o.MilliGPUComputePolicyEnvKey, "The environment variable key for MilliGPU compute policy")
+	fs.StringVar(&o.GPUSelectionResultKey, "gpu-selection-result-key",
+		o.GPUSelectionResultKey, "The annotation key for GPU selection result")
+	fs.IntVar(&o.MilliGPUTimesliceEnvValue, "gpu-milligpu-timeslice-env-value",
+		o.MilliGPUTimesliceEnvValue, "The environment variable value for MilliGPU timeslice")
+	fs.IntVar(&o.MilliGPUComputePolicyEnvValue, "gpu-milligpu-compute-policy-env-value",
+		o.MilliGPUComputePolicyEnvValue, "The environment variable value for MilliGPU compute policy")
 	o.GPUStrategyOptions.AddFlags(fss)
 }
 
@@ -101,8 +117,13 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.RequiredDeviceAffinity = o.RequiredDeviceAffinity
 	conf.EnableKubeletCheckpointFallback = o.EnableKubeletCheckpointFallback
 	conf.FractionalGPUPrefersSpreading = o.FractionalGPUPrefersSpreading
-	conf.GPUMemoryWeightEnvKey = o.GPUMemoryWeightEnvKey
-	conf.MilliGPUWeightEnvKey = o.MilliGPUWeightEnvKey
+	conf.VMemWeightEnvKey = o.VMemWeightEnvKey
+	conf.MilliGPUComputeWeightEnvKey = o.MilliGPUComputeWeightEnvKey
+	conf.MilliGPUTimesliceEnvKey = o.MilliGPUTimesliceEnvKey
+	conf.MilliGPUComputePolicyEnvKey = o.MilliGPUComputePolicyEnvKey
+	conf.GPUSelectionResultKey = o.GPUSelectionResultKey
+	conf.MilliGPUTimesliceEnvValue = o.MilliGPUTimesliceEnvValue
+	conf.MilliGPUComputePolicyEnvValue = o.MilliGPUComputePolicyEnvValue
 	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
 		return err
 	}

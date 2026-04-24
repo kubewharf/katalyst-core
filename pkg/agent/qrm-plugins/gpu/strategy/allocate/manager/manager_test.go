@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_compute"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/virtual_gpu"
 )
 
 func TestStrategyManager(t *testing.T) {
@@ -43,8 +43,8 @@ func TestStrategyManager(t *testing.T) {
 	err = manager.RegisterStrategyForResource("test-resource", "test-allocation")
 	assert.Error(t, err) // Should fail because test-allocation is not registered yet
 
-	err = manager.RegisterGenericAllocationStrategy("test-allocation", []string{gpu_compute.StrategyNameGPUCompute},
-		gpu_compute.StrategyNameGPUCompute, canonical.StrategyNameCanonical)
+	err = manager.RegisterGenericAllocationStrategy("test-allocation", []string{virtual_gpu.StrategyNameVirtualGPU},
+		virtual_gpu.StrategyNameVirtualGPU, canonical.StrategyNameCanonical)
 	assert.NoError(t, err)
 
 	// Now test registering strategy for resource

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpu_compute
+package virtual_gpu
 
 import (
 	"testing"
@@ -31,7 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func TestGPUComputeStrategy_Filter(t *testing.T) {
+func TestVirtualGPUStrategy_Filter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -322,7 +322,7 @@ func TestGPUComputeStrategy_Filter(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			strategy := NewGPUComputeStrategy()
+			strategy := NewVirtualGPUStrategy()
 			filteredDevices, err := strategy.Filter(tt.ctx, tt.availableDevices)
 			if tt.expectedErr {
 				assert.Error(t, err)

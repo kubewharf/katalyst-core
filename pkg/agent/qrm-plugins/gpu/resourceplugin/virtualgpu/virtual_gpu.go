@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpucompute
+package virtualgpu
 
 import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -44,32 +45,32 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-type GPUComputePlugin struct {
+type VirtualGPUPlugin struct {
 	sync.Mutex
 	*baseplugin.BasePlugin
 }
 
-// NewGPUComputePlugin creates and returns a new GPU compute resource plugin
-func NewGPUComputePlugin(base *baseplugin.BasePlugin) resourceplugin.ResourcePlugin {
+// NewVirtualGPUPlugin creates and returns a new GPU compute resource plugin
+func NewVirtualGPUPlugin(base *baseplugin.BasePlugin) resourceplugin.ResourcePlugin {
 	// string(consts.ResourceGPUMemory) is the key used for state management in the QRM framework,
 	// while GPUDeviceNames are the actual resource names used to fetch the device topologies.
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceGPUMemory),
 		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, float64(base.Conf.GPUMemoryAllocatablePerGPU.Value())))
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceMilliGPU),
 		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, float64(base.Conf.MilliGPUAllocatablePerGPU.Value())))
-	return &GPUComputePlugin{
+	return &VirtualGPUPlugin{
 		BasePlugin: base,
 	}
 }
 
 // ResourceName returns the name of the main resource this plugin manages
 // TODO: use config for main resource
-func (p *GPUComputePlugin) ResourceName() string {
+func (p *VirtualGPUPlugin) ResourceName() string {
 	return string(consts.ResourceGPUMemory)
 }
 
 // GetTopologyHints returns topology hints for a given resource request
-func (p *GPUComputePlugin) GetTopologyHints(ctx context.Context, req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
+func (p *VirtualGPUPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, req, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -133,7 +134,7 @@ func (p *GPUComputePlugin) GetTopologyHints(ctx context.Context, req *pluginapi.
 		}
 
 		// Regenerate hints for all resources
-		hints, err = regenerateGPUComputeHints(allocationInfoMap, false)
+		hints, err = regenerateVirtualGPUHints(allocationInfoMap, false)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +182,7 @@ func (p *GPUComputePlugin) GetTopologyHints(ctx context.Context, req *pluginapi.
 }
 
 // getGPUTopology returns the appropriate GPU device topology based on the requested device names
-func (p *GPUComputePlugin) getGPUTopology(gpuNames sets.String) (*machine.DeviceTopology, error) {
+func (p *VirtualGPUPlugin) getGPUTopology(gpuNames sets.String) (*machine.DeviceTopology, error) {
 	switch {
 	case gpuNames.Len() == 1:
 		deviceName := gpuNames.List()[0]
@@ -198,7 +199,7 @@ func (p *GPUComputePlugin) getGPUTopology(gpuNames sets.String) (*machine.Device
 }
 
 // calculateHints calculates topology hints for the given resource request
-func (p *GPUComputePlugin) calculateHints(
+func (p *VirtualGPUPlugin) calculateHints(
 	resourceQuantities map[v1.ResourceName]float64, gpuReq float64, gpuNames sets.String,
 	resourceMachineState state.AllocationResourcesMap, gpuState state.AllocationMap,
 	req *pluginapi.ResourceRequest,
@@ -353,7 +354,7 @@ func (p *GPUComputePlugin) calculateHints(
 	if len(availableNumaHints) == 0 {
 		general.Warningf("got no available gpu compute hints for pod: %s/%s, container: %s",
 			req.PodNamespace, req.PodName, req.ContainerName)
-		return nil, gpuutil.ErrNoAvailableGPUComputeHints
+		return nil, gpuutil.ErrNoAvailableVirtualGPUHints
 	}
 
 	// Create hints map with all requested resources that are plugin's resources
@@ -466,7 +467,7 @@ func generateTopologyAwareQuantities(deviceID string, numaNodes []int, quantity 
 }
 
 // GetTopologyAwareResources returns topology-aware resources for a given pod/container
-func (p *GPUComputePlugin) GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (map[string]*pluginapi.GetTopologyAwareResourcesResponse, error) {
+func (p *VirtualGPUPlugin) GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (map[string]*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
 
 	// Get all resources: main + extra
@@ -522,7 +523,7 @@ func (p *GPUComputePlugin) GetTopologyAwareResources(ctx context.Context, podUID
 }
 
 // getResourceAllocatableQuantity returns the allocatable quantity for a given resource name
-func (p *GPUComputePlugin) getResourceAllocatableQuantity(resourceName string) resource.Quantity {
+func (p *VirtualGPUPlugin) getResourceAllocatableQuantity(resourceName string) resource.Quantity {
 	switch resourceName {
 	case string(consts.ResourceGPUMemory):
 		return p.Conf.GPUMemoryAllocatablePerGPU
@@ -534,7 +535,7 @@ func (p *GPUComputePlugin) getResourceAllocatableQuantity(resourceName string) r
 }
 
 // GetTopologyAwareAllocatableResources returns topology-aware allocatable resources
-func (p *GPUComputePlugin) GetTopologyAwareAllocatableResources(ctx context.Context) (map[string]*pluginapi.AllocatableTopologyAwareResource, error) {
+func (p *VirtualGPUPlugin) GetTopologyAwareAllocatableResources(ctx context.Context) (map[string]*pluginapi.AllocatableTopologyAwareResource, error) {
 	general.InfofV(4, "called")
 
 	p.Lock()
@@ -587,12 +588,12 @@ func (p *GPUComputePlugin) GetTopologyAwareAllocatableResources(ctx context.Cont
 }
 
 // TODO: make sure extra resource dont include main resource
-func (p *GPUComputePlugin) GetExtraResources() []string {
+func (p *VirtualGPUPlugin) GetExtraResources() []string {
 	return []string{string(consts.ResourceMilliGPU)}
 }
 
 // getAllPluginResources returns all resources managed by this plugin
-func (p *GPUComputePlugin) getAllPluginResources() []v1.ResourceName {
+func (p *VirtualGPUPlugin) getAllPluginResources() []v1.ResourceName {
 	resources := []v1.ResourceName{v1.ResourceName(p.ResourceName())}
 	for _, extra := range p.GetExtraResources() {
 		resources = append(resources, v1.ResourceName(extra))
@@ -607,7 +608,7 @@ func hasMilligpuRequest(resourceReq *pluginapi.ResourceRequest) bool {
 }
 
 // Allocate allocates GPU compute resources to a container based on the given request
-func (p *GPUComputePlugin) Allocate(
+func (p *VirtualGPUPlugin) Allocate(
 	ctx context.Context, resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	quantity, exists := resourceReq.ResourceRequests[p.ResourceName()]
@@ -684,9 +685,12 @@ func (p *GPUComputePlugin) Allocate(
 		return resp, nil
 	}
 
-	// Check if we have both device request and milligpu request
-	if hasMilligpuRequest(resourceReq) && deviceReq != nil {
-		return nil, fmt.Errorf("milligpu requested together with GPU device request")
+	// We cannot have milligpu and gpu device request together
+	if deviceReq != nil {
+		deviceName := p.ResolveResourceName(deviceReq.DeviceName, true)
+		if hasMilligpuRequest(resourceReq) && deviceName == gpuconsts.GPUDeviceType {
+			return nil, fmt.Errorf("milligpu requested together with GPU device request")
+		}
 	}
 
 	if deviceReq == nil {
@@ -708,26 +712,17 @@ func (p *GPUComputePlugin) Allocate(
 
 	general.Infof("deviceReq: %v", deviceReq.String())
 
-	// Use allocate for when we have deviceReq
-	return p.allocate(ctx, resourceReq, deviceReq, resourceQuantities, qosLevel)
+	return p.allocate(resourceReq, deviceReq, resourceQuantities, qosLevel)
 }
 
 // allocate allocates GPU compute resources when physical GPU devices are requested
-func (p *GPUComputePlugin) allocate(
-	ctx context.Context,
+func (p *VirtualGPUPlugin) allocate(
 	resourceReq *pluginapi.ResourceRequest,
 	deviceReq *pluginapi.DeviceRequest,
 	resourceQuantities map[v1.ResourceName]float64,
 	qosLevel string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
-	// Get GPU topology using the specific device resource name if present, else fallback to latest topology of allowed devices
-	var gpuTopology *machine.DeviceTopology
-	var err error
-	if deviceReq.DeviceName != "" {
-		gpuTopology, err = p.DeviceTopologyRegistry.GetDeviceTopology(deviceReq.DeviceName)
-	} else {
-		gpuTopology, err = p.DeviceTopologyRegistry.GetLatestDeviceTopology(p.Conf.GPUDeviceNames)
-	}
+	gpuTopology, err := p.DeviceTopologyRegistry.GetLatestDeviceTopology(p.Conf.GPUDeviceNames)
 	if err != nil {
 		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, fmt.Errorf("failed to get gpu topology: %v", err)
@@ -811,18 +806,32 @@ func (p *GPUComputePlugin) allocate(
 		}
 	}
 
+	p.mergeTimesliceAndPolicyEnvs(resourceAllocationEnvs)
+
 	return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName(), resourceAllocationEnvs)
+}
+
+// mergeTimesliceAndPolicyEnvs merges the timeslice and policy environment variables into the resource allocation environments
+func (p *VirtualGPUPlugin) mergeTimesliceAndPolicyEnvs(resourceAllocationEnvs map[string]map[string]string) {
+	for _, envs := range resourceAllocationEnvs {
+		if p.Conf.MilliGPUTimesliceEnvKey != "" {
+			envs[p.Conf.MilliGPUTimesliceEnvKey] = strconv.Itoa(p.Conf.MilliGPUTimesliceEnvValue)
+		}
+		if p.Conf.MilliGPUComputePolicyEnvKey != "" {
+			envs[p.Conf.MilliGPUComputePolicyEnvKey] = strconv.Itoa(p.Conf.MilliGPUComputePolicyEnvValue)
+		}
+	}
 }
 
 // calculateEnvVariables computes the environment variable map for a given GPU resource.
 // It calculates the allocated fraction percentage and formats it as "<deviceID>:<fraction>"
 // when exactly one device is allocated.
-func (p *GPUComputePlugin) calculateEnvVariables(resName v1.ResourceName, allocatedDevices []string, resQuantityPerGPU float64) map[string]string {
+func (p *VirtualGPUPlugin) calculateEnvVariables(resName v1.ResourceName, allocatedDevices []string, resQuantityPerGPU float64) map[string]string {
 	envKey := ""
 	if string(resName) == string(consts.ResourceGPUMemory) {
-		envKey = p.Conf.GPUMemoryWeightEnvKey
+		envKey = p.Conf.VMemWeightEnvKey
 	} else if string(resName) == string(consts.ResourceMilliGPU) {
-		envKey = p.Conf.MilliGPUWeightEnvKey
+		envKey = p.Conf.MilliGPUComputeWeightEnvKey
 	}
 
 	if envKey != "" && len(allocatedDevices) == 1 {
@@ -837,7 +846,7 @@ func (p *GPUComputePlugin) calculateEnvVariables(resName v1.ResourceName, alloca
 	return nil
 }
 
-func (p *GPUComputePlugin) generateDeviceRequestForMilliGPU(resourceReq *pluginapi.ResourceRequest) (*pluginapi.DeviceRequest, error) {
+func (p *VirtualGPUPlugin) generateDeviceRequestForMilliGPU(resourceReq *pluginapi.ResourceRequest) (*pluginapi.DeviceRequest, error) {
 	// Get topology to find all available healthy devices
 	gpuTopology, err := p.getGPUTopology(nil)
 	if err != nil {
@@ -852,6 +861,7 @@ func (p *GPUComputePlugin) generateDeviceRequestForMilliGPU(resourceReq *plugina
 	}
 
 	// Create a preliminary DeviceRequest
+	// TODO: we currently don't support init containers, so we don't have reusable devices.
 	deviceReq := &pluginapi.DeviceRequest{
 		DeviceRequest:    1,
 		Hint:             resourceReq.GetHint(),
@@ -884,11 +894,10 @@ func (p *GPUComputePlugin) generateDeviceRequestForMilliGPU(resourceReq *plugina
 	return deviceReq, nil
 }
 
-// regenerateGPUComputeHints regenerates hints for container that'd already been allocated resources,
+// regenerateVirtualGPUHints regenerates hints for container that'd already been allocated resources,
 // and regenerateHints will assemble hints based on already-existed AllocationInfo for each resource,
 // without any calculation logics at all
-// TODO: change name
-func regenerateGPUComputeHints(
+func regenerateVirtualGPUHints(
 	allocationInfoMap map[v1.ResourceName]*state.AllocationInfo, regenerate bool,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	if len(allocationInfoMap) == 0 {
