@@ -2,8 +2,6 @@ module github.com/kubewharf/katalyst-core
 
 go 1.21
 
-toolchain go1.24.6
-
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d

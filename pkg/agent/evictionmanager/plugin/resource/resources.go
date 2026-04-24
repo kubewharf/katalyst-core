@@ -190,7 +190,7 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context, _ *pluginapi
 		total := float64((&totalQuantity).Value())
 
 		if total <= 0 && b.skipZeroQuantityResourceNames.Has(string(resourceName)) {
-			klog.Warningf("[%s] skip resource: %s with total: %.2f", b.pluginName, total)
+			klog.Warningf("[%s] skip resource: %s with total: %.2f", b.pluginName, resourceName, total)
 			continue
 		}
 
