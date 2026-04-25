@@ -18,6 +18,7 @@ package advisor
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,13 +34,20 @@ type mockAdvisor struct {
 
 func (m *mockAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
 	args := m.Called(ctx, domainsMon)
-	return args.Get(0).(*plan.MBPlan), args.Error(1)
+
+	var returnedPlan *plan.MBPlan
+	if v := args.Get(0); v != nil {
+		returnedPlan = v.(*plan.MBPlan)
+	}
+
+	return returnedPlan, args.Error(1)
 }
 
-func TestPControllerAdvisor_GetPlan_CapDown(t *testing.T) {
+func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 	t.Parallel()
 
-	dummyStats := monitor.DomainStats{
+	// test data for case cap-down
+	dummyStatsCapDown := monitor.DomainStats{
 		Outgoings: map[int]monitor.DomainMonStat{
 			0: {
 				"dedicated": {
@@ -49,8 +57,7 @@ func TestPControllerAdvisor_GetPlan_CapDown(t *testing.T) {
 			},
 		},
 	}
-
-	dummyPlan := plan.MBPlan{
+	dummyPlanCapDown := plan.MBPlan{
 		MBGroups: map[string]plan.GroupCCDPlan{
 			"system": {
 				0: 123,
@@ -62,52 +69,12 @@ func TestPControllerAdvisor_GetPlan_CapDown(t *testing.T) {
 			},
 		},
 	}
+	mockInnerCapDown := new(mockAdvisor)
+	mockInnerCapDown.On("GetPlan", context.TODO(), &dummyStatsCapDown).Return(
+		&dummyPlanCapDown, nil)
 
-	mockInner := new(mockAdvisor)
-	mockInner.On("GetPlan", context.TODO(), &dummyStats).Return(&dummyPlan, nil)
-
-	pCtrl := pControllerAdvisor{
-		ccdMinMB: 2000,
-		ccdMaxMB: 60000,
-		inner:    mockInner,
-		groupStates: map[string]*groupPCtrlState{
-			"dedicated": {
-				pCtrl: pController{
-					kp:     0.1,
-					target: 24000,
-				},
-				ccdCapMB: 45000,
-			},
-		},
-	}
-
-	expectedPlan := &plan.MBPlan{
-		MBGroups: map[string]plan.GroupCCDPlan{
-			"system": {
-				0: 123,
-				1: 456,
-			},
-			"dedicated": {
-				0: 16000,
-				1: 45000 - 1100, // 0.1 * (35000 - 24000)
-			},
-		},
-	}
-
-	resultPlan, err := pCtrl.GetPlan(context.TODO(), &dummyStats)
-	if err != nil {
-		t.Errorf("unexpected error %v", err)
-	}
-
-	t.Logf("result plan = %v", resultPlan)
-	assert.Equal(t, expectedPlan, resultPlan)
-	assert.Equal(t, 45000-1100, pCtrl.groupStates["dedicated"].ccdCapMB, "cap should decrease: 45000 + 0.1*(24000-35000)")
-}
-
-func TestPControllerAdvisor_GetPlan_CapUp(t *testing.T) {
-	t.Parallel()
-
-	dummyStats := monitor.DomainStats{
+	// test data for case cap-up
+	dummyStatsCapUp := monitor.DomainStats{
 		Outgoings: map[int]monitor.DomainMonStat{
 			0: {
 				"dedicated": {
@@ -117,8 +84,7 @@ func TestPControllerAdvisor_GetPlan_CapUp(t *testing.T) {
 			},
 		},
 	}
-
-	dummyPlan := plan.MBPlan{
+	dummyPlanCapUp := plan.MBPlan{
 		MBGroups: map[string]plan.GroupCCDPlan{
 			"dedicated": {
 				0: 9000,
@@ -126,40 +92,172 @@ func TestPControllerAdvisor_GetPlan_CapUp(t *testing.T) {
 			},
 		},
 	}
+	mockInnerCapUp := new(mockAdvisor)
+	mockInnerCapUp.On("GetPlan", context.TODO(), &dummyStatsCapUp).Return(
+		&dummyPlanCapUp, nil)
 
-	mockInner := new(mockAdvisor)
-	mockInner.On("GetPlan", context.TODO(), &dummyStats).Return(&dummyPlan, nil)
+	// test data for negative case cap-no-data-error
+	dummyStatsCapNoData := monitor.DomainStats{}
+	mockInnerCapNoData := new(mockAdvisor)
+	mockInnerCapNoData.On("GetPlan", context.TODO(), &dummyStatsCapNoData).Return(
+		nil, fmt.Errorf("no data error"))
 
-	pCtrl := pControllerAdvisor{
-		ccdMinMB: 2000,
-		ccdMaxMB: 60000,
-		inner:    mockInner,
-		groupStates: map[string]*groupPCtrlState{
-			"dedicated": {
-				pCtrl: pController{
-					kp:     0.1,
-					target: 24000,
-				},
-				ccdCapMB: 15000,
-			},
-		},
-	}
-
-	expectedPlan := &plan.MBPlan{
+	// test data for case cap-no-usage
+	dummyStatsCapNoUsage := monitor.DomainStats{}
+	dummyPlanCapNoUsage := plan.MBPlan{
 		MBGroups: map[string]plan.GroupCCDPlan{
-			"dedicated": {
-				0: 9000,
-				1: 15500, // 15500 < new cap 15900, preserved (would have been clamped to 15000 under old cap)
+			"system": {
+				0: 123,
+				1: 456,
 			},
 		},
 	}
+	mockInnerCapNoUsage := new(mockAdvisor)
+	mockInnerCapNoUsage.On("GetPlan", context.TODO(), &dummyStatsCapNoUsage).Return(
+		&dummyPlanCapNoUsage, nil)
 
-	resultPlan, err := pCtrl.GetPlan(context.TODO(), &dummyStats)
-	if err != nil {
-		t.Errorf("unexpected error %v", err)
+	type fields struct {
+		ccdMinMB    int
+		ccdMaxMB    int
+		inner       Advisor
+		groupStates map[string]*groupPCtrlState
 	}
 
-	t.Logf("result plan = %v", resultPlan)
-	assert.Equal(t, expectedPlan, resultPlan)
-	assert.Equal(t, 15000+900, pCtrl.groupStates["dedicated"].ccdCapMB, "cap should increase: 15000 + 0.1*(24000-15000)")
+	tests := []struct {
+		name                  string
+		fields                fields
+		domainsMon            *monitor.DomainStats
+		wantErr               bool
+		wantPlan              *plan.MBPlan
+		wantDedicatedCCDCapMB int
+	}{
+		{
+			name: "mb stat higher over the target leads to lower ccd cap",
+			fields: fields{
+				ccdMinMB: 2000,
+				ccdMaxMB: 60000,
+				inner:    mockInnerCapDown,
+				groupStates: map[string]*groupPCtrlState{
+					"dedicated": {
+						pCtrl: pController{
+							kp:     0.1,
+							target: 24000,
+						},
+						ccdCapMB: 45000, // current dedicated group ccd cap
+					},
+				},
+			},
+			domainsMon: &dummyStatsCapDown,
+			wantErr:    false,
+			wantPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"system": {
+						0: 123,
+						1: 456,
+					},
+					"dedicated": {
+						0: 16000,
+						1: 45000 - 1100, // 0.1 * (35000 - 24000)
+					},
+				},
+			},
+			wantDedicatedCCDCapMB: 45000 - 1100, // expected dedicated group ccd cap: 45000 + 0.1*(24000-35000)
+		},
+		{
+			name: "mb stat lower much under the target leads to raised ccd cap",
+			fields: fields{
+				ccdMinMB: 2000,
+				ccdMaxMB: 60000,
+				inner:    mockInnerCapUp,
+				groupStates: map[string]*groupPCtrlState{
+					"dedicated": {
+						pCtrl: pController{
+							kp:     0.1,
+							target: 24000,
+						},
+						ccdCapMB: 15000,
+					},
+				},
+			},
+			domainsMon: &dummyStatsCapUp,
+			wantErr:    false,
+			wantPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated": {
+						0: 9000,
+						1: 15500, // 15500 < new cap 15900, preserved (would have been clamped to 15000 under old cap)
+					},
+				},
+			},
+			wantDedicatedCCDCapMB: 15000 + 900, // 15000 + (24000 - 14000) * 0.1
+		},
+		{
+			name: "error from inner passed through",
+			fields: fields{
+				ccdMinMB: 2000,
+				ccdMaxMB: 60000,
+				inner:    mockInnerCapNoData,
+				groupStates: map[string]*groupPCtrlState{
+					"dedicated": {
+						pCtrl: pController{
+							kp:     0.1,
+							target: 24000,
+						},
+						ccdCapMB: 12345,
+					},
+				},
+			},
+			domainsMon:            &dummyStatsCapNoData,
+			wantErr:               true,
+			wantPlan:              nil,
+			wantDedicatedCCDCapMB: 12345, // expecting no change
+		},
+		{
+			name: "no mb usage, no change",
+			fields: fields{
+				ccdMinMB: 2000,
+				ccdMaxMB: 60000,
+				inner:    mockInnerCapNoUsage,
+				groupStates: map[string]*groupPCtrlState{
+					"dedicated": {
+						pCtrl: pController{
+							kp:     0.1,
+							target: 24000,
+						},
+						ccdCapMB: 21312,
+					},
+				},
+			},
+			domainsMon:            &dummyStatsCapNoUsage,
+			wantErr:               false,
+			wantPlan:              &dummyPlanCapNoUsage, // expecting no change
+			wantDedicatedCCDCapMB: 21312,                // expecting no change
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pCtrl := pControllerAdvisor{
+				ccdMinMB:    tt.fields.ccdMinMB,
+				ccdMaxMB:    tt.fields.ccdMaxMB,
+				inner:       tt.fields.inner,
+				groupStates: tt.fields.groupStates,
+			}
+
+			gotPlan, err := pCtrl.GetPlan(context.TODO(), tt.domainsMon)
+
+			mock.AssertExpectationsForObjects(t, pCtrl.inner)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("pControllerAdvisor.GetPlan() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			t.Logf("result plan = %v", gotPlan)
+			assert.Equal(t, tt.wantPlan, gotPlan)
+			assert.Equal(t, tt.wantDedicatedCCDCapMB, pCtrl.groupStates["dedicated"].ccdCapMB, "new cap should be")
+		})
+	}
 }

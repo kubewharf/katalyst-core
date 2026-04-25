@@ -104,6 +104,7 @@ func applyGroupCCDBoundsChecks(ccdMBs plan.GroupCCDPlan, lower, upper int) {
 }
 
 func clampMB(value, min, max int) int {
+	// caller ensures min <= max
 	if min > 0 && value < min {
 		return min
 	}
