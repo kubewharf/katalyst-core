@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -210,7 +211,10 @@ type IndicatorValue struct {
 }
 
 // IndicatorCurrentGetter get pod indicator current value by podUID
-type IndicatorCurrentGetter func() (float64, error)
+type (
+	IndicatorCurrentGetter func() (float64, error)
+	IndicatorTargetGetter  func(workloadv1alpha1.ServiceSystemIndicatorName, float64) float64
+)
 
 // FirstOrderPIDParams holds parameters for pid controller in rama policy
 type FirstOrderPIDParams struct {

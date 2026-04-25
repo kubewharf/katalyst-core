@@ -20,7 +20,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -199,63 +198,4 @@ func TestIsNumaBinding(t *testing.T) {
 	}
 	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, isolation2.IsNumaBinding(), "test IsNumaBinding failed")
-}
-
-func TestRestrictProvisionControlKnob(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name              string
-		originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob
-		wantControlKnob   map[types.CPUProvisionPolicyName]types.ControlKnob
-	}{
-		{
-			name:              "no restriction",
-			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 8}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
-			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 8}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
-		},
-		{
-			name:              "restricted by p2",
-			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 16}}, "p2": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 10}}},
-			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 10}}, "p2": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 10}}},
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			conf, err := options.NewOptions().Config()
-			require.NoError(t, err)
-			require.NotNil(t, conf)
-
-			stateFileDir := "stateFileDir" + uuid.New().String()
-			checkpointDir := "checkpointDir" + uuid.New().String()
-
-			conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
-			conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-			conf.RestrictRefPolicy = map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName{"p1": "p2"}
-
-			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
-			require.NoError(t, err)
-
-			metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-			require.NoError(t, err)
-			defer func() {
-				os.RemoveAll(stateFileDir)
-				os.RemoveAll(checkpointDir)
-			}()
-
-			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
-			require.NoError(t, err)
-			ci := types.ContainerInfo{
-				QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
-				RegionNames: sets.NewString("share"),
-			}
-			share := NewQoSRegionShare(&ci, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
-			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
-			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
-		})
-	}
 }

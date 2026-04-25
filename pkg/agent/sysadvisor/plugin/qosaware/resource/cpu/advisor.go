@@ -38,7 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/isolation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provision"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -67,10 +67,10 @@ const (
 var errIsolationSafetyCheckFailed = fmt.Errorf("isolation safety check failed")
 
 func init() {
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyNone, provisionpolicy.NewPolicyNone)
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyDynamicQuota, provisionpolicy.NewPolicyDynamicQuota)
+	provision.RegisterInitializer(types.CPUProvisionPolicyNone, provision.NewPolicyNone)
+	provision.RegisterInitializer(types.CPUProvisionPolicyCanonical, provision.NewPolicyCanonical)
+	provision.RegisterInitializer(types.CPUProvisionPolicyRama, provision.NewPolicyRama)
+	provision.RegisterInitializer(types.CPUProvisionPolicyDynamicQuota, provision.NewPolicyDynamicQuota)
 
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyNone, headroompolicy.NewPolicyNone)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
@@ -527,9 +527,11 @@ func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.Conta
 	return regions, nil
 }
 
-// gcRegionMap deletes empty regions in region map
+// gcRegionMap deletes empty regions and adds dummy regions if needed
 func (cra *cpuResourceAdvisor) gcRegionMap() {
+	// cra.numaAvailable
 	for regionName, r := range cra.regionMap {
+		general.InfoS("region info", "name", regionName, "bindingNumas", r.GetBindingNumas().String())
 		if r.IsEmpty() {
 			delete(cra.regionMap, regionName)
 			klog.Infof("[qosaware-cpu] delete region %v", regionName)
@@ -561,16 +563,28 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 		cra.numRegionsPerNuma[numaID] = 0
 	}
 
+	emptyNUMAs := cra.metaServer.CPUDetails.NUMANodes()
+
 	for _, r := range cra.regionMap {
 		// set binding numas for non numa binding regions
 		if !r.IsNumaBinding() && r.Type() == configapi.QoSRegionTypeShare {
 			r.SetBindingNumas(cra.nonBindingNumas)
 		}
 
+		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
+
 		// accumulate region quantity for each numa
 		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
 			cra.numRegionsPerNuma[numaID] += 1
 		}
+	}
+
+	general.InfoS("empty NUMAs", "numAs", emptyNUMAs.String())
+
+	for _, numaID := range emptyNUMAs.ToSliceInt() {
+		// only populate NUMA binding dummy regions
+		r := region.NewQoSRegionDummy(nil, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter)
+		cra.regionMap[r.Name()] = r
 	}
 }
 

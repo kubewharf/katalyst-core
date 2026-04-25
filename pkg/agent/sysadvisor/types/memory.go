@@ -41,6 +41,7 @@ const (
 	MemoryHeadroomPolicyNone      MemoryHeadroomPolicyName = "none"
 	MemoryHeadroomPolicyCanonical MemoryHeadroomPolicyName = "canonical"
 	MemoryHeadroomPolicyNUMAAware MemoryHeadroomPolicyName = "numa-aware"
+	MemoryHeadroomPolicyNUMAUsed  MemoryHeadroomPolicyName = "numa-used"
 
 	MemoryProvisionPolicyNone      MemoryProvisionPolicyName = "none"
 	MemoryProvisionPolicyCanonical MemoryProvisionPolicyName = "canonical"

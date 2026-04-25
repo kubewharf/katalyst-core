@@ -40,7 +40,9 @@ type CPUAdvisorConfiguration struct {
 // NewCPUAdvisorConfiguration creates new cpu advisor configurations
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
-		ProvisionPolicies:               map[v1alpha1.QoSRegionType][]types.CPUProvisionPolicyName{},
+		ProvisionPolicies: map[v1alpha1.QoSRegionType][]types.CPUProvisionPolicyName{
+			"dummy": {types.CPUProvisionPolicyDynamicQuota},
+		},
 		HeadroomPolicies:                map[v1alpha1.QoSRegionType][]types.CPUHeadroomPolicyName{},
 		ProvisionAssembler:              types.CPUProvisionAssemblerCommon,
 		HeadroomAssembler:               types.CPUHeadroomAssemblerCommon,

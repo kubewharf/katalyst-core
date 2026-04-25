@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	"context"
@@ -41,20 +41,25 @@ type PolicyCanonical struct {
 func NewPolicyCanonical(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
-) ProvisionPolicy {
+) Policy {
 	p := &PolicyCanonical{
-		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		PolicyBase: NewPolicyBase(types.CPUProvisionPolicyCanonical, regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 	}
 	return p
 }
 
-func (p *PolicyCanonical) Update() error {
+func (p *PolicyCanonical) Update(ctx PolicyContext) (err error) {
+	defer func() {
+		if err != nil {
+			p.controlKnobAdjusted = nil
+		}
+	}()
 	// sanity check
-	if err := p.sanityCheck(); err != nil {
+	if err = p.sanityCheck(ctx); err != nil {
 		return err
 	}
 
-	cpuEstimation, err := p.estimateCPUUsage()
+	cpuEstimation, err := p.estimateCPUUsage(ctx)
 	if err != nil {
 		return err
 	}
@@ -68,18 +73,18 @@ func (p *PolicyCanonical) Update() error {
 	return nil
 }
 
-func (p *PolicyCanonical) sanityCheck() error {
+func (p *PolicyCanonical) sanityCheck(ctx PolicyContext) error {
 	var (
 		isLegal bool
 		errList []error
 	)
 
 	isLegal = true
-	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
+	if ctx.ControlKnobs == nil || len(ctx.ControlKnobs) <= 0 {
 		isLegal = false
 	} else {
-		v1, ok1 := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
-		v2, ok2 := p.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]
+		v1, ok1 := ctx.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
+		v2, ok2 := ctx.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]
 
 		if !ok1 && !ok2 {
 			isLegal = false
@@ -90,18 +95,18 @@ func (p *PolicyCanonical) sanityCheck() error {
 		}
 	}
 	if !isLegal {
-		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
+		errList = append(errList, fmt.Errorf("illegal control knob %v", ctx.ControlKnobs))
 	}
 
 	return errors.NewAggregate(errList)
 }
 
-func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
+func (p *PolicyCanonical) estimateCPUUsage(ctx PolicyContext) (float64, error) {
 	cpuEstimation := 0.0
 	containerCnt := 0
 
-	for podUID, containerSet := range p.podSet {
-		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.EnableReclaim)
+	for podUID, containerSet := range ctx.PodSet {
+		enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, ctx.EnableReclaim)
 		if err != nil {
 			return 0, err
 		}
@@ -132,9 +137,9 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
 			// so we split cpu usage evenly across the binding numas of container.
-			if p.bindingNumas.Size() > 0 {
+			if ctx.CpusetMems.Size() > 0 {
 				cpuSize := 0
-				for _, numaID := range p.bindingNumas.ToSliceInt() {
+				for _, numaID := range ctx.CpusetMems.ToSliceInt() {
 					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 				}
 				cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)

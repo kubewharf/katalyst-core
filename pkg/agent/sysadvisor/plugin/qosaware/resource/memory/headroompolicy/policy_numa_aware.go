@@ -42,7 +42,6 @@ type PolicyNUMAAware struct {
 	// memoryHeadroom is valid to be used iff updateStatus successes
 	memoryHeadroom     resource.Quantity
 	numaMemoryHeadroom map[int]resource.Quantity
-	updateStatus       types.PolicyUpdateStatus
 
 	conf *config.Configuration
 
@@ -55,7 +54,6 @@ func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader me
 	p := PolicyNUMAAware{
 		PolicyBase:         NewPolicyBase(metaReader, metaServer),
 		numaMemoryHeadroom: make(map[int]resource.Quantity),
-		updateStatus:       types.PolicyUpdateFailed,
 		conf:               conf,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
@@ -70,11 +68,7 @@ func (p *PolicyNUMAAware) Name() types.MemoryHeadroomPolicyName {
 
 func (p *PolicyNUMAAware) Update() (err error) {
 	defer func() {
-		if err != nil {
-			p.updateStatus = types.PolicyUpdateFailed
-		} else {
-			p.updateStatus = types.PolicyUpdateSucceeded
-		}
+		p.UpdateStatus(err)
 	}()
 
 	var (
@@ -251,7 +245,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 }
 
 func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
-	if p.updateStatus != types.PolicyUpdateSucceeded {
+	if !p.IsStatusSucceeded() {
 		return resource.Quantity{}, nil, fmt.Errorf("last update failed")
 	}
 

@@ -37,13 +37,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// DEPRECATED: PolicyCanonical is deprecated, please use PolicyNUMAAware instead.
 type PolicyCanonical struct {
 	*PolicyBase
 
 	// memoryHeadroom is valid to be used iff updateStatus successes
 	memoryHeadroom     float64
 	numaMemoryHeadroom map[int]resource.Quantity
-	updateStatus       types.PolicyUpdateStatus
 
 	conf *config.Configuration
 }
@@ -54,7 +54,6 @@ func NewPolicyCanonical(conf *config.Configuration, _ interface{}, metaReader me
 	p := PolicyCanonical{
 		PolicyBase:         NewPolicyBase(metaReader, metaServer),
 		numaMemoryHeadroom: make(map[int]resource.Quantity),
-		updateStatus:       types.PolicyUpdateFailed,
 		conf:               conf,
 	}
 
@@ -131,11 +130,7 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 
 func (p *PolicyCanonical) Update() (err error) {
 	defer func() {
-		if err != nil {
-			p.updateStatus = types.PolicyUpdateFailed
-		} else {
-			p.updateStatus = types.PolicyUpdateSucceeded
-		}
+		p.UpdateStatus(err)
 	}()
 
 	dynamicConfig := p.conf.GetDynamicConfiguration()
@@ -219,7 +214,7 @@ func (p *PolicyCanonical) Update() (err error) {
 }
 
 func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
-	if p.updateStatus != types.PolicyUpdateSucceeded {
+	if !p.IsStatusSucceeded() {
 		return resource.Quantity{}, nil, fmt.Errorf("last update failed")
 	}
 
