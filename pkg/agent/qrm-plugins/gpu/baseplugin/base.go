@@ -181,13 +181,30 @@ func (p *BasePlugin) InitState() error {
 }
 
 func (p *BasePlugin) PackAllocationResponse(
-	req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo,
-	resourceAllocationAnnotations map[string]string, resourceName string,
+	req *pluginapi.ResourceRequest, allocationInfoMap map[string]*state.AllocationInfo,
+	resourceAllocationAnnotations map[string]string, primaryResourceName string,
+	resourceAllocationEnvs map[string]map[string]string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
-	if allocationInfo == nil {
-		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
+	if len(allocationInfoMap) == 0 {
+		return nil, fmt.Errorf("packAllocationResponse got empty allocationInfoMap")
 	} else if req == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil request")
+	}
+
+	resourceAllocation := make(map[string]*pluginapi.ResourceAllocationInfo)
+	for resourceName, allocationInfo := range allocationInfoMap {
+		resourceAllocation[resourceName] = &pluginapi.ResourceAllocationInfo{
+			IsNodeResource:    true,
+			IsScalarResource:  true, // to avoid re-allocating
+			AllocatedQuantity: allocationInfo.AllocatedAllocation.Quantity,
+			Annotations:       resourceAllocationAnnotations,
+			Envs:              resourceAllocationEnvs[resourceName],
+			ResourceHints: &pluginapi.ListOfTopologyHints{
+				Hints: []*pluginapi.TopologyHint{
+					req.Hint,
+				},
+			},
+		}
 	}
 
 	return &pluginapi.ResourceAllocationResponse{
@@ -199,21 +216,9 @@ func (p *BasePlugin) PackAllocationResponse(
 		ContainerIndex: req.ContainerIndex,
 		PodRole:        req.PodRole,
 		PodType:        req.PodType,
-		ResourceName:   req.ResourceName,
+		ResourceName:   primaryResourceName,
 		AllocationResult: &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				resourceName: {
-					IsNodeResource:    true,
-					IsScalarResource:  true, // to avoid re-allocating
-					AllocatedQuantity: allocationInfo.AllocatedAllocation.Quantity,
-					Annotations:       resourceAllocationAnnotations,
-					ResourceHints: &pluginapi.ListOfTopologyHints{
-						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
-						},
-					},
-				},
-			},
+			ResourceAllocation: resourceAllocation,
 		},
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),

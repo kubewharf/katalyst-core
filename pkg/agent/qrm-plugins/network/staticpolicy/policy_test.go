@@ -48,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+	katalystconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -214,6 +215,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 		netClassIDResourceAllocationAnnotationKey:       testNetClassIDResourceAllocationAnnotationKey,
 		netBandwidthResourceAllocationAnnotationKey:     testNetBandwidthResourceAllocationAnnotationKey,
 		nicAllocationReactor:                            reactor.DummyAllocationReactor{},
+		topologyAllocationAnnotationKey:                 katalystconsts.QRMPodAnnotationTopologyAllocationKey,
 	}
 }
 
@@ -497,11 +499,12 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 5000,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
 							Annotations: map[string]string{
-								testIPv4ResourceAllocationAnnotationKey:             testEth0IPv4,
-								testIPv6ResourceAllocationAnnotationKey:             "",
-								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
-								testNetClassIDResourceAllocationAnnotationKey:       testSharedNetClsId,
-								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+								testIPv4ResourceAllocationAnnotationKey:              testEth0IPv4,
+								testIPv6ResourceAllocationAnnotationKey:              "",
+								testNetInterfaceNameResourceAllocationAnnotationKey:  testEth0Name,
+								testNetClassIDResourceAllocationAnnotationKey:        testSharedNetClsId,
+								testNetBandwidthResourceAllocationAnnotationKey:      "5000",
+								katalystconsts.QRMPodAnnotationTopologyAllocationKey: `{"NIC":{"eth0":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -565,12 +568,13 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 5000,
 							AllocationResult:  machine.NewCPUSet(2, 3).String(),
 							Annotations: map[string]string{
-								testIPv4ResourceAllocationAnnotationKey:             "",
-								testIPv6ResourceAllocationAnnotationKey:             testEth2IPv6,
-								testNetNSPathResourceAllocationAnnotationKey:        testEth2NSAbsolutePath,
-								testNetInterfaceNameResourceAllocationAnnotationKey: testEth2Name,
-								testNetClassIDResourceAllocationAnnotationKey:       testReclaimedNetClsId,
-								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+								testIPv4ResourceAllocationAnnotationKey:              "",
+								testIPv6ResourceAllocationAnnotationKey:              testEth2IPv6,
+								testNetNSPathResourceAllocationAnnotationKey:         testEth2NSAbsolutePath,
+								testNetInterfaceNameResourceAllocationAnnotationKey:  testEth2Name,
+								testNetClassIDResourceAllocationAnnotationKey:        testReclaimedNetClsId,
+								testNetBandwidthResourceAllocationAnnotationKey:      "5000",
+								katalystconsts.QRMPodAnnotationTopologyAllocationKey: `{"NIC":{"ns2-eth2":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -633,11 +637,12 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 5000,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
 							Annotations: map[string]string{
-								testIPv4ResourceAllocationAnnotationKey:             testEth0IPv4,
-								testIPv6ResourceAllocationAnnotationKey:             "",
-								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
-								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
-								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+								testIPv4ResourceAllocationAnnotationKey:              testEth0IPv4,
+								testIPv6ResourceAllocationAnnotationKey:              "",
+								testNetInterfaceNameResourceAllocationAnnotationKey:  testEth0Name,
+								testNetClassIDResourceAllocationAnnotationKey:        fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
+								testNetBandwidthResourceAllocationAnnotationKey:      "5000",
+								katalystconsts.QRMPodAnnotationTopologyAllocationKey: `{"NIC":{"eth0":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -728,11 +733,12 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 20000,
 							AllocationResult:  machine.NewCPUSet(2, 3).String(),
 							Annotations: map[string]string{
-								testIPv4ResourceAllocationAnnotationKey:             testEth2IPv6,
-								testIPv6ResourceAllocationAnnotationKey:             "",
-								testNetInterfaceNameResourceAllocationAnnotationKey: testEth2Name,
-								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
-								testNetBandwidthResourceAllocationAnnotationKey:     "20000",
+								testIPv4ResourceAllocationAnnotationKey:              testEth2IPv6,
+								testIPv6ResourceAllocationAnnotationKey:              "",
+								testNetInterfaceNameResourceAllocationAnnotationKey:  testEth2Name,
+								testNetClassIDResourceAllocationAnnotationKey:        fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
+								testNetBandwidthResourceAllocationAnnotationKey:      "20000",
+								katalystconsts.QRMPodAnnotationTopologyAllocationKey: `{"NIC":{"ns2-eth2":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{

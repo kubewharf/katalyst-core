@@ -122,10 +122,11 @@ func TestPolicyCanonical(t *testing.T) {
 	now := time.Now()
 
 	type fields struct {
-		podList       []*v1.Pod
-		containers    []*types.ContainerInfo
-		essentials    types.ResourceEssentials
-		setFakeMetric func(store *metric.FakeMetricsFetcher)
+		podList         []*v1.Pod
+		containers      []*types.ContainerInfo
+		essentials      types.ResourceEssentials
+		setFakeMetric   func(store *metric.FakeMetricsFetcher)
+		staticHugePages machine.MemoryDetails
 	}
 
 	tests := []struct {
@@ -397,6 +398,34 @@ func TestPolicyCanonical(t *testing.T) {
 				1: 0,
 			},
 		},
+		{
+			name: "normal: with large static huge pages causing clamp",
+			fields: fields{
+				podList:    []*v1.Pod{},
+				containers: []*types.ContainerInfo{},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       true,
+					ResourceUpperBound:  100 << 30,
+					ReservedForAllocate: 0,
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 0, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 80 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 80 << 30, Time: &now})
+				},
+				staticHugePages: machine.MemoryDetails{
+					0: 60 << 30,
+					1: 0,
+				},
+			},
+			wantErr: false,
+			want: machine.MemoryDetails{
+				0: 40 << 30,
+				1: 80 << 30,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -425,6 +454,7 @@ func TestPolicyCanonical(t *testing.T) {
 			}
 
 			metaServer := generateTestMetaServer(t, tt.fields.podList, metricsFetcher)
+			metaServer.StaticHugePagesDetails = tt.fields.staticHugePages
 
 			p := NewPolicyCanonical(conf, nil, metaCache, metaServer, metrics.DummyMetrics{})
 

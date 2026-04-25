@@ -1257,6 +1257,7 @@ func TestRNBMemoryVPA(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1360,6 +1361,7 @@ func TestRNBMemoryVPA(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1496,6 +1498,9 @@ func TestRNBMemoryVPA(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{},"1":{}}}`,
+							},
 						},
 					},
 				},
@@ -1564,8 +1569,8 @@ func TestRNBMemoryVPA(t *testing.T) {
 
 			if tc.PodEntries != nil {
 				podResourceEntries := map[v1.ResourceName]state.PodEntries{v1.ResourceMemory: tc.PodEntries}
-				machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, nil,
-					dynamicPolicy.state.GetReservedMemory())
+				machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, nil, podResourceEntries, nil,
+					dynamicPolicy.state.GetReservedMemory(), nil)
 				as.Nil(err)
 
 				dynamicPolicy.state.SetMachineState(machineState, true)

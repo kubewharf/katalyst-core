@@ -261,7 +261,8 @@ func (ra *RealtimeOvercommitmentAdvisor) syncAllocatableCPU(reserved resource.Qu
 }
 
 func (ra *RealtimeOvercommitmentAdvisor) syncAllocatableMemory(reserved resource.Quantity) {
-	capacity := resource.NewQuantity(int64(ra.metaServer.MemoryCapacity), resource.BinarySI)
+	// Use NormalMemoryCapacity which excludes static hugepages for accurate allocatable memory calculation
+	capacity := resource.NewQuantity(int64(ra.metaServer.NormalMemoryCapacity), resource.BinarySI)
 
 	capacity.Sub(reserved)
 

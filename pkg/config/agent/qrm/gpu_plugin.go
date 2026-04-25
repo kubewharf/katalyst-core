@@ -31,11 +31,29 @@ type GPUQRMPluginConfig struct {
 	RDMADeviceNames []string
 	// GPUMemoryAllocatablePerGPU is the total memory allocatable for each GPU
 	GPUMemoryAllocatablePerGPU resource.Quantity
+	// MilliGPUAllocatablePerGPU is the total milliGPU allocatable for each GPU
+	MilliGPUAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
 	// RequiredDeviceAffinity specifies whether it is required for pods to follow device affinity strictly.
 	// If true, pods will fail to admit if they are not able to satisfy device affinity constraints. Set to true by default.
 	RequiredDeviceAffinity bool
+	// FractionalGPUPrefersSpreading whether fractional GPU (such as gpu memory) prefers spreading across devices
+	FractionalGPUPrefersSpreading bool
+	// VMemWeightEnvKey is the environment variable key for GPU memory weight
+	VMemWeightEnvKey string
+	// MilliGPUComputeWeightEnvKey is the environment variable key for MilliGPU compute weight
+	MilliGPUComputeWeightEnvKey string
+	// MilliGPUTimesliceEnvKey is the environment variable key for MilliGPU timeslice
+	MilliGPUTimesliceEnvKey string
+	// MilliGPUComputePolicyEnvKey is the environment variable key for MilliGPU compute policy
+	MilliGPUComputePolicyEnvKey string
+	// GPUSelectionResultKey is the annotation key for GPU selection result
+	GPUSelectionResultKey string
+	// MilliGPUTimesliceEnvValue is the environment variable value for MilliGPU timeslice
+	MilliGPUTimesliceEnvValue int
+	// MilliGPUComputePolicyEnvValue is the environment variable value for MilliGPU compute policy
+	MilliGPUComputePolicyEnvValue int
 
 	*gpustrategy.GPUStrategyConfig
 }
