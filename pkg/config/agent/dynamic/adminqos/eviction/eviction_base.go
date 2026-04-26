@@ -18,6 +18,15 @@ package eviction
 
 import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
+// Fake metrics are not fetched from meta-server
+const (
+	FakeMetricQoSLevel = "qos.pod"
+	FakeMetricPriority = "priority.pod"
+)
+
+// DefaultEvictionRankingMetrics is the default ranking metrics for eviction
+var DefaultEvictionRankingMetrics = []string{FakeMetricQoSLevel, FakeMetricPriority}
+
 type EvictionConfiguration struct {
 	// Dryrun plugins is the list of plugins to dryrun
 	// '*' means "all dryrun by default"
@@ -30,17 +39,19 @@ type EvictionConfiguration struct {
 	*RootfsPressureEvictionConfiguration
 	*ReclaimedResourcesEvictionConfiguration
 	*SystemLoadEvictionPluginConfiguration
+	*CPUSystemPressureEvictionPluginConfiguration
 	*NetworkEvictionConfiguration
 }
 
 func NewEvictionConfiguration() *EvictionConfiguration {
 	return &EvictionConfiguration{
-		CPUPressureEvictionConfiguration:        NewCPUPressureEvictionConfiguration(),
-		MemoryPressureEvictionConfiguration:     NewMemoryPressureEvictionPluginConfiguration(),
-		RootfsPressureEvictionConfiguration:     NewRootfsPressureEvictionPluginConfiguration(),
-		ReclaimedResourcesEvictionConfiguration: NewReclaimedResourcesEvictionConfiguration(),
-		SystemLoadEvictionPluginConfiguration:   NewSystemLoadEvictionPluginConfiguration(),
-		NetworkEvictionConfiguration:            NewNetworkEvictionConfiguration(),
+		CPUPressureEvictionConfiguration:             NewCPUPressureEvictionConfiguration(),
+		MemoryPressureEvictionConfiguration:          NewMemoryPressureEvictionPluginConfiguration(),
+		RootfsPressureEvictionConfiguration:          NewRootfsPressureEvictionPluginConfiguration(),
+		ReclaimedResourcesEvictionConfiguration:      NewReclaimedResourcesEvictionConfiguration(),
+		SystemLoadEvictionPluginConfiguration:        NewSystemLoadEvictionPluginConfiguration(),
+		CPUSystemPressureEvictionPluginConfiguration: NewCPUSystemPressureEvictionPluginConfiguration(),
+		NetworkEvictionConfiguration:                 NewNetworkEvictionConfiguration(),
 	}
 }
 
@@ -55,5 +66,6 @@ func (c *EvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.RootfsPressureEvictionConfiguration.ApplyTo(conf)
 	c.ReclaimedResourcesEvictionConfiguration.ApplyConfiguration(conf)
 	c.SystemLoadEvictionPluginConfiguration.ApplyConfiguration(conf)
+	c.CPUSystemPressureEvictionPluginConfiguration.ApplyConfiguration(conf)
 	c.NetworkEvictionConfiguration.ApplyConfiguration(conf)
 }

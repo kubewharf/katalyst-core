@@ -21,12 +21,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
-// Fake metrics are not fetched from meta-server
-const (
-	FakeMetricQoSLevel = "qos.pod"
-	FakeMetricPriority = "priority.pod"
-)
-
 const (
 	// DefaultEnableNumaLevelEviction is the default value of whether enable numa-level eviction
 	DefaultEnableNumaLevelEviction = true
@@ -61,12 +55,10 @@ const (
 )
 
 var (
-	// FakeEvictionRankingMetrics is fake metrics to rank pods
-	FakeEvictionRankingMetrics = []string{FakeMetricQoSLevel, FakeMetricPriority}
 	// DefaultNumaEvictionRankingMetrics is the default metrics used to rank pods for eviction at the NUMA level
-	DefaultNumaEvictionRankingMetrics = append(FakeEvictionRankingMetrics, consts.MetricsMemTotalPerNumaContainer)
+	DefaultNumaEvictionRankingMetrics = append(DefaultEvictionRankingMetrics, consts.MetricsMemTotalPerNumaContainer)
 	// DefaultSystemEvictionRankingMetrics is the default metrics used to rank pods for eviction at the system level
-	DefaultSystemEvictionRankingMetrics = append(FakeEvictionRankingMetrics, consts.MetricMemUsageContainer)
+	DefaultSystemEvictionRankingMetrics = append(DefaultEvictionRankingMetrics, consts.MetricMemUsageContainer)
 )
 
 type MemoryPressureEvictionConfiguration struct {

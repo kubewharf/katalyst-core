@@ -31,6 +31,7 @@ type EvictionOptions struct {
 	*CPUPressureEvictionOptions
 	*MemoryPressureEvictionOptions
 	*ReclaimedResourcesEvictionOptions
+	*CPUSystemPressureEvictionOptions
 	*SystemLoadPressureEvictionOptions
 	*RootfsPressureEvictionOptions
 	*NetworkEvictionOptions
@@ -41,6 +42,7 @@ func NewEvictionOptions() *EvictionOptions {
 		CPUPressureEvictionOptions:        NewCPUPressureEvictionOptions(),
 		MemoryPressureEvictionOptions:     NewMemoryPressureEvictionOptions(),
 		ReclaimedResourcesEvictionOptions: NewReclaimedResourcesEvictionOptions(),
+		CPUSystemPressureEvictionOptions:  NewCPUSystemPressureEvictionOptions(),
 		SystemLoadPressureEvictionOptions: NewSystemLoadPressureEvictionOptions(),
 		RootfsPressureEvictionOptions:     NewRootfsPressureEvictionOptions(),
 		NetworkEvictionOptions:            NewNetworkEvictionOptions(),
@@ -55,6 +57,7 @@ func (o *EvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.CPUPressureEvictionOptions.AddFlags(fss)
 	o.MemoryPressureEvictionOptions.AddFlags(fss)
 	o.ReclaimedResourcesEvictionOptions.AddFlags(fss)
+	o.CPUSystemPressureEvictionOptions.AddFlags(fss)
 	o.SystemLoadPressureEvictionOptions.AddFlags(fss)
 	o.RootfsPressureEvictionOptions.AddFlags(fss)
 	o.NetworkEvictionOptions.AddFlags(fss)
@@ -66,6 +69,7 @@ func (o *EvictionOptions) ApplyTo(c *eviction.EvictionConfiguration) error {
 	errList = append(errList, o.CPUPressureEvictionOptions.ApplyTo(c.CPUPressureEvictionConfiguration))
 	errList = append(errList, o.MemoryPressureEvictionOptions.ApplyTo(c.MemoryPressureEvictionConfiguration))
 	errList = append(errList, o.ReclaimedResourcesEvictionOptions.ApplyTo(c.ReclaimedResourcesEvictionConfiguration))
+	errList = append(errList, o.CPUSystemPressureEvictionOptions.ApplyTo(c.CPUSystemPressureEvictionPluginConfiguration))
 	errList = append(errList, o.SystemLoadPressureEvictionOptions.ApplyTo(c.SystemLoadEvictionPluginConfiguration))
 	errList = append(errList, o.RootfsPressureEvictionOptions.ApplyTo(c.RootfsPressureEvictionConfiguration))
 	errList = append(errList, o.NetworkEvictionOptions.ApplyTo(c.NetworkEvictionConfiguration))
