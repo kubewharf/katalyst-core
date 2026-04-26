@@ -28,6 +28,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -110,6 +111,7 @@ type gpuReporterPlugin struct {
 
 	reportNotifyCh    chan struct{}
 	lastReportContent *v1alpha1.GetReportContentResponse
+	checkpointManager checkpointmanager.CheckpointManager
 }
 
 var (
@@ -120,6 +122,11 @@ var (
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
+	if err != nil {
+		klog.Warningf("[gpu-reporter] new checkpoint manager failed: %v", err)
+	}
+
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
@@ -129,6 +136,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		deviceTypeToNames:      deviceTypeToNames,
 		reportNotifyCh:         make(chan struct{}, 1),
 		metaServer:             metaServer,
+		checkpointManager:      checkpointManager,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -457,7 +465,9 @@ func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationReso
 	return zoneAllocations, nil
 }
 
-// addStateAllocations adds allocations from machine state to idToAllocations
+// addStateAllocations merges the allocations stored in the local machine state
+// (Katalyst's QRM state) into the target idToAllocations map. This map acts as
+// an intermediate state mapping device IDs to their corresponding pod allocations.
 func (p *gpuReporterPlugin) addStateAllocations(idToAllocations map[string]util.ZoneAllocations, machineState state.AllocationResourcesMap) {
 	for resourceName, allocMap := range machineState {
 		for id, allocState := range allocMap {
@@ -492,10 +502,16 @@ func (p *gpuReporterPlugin) addStateAllocations(idToAllocations map[string]util.
 	}
 }
 
-// addKubeletCheckpointAllocations adds allocations from kubelet device manager checkpoint to idToAllocations.
-// We add this check in case some devices are already allocated to pods, but these pods are not in state.
+// addKubeletCheckpointAllocations retrieves and merges allocations from the kubelet device manager checkpoint
+// into the target idToAllocations map. This prevents reporting inconsistencies where a device is already
+// allocated to a pod by kubelet, but the local QRM state has not yet fully synced or recorded the allocation.
 func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[string]util.ZoneAllocations) error {
-	checkpointData, err := native.GetKubeletCheckpoint()
+	if p.checkpointManager == nil {
+		general.Warningf("kubelet checkpoint manager is nil")
+		return nil
+	}
+
+	checkpointData, err := native.GetKubeletCheckpoint(p.checkpointManager)
 	if err != nil {
 		general.Warningf("failed to get kubelet checkpoint: %v", err)
 		return nil
@@ -568,7 +584,8 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 	return utilerrors.NewAggregate(errList)
 }
 
-// hasExistingPodAllocation checks if there's already an allocation for the given pod UID
+// hasExistingPodAllocation verifies whether a specific pod UID already exists in the given allocations.
+// This is used to deduplicate allocations when merging states from both Katalyst QRM and the Kubelet checkpoint.
 func hasExistingPodAllocation(allocations util.ZoneAllocations, podUID string) bool {
 	for _, existingAlloc := range allocations {
 		_, _, existingUID, err := native.ParseNamespaceNameUIDKey(existingAlloc.Consumer)
