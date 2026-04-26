@@ -219,7 +219,7 @@ func (o *resourcePackageHintOptimizer) updateResourcePackageMap() {
 	// Get resource package information from meta server
 	resourcePackageMap, err := o.metaServer.NodeResourcePackages(context.Background())
 	if err != nil {
-		general.Errorf("NodeResourcePackages failed with error: %v", err)
+		general.Warningf("NodeResourcePackages failed with error: %v", err)
 		return
 	}
 
