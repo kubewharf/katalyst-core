@@ -28,6 +28,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -96,10 +97,11 @@ func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
 // gpuReporterPlugin is the plugin that reports gpu device topology information
 type gpuReporterPlugin struct {
 	sync.RWMutex
-	started bool
-	ctx     context.Context
-	cancel  context.CancelFunc
-	emitter metrics.MetricEmitter
+	started    bool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	emitter    metrics.MetricEmitter
+	metaServer *metaserver.MetaServer
 
 	gpuDeviceNames         []string
 	numaSocketZoneNodeMap  map[util.ZoneNode]util.ZoneNode
@@ -109,6 +111,7 @@ type gpuReporterPlugin struct {
 
 	reportNotifyCh    chan struct{}
 	lastReportContent *v1alpha1.GetReportContentResponse
+	checkpointManager checkpointmanager.CheckpointManager
 }
 
 var (
@@ -119,6 +122,11 @@ var (
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
+	if err != nil {
+		klog.Warningf("[gpu-reporter] new checkpoint manager failed: %v", err)
+	}
+
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
@@ -127,6 +135,8 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		stateGetter:            stateGetter,
 		deviceTypeToNames:      deviceTypeToNames,
 		reportNotifyCh:         make(chan struct{}, 1),
+		metaServer:             metaServer,
+		checkpointManager:      checkpointManager,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -273,7 +283,10 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]
 		return nil, fmt.Errorf("no zone resources found for device topology")
 	}
 
-	zoneAllocations := p.getZoneAllocations(machineState)
+	zoneAllocations, err := p.getZoneAllocations(machineState)
+	if err != nil {
+		return nil, err
+	}
 
 	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources,
 		zoneAttributes, nil, nil, nil)
@@ -430,10 +443,32 @@ func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.D
 }
 
 // getZoneAllocations returns the map of gpu zone nodes to their pod allocations
-func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationResourcesMap) map[util.ZoneNode]util.ZoneAllocations {
+func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationResourcesMap) (map[util.ZoneNode]util.ZoneAllocations, error) {
 	// First construct map of device id to allocations
 	idToAllocations := make(map[string]util.ZoneAllocations)
 
+	// Add allocations from machine state
+	p.addStateAllocations(idToAllocations, machineState)
+
+	// Add allocations from kubelet device manager checkpoint
+	if err := p.addKubeletCheckpointAllocations(idToAllocations); err != nil {
+		return nil, err
+	}
+
+	// Then construct the final zone allocations from the map of device id to allocations
+	zoneAllocations := make(map[util.ZoneNode]util.ZoneAllocations)
+	for id, allocations := range idToAllocations {
+		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
+		zoneAllocations[zoneNode] = allocations
+	}
+
+	return zoneAllocations, nil
+}
+
+// addStateAllocations merges the allocations stored in the local machine state
+// (Katalyst's QRM state) into the target idToAllocations map. This map acts as
+// an intermediate state mapping device IDs to their corresponding pod allocations.
+func (p *gpuReporterPlugin) addStateAllocations(idToAllocations map[string]util.ZoneAllocations, machineState state.AllocationResourcesMap) {
 	for resourceName, allocMap := range machineState {
 		for id, allocState := range allocMap {
 			if _, ok := idToAllocations[id]; !ok {
@@ -465,15 +500,66 @@ func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationReso
 			}
 		}
 	}
+}
 
-	// Then construct the final zone allocations from the map of device id to allocations
-	zoneAllocations := make(map[util.ZoneNode]util.ZoneAllocations)
-	for id, allocations := range idToAllocations {
-		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
-		zoneAllocations[zoneNode] = allocations
+// addKubeletCheckpointAllocations retrieves and merges allocations from the kubelet device manager checkpoint
+// into the target idToAllocations map. This prevents reporting inconsistencies where a device is already
+// allocated to a pod by kubelet, but the local QRM state has not yet fully synced or recorded the allocation.
+func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[string]util.ZoneAllocations) error {
+	if p.checkpointManager == nil {
+		general.Warningf("kubelet checkpoint manager is nil")
+		return nil
 	}
 
-	return zoneAllocations
+	checkpointData, err := native.GetKubeletCheckpoint(p.checkpointManager)
+	if err != nil {
+		general.Warningf("failed to get kubelet checkpoint: %v", err)
+		return nil
+	}
+
+	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
+
+	for _, entry := range podDeviceEntries {
+		resourceName := v1.ResourceName(entry.ResourceName)
+
+		// Iterate through all devices per NUMA node
+		for numaNode, deviceIDs := range entry.DeviceIDs {
+			for _, deviceID := range deviceIDs {
+				if _, ok := idToAllocations[deviceID]; !ok {
+					idToAllocations[deviceID] = make(util.ZoneAllocations, 0)
+				}
+
+				// Check if there's already an allocation for this pod UID
+				if hasExistingPodAllocation(idToAllocations[deviceID], entry.PodUID) {
+					continue
+				}
+
+				// Create resource list - quantity is 1 since each device entry represents one device
+				gpuResourceList := make(v1.ResourceList)
+				gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
+
+				// Find the pod from the metaserver to get its namespace and name
+				pod, err := p.metaServer.GetPod(p.ctx, entry.PodUID)
+				if err != nil {
+					general.Errorf("failed to get pod %s/%s: %v", entry.PodUID, entry.PodUID, err)
+					return fmt.Errorf("failed to get pod %s/%s: %w", entry.PodUID, entry.PodUID, err)
+				}
+
+				// Generate consumer key using namespace, name and podUID
+				consumer := native.GenerateNamespaceNameUIDKey(pod.Namespace, pod.Name, entry.PodUID)
+
+				idToAllocations[deviceID] = append(idToAllocations[deviceID], &nodev1alpha1.Allocation{
+					Consumer: consumer,
+					Requests: &gpuResourceList,
+				})
+
+				general.Infof("added allocation from checkpoint: pod=%s, container=%s, device=%s, numa=%d",
+					entry.PodUID, entry.ContainerName, deviceID, numaNode)
+			}
+		}
+	}
+
+	return nil
 }
 
 // addGPUZoneNodes adds the gpu zone nodes to the topology zone generator
@@ -496,6 +582,18 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 	}
 
 	return utilerrors.NewAggregate(errList)
+}
+
+// hasExistingPodAllocation verifies whether a specific pod UID already exists in the given allocations.
+// This is used to deduplicate allocations when merging states from both Katalyst QRM and the Kubelet checkpoint.
+func hasExistingPodAllocation(allocations util.ZoneAllocations, podUID string) bool {
+	for _, existingAlloc := range allocations {
+		_, _, existingUID, err := native.ParseNamespaceNameUIDKey(existingAlloc.Consumer)
+		if err == nil && existingUID == podUID {
+			return true
+		}
+	}
+	return false
 }
 
 // ListAndWatchReportContent implements ReporterPluginServer to list and watch report content.

@@ -29,8 +29,11 @@ import (
 	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager/checkpoint"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -40,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -2007,4 +2011,215 @@ func TestListAndWatchReportContent(t *testing.T) {
 	cancel()
 	err = <-errCh
 	assert.NoError(t, err)
+}
+
+func TestHasExistingPodAllocation(t *testing.T) {
+	t.Parallel()
+
+	allocations := util.ZoneAllocations{
+		&nodev1alpha1.Allocation{
+			Consumer: "default/pod1/uid1",
+		},
+		&nodev1alpha1.Allocation{
+			Consumer: "default/pod2/uid2",
+		},
+		&nodev1alpha1.Allocation{
+			Consumer: "invalid-consumer",
+		},
+	}
+
+	tests := []struct {
+		name   string
+		podUID string
+		want   bool
+	}{
+		{
+			name:   "existing pod uid",
+			podUID: "uid1",
+			want:   true,
+		},
+		{
+			name:   "another existing pod uid",
+			podUID: "uid2",
+			want:   true,
+		},
+		{
+			name:   "non-existing pod uid",
+			podUID: "uid3",
+			want:   false,
+		},
+		{
+			name:   "empty pod uid",
+			podUID: "",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := hasExistingPodAllocation(allocations, tt.podUID)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestAddStateAllocations(t *testing.T) {
+	t.Parallel()
+
+	p := &gpuReporterPlugin{}
+	idToAllocations := make(map[string]util.ZoneAllocations)
+
+	machineState := state.AllocationResourcesMap{
+		"gpu": {
+			"gpu-1": {
+				Allocatable: 1,
+				PodEntries: state.PodEntries{
+					"uid1": {
+						"container1": &state.AllocationInfo{
+							AllocationMeta: commonstate.AllocationMeta{
+								PodNamespace: "default",
+								PodName:      "pod1",
+								PodUid:       "uid1",
+							},
+							AllocatedAllocation: state.Allocation{
+								Quantity: 1,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p.addStateAllocations(idToAllocations, machineState)
+
+	assert.Contains(t, idToAllocations, "gpu-1")
+	assert.Len(t, idToAllocations["gpu-1"], 1)
+	assert.Equal(t, "default/pod1/uid1", idToAllocations["gpu-1"][0].Consumer)
+}
+
+func TestAddKubeletCheckpointAllocations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		p                *gpuReporterPlugin
+		expectedEmpty    bool
+		expectedErr      bool
+		expectedID       string
+		expectedLen      int
+		expectedConsumer string
+	}{
+		{
+			name:          "nil checkpoint manager",
+			p:             &gpuReporterPlugin{},
+			expectedEmpty: true,
+			expectedErr:   false,
+		},
+		{
+			name: "get checkpoint fails",
+			p: &gpuReporterPlugin{
+				checkpointManager: &mockCheckpointManager{
+					getErr: fmt.Errorf("mock get error"),
+				},
+			},
+			expectedEmpty: true,
+			expectedErr:   false,
+		},
+		{
+			name: "get checkpoint succeeds",
+			p: &gpuReporterPlugin{
+				checkpointManager: &mockCheckpointManager{
+					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
+						{
+							PodUID:        "test-pod-uid",
+							ContainerName: "test-container",
+							ResourceName:  "test-resource",
+							DeviceIDs: map[int64][]string{
+								0: {"test-device-1"},
+							},
+							AllocResp: []byte(""),
+						},
+					}, make(map[string][]string)),
+				},
+				metaServer: &metaserver.MetaServer{
+					MetaAgent: &metaagent.MetaAgent{
+						PodFetcher: &pod.PodFetcherStub{
+							PodList: []*v1.Pod{
+								{
+									ObjectMeta: metav1.ObjectMeta{
+										Name:      "test-pod",
+										Namespace: "default",
+										UID:       "test-pod-uid",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedEmpty:    false,
+			expectedErr:      false,
+			expectedID:       "test-device-1",
+			expectedLen:      1,
+			expectedConsumer: "default/test-pod/test-pod-uid",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idToAllocations := make(map[string]util.ZoneAllocations)
+			err := tt.p.addKubeletCheckpointAllocations(idToAllocations)
+
+			if tt.expectedErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if tt.expectedEmpty {
+				assert.Empty(t, idToAllocations)
+			} else {
+				assert.NotEmpty(t, idToAllocations)
+				assert.Contains(t, idToAllocations, tt.expectedID)
+				assert.Len(t, idToAllocations[tt.expectedID], tt.expectedLen)
+				assert.Equal(t, tt.expectedConsumer, idToAllocations[tt.expectedID][0].Consumer)
+			}
+		})
+	}
+}
+
+type mockCheckpointManager struct {
+	getErr         error
+	checkpointData checkpoint.DeviceManagerCheckpoint
+}
+
+func (m *mockCheckpointManager) CreateCheckpoint(checkpointKey string, cp checkpointmanager.Checkpoint) error {
+	return nil
+}
+
+func (m *mockCheckpointManager) GetCheckpoint(checkpointKey string, cp checkpointmanager.Checkpoint) error {
+	if m.getErr != nil {
+		return m.getErr
+	}
+
+	if m.checkpointData != nil {
+		bytes, _ := m.checkpointData.MarshalCheckpoint()
+		cp.UnmarshalCheckpoint(bytes)
+	}
+
+	return nil
+}
+
+func (m *mockCheckpointManager) RemoveCheckpoint(checkpointKey string) error {
+	return nil
+}
+
+func (m *mockCheckpointManager) ListCheckpoints() ([]string, error) {
+	return nil, nil
 }
