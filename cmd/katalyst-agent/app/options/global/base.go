@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/klog/v2"
+	"k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
@@ -65,6 +66,7 @@ type BaseOptions struct {
 	KubeletPodsEndpoint      string
 	KubeletSummaryEndpoint   string
 	APIAuthTokenFile         string
+	KubeletDevicePluginPath  string
 
 	// configurations for runtime
 	RuntimeEndpoint string
@@ -95,6 +97,7 @@ func NewBaseOptions() *BaseOptions {
 		KubeletPodsEndpoint:      defaultKubeletPodsEndpoint,
 		KubeletSummaryEndpoint:   defaultKubeletSummaryEndpoint,
 		APIAuthTokenFile:         defaultAPIAuthTokenFile,
+		KubeletDevicePluginPath:  v1beta1.DevicePluginPath,
 
 		RuntimeEndpoint: defaultRemoteRuntimeEndpoint,
 
@@ -143,6 +146,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The URI of kubelet summary endpoint")
 	fs.StringVar(&o.APIAuthTokenFile, "api-auth-token-file", o.APIAuthTokenFile,
 		"The path of the API auth token file")
+	fs.StringVar(&o.KubeletDevicePluginPath, "kubelet-device-plugin-path", o.KubeletDevicePluginPath,
+		"The path of the device plugin directory")
 
 	fs.StringVar(&o.RuntimeEndpoint, "remote-runtime-endpoint", o.RuntimeEndpoint,
 		"The endpoint of remote runtime service")
@@ -195,6 +200,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.KubeletPodsEndpoint = o.KubeletPodsEndpoint
 	c.KubeletSummaryEndpoint = o.KubeletSummaryEndpoint
 	c.APIAuthTokenFile = o.APIAuthTokenFile
+	c.KubeletDevicePluginPath = o.KubeletDevicePluginPath
 
 	c.RuntimeEndpoint = o.RuntimeEndpoint
 	return nil

@@ -30,7 +30,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
-	"k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager/checkpoint"
 )
@@ -205,17 +204,20 @@ func insecureConfig(host, tokenFile string) (*rest.Config, error) {
 	}, nil
 }
 
-func GetKubeletCheckpoint() (checkpoint.DeviceManagerCheckpoint, error) {
-	checkpointManager, err := checkpointmanager.NewCheckpointManager(v1beta1.DevicePluginPath)
-	if err != nil {
-		return nil, errors.Wrap(err, "new checkpoint manager failed")
+// GetKubeletCheckpoint parses the device manager checkpoint file created by kubelet.
+// It retrieves the current device allocation state, which helps external components
+// (like QRM plugins) reconstruct the device assignment mappings for pods,
+// especially during restarts or when the local state is not fully synced.
+func GetKubeletCheckpoint(checkpointManager checkpointmanager.CheckpointManager) (checkpoint.DeviceManagerCheckpoint, error) {
+	if checkpointManager == nil {
+		return nil, fmt.Errorf("checkpoint manager is nil")
 	}
 
 	registeredDevs := make(map[string][]string)
 	devEntries := make([]checkpoint.PodDevicesEntry, 0)
 	cp := checkpoint.New(devEntries, registeredDevs)
 
-	err = checkpointManager.GetCheckpoint(kubeletDeviceManagerCheckpoint, cp)
+	err := checkpointManager.GetCheckpoint(kubeletDeviceManagerCheckpoint, cp)
 	if err != nil {
 		return nil, errors.Wrap(err, "get checkpoint failed")
 	}

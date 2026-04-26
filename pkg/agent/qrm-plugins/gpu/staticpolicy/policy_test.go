@@ -52,6 +52,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	tmpDir := t.TempDir()
 	conf.QRMPluginSocketDirs = []string{tmpDir}
 	conf.CheckpointManagerDir = tmpDir
+	conf.KubeletDevicePluginPath = tmpDir
 	conf.GPUDeviceNames = []string{testResourcePluginName} // Add default device name for tests
 
 	return conf

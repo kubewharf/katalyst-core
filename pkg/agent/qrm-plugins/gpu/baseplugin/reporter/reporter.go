@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -68,7 +68,7 @@ func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaSe
 ) (GPUReporter, error) {
 	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
 	if err != nil {
-		return nil, fmt.Errorf("[gpu-reporter] create reporter failed: %v", err)
+		return nil, fmt.Errorf("create reporter failed: %v", err)
 	}
 
 	return &gpuReporterImpl{GenericPlugin: plugin, plugin: reporter}, nil
@@ -80,13 +80,13 @@ func (r *gpuReporterImpl) Trigger() {
 
 func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
 	if err := r.Start(); err != nil {
-		klog.Fatalf("[gpu reporter] start %v failed with error: %v", r.Name(), err)
+		general.Fatalf("start %v failed with error: %v", r.Name(), err)
 	}
-	klog.Infof("[gpu-reporter] plugin wrapper %v started", r.Name())
+	general.Infof("plugin wrapper %v started", r.Name())
 
 	defer func() {
 		if err := r.Stop(); err != nil {
-			klog.Errorf("[gpu-reporter] stop %v failed with error: %v", r.Name(), err)
+			general.Errorf("stop %v failed with error: %v", r.Name(), err)
 		}
 	}()
 
@@ -110,6 +110,7 @@ type gpuReporterPlugin struct {
 
 	reportNotifyCh    chan struct{}
 	lastReportContent *v1alpha1.GetReportContentResponse
+	checkpointManager checkpointmanager.CheckpointManager
 }
 
 var (
@@ -120,6 +121,11 @@ var (
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("new checkpoint manager failed: %v", err)
+	}
+
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
@@ -129,6 +135,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		deviceTypeToNames:      deviceTypeToNames,
 		reportNotifyCh:         make(chan struct{}, 1),
 		metaServer:             metaServer,
+		checkpointManager:      checkpointManager,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -457,7 +464,9 @@ func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationReso
 	return zoneAllocations, nil
 }
 
-// addStateAllocations adds allocations from machine state to idToAllocations
+// addStateAllocations merges the allocations stored in the local machine state
+// (Katalyst's QRM state) into the target idToAllocations map. This map acts as
+// an intermediate state mapping device IDs to their corresponding pod allocations.
 func (p *gpuReporterPlugin) addStateAllocations(idToAllocations map[string]util.ZoneAllocations, machineState state.AllocationResourcesMap) {
 	for resourceName, allocMap := range machineState {
 		for id, allocState := range allocMap {
@@ -492,13 +501,17 @@ func (p *gpuReporterPlugin) addStateAllocations(idToAllocations map[string]util.
 	}
 }
 
-// addKubeletCheckpointAllocations adds allocations from kubelet device manager checkpoint to idToAllocations.
-// We add this check in case some devices are already allocated to pods, but these pods are not in state.
+// addKubeletCheckpointAllocations retrieves and merges allocations from the kubelet device manager checkpoint
+// into the target idToAllocations map. This prevents reporting inconsistencies where a device is already
+// allocated to a pod by kubelet, but the local QRM state has not yet fully synced or recorded the allocation.
 func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[string]util.ZoneAllocations) error {
-	checkpointData, err := native.GetKubeletCheckpoint()
+	if p.checkpointManager == nil {
+		return fmt.Errorf("kubelet checkpoint manager is nil")
+	}
+
+	checkpointData, err := native.GetKubeletCheckpoint(p.checkpointManager)
 	if err != nil {
-		general.Warningf("failed to get kubelet checkpoint: %v", err)
-		return nil
+		return fmt.Errorf("failed to get kubelet checkpoint: %v", err)
 	}
 
 	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
@@ -568,7 +581,8 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 	return utilerrors.NewAggregate(errList)
 }
 
-// hasExistingPodAllocation checks if there's already an allocation for the given pod UID
+// hasExistingPodAllocation verifies whether a specific pod UID already exists in the given allocations.
+// This is used to deduplicate allocations when merging states from both Katalyst QRM and the Kubelet checkpoint.
 func hasExistingPodAllocation(allocations util.ZoneAllocations, podUID string) bool {
 	for _, existingAlloc := range allocations {
 		_, _, existingUID, err := native.ParseNamespaceNameUIDKey(existingAlloc.Consumer)
