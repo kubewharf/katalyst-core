@@ -27,6 +27,8 @@ import (
 )
 
 // pControllerAdvisor is an advisor which restricts given groups' ccd mb to specified upper bound
+// based on P-Controler (Proportional Controller) of closed-looped automation system to compare output feedback
+// against a target value and adjust inputs in predefined ratio Kp to achieve a desired state
 type pControllerAdvisor struct {
 	ccdMinMB, ccdMaxMB int
 	inner              Advisor
