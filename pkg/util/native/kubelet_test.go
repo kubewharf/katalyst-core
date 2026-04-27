@@ -18,9 +18,11 @@ package native
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 )
 
 func TestGenerateURI(t *testing.T) {
@@ -67,4 +69,49 @@ func TestGetAndUnmarshalForHttps(t *testing.T) {
 
 	err := GetAndUnmarshalForHttps(context.TODO(), port, nodeAddress, endpoint, authTokenFile, &configz)
 	assert.Error(t, err)
+}
+
+type mockCheckpointManager struct {
+	getErr error
+}
+
+func (m *mockCheckpointManager) CreateCheckpoint(checkpointKey string, cp checkpointmanager.Checkpoint) error {
+	return nil
+}
+
+func (m *mockCheckpointManager) GetCheckpoint(checkpointKey string, cp checkpointmanager.Checkpoint) error {
+	if m.getErr != nil {
+		return m.getErr
+	}
+	return nil
+}
+
+func (m *mockCheckpointManager) RemoveCheckpoint(checkpointKey string) error {
+	return nil
+}
+
+func (m *mockCheckpointManager) ListCheckpoints() ([]string, error) {
+	return nil, nil
+}
+
+func TestGetKubeletCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("GetCheckpoint fails", func(t *testing.T) {
+		t.Parallel()
+		mockCM := &mockCheckpointManager{
+			getErr: fmt.Errorf("mock get error"),
+		}
+		_, err := GetKubeletCheckpoint(mockCM)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "get checkpoint failed")
+	})
+
+	t.Run("GetCheckpoint succeeds", func(t *testing.T) {
+		t.Parallel()
+		mockCM := &mockCheckpointManager{}
+		cp, err := GetKubeletCheckpoint(mockCM)
+		assert.NoError(t, err)
+		assert.NotNil(t, cp)
+	})
 }

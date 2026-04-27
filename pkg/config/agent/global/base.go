@@ -71,7 +71,8 @@ type KubeletConfiguration struct {
 	KubeletPodsEndpoint    string
 	KubeletSummaryEndpoint string
 
-	APIAuthTokenFile string
+	APIAuthTokenFile        string
+	KubeletDevicePluginPath string
 }
 
 type RuntimeConfiguration struct {
