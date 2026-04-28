@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	cpmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager/checkpoint"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -1839,6 +1842,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			testConfig.KubeletDevicePluginPath = t.TempDir()
 			testConfig.PluginRegistrationDir = "test"
 			testConfig.GPUDeviceNames = gpuDeviceNames
+			testConfig.EnableKubeletCheckpointFallback = true
 
 			resourceTypeName := v1.ResourceName("test-gpu-resource")
 			deviceIDs := make([]string, 0)
@@ -1912,6 +1916,7 @@ func TestListAndWatchReportContent(t *testing.T) {
 	testConfig := config.NewConfiguration()
 	testConfig.KubeletDevicePluginPath = t.TempDir()
 	testConfig.GPUDeviceNames = []string{"test-gpu"}
+	testConfig.EnableKubeletCheckpointFallback = true
 	deviceTypeToNames := map[string]sets.String{"test-gpu": sets.NewString("test-gpu")}
 
 	topologyRegistry := machine.NewDeviceTopologyRegistry()
@@ -2207,6 +2212,16 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			expectedErr:   true,
 		},
 		{
+			name: "get checkpoint returns not found",
+			p: &gpuReporterPlugin{
+				checkpointManager: &mockCheckpointManager{
+					getErr: cpmerrors.ErrCheckpointNotFound,
+				},
+			},
+			expectedEmpty: true,
+			expectedErr:   false,
+		},
+		{
 			name: "get checkpoint succeeds",
 			p: &gpuReporterPlugin{
 				gpuDeviceNames: []string{"test-resource"},
@@ -2322,4 +2337,94 @@ func (m *mockCheckpointManager) RemoveCheckpoint(checkpointKey string) error {
 
 func (m *mockCheckpointManager) ListCheckpoints() ([]string, error) {
 	return nil, nil
+}
+
+func TestGpuReporterPlugin_StartAndTrigger(t *testing.T) {
+	t.Parallel()
+
+	tempDir, err := os.MkdirTemp("", "kubelet-device-plugin")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	p := &gpuReporterPlugin{
+		kubeletDevicePluginPath:         tempDir,
+		enableKubeletCheckpointFallback: true,
+		reportNotifyCh:                  make(chan struct{}, 1),
+	}
+
+	err = p.Start()
+	assert.NoError(t, err)
+
+	// test idempotency
+	err = p.Start()
+	assert.NoError(t, err)
+
+	// trigger manually
+	p.Trigger()
+	select {
+	case <-p.reportNotifyCh:
+	default:
+		t.Fatal("expected to receive notify")
+	}
+
+	// wait for fsnotify to setup completely
+	time.Sleep(100 * time.Millisecond)
+
+	// trigger via file
+	checkpointFile := filepath.Join(tempDir, native.KubeletDeviceManagerCheckpoint)
+	err = os.WriteFile(checkpointFile, []byte("test"), 0o644)
+	assert.NoError(t, err)
+
+	// wait for file event
+	select {
+	case <-p.reportNotifyCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected to receive notify from file event")
+	}
+
+	// test stop
+	err = p.Stop()
+	assert.NoError(t, err)
+
+	// test stop idempotency
+	err = p.Stop()
+	assert.NoError(t, err)
+}
+
+func TestGpuReporterPlugin_StartEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	p := &gpuReporterPlugin{
+		kubeletDevicePluginPath:         "",
+		enableKubeletCheckpointFallback: true,
+		reportNotifyCh:                  make(chan struct{}, 1),
+	}
+
+	err := p.Start()
+	assert.NoError(t, err)
+
+	err = p.Stop()
+	assert.NoError(t, err)
+}
+
+func TestGpuReporterPlugin_StartDisabledFallback(t *testing.T) {
+	t.Parallel()
+
+	tempDir, err := os.MkdirTemp("", "kubelet-device-plugin-disabled")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	p := &gpuReporterPlugin{
+		kubeletDevicePluginPath:         tempDir,
+		enableKubeletCheckpointFallback: false,
+		reportNotifyCh:                  make(chan struct{}, 1),
+	}
+
+	err = p.Start()
+	assert.NoError(t, err)
+
+	// Since fallback is disabled, no watcher is registered and trigger via file shouldn't work.
+	// But Start/Stop should be successful.
+	err = p.Stop()
+	assert.NoError(t, err)
 }

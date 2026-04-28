@@ -36,8 +36,8 @@ import (
 
 const (
 	defaultTimeout = time.Second * 10
-	// kubeletDeviceManagerCheckpoint is the file name of device plugin checkpoint
-	kubeletDeviceManagerCheckpoint = "kubelet_internal_checkpoint"
+	// KubeletDeviceManagerCheckpoint is the file name of device plugin checkpoint
+	KubeletDeviceManagerCheckpoint = "kubelet_internal_checkpoint"
 )
 
 // MemoryReservation specifies the memory reservation of different types for each NUMA node
@@ -217,7 +217,7 @@ func GetKubeletCheckpoint(checkpointManager checkpointmanager.CheckpointManager)
 	devEntries := make([]checkpoint.PodDevicesEntry, 0)
 	cp := checkpoint.New(devEntries, registeredDevs)
 
-	err := checkpointManager.GetCheckpoint(kubeletDeviceManagerCheckpoint, cp)
+	err := checkpointManager.GetCheckpoint(KubeletDeviceManagerCheckpoint, cp)
 	if err != nil {
 		return nil, errors.Wrap(err, "get checkpoint failed")
 	}

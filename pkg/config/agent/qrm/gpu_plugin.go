@@ -36,6 +36,8 @@ type GPUQRMPluginConfig struct {
 	// RequiredDeviceAffinity specifies whether it is required for pods to follow device affinity strictly.
 	// If true, pods will fail to admit if they are not able to satisfy device affinity constraints. Set to true by default.
 	RequiredDeviceAffinity bool
+	// EnableKubeletCheckpointFallback specifies whether to fallback to kubelet device plugin checkpoint for allocation.
+	EnableKubeletCheckpointFallback bool
 
 	*gpustrategy.GPUStrategyConfig
 }
