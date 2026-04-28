@@ -91,9 +91,9 @@ func TestVirtualGPUStrategy_Sort(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUMemoryAllocatablePerGPU:    *resource.NewQuantity(2, resource.DecimalSI),
-					MilliGPUAllocatablePerGPU:     *resource.NewQuantity(1000, resource.DecimalSI),
-					FractionalGPUPrefersSpreading: false,
+					GPUMemoryAllocatablePerGPU: *resource.NewQuantity(2, resource.DecimalSI),
+					MilliGPUAllocatablePerGPU:  *resource.NewQuantity(1000, resource.DecimalSI),
+					VirtualGPUPrefersSpreading: false,
 				},
 				HintNodes: machine.NewCPUSet(0),
 			},
@@ -391,7 +391,7 @@ func TestVirtualGPUStrategy_Sort(t *testing.T) {
 			expectedSortedDevices: []string{"gpu-4", "gpu-2", "gpu-1", "gpu-3"},
 		},
 		{
-			name: "spreading mode (FractionalGPUPrefersSpreading true), devices with same NUMA affinity sorted by available memory descending then milligpu descending",
+			name: "spreading mode (VirtualGPUPrefersSpreading true), devices with same NUMA affinity sorted by available memory descending then milligpu descending",
 			ctx: &allocate.AllocationContext{
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
@@ -412,9 +412,9 @@ func TestVirtualGPUStrategy_Sort(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUMemoryAllocatablePerGPU:    *resource.NewQuantity(4, resource.DecimalSI),
-					MilliGPUAllocatablePerGPU:     *resource.NewQuantity(1000, resource.DecimalSI),
-					FractionalGPUPrefersSpreading: true,
+					GPUMemoryAllocatablePerGPU: *resource.NewQuantity(4, resource.DecimalSI),
+					MilliGPUAllocatablePerGPU:  *resource.NewQuantity(1000, resource.DecimalSI),
+					VirtualGPUPrefersSpreading: true,
 				},
 				HintNodes: machine.NewCPUSet(0),
 				MachineState: map[v1.ResourceName]state.AllocationMap{
@@ -494,7 +494,7 @@ func TestVirtualGPUStrategy_Sort(t *testing.T) {
 			expectedSortedDevices: []string{"gpu-1", "gpu-3", "gpu-2"},
 		},
 		{
-			name: "spreading mode (FractionalGPUPrefersSpreading true), devices with same NUMA affinity and same memory sorted by available milligpu descending",
+			name: "spreading mode (VirtualGPUPrefersSpreading true), devices with same NUMA affinity and same memory sorted by available milligpu descending",
 			ctx: &allocate.AllocationContext{
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
@@ -515,9 +515,9 @@ func TestVirtualGPUStrategy_Sort(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUMemoryAllocatablePerGPU:    *resource.NewQuantity(4, resource.DecimalSI),
-					MilliGPUAllocatablePerGPU:     *resource.NewQuantity(1000, resource.DecimalSI),
-					FractionalGPUPrefersSpreading: true,
+					GPUMemoryAllocatablePerGPU: *resource.NewQuantity(4, resource.DecimalSI),
+					MilliGPUAllocatablePerGPU:  *resource.NewQuantity(1000, resource.DecimalSI),
+					VirtualGPUPrefersSpreading: true,
 				},
 				HintNodes: machine.NewCPUSet(0),
 				MachineState: map[v1.ResourceName]state.AllocationMap{

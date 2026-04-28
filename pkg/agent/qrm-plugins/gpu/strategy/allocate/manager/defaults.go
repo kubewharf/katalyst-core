@@ -62,7 +62,7 @@ func registerDefaultAllocationStrategies(manager *StrategyManager) {
 	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault,
 		[]string{canonical.StrategyNameCanonical, virtual_gpu.StrategyNameVirtualGPU, scheduler.StrategyNameScheduler},
 		virtual_gpu.StrategyNameVirtualGPU, canonical.StrategyNameCanonical); err != nil {
-		general.Errorf("Failed to register gpu-compute-default strategy: %v", err)
+		general.Errorf("Failed to register default allocation strategy: %v", err)
 	}
 }
 

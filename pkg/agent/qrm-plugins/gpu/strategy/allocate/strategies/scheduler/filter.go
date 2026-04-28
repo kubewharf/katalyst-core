@@ -35,7 +35,9 @@ func (s *SchedulerStrategy) Filter(
 		return allAvailableDevices, nil
 	}
 
-	key := ctx.GPUQRMPluginConfig.GPUSelectionResultKey
+	// Read the scheduled GPU selection result (e.g., a comma-separated list of device IDs)
+	// from the pod's annotations injected by the control plane scheduler.
+	key := ctx.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey
 	selectionResult, ok := ctx.ResourceReq.Annotations[key]
 	if !ok || selectionResult == "" {
 		return allAvailableDevices, nil

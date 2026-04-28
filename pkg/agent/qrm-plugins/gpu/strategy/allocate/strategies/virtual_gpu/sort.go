@@ -72,8 +72,10 @@ func (s *VirtualGPUStrategy) Sort(ctx *allocate.AllocationContext, filteredDevic
 		})
 	}
 
-	// Get config flag for spreading/packing
-	spreading := ctx.GPUQRMPluginConfig.FractionalGPUPrefersSpreading
+	// Get config flag for spreading/packing.
+	// If spreading is true, sort in descending order to allocate from devices with more available resources.
+	// If false (packing), sort in ascending order to pack resources tightly.
+	spreading := ctx.GPUQRMPluginConfig.VirtualGPUPrefersSpreading
 
 	// Sort devices: first by NUMA affinity (preferred), then by available memory (ascending for packing, descending for spreading), then by available milligpu (same order)
 	sort.Slice(devices, func(i, j int) bool {

@@ -151,6 +151,7 @@ func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 		allocationInfoMap      map[v1.ResourceName]*state.AllocationInfo // add allocationInfoMap for multiple resources
 		allocationResourcesMap *state.AllocationResourcesMap
 		deviceTopology         *machine.DeviceTopology
+		prefersSpreading       bool
 		expectedErr            bool
 		expectedResp           *pluginapi.ResourceHintsResponse
 	}{
@@ -445,9 +446,10 @@ func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 			expectedErr: true,
 		},
 		{
-			name:          "packing mode - all resources agree on same numa",
-			podUID:        "test-pod-pack",
-			containerName: "test-container-pack",
+			name:             "packing mode - all resources agree on same numa",
+			podUID:           "test-pod-pack",
+			containerName:    "test-container-pack",
+			prefersSpreading: false,
 			req: &pluginapi.ResourceRequest{
 				PodUid:        "test-pod-pack",
 				ContainerName: "test-container-pack",
@@ -532,11 +534,15 @@ func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 					string(consts.ResourceGPUMemory): {
 						Hints: []*pluginapi.TopologyHint{
 							{
-								Nodes:     []uint64{0},
+								Nodes: []uint64{0},
+								// Node 0 has gpu-0 which is partially allocated.
+								// Packing mode evaluates optimal GPUs (those with maximum allocation).
+								// Since gpu-0 is optimal and belongs to Node 0, Node 0 is marked as preferred.
 								Preferred: true,
 							},
 							{
-								Nodes:     []uint64{1},
+								Nodes: []uint64{1},
+								// Node 1 only has empty GPUs (gpu-1, gpu-3), which are not optimal in packing mode.
 								Preferred: false,
 							},
 						},
@@ -544,12 +550,145 @@ func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 					string(consts.ResourceMilliGPU): {
 						Hints: []*pluginapi.TopologyHint{
 							{
-								Nodes:     []uint64{0},
+								Nodes: []uint64{0},
+								// Node 0 has gpu-0 which is partially allocated.
+								// Packing mode evaluates optimal GPUs (those with maximum allocation).
+								// Since gpu-0 is optimal and belongs to Node 0, Node 0 is marked as preferred.
 								Preferred: true,
 							},
 							{
-								Nodes:     []uint64{1},
+								Nodes: []uint64{1},
+								// Node 1 only has empty GPUs (gpu-1, gpu-3), which are not optimal in packing mode.
 								Preferred: false,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
+			name:             "spreading mode - all resources agree on same numa",
+			podUID:           "test-pod-spread",
+			containerName:    "test-container-spread",
+			prefersSpreading: true,
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-spread",
+				ContainerName: "test-container-spread",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  2,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  500,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-2": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-3": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-spread",
+				ContainerName: "test-container-spread",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes: []uint64{0},
+								// Although gpu-0 on Node 0 is occupied, gpu-2 on Node 0 is fully empty.
+								// Spreading mode evaluates optimal GPUs (those with minimum allocation, i.e., 0).
+								// Since gpu-2 is optimal and belongs to Node 0, Node 0 is marked as preferred.
+								Preferred: true,
+							},
+							{
+								Nodes: []uint64{1},
+								// Both gpu-1 and gpu-3 on Node 1 are fully empty, so they are optimal GPUs.
+								// Thus Node 1 is also marked as preferred.
+								Preferred: true,
+							},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes: []uint64{0},
+								// Although gpu-0 on Node 0 is occupied, gpu-2 on Node 0 is fully empty.
+								// Spreading mode evaluates optimal GPUs (those with minimum allocation, i.e., 0).
+								// Since gpu-2 is optimal and belongs to Node 0, Node 0 is marked as preferred.
+								Preferred: true,
+							},
+							{
+								Nodes: []uint64{1},
+								// Both gpu-1 and gpu-3 on Node 1 are fully empty, so they are optimal GPUs.
+								// Thus Node 1 is also marked as preferred.
+								Preferred: true,
 							},
 						},
 					},
@@ -760,6 +899,166 @@ func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 			},
 		},
 		{
+			name:          "multiple NUMA nodes simultaneously optimal",
+			podUID:        "test-pod-multi-optimal",
+			containerName: "test-container-multi-optimal",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-multi-optimal",
+				ContainerName: "test-container-multi-optimal",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 2,
+					string(consts.ResourceMilliGPU):  200,
+				},
+			},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{Quantity: 4},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-2": {
+								"container-2": {
+									AllocatedAllocation: state.Allocation{Quantity: 4},
+								},
+							},
+						},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{Quantity: 400},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-2": {
+								"container-2": {
+									AllocatedAllocation: state.Allocation{Quantity: 400},
+								},
+							},
+						},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-multi-optimal",
+				ContainerName: "test-container-multi-optimal",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{Nodes: []uint64{0}, Preferred: true},
+							{Nodes: []uint64{1}, Preferred: true},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{Nodes: []uint64{0}, Preferred: true},
+							{Nodes: []uint64{1}, Preferred: true},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
+			name:          "cross NUMA single GPU",
+			podUID:        "test-pod-cross-numa",
+			containerName: "test-container-cross-numa",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-cross-numa",
+				ContainerName: "test-container-cross-numa",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 2,
+					string(consts.ResourceMilliGPU):  200,
+				},
+			},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{Quantity: 4},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0, 1},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-cross-numa",
+				ContainerName: "test-container-cross-numa",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{Nodes: []uint64{0}, Preferred: true},
+							{Nodes: []uint64{1}, Preferred: true},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{Nodes: []uint64{0}, Preferred: true},
+							{Nodes: []uint64{1}, Preferred: true},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
 			name:          "milligpu requested with physical gpu (error)",
 			podUID:        "test-pod-milligpu-with-gpu",
 			containerName: "test-container-milligpu-with-gpu",
@@ -816,6 +1115,7 @@ func TestVirtualGPUPlugin_GetTopologyHints(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
+			basePlugin.Conf.VirtualGPUPrefersSpreading = tt.prefersSpreading
 			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
 
 			gpuComputePlugin, ok := resourcePlugin.(*VirtualGPUPlugin)
@@ -854,16 +1154,16 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                          string
-		resourceReq                   *pluginapi.ResourceRequest
-		deviceReq                     *pluginapi.DeviceRequest
-		allocationInfo                *state.AllocationInfo
-		allocationResourcesMap        *state.AllocationResourcesMap
-		deviceTopology                *machine.DeviceTopology
-		fractionalGPUPrefersSpreading bool
-		expectedResp                  *pluginapi.ResourceAllocationResponse
-		expectedErr                   bool
-		expectedSelectedGPUID         string
+		name                       string
+		resourceReq                *pluginapi.ResourceRequest
+		deviceReq                  *pluginapi.DeviceRequest
+		allocationInfo             *state.AllocationInfo
+		allocationResourcesMap     *state.AllocationResourcesMap
+		deviceTopology             *machine.DeviceTopology
+		virtualGPUPrefersSpreading bool
+		expectedResp               *pluginapi.ResourceAllocationResponse
+		expectedErr                bool
+		expectedSelectedGPUID      string
 	}{
 		{
 			name: "nil device request returns empty response",
@@ -1023,7 +1323,7 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 					},
 				},
 			},
-			fractionalGPUPrefersSpreading: true,
+			virtualGPUPrefersSpreading: true,
 			expectedResp: &pluginapi.ResourceAllocationResponse{
 				PodUid:        "test-pod-milligpu-spread",
 				PodNamespace:  "",
@@ -1132,7 +1432,7 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 					},
 				},
 			},
-			fractionalGPUPrefersSpreading: false,
+			virtualGPUPrefersSpreading: false,
 			expectedResp: &pluginapi.ResourceAllocationResponse{
 				PodUid:        "test-pod-milligpu-pack",
 				PodNamespace:  "",
@@ -1241,7 +1541,7 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 					},
 				},
 			},
-			fractionalGPUPrefersSpreading: true,
+			virtualGPUPrefersSpreading: true,
 			expectedResp: &pluginapi.ResourceAllocationResponse{
 				PodUid:        "test-pod-no-common",
 				PodNamespace:  "",
@@ -1362,9 +1662,9 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 					},
 				},
 			},
-			fractionalGPUPrefersSpreading: false,
-			expectedSelectedGPUID:         "gpu-2", // gpu-0 lacks memory, gpu-1 lacks milligpu
-			expectedErr:                   false,
+			virtualGPUPrefersSpreading: false,
+			expectedSelectedGPUID:      "gpu-2", // gpu-0 lacks memory, gpu-1 lacks milligpu
+			expectedErr:                false,
 		},
 		{
 			name: "allocate fails when all gpus have insufficient resources",
@@ -1437,8 +1737,8 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 					},
 				},
 			},
-			fractionalGPUPrefersSpreading: false,
-			expectedErr:                   true,
+			virtualGPUPrefersSpreading: false,
+			expectedErr:                true,
 		},
 	}
 
@@ -1448,7 +1748,7 @@ func TestVirtualGPUPlugin_Allocate(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
-			basePlugin.Conf.FractionalGPUPrefersSpreading = tt.fractionalGPUPrefersSpreading
+			basePlugin.Conf.VirtualGPUPrefersSpreading = tt.virtualGPUPrefersSpreading
 
 			if tt.deviceTopology != nil {
 				basePlugin.DeviceTopologyRegistry.SetDeviceTopology("test-gpu", tt.deviceTopology)
@@ -1933,6 +2233,86 @@ func TestVirtualGPUPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 					),
 				)
 			}
+		})
+	}
+}
+
+func TestMarkPreferredNUMANodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		hints              []*pluginapi.TopologyHint
+		preferredNUMANodes []int
+		expectedHints      []*pluginapi.TopologyHint
+	}{
+		{
+			name: "Match in originally preferred hints",
+			hints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: true},
+				{Nodes: []uint64{1}, Preferred: true},
+				{Nodes: []uint64{0, 1}, Preferred: false},
+			},
+			preferredNUMANodes: []int{1},
+			expectedHints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: false},
+				{Nodes: []uint64{1}, Preferred: true},
+				{Nodes: []uint64{0, 1}, Preferred: false},
+			},
+		},
+		{
+			name: "Match in originally non-preferred hints only",
+			hints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: true},
+				{Nodes: []uint64{1}, Preferred: false},
+				{Nodes: []uint64{2}, Preferred: false},
+			},
+			preferredNUMANodes: []int{1},
+			expectedHints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: false},
+				{Nodes: []uint64{1}, Preferred: true},
+				{Nodes: []uint64{2}, Preferred: false},
+			},
+		},
+		{
+			name: "No matches found, keep original preferences",
+			hints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: true},
+				{Nodes: []uint64{1}, Preferred: false},
+			},
+			preferredNUMANodes: []int{2},
+			expectedHints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: true},
+				{Nodes: []uint64{1}, Preferred: false},
+			},
+		},
+		{
+			name: "Empty preferred nodes, keep original preferences",
+			hints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: true},
+				{Nodes: []uint64{1}, Preferred: false},
+			},
+			preferredNUMANodes: []int{},
+			expectedHints: []*pluginapi.TopologyHint{
+				{Nodes: []uint64{0}, Preferred: true},
+				{Nodes: []uint64{1}, Preferred: false},
+			},
+		},
+		{
+			name:               "Empty hints list",
+			hints:              []*pluginapi.TopologyHint{},
+			preferredNUMANodes: []int{0},
+			expectedHints:      []*pluginapi.TopologyHint{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			markPreferredNUMANodes(tt.hints, tt.preferredNUMANodes)
+			assert.Equal(t, tt.expectedHints, tt.hints)
 		})
 	}
 }

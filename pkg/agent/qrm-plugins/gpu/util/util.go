@@ -31,7 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var ErrNoAvailableVirtualGPUHints = pkgerrors.New("no available gpu compute hints")
+var ErrNoAvailableVirtualGPUHints = pkgerrors.New("no available virtual gpu hints")
 
 func GetNUMANodesCountToFitGPUReq(
 	gpuReq float64, cpuTopology *machine.CPUTopology, gpuTopology *machine.DeviceTopology,
@@ -93,12 +93,12 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 		gpuNames.Insert(resourceName)
 	}
 
-	if gpuCount == 0 {
-		// Check if there is a milligpu request
-		if _, hasMilligpu := req.ResourceRequests[string(consts.ResourceMilliGPU)]; hasMilligpu {
-			return 1, nil, nil
-		}
+	// Check if there is a milligpu request
+	if _, hasMilligpu := req.ResourceRequests[string(consts.ResourceMilliGPU)]; hasMilligpu {
+		gpuCount += 1
+	}
 
+	if gpuCount == 0 {
 		return 0, gpuNames, fmt.Errorf("no available GPU count")
 	}
 

@@ -43,7 +43,7 @@ func TestSchedulerStrategy_Filter(t *testing.T) {
 			ctx: &allocate.AllocationContext{
 				ResourceReq: nil,
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUSelectionResultKey: "gpu-selection-result",
+					GPUSelectionResultAnnotationKey: "gpu-selection-result",
 				},
 				Emitter: metrics.DummyMetrics{},
 			},
@@ -71,7 +71,7 @@ func TestSchedulerStrategy_Filter(t *testing.T) {
 					Annotations: map[string]string{},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUSelectionResultKey: "gpu-selection-result",
+					GPUSelectionResultAnnotationKey: "gpu-selection-result",
 				},
 				Emitter: metrics.DummyMetrics{},
 			},
@@ -87,7 +87,7 @@ func TestSchedulerStrategy_Filter(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUSelectionResultKey: "gpu-selection-result",
+					GPUSelectionResultAnnotationKey: "gpu-selection-result",
 				},
 				Emitter: metrics.DummyMetrics{},
 			},
@@ -103,7 +103,7 @@ func TestSchedulerStrategy_Filter(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUSelectionResultKey: "gpu-selection-result",
+					GPUSelectionResultAnnotationKey: "gpu-selection-result",
 				},
 				Emitter: metrics.DummyMetrics{},
 			},
@@ -119,7 +119,7 @@ func TestSchedulerStrategy_Filter(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUSelectionResultKey: "gpu-selection-result",
+					GPUSelectionResultAnnotationKey: "gpu-selection-result",
 				},
 				Emitter: metrics.DummyMetrics{},
 			},
@@ -135,7 +135,7 @@ func TestSchedulerStrategy_Filter(t *testing.T) {
 					},
 				},
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
-					GPUSelectionResultKey: "gpu-selection-result",
+					GPUSelectionResultAnnotationKey: "gpu-selection-result",
 				},
 				Emitter: metrics.DummyMetrics{},
 			},
