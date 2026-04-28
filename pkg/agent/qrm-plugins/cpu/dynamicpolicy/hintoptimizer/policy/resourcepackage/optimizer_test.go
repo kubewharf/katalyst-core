@@ -245,7 +245,7 @@ func TestResourcePackageHintOptimizer_calculateNodeCPUMetrics(t *testing.T) {
 
 		convey.Convey("calculate metrics properly", func() {
 			ns := &state.NUMANodeState{
-				DefaultCPUSet:   machine.NewCPUSet(0, 1, 2, 3),
+				DefaultCPUSet:   machine.NewCPUSet(4, 5),
 				AllocatedCPUSet: machine.NewCPUSet(0, 1, 2, 3),
 				PodEntries: state.PodEntries{
 					"pod-pool": state.ContainerEntries{
@@ -313,12 +313,63 @@ func TestResourcePackageHintOptimizer_calculateNodeCPUMetrics(t *testing.T) {
 			// target-rp allocated is 1.0 (from pod-unpinned-shared)
 			convey.So(allocatedForRP, convey.ShouldEqual, 1.0)
 
-			// Node 0: Default(4) - pinned(2) = 2 unpinned allocatable.
-			// unpinnedAllocatedCPUSet = AllocatedCPUSet(0, 1, 2, 3) - pinned(0, 1) = 2.
-			// preciseAllocatedQuantity = pod-unpinned-shared(1.0) + pod-unpinned-dedicated(1.0 since CPU 3) = 2.0
-			// Max(2.0, 2.0) = 2.0
-			// unpinnedAvailable = 2.0 - 2.0 = 0.0.
-			convey.So(unpinnedAvailable, convey.ShouldEqual, 0.0)
+			// Node 0: Union(Default(4,5), Allocated(0,1,2,3))(6) - pinned(2) = 4 unpinned allocatable.
+			// unpinnedPreciseAllocated = pod-unpinned-shared(1.0) + pod-unpinned-dedicated(1.0 since CPU 3) = 2.0
+			// unpinnedAvailable = Max(4.0 - 2.0, 0.0) = 2.0.
+			convey.So(unpinnedAvailable, convey.ShouldEqual, 2.0)
+		})
+
+		convey.Convey("calculate metrics properly with realistic disjoint cpu sets", func() {
+			ns := &state.NUMANodeState{
+				DefaultCPUSet:   machine.NewCPUSet(3, 4, 5),
+				AllocatedCPUSet: machine.NewCPUSet(0, 1, 2),
+				PodEntries: state.PodEntries{
+					"pod-pinned": state.ContainerEntries{
+						"container-pinned": &state.AllocationInfo{
+							AllocationMeta: commonstate.AllocationMeta{
+								PodUid:        "pod-pinned",
+								ContainerName: "container-pinned",
+								ContainerType: pluginapi.ContainerType_MAIN.String(),
+								Annotations: map[string]string{
+									apiconsts.PodAnnotationResourcePackageKey: "pinned-rp",
+								},
+							},
+							RequestQuantity:  2.0,
+							AllocationResult: machine.NewCPUSet(0, 1),
+						},
+					},
+					"pod-unpinned-shared": state.ContainerEntries{
+						"container-unpinned": &state.AllocationInfo{
+							AllocationMeta: commonstate.AllocationMeta{
+								PodUid:        "pod-unpinned",
+								ContainerName: "container-unpinned",
+								ContainerType: pluginapi.ContainerType_MAIN.String(),
+								QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+								Annotations: map[string]string{
+									apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+									apiconsts.PodAnnotationResourcePackageKey:           "target-rp",
+								},
+							},
+							RequestQuantity:  1.0,
+							AllocationResult: machine.NewCPUSet(2),
+						},
+					},
+				},
+			}
+
+			numaRPPinnedCPUSet := map[int]map[string]machine.CPUSet{
+				0: {"pinned-rp": machine.NewCPUSet(0, 1)},
+			}
+
+			allocatedForRP, unpinnedAvailable := optimizer.calculateNodeCPUMetrics(ns, 0, "target-rp", true, numaRPPinnedCPUSet)
+
+			// target-rp allocated is 1.0 (from pod-unpinned-shared)
+			convey.So(allocatedForRP, convey.ShouldEqual, 1.0)
+
+			// Node 0: Union(Default(3,4,5), Allocated(0,1,2))(6) - pinned(2) = 4 unpinned allocatable.
+			// unpinnedPreciseAllocated = pod-unpinned-shared(1.0) = 1.0
+			// unpinnedAvailable = Max(4.0 - 1.0, 0.0) = 3.0.
+			convey.So(unpinnedAvailable, convey.ShouldEqual, 3.0)
 		})
 	})
 }
@@ -558,7 +609,7 @@ func TestResourcePackageHintOptimizer_calculateCPUMetrics(t *testing.T) {
 			GetMachineStateFunc: func() state.NUMANodeMap {
 				return state.NUMANodeMap{
 					0: &state.NUMANodeState{
-						DefaultCPUSet:   machine.NewCPUSet(0, 1, 2, 3),
+						DefaultCPUSet:   machine.NewCPUSet(3),
 						AllocatedCPUSet: machine.NewCPUSet(0, 1, 2),
 						ResourcePackageStates: map[string]*state.ResourcePackageState{
 							"pinned-rp": {
@@ -669,12 +720,12 @@ func TestResourcePackageHintOptimizer_calculateCPUMetrics(t *testing.T) {
 			convey.So(allocatedMap[1], convey.ShouldEqual, 0.0)
 
 			// Unpinned available assertions
-			// Node 0: Default(4) - pinned(2) = 2 unpinned allocatable.
+			// Node 0: Union(Default, Allocated)(4) - pinned(2) = 2 unpinned allocatable.
 			// Allocated: 1 unpinned shared_cores.
 			// Remaining = 2 - 1 = 1.
 			convey.So(unpinnedMap[0], convey.ShouldEqual, 1.0)
 
-			// Node 1: Default(4) - pinned(0) = 4 unpinned allocatable.
+			// Node 1: Union(Default, Allocated)(4) - pinned(0) = 4 unpinned allocatable.
 			// Allocated: 0.
 			// Remaining = 4.
 			convey.So(unpinnedMap[1], convey.ShouldEqual, 4.0)

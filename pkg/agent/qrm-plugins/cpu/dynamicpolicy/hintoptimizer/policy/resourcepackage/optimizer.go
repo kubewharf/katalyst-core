@@ -330,19 +330,10 @@ func (o *resourcePackageHintOptimizer) calculateNodeCPUMetrics(
 		}
 
 		// Calculate the actual available physical CPU quantity for "Unpinned" pods.
-		// unpinnedAllocatable is calculated by subtracting reservedCPUs and PinnedCPUs from DefaultCPUSet size.
-		unpinnedAllocatable := float64(ns.GetFilteredDefaultCPUSet(nil, nil).Difference(o.reservedCPUs).Difference(pinnedCPUSet).Size())
+		// unpinnedAllocatable is calculated by subtracting reservedCPUs and PinnedCPUs from the union of DefaultCPUSet and AllocatedCPUSet.
+		unpinnedAllocatable := float64(ns.DefaultCPUSet.Union(ns.AllocatedCPUSet).Difference(o.reservedCPUs).Difference(pinnedCPUSet).Size())
 
-		// To accurately account for non-NUMA-binding shared_cores or isolated_cores that might consume CPUs
-		// on this NUMA node, we also verify the actual size of the allocated CPUSet excluding the pinned ones.
-		unpinnedAllocatedCPUSet := ns.AllocatedCPUSet.Difference(pinnedCPUSet)
-		unpinnedAllocatedQuantity := float64(unpinnedAllocatedCPUSet.Size())
-
-		if unpinnedPreciseAllocated > unpinnedAllocatedQuantity {
-			unpinnedAllocatedQuantity = unpinnedPreciseAllocated
-		}
-
-		unpinnedAvailable = general.MaxFloat64(unpinnedAllocatable-unpinnedAllocatedQuantity, 0)
+		unpinnedAvailable = general.MaxFloat64(unpinnedAllocatable-unpinnedPreciseAllocated, 0)
 	}
 
 	return allocatedForRP, unpinnedAvailable
