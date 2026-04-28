@@ -2209,6 +2209,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 		{
 			name: "get checkpoint succeeds",
 			p: &gpuReporterPlugin{
+				gpuDeviceNames: []string{"test-resource"},
 				checkpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
 						{
@@ -2243,6 +2244,27 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			expectedID:       "test-device-1",
 			expectedLen:      1,
 			expectedConsumer: "default/test-pod/test-pod-uid",
+		},
+		{
+			name: "skip device not in gpuDeviceNames",
+			p: &gpuReporterPlugin{
+				gpuDeviceNames: []string{"test-resource-other"},
+				checkpointManager: &mockCheckpointManager{
+					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
+						{
+							PodUID:        "test-pod-uid",
+							ContainerName: "test-container",
+							ResourceName:  "test-resource",
+							DeviceIDs: map[int64][]string{
+								0: {"test-device-1"},
+							},
+							AllocResp: []byte(""),
+						},
+					}, make(map[string][]string)),
+				},
+			},
+			expectedEmpty: true,
+			expectedErr:   false,
 		},
 	}
 

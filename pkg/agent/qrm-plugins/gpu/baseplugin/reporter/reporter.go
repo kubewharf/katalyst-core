@@ -520,7 +520,15 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 
 	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
 
+	validDeviceNames := sets.NewString(p.gpuDeviceNames...)
+
 	for _, entry := range podDeviceEntries {
+		// Check if the reported resource is a valid GPU device name.
+		// If not in gpuDeviceNames, skip it to avoid reporting invalid devices.
+		if !validDeviceNames.Has(entry.ResourceName) {
+			continue
+		}
+
 		resourceName := v1.ResourceName(entry.ResourceName)
 
 		// Iterate through all devices per NUMA node
@@ -542,8 +550,8 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 				// Find the pod from the metaserver to get its namespace and name
 				pod, err := p.metaServer.GetPod(p.ctx, entry.PodUID)
 				if err != nil {
-					general.Errorf("failed to get pod %s/%s: %v", entry.PodUID, entry.PodUID, err)
-					return fmt.Errorf("failed to get pod %s/%s: %w", entry.PodUID, entry.PodUID, err)
+					general.Errorf("failed to get pod %s: %v", entry.PodUID, err)
+					return fmt.Errorf("failed to get pod %s: %w", entry.PodUID, err)
 				}
 
 				// Generate consumer key using namespace, name and podUID
@@ -554,8 +562,8 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 					Requests: &gpuResourceList,
 				})
 
-				general.Infof("added allocation from checkpoint: pod=%s, container=%s, device=%s, numa=%d",
-					entry.PodUID, entry.ContainerName, deviceID, numaNode)
+				general.Infof("added allocation from checkpoint: consumer=%s, container=%s, device=%s, numa=%d",
+					consumer, entry.ContainerName, deviceID, numaNode)
 			}
 		}
 	}
