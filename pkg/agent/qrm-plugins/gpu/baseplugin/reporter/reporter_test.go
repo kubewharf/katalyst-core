@@ -1949,6 +1949,7 @@ func TestListAndWatchReportContent(t *testing.T) {
 	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
 	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
 	reporterPlugin.checkpointManager = &mockCheckpointManager{}
+	reporterPlugin.reportRetryInterval = 10 * time.Millisecond // Set a small interval for faster tests
 
 	_ = reporterPlugin.Start()
 	defer reporterPlugin.Stop()
@@ -2012,6 +2013,79 @@ func TestListAndWatchReportContent(t *testing.T) {
 	assert.NotNil(t, unaryResp)
 
 	// Close watch
+	cancel()
+	err = <-errCh
+	assert.NoError(t, err)
+}
+
+func TestListAndWatchReportContentRetry(t *testing.T) {
+	t.Parallel()
+
+	// 1. Setup minimal environment
+	testConfig := config.NewConfiguration()
+	testConfig.KubeletDevicePluginPath = t.TempDir()
+	testConfig.GPUDeviceNames = []string{"test-gpu"}
+	deviceTypeToNames := map[string]sets.String{"test-gpu": sets.NewString("test-gpu")}
+
+	topologyRegistry := machine.NewDeviceTopologyRegistry()
+	mockProvider := machine.NewDeviceTopologyProviderStub()
+	topologyRegistry.RegisterDeviceTopologyProvider("test-gpu", mockProvider)
+
+	topology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+		},
+	}
+	_ = topologyRegistry.SetDeviceTopology("test-gpu", topology)
+
+	// stateGetter returning nil triggers an error in buildReportResponse
+	stateGetter := func() state.State { return nil }
+
+	metaServer := generateTestMetaServer([]cadvisorapi.Node{
+		{
+			Id: 0,
+			Cores: []cadvisorapi.Core{
+				{SocketID: 0, Id: 0, Threads: []int{0, 4}},
+			},
+		},
+	})
+
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	assert.NoError(t, err)
+	reporterImpl := reporter.(*gpuReporterImpl)
+	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
+	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
+	reporterPlugin.checkpointManager = &mockCheckpointManager{}
+	reporterPlugin.reportRetryInterval = 50 * time.Millisecond
+
+	_ = reporterPlugin.Start()
+	defer reporterPlugin.Stop()
+
+	// 2. Setup server mock
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sendCh := make(chan *v1alpha1.GetReportContentResponse, 10)
+	mockServer := &mockReporterPluginServer{
+		ctx:    ctx,
+		sendCh: sendCh,
+	}
+
+	// 3. Start ListAndWatch
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- reporterPlugin.ListAndWatchReportContent(nil, mockServer)
+	}()
+
+	// Because stateGetter returns nil, buildReportResponse fails and a retry timer is started.
+	// Since reportRetryInterval is 50ms, we can wait a bit to ensure it doesn't send anything despite retries.
+	select {
+	case <-sendCh:
+		t.Fatal("should not send report on failure")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// Close watch to clean up test goroutine
 	cancel()
 	err = <-errCh
 	assert.NoError(t, err)

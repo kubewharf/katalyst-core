@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
@@ -44,8 +45,9 @@ import (
 )
 
 const (
-	gpuReporterPluginName   = "gpu-reporter-plugin"
-	propertyNameGPUTopology = "gpu_topology_attribute_key"
+	gpuReporterPluginName      = "gpu-reporter-plugin"
+	propertyNameGPUTopology    = "gpu_topology_attribute_key"
+	defaultReportRetryInterval = 5 * time.Second
 )
 
 var zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
@@ -108,9 +110,10 @@ type gpuReporterPlugin struct {
 	stateGetter            func() state.State
 	deviceTypeToNames      map[string]sets.String
 
-	reportNotifyCh    chan struct{}
-	lastReportContent *v1alpha1.GetReportContentResponse
-	checkpointManager checkpointmanager.CheckpointManager
+	reportNotifyCh      chan struct{}
+	reportRetryInterval time.Duration
+	lastReportContent   *v1alpha1.GetReportContentResponse
+	checkpointManager   checkpointmanager.CheckpointManager
 }
 
 var (
@@ -134,6 +137,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		stateGetter:            stateGetter,
 		deviceTypeToNames:      deviceTypeToNames,
 		reportNotifyCh:         make(chan struct{}, 1),
+		reportRetryInterval:    defaultReportRetryInterval,
 		metaServer:             metaServer,
 		checkpointManager:      checkpointManager,
 	}
@@ -597,29 +601,33 @@ func hasExistingPodAllocation(allocations util.ZoneAllocations, podUID string) b
 func (p *gpuReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server v1alpha1.ReporterPlugin_ListAndWatchReportContentServer) error {
 	isFirst := true
 	var lastSentContent *v1alpha1.GetReportContentResponse
+	var retryCh <-chan time.Time
 
 	for {
 		resp, err := p.buildReportResponse()
 		if err != nil {
-			general.Errorf("failed to build report response: %v", err)
-			return err
-		}
-
-		p.Lock()
-		p.lastReportContent = resp
-		p.Unlock()
-
-		// Send report only when it's the first time or the content has changed
-		if isFirst || !proto.Equal(lastSentContent, resp) {
-			if err := server.Send(resp); err != nil {
-				general.Errorf("failed to send report content: %v", err)
-				return err
-			}
-			general.Infof("successfully sent report content to reporter manager, content: %v", resp)
-			lastSentContent = resp
-			isFirst = false
+			general.Errorf("failed to build report response: %v, will retry in %s", err, p.reportRetryInterval)
+			// Start a retry timer to ensure the listwatch stream doesn't break due to intermittent failures (e.g. state/topology parsing error)
+			retryCh = time.After(p.reportRetryInterval)
 		} else {
-			general.Infof("report content unchanged, skip sending")
+			// Clear retry timer if build succeeds
+			retryCh = nil
+			p.Lock()
+			p.lastReportContent = resp
+			p.Unlock()
+
+			// Send report only when it's the first time or the content has changed
+			if isFirst || !proto.Equal(lastSentContent, resp) {
+				if err := server.Send(resp); err != nil {
+					general.Errorf("failed to send report content: %v", err)
+					return err
+				}
+				general.Infof("successfully sent report content to reporter manager, content: %v", resp)
+				lastSentContent = resp
+				isFirst = false
+			} else {
+				general.Infof("report content unchanged, skip sending")
+			}
 		}
 
 		select {
@@ -631,6 +639,8 @@ func (p *gpuReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server 
 			return nil
 		case <-p.reportNotifyCh:
 			general.Infof("received report notify trigger, start to rebuild and send report")
+		case <-retryCh:
+			general.Infof("retry timer fired, start to rebuild and send report")
 		}
 	}
 }
