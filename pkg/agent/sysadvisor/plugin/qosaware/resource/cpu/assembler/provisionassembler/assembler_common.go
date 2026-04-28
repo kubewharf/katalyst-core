@@ -174,16 +174,18 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	}
 
 	emptyNUMARegions := regionHelper.GetRegionsByType(configapi.QoSRegionEmptyNUMA)
-	if len(emptyNUMARegions) == 0 {
-		err = pa.assembleWithoutNUMABinding(regionHelper, &calculationResult)
-		if err != nil {
-			general.Errorf("assembleWithoutNUMABinding failed with error: %v", err)
-			return types.InternalCPUCalculationResult{}, err
-		}
-	} else {
+	if len(emptyNUMARegions) > 0 {
 		err = pa.assembleEmptyNUMARegion(regionHelper, &calculationResult)
 		if err != nil {
 			general.Errorf("assembleEmptyNUMARegion failed with error: %v", err)
+		}
+	}
+
+	// fallback to assembleWithoutNUMABinding if any error occurs
+	if err != nil || len(emptyNUMARegions) == 0 {
+		err = pa.assembleWithoutNUMABinding(regionHelper, &calculationResult)
+		if err != nil {
+			general.Errorf("assembleWithoutNUMABinding failed with error: %v", err)
 			return types.InternalCPUCalculationResult{}, err
 		}
 	}
@@ -248,8 +250,7 @@ func (pa *ProvisionAssemblerCommon) assembleEmptyNUMARegion(regionHelper *Region
 		for _, r := range emptyNUMARegions {
 			controlKnob, err := r.GetProvision()
 			if err != nil {
-				klog.Warningf("assembleEmptyNUMARegion: skip region %v on NUMA %v due to GetProvision error: %v", r.Name(), numaID, err)
-				continue
+				return err
 			}
 
 			available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
@@ -259,6 +260,16 @@ func (pa *ProvisionAssemblerCommon) assembleEmptyNUMARegion(regionHelper *Region
 			reclaimedCoresQuota := float64(-1)
 			if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
 				reclaimedCoresQuota = general.MaxFloat64(quota.Value, float64(reservedForReclaim))
+				if !r.EnableReclaim() {
+					reclaimedCoresQuota = float64(reservedForReclaim)
+				}
+			}
+			if nonReclaimRequirement, ok := controlKnob[configapi.ControlKnobNonReclaimedCPURequirement]; ok {
+				reclaimedCoresSize = general.Max(reservedForReclaim, available-int(nonReclaimRequirement.Value))
+				if !r.EnableReclaim() {
+					// if reclaim is disabled, the dedicated workload claims the entire NUMA
+					reclaimedCoresSize = reservedForReclaim
+				}
 			}
 
 			klog.InfoS("assembleEmptyNUMARegion info",

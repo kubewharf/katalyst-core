@@ -73,17 +73,47 @@ func NewQoSRegionEmptyNUMA(ci *types.ContainerInfo, conf *config.Configuration, 
 	return r
 }
 
+func (r *QoSRegionEmptyNUMA) getEffectiveControlKnobs() types.ControlKnob {
+	quota, cpuSize, err := r.getEffectiveReclaimResource()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get effective reclaim resource, ignore it: %v", err)
+	} else if r.isNumaBinding && quota > 0 {
+		return types.ControlKnob{
+			configapi.ControlKnobReclaimedCoresCPUQuota: {
+				Value:  quota,
+				Action: types.ControlKnobActionNone,
+			},
+		}
+	}
+
+	cpuRequirement := general.MaxFloat64(r.ResourceLowerBound, r.ResourceUpperBound+r.ReservedForReclaim-float64(cpuSize))
+	general.InfoS("getEffectiveControlKnobs", "cpuRequirement", cpuRequirement,
+		"cpuSize", cpuSize, "quota", quota, "regionName", r.name)
+
+	return types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {
+			Value:  cpuRequirement,
+			Action: types.ControlKnobActionNone,
+		},
+	}
+}
+
 func (r *QoSRegionEmptyNUMA) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
+
+	r.ControlEssentials = types.ControlEssentials{
+		ControlKnobs: r.getEffectiveControlKnobs(),
+	}
 
 	indicators, err := r.getIndicators()
 	if err != nil {
 		klog.Warningf("[qosaware-cpu] failed to get indicators, ignore it: %v", err)
 	} else {
 		r.ControlEssentials.Indicators = indicators
-		general.Infof("indicators %v for region %v", indicators, r.name)
 	}
+
+	general.InfoS("ControlEssentials", "ControlEssentials", r.ControlEssentials)
 
 	ctx := provision.PolicyContext{
 		ResourceEssentials: r.ResourceEssentials,

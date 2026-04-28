@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"go.uber.org/atomic"
@@ -778,6 +780,14 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 	} else {
 		quota = float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
 	}
+	// 遍历reclaimPath的子目录，获取最小的effective cpus，只需要遍历到容器层即可
+	reclaimAbsPath := common.GetAbsCgroupPath(common.CgroupSubsysCPUSet, reclaimPath)
+	minCPUSet, ok := getMinEffectiveContainerCPUSet(reclaimAbsPath)
+	general.InfoS("getEffectiveReclaimResource", "minCPUSet", minCPUSet, "ok", ok, "regionName", r.name)
+	if ok {
+		cpusetSize = minCPUSet.Size()
+		return
+	}
 
 	for _, numaID := range r.cpusetMems.ToSliceInt() {
 		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
@@ -785,6 +795,69 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 		}
 	}
 	return
+}
+
+// getMinEffectiveContainerCPUSet walks the cgroup tree under reclaimAbsPath
+// with the fixed two-level layout: reclaimAbsPath/<podLevel>/<containerLevel>,
+// and returns the minimum effective cpuset observed at the container layer.
+// It returns ok=false when reclaimAbsPath itself is not a cgroup, or no
+// containerLevel cgroup is reachable under any podLevel directory.
+func getMinEffectiveContainerCPUSet(reclaimAbsPath string) (machine.CPUSet, bool) {
+	if !cgroupmgr.IsCgroupPath(reclaimAbsPath) {
+		return machine.CPUSet{}, false
+	}
+
+	podEntries, err := os.ReadDir(reclaimAbsPath)
+	if err != nil {
+		general.Warningf("read reclaim cgroup dir %s failed: %v", reclaimAbsPath, err)
+		return machine.CPUSet{}, false
+	}
+
+	var (
+		minCPUSet machine.CPUSet
+		found     bool
+	)
+
+	for _, podEntry := range podEntries {
+		if !podEntry.IsDir() {
+			continue
+		}
+		podAbsPath := filepath.Join(reclaimAbsPath, podEntry.Name())
+		if !cgroupmgr.IsCgroupPath(podAbsPath) {
+			continue
+		}
+
+		containerEntries, err := os.ReadDir(podAbsPath)
+		if err != nil {
+			general.Warningf("read pod cgroup dir %s failed: %v", podAbsPath, err)
+			continue
+		}
+
+		for _, containerEntry := range containerEntries {
+			if !containerEntry.IsDir() {
+				continue
+			}
+			containerAbsPath := filepath.Join(podAbsPath, containerEntry.Name())
+			if !cgroupmgr.IsCgroupPath(containerAbsPath) {
+				continue
+			}
+
+			cpus, _, err := cgroupmgr.GetEffectiveCPUSetWithAbsolutePath(containerAbsPath)
+			if err != nil {
+				general.Warningf("get effective cpuset for %s failed: %v", containerAbsPath, err)
+				continue
+			}
+			if cpus.IsEmpty() {
+				continue
+			}
+			if !found || cpus.Size() < minCPUSet.Size() {
+				minCPUSet = cpus
+				found = true
+			}
+		}
+	}
+
+	return minCPUSet, found
 }
 
 func (r *QoSRegionBase) expandTarget(target float64, indicatorName workloadv1alpha1.ServiceSystemIndicatorName) float64 {

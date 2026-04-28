@@ -227,6 +227,14 @@ func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet)
 	return float64(reserved.Value()*int64(numas.Size())) / float64(cra.metaServer.NumNUMANodes)
 }
 
+func (cra *cpuResourceAdvisor) getDefaultMaxRequirement(r region.QoSRegion) float64 {
+	res := 0.0
+	for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+		res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
+	}
+	return res
+}
+
 func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float64 {
 	res := 0.0
 	switch r.Type() {
@@ -256,9 +264,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 			res = general.MaxFloat64(1, res)
 		}
 	default:
-		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-			res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
-		}
+		res = cra.getDefaultMaxRequirement(r)
 	}
 	return res
 }
@@ -283,6 +289,8 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 		return res
 	case configapi.QoSRegionTypeDedicated:
 		return types.MinDedicatedCPURequirement
+	case configapi.QoSRegionEmptyNUMA:
+		return cra.getDefaultMaxRequirement(r) / 4
 	default:
 		klog.Errorf("[qosaware-cpu] unknown region type %v", r.Type())
 		return 0.0
