@@ -116,9 +116,21 @@ func (p *PolicyDynamicQuota) Update(ctx PolicyContext) (err error) {
 		}
 	}()
 
+	// sanity check
+	if err = p.sanityCheck(ctx); err != nil {
+		return err
+	}
+
 	if p.isCPUQuotaAsControlKnob(ctx) {
 		return p.updateForCPUQuota(ctx)
 	}
 
+	return nil
+}
+
+func (p *PolicyDynamicQuota) sanityCheck(ctx PolicyContext) error {
+	if !common.CheckCgroup2UnifiedMode() {
+		return fmt.Errorf("not supported for cgroup v1 mode")
+	}
 	return nil
 }

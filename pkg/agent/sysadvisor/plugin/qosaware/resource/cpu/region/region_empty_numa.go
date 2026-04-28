@@ -73,9 +73,44 @@ func NewQoSRegionEmptyNUMA(ci *types.ContainerInfo, conf *config.Configuration, 
 	return r
 }
 
+func (r *QoSRegionEmptyNUMA) getEffectiveControlKnobs() types.ControlKnob {
+	quota, _, err := r.getEffectiveReclaimResource()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get effective reclaim resource, ignore it: %v", err)
+	} else if r.isNumaBinding && quota > 0 {
+		return types.ControlKnob{
+			configapi.ControlKnobReclaimedCoresCPUQuota: {
+				Value:  quota,
+				Action: types.ControlKnobActionNone,
+			},
+		}
+	}
+
+	reclaimedCPUSize := 0
+	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
+		for _, numaID := range r.cpusetMems.ToSliceInt() {
+			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+		}
+	}
+
+	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
+
+	return types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {
+			Value:  float64(cpuRequirement),
+			Action: types.ControlKnobActionNone,
+		},
+	}
+}
+
 func (r *QoSRegionEmptyNUMA) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
+
+	r.ControlEssentials = types.ControlEssentials{
+		ControlKnobs:   r.getEffectiveControlKnobs(),
+		ReclaimOverlap: r.AllowSharedCoresOverlapReclaimedCores,
+	}
 
 	indicators, err := r.getIndicators()
 	if err != nil {

@@ -41,7 +41,7 @@ type CPUAdvisorConfiguration struct {
 func NewCPUAdvisorConfiguration() *CPUAdvisorConfiguration {
 	return &CPUAdvisorConfiguration{
 		ProvisionPolicies: map[configapi.QoSRegionType][]types.CPUProvisionPolicyName{
-			configapi.QoSRegionEmptyNUMA: {types.CPUProvisionPolicyDynamicQuota},
+			configapi.QoSRegionEmptyNUMA: {types.CPUProvisionPolicyDynamicQuota, types.CPUProvisionPolicyRama},
 		},
 		HeadroomPolicies:                map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{},
 		ProvisionAssembler:              types.CPUProvisionAssemblerCommon,
