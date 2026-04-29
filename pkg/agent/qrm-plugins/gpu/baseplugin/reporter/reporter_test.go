@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	cpmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager/checkpoint"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -1839,6 +1842,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			testConfig.KubeletDevicePluginPath = t.TempDir()
 			testConfig.PluginRegistrationDir = "test"
 			testConfig.GPUDeviceNames = gpuDeviceNames
+			testConfig.EnableKubeletCheckpointFallback = true
 
 			resourceTypeName := v1.ResourceName("test-gpu-resource")
 			deviceIDs := make([]string, 0)
@@ -1912,6 +1916,7 @@ func TestListAndWatchReportContent(t *testing.T) {
 	testConfig := config.NewConfiguration()
 	testConfig.KubeletDevicePluginPath = t.TempDir()
 	testConfig.GPUDeviceNames = []string{"test-gpu"}
+	testConfig.EnableKubeletCheckpointFallback = true
 	deviceTypeToNames := map[string]sets.String{"test-gpu": sets.NewString("test-gpu")}
 
 	topologyRegistry := machine.NewDeviceTopologyRegistry()
@@ -1949,6 +1954,7 @@ func TestListAndWatchReportContent(t *testing.T) {
 	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
 	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
 	reporterPlugin.checkpointManager = &mockCheckpointManager{}
+	reporterPlugin.reportRetryInterval = 10 * time.Millisecond // Set a small interval for faster tests
 
 	_ = reporterPlugin.Start()
 	defer reporterPlugin.Stop()
@@ -2012,6 +2018,79 @@ func TestListAndWatchReportContent(t *testing.T) {
 	assert.NotNil(t, unaryResp)
 
 	// Close watch
+	cancel()
+	err = <-errCh
+	assert.NoError(t, err)
+}
+
+func TestListAndWatchReportContentRetry(t *testing.T) {
+	t.Parallel()
+
+	// 1. Setup minimal environment
+	testConfig := config.NewConfiguration()
+	testConfig.KubeletDevicePluginPath = t.TempDir()
+	testConfig.GPUDeviceNames = []string{"test-gpu"}
+	deviceTypeToNames := map[string]sets.String{"test-gpu": sets.NewString("test-gpu")}
+
+	topologyRegistry := machine.NewDeviceTopologyRegistry()
+	mockProvider := machine.NewDeviceTopologyProviderStub()
+	topologyRegistry.RegisterDeviceTopologyProvider("test-gpu", mockProvider)
+
+	topology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+		},
+	}
+	_ = topologyRegistry.SetDeviceTopology("test-gpu", topology)
+
+	// stateGetter returning nil triggers an error in buildReportResponse
+	stateGetter := func() state.State { return nil }
+
+	metaServer := generateTestMetaServer([]cadvisorapi.Node{
+		{
+			Id: 0,
+			Cores: []cadvisorapi.Core{
+				{SocketID: 0, Id: 0, Threads: []int{0, 4}},
+			},
+		},
+	})
+
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	assert.NoError(t, err)
+	reporterImpl := reporter.(*gpuReporterImpl)
+	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
+	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
+	reporterPlugin.checkpointManager = &mockCheckpointManager{}
+	reporterPlugin.reportRetryInterval = 50 * time.Millisecond
+
+	_ = reporterPlugin.Start()
+	defer reporterPlugin.Stop()
+
+	// 2. Setup server mock
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sendCh := make(chan *v1alpha1.GetReportContentResponse, 10)
+	mockServer := &mockReporterPluginServer{
+		ctx:    ctx,
+		sendCh: sendCh,
+	}
+
+	// 3. Start ListAndWatch
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- reporterPlugin.ListAndWatchReportContent(nil, mockServer)
+	}()
+
+	// Because stateGetter returns nil, buildReportResponse fails and a retry timer is started.
+	// Since reportRetryInterval is 50ms, we can wait a bit to ensure it doesn't send anything despite retries.
+	select {
+	case <-sendCh:
+		t.Fatal("should not send report on failure")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// Close watch to clean up test goroutine
 	cancel()
 	err = <-errCh
 	assert.NoError(t, err)
@@ -2133,8 +2212,19 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			expectedErr:   true,
 		},
 		{
+			name: "get checkpoint returns not found",
+			p: &gpuReporterPlugin{
+				checkpointManager: &mockCheckpointManager{
+					getErr: cpmerrors.ErrCheckpointNotFound,
+				},
+			},
+			expectedEmpty: true,
+			expectedErr:   false,
+		},
+		{
 			name: "get checkpoint succeeds",
 			p: &gpuReporterPlugin{
+				gpuDeviceNames: []string{"test-resource"},
 				checkpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
 						{
@@ -2169,6 +2259,27 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			expectedID:       "test-device-1",
 			expectedLen:      1,
 			expectedConsumer: "default/test-pod/test-pod-uid",
+		},
+		{
+			name: "skip device not in gpuDeviceNames",
+			p: &gpuReporterPlugin{
+				gpuDeviceNames: []string{"test-resource-other"},
+				checkpointManager: &mockCheckpointManager{
+					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
+						{
+							PodUID:        "test-pod-uid",
+							ContainerName: "test-container",
+							ResourceName:  "test-resource",
+							DeviceIDs: map[int64][]string{
+								0: {"test-device-1"},
+							},
+							AllocResp: []byte(""),
+						},
+					}, make(map[string][]string)),
+				},
+			},
+			expectedEmpty: true,
+			expectedErr:   false,
 		},
 	}
 
@@ -2226,4 +2337,94 @@ func (m *mockCheckpointManager) RemoveCheckpoint(checkpointKey string) error {
 
 func (m *mockCheckpointManager) ListCheckpoints() ([]string, error) {
 	return nil, nil
+}
+
+func TestGpuReporterPlugin_StartAndTrigger(t *testing.T) {
+	t.Parallel()
+
+	tempDir, err := os.MkdirTemp("", "kubelet-device-plugin")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	p := &gpuReporterPlugin{
+		kubeletDevicePluginPath:         tempDir,
+		enableKubeletCheckpointFallback: true,
+		reportNotifyCh:                  make(chan struct{}, 1),
+	}
+
+	err = p.Start()
+	assert.NoError(t, err)
+
+	// test idempotency
+	err = p.Start()
+	assert.NoError(t, err)
+
+	// trigger manually
+	p.Trigger()
+	select {
+	case <-p.reportNotifyCh:
+	default:
+		t.Fatal("expected to receive notify")
+	}
+
+	// wait for fsnotify to setup completely
+	time.Sleep(100 * time.Millisecond)
+
+	// trigger via file
+	checkpointFile := filepath.Join(tempDir, native.KubeletDeviceManagerCheckpoint)
+	err = os.WriteFile(checkpointFile, []byte("test"), 0o644)
+	assert.NoError(t, err)
+
+	// wait for file event
+	select {
+	case <-p.reportNotifyCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected to receive notify from file event")
+	}
+
+	// test stop
+	err = p.Stop()
+	assert.NoError(t, err)
+
+	// test stop idempotency
+	err = p.Stop()
+	assert.NoError(t, err)
+}
+
+func TestGpuReporterPlugin_StartEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	p := &gpuReporterPlugin{
+		kubeletDevicePluginPath:         "",
+		enableKubeletCheckpointFallback: true,
+		reportNotifyCh:                  make(chan struct{}, 1),
+	}
+
+	err := p.Start()
+	assert.NoError(t, err)
+
+	err = p.Stop()
+	assert.NoError(t, err)
+}
+
+func TestGpuReporterPlugin_StartDisabledFallback(t *testing.T) {
+	t.Parallel()
+
+	tempDir, err := os.MkdirTemp("", "kubelet-device-plugin-disabled")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	p := &gpuReporterPlugin{
+		kubeletDevicePluginPath:         tempDir,
+		enableKubeletCheckpointFallback: false,
+		reportNotifyCh:                  make(chan struct{}, 1),
+	}
+
+	err = p.Start()
+	assert.NoError(t, err)
+
+	// Since fallback is disabled, no watcher is registered and trigger via file shouldn't work.
+	// But Start/Stop should be successful.
+	err = p.Stop()
+	assert.NoError(t, err)
 }

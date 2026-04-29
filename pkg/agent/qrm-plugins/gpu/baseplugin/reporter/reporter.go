@@ -21,13 +21,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/gogo/protobuf/proto"
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	cpmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -44,8 +48,9 @@ import (
 )
 
 const (
-	gpuReporterPluginName   = "gpu-reporter-plugin"
-	propertyNameGPUTopology = "gpu_topology_attribute_key"
+	gpuReporterPluginName      = "gpu-reporter-plugin"
+	propertyNameGPUTopology    = "gpu_topology_attribute_key"
+	defaultReportRetryInterval = 5 * time.Second
 )
 
 var zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
@@ -108,9 +113,12 @@ type gpuReporterPlugin struct {
 	stateGetter            func() state.State
 	deviceTypeToNames      map[string]sets.String
 
-	reportNotifyCh    chan struct{}
-	lastReportContent *v1alpha1.GetReportContentResponse
-	checkpointManager checkpointmanager.CheckpointManager
+	reportNotifyCh                  chan struct{}
+	reportRetryInterval             time.Duration
+	lastReportContent               *v1alpha1.GetReportContentResponse
+	checkpointManager               checkpointmanager.CheckpointManager
+	kubeletDevicePluginPath         string
+	enableKubeletCheckpointFallback bool
 }
 
 var (
@@ -127,15 +135,18 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 	}
 
 	reporter := &gpuReporterPlugin{
-		gpuDeviceNames:         conf.GPUDeviceNames,
-		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
-		emitter:                emitter,
-		deviceTopologyRegistry: topologyRegistry,
-		stateGetter:            stateGetter,
-		deviceTypeToNames:      deviceTypeToNames,
-		reportNotifyCh:         make(chan struct{}, 1),
-		metaServer:             metaServer,
-		checkpointManager:      checkpointManager,
+		gpuDeviceNames:                  conf.GPUDeviceNames,
+		numaSocketZoneNodeMap:           util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
+		emitter:                         emitter,
+		deviceTopologyRegistry:          topologyRegistry,
+		stateGetter:                     stateGetter,
+		deviceTypeToNames:               deviceTypeToNames,
+		reportNotifyCh:                  make(chan struct{}, 1),
+		reportRetryInterval:             defaultReportRetryInterval,
+		metaServer:                      metaServer,
+		checkpointManager:               checkpointManager,
+		kubeletDevicePluginPath:         conf.KubeletDevicePluginPath,
+		enableKubeletCheckpointFallback: conf.EnableKubeletCheckpointFallback,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -169,6 +180,41 @@ func (p *gpuReporterPlugin) Start() (err error) {
 	}
 
 	p.ctx, p.cancel = context.WithCancel(context.Background())
+
+	if p.enableKubeletCheckpointFallback && p.kubeletDevicePluginPath != "" {
+		err = general.EnsureDirectory(p.kubeletDevicePluginPath)
+		if err != nil {
+			return fmt.Errorf("ensure kubelet device plugin path %s exists failed: %w", p.kubeletDevicePluginPath, err)
+		}
+
+		watcherCh, err := general.RegisterFileEventWatcher(
+			p.ctx.Done(),
+			general.FileWatcherInfo{
+				Path:     []string{p.kubeletDevicePluginPath},
+				Filename: native.KubeletDeviceManagerCheckpoint,
+				Op:       fsnotify.Create,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("register file watcher failed: %w", err)
+		}
+
+		go func() {
+			for {
+				select {
+				case <-watcherCh:
+					general.Infof("kubelet device plugin checkpoint changed, trigger report")
+					p.Trigger()
+				case <-p.ctx.Done():
+					general.Infof("file watcher stopped for kubelet device plugin checkpoint")
+					return
+				}
+			}
+		}()
+	} else {
+		general.Infof("kubelet device plugin checkpoint fallback is disabled or path is empty, skip watching kubelet device plugin checkpoint")
+	}
+
 	return
 }
 
@@ -449,9 +495,11 @@ func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationReso
 	// Add allocations from machine state
 	p.addStateAllocations(idToAllocations, machineState)
 
-	// Add allocations from kubelet device manager checkpoint
-	if err := p.addKubeletCheckpointAllocations(idToAllocations); err != nil {
-		return nil, err
+	// Add allocations from kubelet device manager checkpoint as a fallback.
+	if p.enableKubeletCheckpointFallback {
+		if err := p.addKubeletCheckpointAllocations(idToAllocations); err != nil {
+			return nil, err
+		}
 	}
 
 	// Then construct the final zone allocations from the map of device id to allocations
@@ -511,12 +559,24 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 
 	checkpointData, err := native.GetKubeletCheckpoint(p.checkpointManager)
 	if err != nil {
+		if errors.Is(err, cpmerrors.ErrCheckpointNotFound) {
+			general.Infof("kubelet checkpoint not found, skip")
+			return nil
+		}
 		return fmt.Errorf("failed to get kubelet checkpoint: %v", err)
 	}
 
 	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
 
+	validDeviceNames := sets.NewString(p.gpuDeviceNames...)
+
 	for _, entry := range podDeviceEntries {
+		// Check if the reported resource is a valid GPU device name.
+		// If not in gpuDeviceNames, skip it to avoid reporting invalid devices.
+		if !validDeviceNames.Has(entry.ResourceName) {
+			continue
+		}
+
 		resourceName := v1.ResourceName(entry.ResourceName)
 
 		// Iterate through all devices per NUMA node
@@ -538,8 +598,8 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 				// Find the pod from the metaserver to get its namespace and name
 				pod, err := p.metaServer.GetPod(p.ctx, entry.PodUID)
 				if err != nil {
-					general.Errorf("failed to get pod %s/%s: %v", entry.PodUID, entry.PodUID, err)
-					return fmt.Errorf("failed to get pod %s/%s: %w", entry.PodUID, entry.PodUID, err)
+					general.Errorf("failed to get pod %s: %v", entry.PodUID, err)
+					return fmt.Errorf("failed to get pod %s: %w", entry.PodUID, err)
 				}
 
 				// Generate consumer key using namespace, name and podUID
@@ -550,8 +610,8 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 					Requests: &gpuResourceList,
 				})
 
-				general.Infof("added allocation from checkpoint: pod=%s, container=%s, device=%s, numa=%d",
-					entry.PodUID, entry.ContainerName, deviceID, numaNode)
+				general.Infof("added allocation from checkpoint: consumer=%s, container=%s, device=%s, numa=%d",
+					consumer, entry.ContainerName, deviceID, numaNode)
 			}
 		}
 	}
@@ -597,29 +657,33 @@ func hasExistingPodAllocation(allocations util.ZoneAllocations, podUID string) b
 func (p *gpuReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server v1alpha1.ReporterPlugin_ListAndWatchReportContentServer) error {
 	isFirst := true
 	var lastSentContent *v1alpha1.GetReportContentResponse
+	var retryCh <-chan time.Time
 
 	for {
 		resp, err := p.buildReportResponse()
 		if err != nil {
-			general.Errorf("failed to build report response: %v", err)
-			return err
-		}
-
-		p.Lock()
-		p.lastReportContent = resp
-		p.Unlock()
-
-		// Send report only when it's the first time or the content has changed
-		if isFirst || !proto.Equal(lastSentContent, resp) {
-			if err := server.Send(resp); err != nil {
-				general.Errorf("failed to send report content: %v", err)
-				return err
-			}
-			general.Infof("successfully sent report content to reporter manager, content: %v", resp)
-			lastSentContent = resp
-			isFirst = false
+			general.Errorf("failed to build report response: %v, will retry in %s", err, p.reportRetryInterval)
+			// Start a retry timer to ensure the listwatch stream doesn't break due to intermittent failures (e.g. state/topology parsing error)
+			retryCh = time.After(p.reportRetryInterval)
 		} else {
-			general.Infof("report content unchanged, skip sending")
+			// Clear retry timer if build succeeds
+			retryCh = nil
+			p.Lock()
+			p.lastReportContent = resp
+			p.Unlock()
+
+			// Send report only when it's the first time or the content has changed
+			if isFirst || !proto.Equal(lastSentContent, resp) {
+				if err := server.Send(resp); err != nil {
+					general.Errorf("failed to send report content: %v", err)
+					return err
+				}
+				general.Infof("successfully sent report content to reporter manager, content: %v", resp)
+				lastSentContent = resp
+				isFirst = false
+			} else {
+				general.Infof("report content unchanged, skip sending")
+			}
 		}
 
 		select {
@@ -631,6 +695,8 @@ func (p *gpuReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server 
 			return nil
 		case <-p.reportNotifyCh:
 			general.Infof("received report notify trigger, start to rebuild and send report")
+		case <-retryCh:
+			general.Infof("retry timer fired, start to rebuild and send report")
 		}
 	}
 }
