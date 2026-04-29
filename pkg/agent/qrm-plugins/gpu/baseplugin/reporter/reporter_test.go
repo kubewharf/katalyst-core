@@ -2224,6 +2224,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 		{
 			name: "get checkpoint succeeds",
 			p: &gpuReporterPlugin{
+				ctx:            context.TODO(),
 				gpuDeviceNames: []string{"test-resource"},
 				checkpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{

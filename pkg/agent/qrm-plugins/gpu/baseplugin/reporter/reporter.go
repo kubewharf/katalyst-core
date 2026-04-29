@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -596,10 +597,10 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 				gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
 
 				// Find the pod from the metaserver to get its namespace and name
-				pod, err := p.metaServer.GetPod(p.ctx, entry.PodUID)
+				pod, err := p.metaServer.GetPod(context.WithValue(p.ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue), entry.PodUID)
 				if err != nil {
-					general.Errorf("failed to get pod %s: %v", entry.PodUID, err)
-					return fmt.Errorf("failed to get pod %s: %w", entry.PodUID, err)
+					general.Warningf("failed to get pod %s: %v", entry.PodUID, err)
+					continue
 				}
 
 				// Generate consumer key using namespace, name and podUID
