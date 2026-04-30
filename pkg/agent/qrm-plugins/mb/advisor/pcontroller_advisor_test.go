@@ -96,6 +96,19 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 	mockInnerCapUp.On("GetPlan", context.TODO(), &dummyStatsCapUp).Return(
 		&dummyPlanCapUp, nil)
 
+	// test data for case asymmetric Kq
+	dummyPlanCapUpAsym := plan.MBPlan{
+		MBGroups: map[string]plan.GroupCCDPlan{
+			"dedicated": {
+				0: 9000,
+				1: 15500,
+			},
+		},
+	}
+	mockInnerCapUpAsym := new(mockAdvisor)
+	mockInnerCapUpAsym.On("GetPlan", context.TODO(), &dummyStatsCapUp).Return(
+		&dummyPlanCapUpAsym, nil)
+
 	// test data for negative case cap-no-data-error
 	dummyStatsCapNoData := monitor.DomainStats{}
 	mockInnerCapNoData := new(mockAdvisor)
@@ -141,6 +154,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 					"dedicated": {
 						pCtrl: pController{
 							kp:     0.1,
+							kq:     0.1,
 							target: 24000,
 						},
 						ccdCapMB: 45000, // current dedicated group ccd cap
@@ -173,6 +187,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 					"dedicated": {
 						pCtrl: pController{
 							kp:     0.1,
+							kq:     0.1,
 							target: 24000,
 						},
 						ccdCapMB: 15000,
@@ -185,11 +200,40 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 				MBGroups: map[string]plan.GroupCCDPlan{
 					"dedicated": {
 						0: 9000,
-						1: 15500, // 15500 < new cap 15900, preserved (would have been clamped to 15000 under old cap)
+						1: 15500,
 					},
 				},
 			},
-			wantDedicatedCCDCapMB: 15000 + 900, // 15000 + (24000 - 14000) * 0.1
+			wantDedicatedCCDCapMB: 15000 + 900,
+		},
+		{
+			name: "mb stat higher over the target with asymmetric Kq leads to smaller cap raise",
+			fields: fields{
+				ccdMinMB: 2000,
+				ccdMaxMB: 60000,
+				inner:    mockInnerCapUpAsym,
+				groupStates: map[string]*groupPCtrlState{
+					"dedicated": {
+						pCtrl: pController{
+							kp:     0.1,
+							kq:     0.05,
+							target: 24000,
+						},
+						ccdCapMB: 15000,
+					},
+				},
+			},
+			domainsMon: &dummyStatsCapUp,
+			wantErr:    false,
+			wantPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated": {
+						0: 9000,
+						1: 15450, // 15500 > new cap 15450, capped slightly (would have been clamped to 15000 under old cap)
+					},
+				},
+			},
+			wantDedicatedCCDCapMB: 15000 + 450,
 		},
 		{
 			name: "error from inner passed through",
@@ -201,6 +245,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 					"dedicated": {
 						pCtrl: pController{
 							kp:     0.1,
+							kq:     0.1,
 							target: 24000,
 						},
 						ccdCapMB: 12345,
@@ -210,7 +255,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 			domainsMon:            &dummyStatsCapNoData,
 			wantErr:               true,
 			wantPlan:              nil,
-			wantDedicatedCCDCapMB: 12345, // expecting no change
+			wantDedicatedCCDCapMB: 12345,
 		},
 		{
 			name: "no mb usage, no change",
@@ -222,6 +267,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 					"dedicated": {
 						pCtrl: pController{
 							kp:     0.1,
+							kq:     0.1,
 							target: 24000,
 						},
 						ccdCapMB: 21312,
@@ -230,8 +276,8 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 			},
 			domainsMon:            &dummyStatsCapNoUsage,
 			wantErr:               false,
-			wantPlan:              &dummyPlanCapNoUsage, // expecting no change
-			wantDedicatedCCDCapMB: 21312,                // expecting no change
+			wantPlan:              &dummyPlanCapNoUsage,
+			wantDedicatedCCDCapMB: 21312,
 		},
 	}
 
