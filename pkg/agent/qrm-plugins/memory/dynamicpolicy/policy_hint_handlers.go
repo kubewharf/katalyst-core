@@ -405,12 +405,12 @@ func (p *DynamicPolicy) calculateHints(
 				" has request larger than 1 NUMA")
 		}
 
-		if numaExclusive && distributeEvenlyAcrossNuma {
-			return nil, fmt.Errorf("NUMA exclusive and distribute_evenly_across_numa is not supported at the same time")
+		if sharedCores && numaBinding && minNUMAsCountNeeded > 1 {
+			return nil, fmt.Errorf("shared cores with numa binding cannot span across multiple NUMA nodes")
 		}
 
-		if sharedCores && numaBinding && distributeEvenlyAcrossNuma {
-			return nil, fmt.Errorf("shared cores with numa binding and distribute_evenly_across_numa is not supported at the same time")
+		if numaExclusive && distributeEvenlyAcrossNuma {
+			return nil, fmt.Errorf("NUMA exclusive and distribute_evenly_across_numa is not supported at the same time")
 		}
 
 		freeMemoryByResourceAndNUMA[resourceName] = make(map[int]uint64, len(numaNodes))
@@ -449,6 +449,8 @@ func (p *DynamicPolicy) calculateHints(
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			// pods with distribute evenly across numa annotation can occupy more than 1 NUMA
+			return
+		} else if sharedCores && numaBinding && maskCount > 1 {
 			return
 		}
 

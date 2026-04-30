@@ -186,7 +186,7 @@ func TestDynamicPolicy_numaBindingHintHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "shared cores with numa binding and distribute evenly across numa will return error",
+			name: "test for shared cores with numa binding with distribute evenly across numa will return error if requesting too much",
 			args: args{
 				req: &pluginapi.ResourceRequest{
 					PodUid:        "pod1_uid",

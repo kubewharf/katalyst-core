@@ -648,8 +648,8 @@ func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest
 	} else if numaBinding && !numaExclusive && !distributeEvenlyAcrossNUMANodes &&
 		len(req.Hint.Nodes) > 1 {
 		return fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
-	} else if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores && numaBinding && distributeEvenlyAcrossNUMANodes {
-		return fmt.Errorf("shared cores with numa binding and distribute evenly across numa is not supported at the same time")
+	} else if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores && numaBinding && len(req.Hint.Nodes) > 1 {
+		return fmt.Errorf("shared cores with numa binding cannot span across multiple NUMA nodes")
 	} else if numaExclusive && distributeEvenlyAcrossNUMANodes {
 		return fmt.Errorf("NUMA exclusive and distribute evenly across numa is not supported at the same time")
 	}
