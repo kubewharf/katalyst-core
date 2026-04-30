@@ -44,6 +44,10 @@ func (m *unsupportedManager) ApplyCPUSet(_ string, _ *common.CPUSetData) error {
 	return fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) ApplyCPUSetPartition(_ string, _ common.CPUSetPartitionFlag) error {
+	return fmt.Errorf("unsupported manager v2")
+}
+
 func (m *unsupportedManager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return fmt.Errorf("unsupported manager v2")
 }

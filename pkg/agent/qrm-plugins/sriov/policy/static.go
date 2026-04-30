@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	appqrm "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
@@ -305,7 +304,6 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 							ResourceValue: 1,
 							Node:          socket,
 							Name:          allocationInfo.VFInfo.RepName,
-							Type:          string(apinode.TopologyTypeNIC),
 							TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 						},
 					},
@@ -346,7 +344,6 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			ResourceValue: 1,
 			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vfInfo.NumaNode).ToSliceUInt64()[0],
 			Name:          vfInfo.RepName,
-			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 		})
 		vfSet.Insert(vfInfo.RepName)
@@ -364,7 +361,6 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 				ResourceValue: 1,
 				Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(allocationInfo.VFInfo.NumaNode).ToSliceUInt64()[0],
 				Name:          allocationInfo.VFInfo.RepName,
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			})
 			vfSet.Insert(allocationInfo.VFInfo.RepName)

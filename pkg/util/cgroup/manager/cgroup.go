@@ -94,6 +94,15 @@ func ApplyCPUSetWithAbsolutePath(absCgroupPath string, data *common.CPUSetData) 
 	return GetManager().ApplyCPUSet(absCgroupPath, data)
 }
 
+func ApplyCPUSetPartitionWithRelativePath(relCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error {
+	absCgroupPath := common.GetAbsCgroupPath("cpuset", relCgroupPath)
+	return GetManager().ApplyCPUSetPartition(absCgroupPath, partitionFlag)
+}
+
+func ApplyCPUSetPartitionWithAbsolutePath(absCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error {
+	return GetManager().ApplyCPUSetPartition(absCgroupPath, partitionFlag)
+}
+
 func ApplyCPUSetForContainer(podUID, containerId string, data *common.CPUSetData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUSetForContainer with nil cgroup data")

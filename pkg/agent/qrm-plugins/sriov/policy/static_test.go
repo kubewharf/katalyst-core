@@ -30,7 +30,6 @@ import (
 
 	. "github.com/bytedance/mockey"
 
-	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -286,7 +285,6 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 								ResourceValue: 1,
 								Node:          1,
 								Name:          "eth1_0",
-								Type:          string(apinode.TopologyTypeNIC),
 								TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 							},
 						},
@@ -326,14 +324,12 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 				ResourceValue: 1,
 				Node:          0,
 				Name:          "eth0_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          1,
 				Name:          "eth1_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 		}
@@ -364,28 +360,24 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 				ResourceValue: 1,
 				Node:          0,
 				Name:          "eth0_0",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          1,
 				Name:          "eth1_0",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          0,
 				Name:          "eth0_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          1,
 				Name:          "eth1_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 		}
@@ -444,8 +436,9 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 						IsScalarResource:  true,
 						AllocatedQuantity: 1,
 						Annotations: map[string]string{
-							pciAnnotationKey:   `[{"address":"0000:40:00.0","repName":"eth0_0","vfName":"eth0_0"}]`,
-							netNsAnnotationKey: "/var/run/netns/ns2",
+							pciAnnotationKey:                `[{"address":"0000:40:00.0","repName":"eth0_0","vfName":"eth0_0"}]`,
+							netNsAnnotationKey:              "/var/run/netns/ns2",
+							topologyAllocationAnnotationKey: `{"Socket":{"0":{"allocated":{"resource.katalyst.kubewharf.io/sriov_nic":"1"}}}}`,
 						},
 						Devices: []*pluginapi.DeviceSpec{
 							{
@@ -505,8 +498,9 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 						IsScalarResource:  true,
 						AllocatedQuantity: 1,
 						Annotations: map[string]string{
-							pciAnnotationKey:   `[{"address":"0000:40:00.1","repName":"eth0_1","vfName":"eth0_1"}]`,
-							netNsAnnotationKey: "/var/run/netns/ns2",
+							pciAnnotationKey:                `[{"address":"0000:40:00.1","repName":"eth0_1","vfName":"eth0_1"}]`,
+							netNsAnnotationKey:              "/var/run/netns/ns2",
+							topologyAllocationAnnotationKey: `{"Socket":{"0":{"allocated":{"resource.katalyst.kubewharf.io/sriov_nic":"1"}}}}`,
 						},
 						Devices: []*pluginapi.DeviceSpec{
 							{
@@ -600,28 +594,24 @@ func TestNewStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 				ResourceValue: 1,
 				Node:          0,
 				Name:          "eth0_0",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          1,
 				Name:          "eth1_0",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          0,
 				Name:          "eth0_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          1,
 				Name:          "eth1_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 		}
@@ -652,14 +642,12 @@ func TestNewStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 				ResourceValue: 1,
 				Node:          0,
 				Name:          "eth0_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 			{
 				ResourceValue: 1,
 				Node:          1,
 				Name:          "eth1_1",
-				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			},
 		}
