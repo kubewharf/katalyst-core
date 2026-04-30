@@ -116,7 +116,7 @@ func clampMB(value, min, max int) int {
 	return value
 }
 
-func NewPControllerAdvisor(Kp float64,
+func NewPControllerAdvisor(Kp, Kq float64,
 	minValue, maxValue int,
 	groupTargets map[string]int,
 	inner Advisor,
@@ -126,6 +126,7 @@ func NewPControllerAdvisor(Kp float64,
 		groupStates[group] = &groupPCtrlState{
 			pCtrl: pController{
 				kp:     Kp,
+				kq:     Kq,
 				target: target,
 			},
 			ccdCapMB: maxValue,
@@ -142,10 +143,14 @@ func NewPControllerAdvisor(Kp float64,
 
 type pController struct {
 	kp     float64
+	kq     float64
 	target int
 }
 
 func (p *pController) update(measurement int) int {
 	gap := float64(p.target - measurement)
+	if gap >= 0 {
+		return int(p.kq * gap)
+	}
 	return int(p.kp * gap)
 }

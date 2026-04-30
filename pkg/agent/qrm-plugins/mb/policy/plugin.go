@@ -136,14 +136,19 @@ func (m *MBPlugin) Start() (err error) {
 	)
 
 	if len(m.conf.CCDCapGroups) > 0 && m.conf.CCDCapKp > 0 {
+		kq := m.conf.CCDCapKq
+		if kq <= 0 {
+			kq = m.conf.CCDCapKp
+		}
 		m.advisor = advisor.NewPControllerAdvisor(
 			m.conf.CCDCapKp,
+			kq,
 			m.conf.MinCCDMB,
 			m.conf.MaxCCDMB,
 			m.conf.CCDCapGroups,
 			m.advisor,
 		)
-		general.Infof("[mbm] P-Controller advisor enabled with groups=%v, Kp=%.2f", m.conf.CCDCapGroups, m.conf.CCDCapKp)
+		general.Infof("[mbm] P-Controller advisor enabled with groups=%v, Kp=%.2f, Kq=%.2f", m.conf.CCDCapGroups, m.conf.CCDCapKp, kq)
 	}
 
 	go func() {
