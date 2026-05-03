@@ -95,7 +95,8 @@ func (p *PolicyCanonical) estimateNonReclaimedQoSMemoryRequirement() (float64, e
 			if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
 				for _, numaID := range bindingNumas.ToSliceInt() {
-					memoryCap, ok := p.metaServer.MemoryDetails[numaID]
+					// Use NormalMemoryDetails which excludes static hugepages for accurate per-NUMA capacity
+					memoryCap, ok := p.metaServer.NormalMemoryDetails[numaID]
 					if !ok {
 						errList = append(errList, fmt.Errorf("get memory capacity of numa %v failed", numaID))
 						return true
