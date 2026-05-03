@@ -357,6 +357,28 @@ func (am AllocationMap) IsRequestSatisfied(id string, request float64, allocatab
 	return allocatable-allocated >= request
 }
 
+// IsResourceRequestSatisfied checks if all requested resources can be satisfied for a given GPU device
+func (arm AllocationResourcesMap) IsResourceRequestSatisfied(device string, requestPerGPU map[v1.ResourceName]float64, allocatablePerGPU map[v1.ResourceName]float64) bool {
+	for resourceName, req := range requestPerGPU {
+		if req <= 0 { // skip if request is 0, it's always satisfied
+			continue
+		}
+		if arm == nil {
+			return false
+		}
+		am, ok := arm[resourceName]
+		if !ok {
+			return false
+		}
+		alloc := allocatablePerGPU[resourceName]
+		if !am.IsRequestSatisfied(device, req, alloc) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (am AllocationMap) getNumberDevices() int {
 	if am == nil {
 		return 0

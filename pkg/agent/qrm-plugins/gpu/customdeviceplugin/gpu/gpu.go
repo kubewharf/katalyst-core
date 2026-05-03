@@ -68,6 +68,41 @@ func (p *GPUDevicePlugin) DefaultPreAllocateResourceName() string {
 	return defaultPreAllocateResourceName
 }
 
+// filterOccupiedDevicesFromRequest filters out devices with existing allocations from
+// the provided DeviceRequest's AvailableDevices and ReusableDevices in place.
+// A device is considered occupied if any non-gpu_device resource in AllocationResourcesMap
+// has len(PodEntries) > 0 for that device.
+func filterOccupiedDevicesFromRequest(
+	req *pluginapi.DeviceRequest,
+	allocationResourcesMap state.AllocationResourcesMap,
+) {
+	// Helper to filter a single list of devices
+	filter := func(devices []string) []string {
+		filtered := make([]string, 0, len(devices))
+		for _, deviceID := range devices {
+			deviceOccupied := false
+			for resourceName, allocationMap := range allocationResourcesMap {
+				// Skip checking gpu_device resource
+				if string(resourceName) == gpuconsts.GPUDeviceType {
+					continue
+				}
+				if allocationState, exists := allocationMap[deviceID]; exists {
+					if len(allocationState.PodEntries) > 0 {
+						deviceOccupied = true
+						break
+					}
+				}
+			}
+			if !deviceOccupied {
+				filtered = append(filtered, deviceID)
+			}
+		}
+		return filtered
+	}
+	req.AvailableDevices = filter(req.AvailableDevices)
+	req.ReusableDevices = filter(req.ReusableDevices)
+}
+
 func (p *GPUDevicePlugin) DeviceNames() []string {
 	return p.deviceNames
 }
@@ -128,11 +163,11 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 	var allocatedDevices []string
 	memoryAllocationInfo := p.GetState().GetAllocationInfo(v1.ResourceName(defaultPreAllocateResourceName), resReq.PodUid, resReq.ContainerName)
-	// GPU memory should have been allocated at this stage.
-	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu memory state.
+	// gpu compute should have been allocated at this stage.
+	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu compute state.
 	if memoryAllocationInfo == nil || memoryAllocationInfo.TopologyAwareAllocations == nil {
-		// When GPU memory allocation info is nil, invoke the GPU allocate strategy to perform GPU allocation
-		general.InfoS("GPU memory allocation info is nil, invoking GPU allocate strategy",
+		// When gpu compute allocation info is nil, invoke the GPU allocate strategy to perform GPU allocation
+		general.InfoS("gpu compute allocation info is nil, invoking GPU allocate strategy",
 			"podNamespace", resReq.PodNamespace,
 			"podName", resReq.PodName,
 			"containerName", resReq.ContainerName)
@@ -143,6 +178,9 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			general.Warningf("failed to get gpu topology: %v", err)
 			return nil, fmt.Errorf("failed to get gpu topology: %w", err)
 		}
+
+		// Filter out devices that already have allocations in other resources
+		filterOccupiedDevicesFromRequest(deviceReq, p.GetState().GetMachineState())
 
 		// Use the strategy framework to allocate GPU devices
 		result, err := manager.AllocateGPUUsingStrategy(
@@ -165,7 +203,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 		allocatedDevices = result.AllocatedDevices
 	} else {
-		// when GPU memory allocation info exists
+		// when gpu compute allocation info exists
 		for gpuID := range memoryAllocationInfo.TopologyAwareAllocations {
 			allocatedDevices = append(allocatedDevices, gpuID)
 		}

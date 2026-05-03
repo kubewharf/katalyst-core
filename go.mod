@@ -20,7 +20,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.11-0.20260423040236-f1a2330d266e
+	github.com/kubewharf/katalyst-api v0.5.11-0.20260427134811-f4e50b5266f4
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
@@ -176,6 +176,7 @@ require (
 )
 
 replace (
+	github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20260428035600-507ef616baa0
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6
@@ -197,7 +198,7 @@ replace (
 	k8s.io/kube-proxy => k8s.io/kube-proxy v0.24.6
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.24.6
 	k8s.io/kubectl => k8s.io/kubectl v0.24.6
-	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf-pre.2
+	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf-pre.3
 	k8s.io/kubernetes => k8s.io/kubernetes v1.24.6
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.24.6
 	k8s.io/metrics => k8s.io/metrics v0.24.6

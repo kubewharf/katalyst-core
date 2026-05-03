@@ -305,19 +305,23 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 	p.RLock()
 	defer p.RUnlock()
 
-	// Get topology aware resources for all resource plugins
+	// Collect all topology-aware resource responses
 	allocatedResourcesList := make([]*pluginapi.GetTopologyAwareResourcesResponse, 0)
 	for _, resourcePlugin := range p.resourcePlugins {
-		allocatedResource, err := resourcePlugin.GetTopologyAwareResources(ctx, req.PodUid, req.ContainerName)
+		pluginResources, err := resourcePlugin.GetTopologyAwareResources(ctx, req.PodUid, req.ContainerName)
 		if err != nil {
 			general.Errorf("failed to get topology aware resources for plugin %s: %v", resourcePlugin.ResourceName(), err)
 			continue
 		}
 
-		if allocatedResource == nil {
+		if pluginResources == nil {
 			continue
 		}
-		allocatedResourcesList = append(allocatedResourcesList, allocatedResource)
+
+		// Add all resources from the plugin
+		for _, resp := range pluginResources {
+			allocatedResourcesList = append(allocatedResourcesList, resp)
+		}
 	}
 
 	// Merge the respective response into one response
@@ -402,17 +406,20 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	// Get topology aware allocatable resources for all resource plugins
 	allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
 	for _, resourcePlugin := range p.resourcePlugins {
-		allocatableResource, err := resourcePlugin.GetTopologyAwareAllocatableResources(ctx)
+		pluginResources, err := resourcePlugin.GetTopologyAwareAllocatableResources(ctx)
 		if err != nil {
 			general.Errorf("failed to get topology aware allocatable resources for plugin %s: %v", resourcePlugin.ResourceName(), err)
 			continue
 		}
 
-		if allocatableResource == nil {
+		if pluginResources == nil {
 			continue
 		}
 
-		allocatableResources[allocatableResource.ResourceName] = allocatableResource.AllocatableTopologyAwareResource
+		// Add all resources from the plugin to the response
+		for resourceName, allocatableResource := range pluginResources {
+			allocatableResources[resourceName] = allocatableResource
+		}
 	}
 
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
@@ -425,11 +432,23 @@ func (p *StaticPolicy) GetResourcePluginOptions(
 	context.Context,
 	*pluginapi.Empty,
 ) (*pluginapi.ResourcePluginOptions, error) {
+	p.Lock()
+	defer p.Unlock()
+
+	// Collect all extra resources from all resource plugins
+	collectedExtraResources := sets.NewString()
+	for _, rp := range p.resourcePlugins {
+		for _, er := range rp.GetExtraResources() {
+			collectedExtraResources.Insert(er)
+		}
+	}
+
 	return &pluginapi.ResourcePluginOptions{
 		PreStartRequired:      false,
 		WithTopologyAlignment: true,
 		NeedReconcile:         false,
 		AssociatedDevices:     p.associatedDeviceNames.List(),
+		ExtraResources:        collectedExtraResources.List(),
 	}, nil
 }
 
@@ -796,6 +815,7 @@ func (p *StaticPolicy) registerDefaultResourcePlugins() error {
 		p.resourcePlugins[resourcePlugin.ResourceName()] = resourcePlugin
 		general.Infof("Registered resource plugin: %s", resourcePlugin.ResourceName())
 	}
+
 	return nil
 }
 

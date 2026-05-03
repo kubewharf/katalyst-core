@@ -27,6 +27,7 @@ import (
 	"github.com/cilium/ebpf"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
@@ -166,12 +167,14 @@ type DynamicPolicy struct {
 
 	numaAllocationReactor                         reactor.AllocationReactor
 	numaBindResultResourceAllocationAnnotationKey string
+
+	extraResourceNames []string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
-	reservedMemory, err := getReservedMemory(conf, agentCtx.MetaServer, agentCtx.MachineInfo)
+	resourcesReservedMemory, err := getResourcesReservedMemory(conf, agentCtx.MetaServer, agentCtx.MachineInfo, conf.ExtraMemoryResources)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedMemoryFromOptions failed with error: %v", err)
 	}
@@ -180,11 +183,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		Key: util.QRMPluginPolicyTagName,
 		Val: memconsts.MemoryResourcePluginPolicyNameDynamic,
 	})
-	resourcesReservedMemory := map[v1.ResourceName]map[int]uint64{
-		v1.ResourceMemory: reservedMemory,
-	}
+
 	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, memoryPluginStateFileName,
-		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption, wrappedEmitter)
+		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, agentCtx.MemoryTopology, resourcesReservedMemory, conf.SkipMemoryStateCorruption,
+		wrappedEmitter, conf.ExtraMemoryResources,
+	)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -238,6 +241,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
+		extraResourceNames:                            conf.ExtraMemoryResources,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -596,7 +600,9 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		return nil, err
 	}
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	allowedResources := sets.NewString(p.ResourceName())
+	allowedResources.Insert(p.extraResourceNames...)
+	resourceReqInt, _, err := util.GetQuantityMapFromResourceReq(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -609,7 +615,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 		"podRole", req.PodRole,
 		"containerType", req.ContainerType,
 		"qosLevel", qosLevel,
-		"memoryReq(bytes)", reqInt,
+		"memoryReq map(bytes)", resourceReqInt,
 		"isDebugPod", isDebugPod)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
@@ -729,54 +735,59 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	defer p.RUnlock()
 
 	podResources := make(map[string]*pluginapi.ContainerResources)
-	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	podResourceEntries := p.state.GetPodResourceEntries()
 	needUpdateMachineState := false
-	for podUID, containerEntries := range podEntries {
-		if podResources[podUID] == nil {
-			podResources[podUID] = &pluginapi.ContainerResources{}
-		}
 
-		mainContainerAllocationInfo, _ := podEntries.GetMainContainerAllocation(podUID)
-		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil {
-				continue
+	for resourceName, podEntries := range podResourceEntries {
+		for podUID, containerEntries := range podEntries {
+			if podResources[podUID] == nil {
+				podResources[podUID] = &pluginapi.ContainerResources{}
 			}
 
-			if allocationInfo.CheckSideCar() && mainContainerAllocationInfo != nil {
-				if applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
-					general.Infof("pod: %s/%s sidecar container: %s update its allocation",
-						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-					p.state.SetAllocationInfo(v1.ResourceMemory, podUID, containerName, allocationInfo, true)
-					needUpdateMachineState = true
+			mainContainerAllocationInfo, _ := podEntries.GetMainContainerAllocation(podUID)
+			for containerName, allocationInfo := range containerEntries {
+				if allocationInfo == nil {
+					continue
 				}
-			}
 
-			if podResources[podUID].ContainerResources == nil {
-				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
-			}
+				if allocationInfo.CheckSideCar() && mainContainerAllocationInfo != nil {
+					if applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
+						general.Infof("pod: %s/%s sidecar container: %s update its allocation",
+							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+						p.state.SetAllocationInfo(resourceName, podUID, containerName, allocationInfo, true)
+						needUpdateMachineState = true
+					}
+				}
 
-			resourceAllocation, err := allocationInfo.GetResourceAllocation()
-			if err != nil {
-				errMsg := "allocationInfo.GetResourceAllocation failed"
-				general.ErrorS(err, errMsg,
-					"podNamespace", allocationInfo.PodNamespace,
-					"podName", allocationInfo.PodName,
-					"containerName", allocationInfo.ContainerName)
-				return nil, fmt.Errorf(errMsg)
-			}
+				if podResources[podUID].ContainerResources == nil {
+					podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
+				}
 
-			if p.resctrlHinter != nil {
-				p.resctrlHinter.HintResourceAllocation(allocationInfo.AllocationMeta, resourceAllocation)
-			}
+				resourceAllocation, err := podResourceEntries.GetResourceAllocation(podUID, containerName)
+				if err != nil {
+					errMsg := "allocationInfo.GetResourceAllocation failed"
+					general.ErrorS(err, errMsg,
+						"podNamespace", allocationInfo.PodNamespace,
+						"podName", allocationInfo.PodName,
+						"containerName", allocationInfo.ContainerName,
+						"resourceName", resourceName)
+					return nil, fmt.Errorf(errMsg)
+				}
 
-			podResources[podUID].ContainerResources[containerName] = resourceAllocation
+				if p.resctrlHinter != nil {
+					p.resctrlHinter.HintResourceAllocation(allocationInfo.AllocationMeta, resourceAllocation)
+				}
+
+				podResources[podUID].ContainerResources[containerName] = resourceAllocation
+			}
 		}
 	}
 
 	if needUpdateMachineState {
 		general.Infof("GetResourcesAllocation update machine state")
-		podResourceEntries := p.state.GetPodResourceEntries()
-		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+		podResourceEntries = p.state.GetPodResourceEntries()
+		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
+			p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 		if err != nil {
 			general.Infof("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -800,42 +811,45 @@ func (p *DynamicPolicy) GetTopologyAwareResources(_ context.Context,
 	p.RLock()
 	defer p.RUnlock()
 
-	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-	if allocationInfo == nil {
+	resourceAllocationInfo := p.state.GetResourceAllocationInfo(req.PodUid, req.ContainerName)
+	if resourceAllocationInfo == nil {
 		return nil, fmt.Errorf("pod: %s, container: %s is not show up in memory plugin state", req.PodUid, req.ContainerName)
 	}
 
-	topologyAwareQuantityList := util.GetTopologyAwareQuantityFromAssignmentsSize(allocationInfo.TopologyAwareAllocations)
-	resp := &pluginapi.GetTopologyAwareResourcesResponse{
-		PodUid:       allocationInfo.PodUid,
-		PodName:      allocationInfo.PodName,
-		PodNamespace: allocationInfo.PodNamespace,
-		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
-			ContainerName: allocationInfo.ContainerName,
-		},
-	}
+	var resp *pluginapi.GetTopologyAwareResourcesResponse
 
-	if allocationInfo.CheckSideCar() {
-		resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
-			string(v1.ResourceMemory): {
+	for resourceName, allocationInfo := range resourceAllocationInfo {
+		topologyAwareQuantityList := util.GetTopologyAwareQuantityFromAssignmentsSize(allocationInfo.TopologyAwareAllocations)
+		if resp == nil {
+			resp = &pluginapi.GetTopologyAwareResourcesResponse{
+				PodUid:       allocationInfo.PodUid,
+				PodName:      allocationInfo.PodName,
+				PodNamespace: allocationInfo.PodNamespace,
+				ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+					ContainerName:      allocationInfo.ContainerName,
+					AllocatedResources: make(map[string]*pluginapi.TopologyAwareResource),
+				},
+			}
+		}
+
+		if allocationInfo.CheckSideCar() {
+			resp.ContainerTopologyAwareResources.AllocatedResources[string(resourceName)] = &pluginapi.TopologyAwareResource{
 				IsNodeResource:                    false,
 				IsScalarResource:                  true,
 				AggregatedQuantity:                0,
 				OriginalAggregatedQuantity:        0,
 				TopologyAwareQuantityList:         nil,
 				OriginalTopologyAwareQuantityList: nil,
-			},
-		}
-	} else {
-		resp.ContainerTopologyAwareResources.AllocatedResources = map[string]*pluginapi.TopologyAwareResource{
-			string(v1.ResourceMemory): {
+			}
+		} else {
+			resp.ContainerTopologyAwareResources.AllocatedResources[string(resourceName)] = &pluginapi.TopologyAwareResource{
 				IsNodeResource:                    false,
 				IsScalarResource:                  true,
 				AggregatedQuantity:                float64(allocationInfo.AggregatedQuantity),
 				OriginalAggregatedQuantity:        float64(allocationInfo.AggregatedQuantity),
 				TopologyAwareQuantityList:         topologyAwareQuantityList,
 				OriginalTopologyAwareQuantityList: topologyAwareQuantityList,
-			},
+			}
 		}
 	}
 
@@ -849,42 +863,46 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(context.Context,
 	p.RLock()
 	defer p.RUnlock()
 
-	machineState := p.state.GetMachineState()[v1.ResourceMemory]
+	allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
 
+	resourceMachineState := p.state.GetMachineState()
 	numaNodes := p.topology.CPUDetails.NUMANodes().ToSliceInt()
-	topologyAwareAllocatableQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
-	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 
-	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint64 = 0, 0
-	for _, numaNode := range numaNodes {
-		numaNodeState := machineState[numaNode]
-		if numaNodeState == nil {
-			return nil, fmt.Errorf("nil numaNodeState for NUMA: %d", numaNode)
+	for resourceName, machineState := range resourceMachineState {
+		topologyAwareAllocatableQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
+		topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
+
+		var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint64 = 0, 0
+		for _, numaNode := range numaNodes {
+			numaNodeState := machineState[numaNode]
+			if numaNodeState == nil {
+				return nil, fmt.Errorf("nil numaNodeState for NUMA: %d", numaNode)
+			}
+
+			topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
+				ResourceValue: float64(numaNodeState.Allocatable),
+				Node:          uint64(numaNode),
+			})
+			topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
+				ResourceValue: float64(numaNodeState.TotalMemSize),
+				Node:          uint64(numaNode),
+			})
+			aggregatedAllocatableQuantity += numaNodeState.Allocatable
+			aggregatedCapacityQuantity += numaNodeState.TotalMemSize
 		}
 
-		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(numaNodeState.Allocatable),
-			Node:          uint64(numaNode),
-		})
-		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(numaNodeState.TotalMemSize),
-			Node:          uint64(numaNode),
-		})
-		aggregatedAllocatableQuantity += numaNodeState.Allocatable
-		aggregatedCapacityQuantity += numaNodeState.TotalMemSize
+		allocatableResources[string(resourceName)] = &pluginapi.AllocatableTopologyAwareResource{
+			IsNodeResource:                       false,
+			IsScalarResource:                     true,
+			AggregatedAllocatableQuantity:        float64(aggregatedAllocatableQuantity),
+			TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
+			AggregatedCapacityQuantity:           float64(aggregatedCapacityQuantity),
+			TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
+		}
 	}
 
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
-		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
-			string(v1.ResourceMemory): {
-				IsNodeResource:                       false,
-				IsScalarResource:                     true,
-				AggregatedAllocatableQuantity:        float64(aggregatedAllocatableQuantity),
-				TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
-				AggregatedCapacityQuantity:           float64(aggregatedCapacityQuantity),
-				TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
-			},
-		},
+		AllocatableResources: allocatableResources,
 	}, nil
 }
 
@@ -896,6 +914,7 @@ func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
 		PreStartRequired:      false,
 		WithTopologyAlignment: true,
 		NeedReconcile:         true,
+		ExtraResources:        p.extraResourceNames,
 	}, nil
 }
 
@@ -942,7 +961,9 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 	}()
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	allowedResources := sets.NewString(p.ResourceName())
+	allowedResources.Insert(p.extraResourceNames...)
+	resourceReqInt, _, err := util.GetQuantityMapFromResourceReq(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -954,7 +975,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		"podType", req.PodType,
 		"podRole", req.PodRole,
 		"qosLevel", qosLevel,
-		"memoryReq(bytes)", reqInt,
+		"memoryReq map(bytes)", resourceReqInt,
 		"hint", req.Hint)
 
 	if req.ContainerType == pluginapi.ContainerType_INIT {
@@ -1001,6 +1022,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
+		// currently, sys-advisor only supports v1.ResourceMemory, and hugepages is not supported
 		if p.enableMemoryAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
 			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.ContainerMetadata{
 				PodUid:          req.PodUid,
@@ -1012,7 +1034,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				Labels:          maputil.CopySS(req.Labels),
 				Annotations:     maputil.CopySS(req.Annotations),
 				QosLevel:        qosLevel,
-				RequestQuantity: uint64(reqInt),
+				RequestQuantity: uint64(resourceReqInt[v1.ResourceMemory]),
 			})
 			if err != nil {
 				resp = nil
@@ -1055,38 +1077,39 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		return
 	}()
 
-	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) && !util.PodInplaceUpdateResizing(req) {
-		general.InfoS("already allocated and meet requirement",
+	resourceAllocationInfo := p.state.GetResourceAllocationInfo(req.PodUid, req.ContainerName)
+	// The length of all current allocation for every resource should be the same as the length of requested resources.
+	if len(resourceAllocationInfo) > 0 && len(resourceAllocationInfo) != len(resourceReqInt) {
+		general.ErrorS(fmt.Errorf("number of existing allocated resources: %d does not match number of resource requests: %d",
+			len(resourceAllocationInfo), len(resourceReqInt)),
+			"allocation error",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
-			"containerName", req.ContainerName,
-			"memoryReq(bytes)", reqInt,
-			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceMemory),
-			AllocationResult: &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceMemory): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-						AllocationResult:  allocationInfo.NumaAllocationResult.String(),
-					},
-				},
-			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
+			"containerName", req.ContainerName)
+		return nil, fmt.Errorf("number of existing allocated resources: %d does not match number of resource requests: %d",
+			len(resourceAllocationInfo), len(resourceReqInt))
+	}
+
+	for resName, allocationInfo := range resourceAllocationInfo {
+		reqInt, ok := resourceReqInt[resName]
+		if !ok {
+			general.ErrorS(fmt.Errorf("unable to find request quantity for resource that is already allocated"),
+				"allocation error",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"resourceName", resName)
+			return nil, fmt.Errorf("unable to find request quantity for resource that is already allocated")
+		}
+
+		if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) && !util.PodInplaceUpdateResizing(req) {
+			general.InfoS("already allocated and meet requirement",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"memoryReq(bytes)", resourceReqInt,
+				"currentResult(bytes)", allocationInfo.AggregatedQuantity)
+		}
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {
@@ -1117,7 +1140,8 @@ func (p *DynamicPolicy) removePod(podUID string, persistCheckpoint bool) error {
 		delete(podEntries, podUID)
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
+		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -1147,7 +1171,8 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string, persistChe
 		return nil
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
+		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("pod: %s, container: %s GenerateMachineStateFromPodEntries failed with error: %v", podUID, containerName, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -1280,7 +1305,7 @@ func (p *DynamicPolicy) hasLastLevelEnhancementKey(lastLevelEnhancementKey strin
 func (p *DynamicPolicy) checkNonBindingShareCoresMemoryResource(req *pluginapi.ResourceRequest) (bool, error) {
 	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
-		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
+		return false, fmt.Errorf("GetQuantityMapFromResourceReq failed with error: %v", err)
 	}
 
 	shareCoresAllocated := uint64(reqInt)

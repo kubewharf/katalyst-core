@@ -19,24 +19,29 @@ package manager
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/deviceaffinity"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/scheduler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/virtual_gpu"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // registerDefaultFilterStrategies register filtering strategies
 func registerDefaultFilterStrategies(manager *StrategyManager) {
-	if err := manager.RegisterFilteringStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
+	if err := manager.RegisterFilteringStrategy(virtual_gpu.NewVirtualGPUStrategy()); err != nil {
 		general.Errorf("Failed to register filtering strategy: %v", err)
 	}
 
 	if err := manager.RegisterFilteringStrategy(canonical.NewCanonicalStrategy()); err != nil {
 		general.Errorf("Failed to register sorting strategy: %v", err)
 	}
+
+	if err := manager.RegisterFilteringStrategy(scheduler.NewSchedulerStrategy()); err != nil {
+		general.Errorf("Failed to register filtering strategy: %v", err)
+	}
 }
 
 // registerDefaultSortingStrategies register sorting strategies
 func registerDefaultSortingStrategies(manager *StrategyManager) {
-	if err := manager.RegisterSortingStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
+	if err := manager.RegisterSortingStrategy(virtual_gpu.NewVirtualGPUStrategy()); err != nil {
 		general.Errorf("Failed to register sorting strategy: %v", err)
 	}
 }
@@ -55,9 +60,9 @@ func registerDefaultBindingStrategies(manager *StrategyManager) {
 // registerDefaultAllocationStrategies register allocation strategies
 func registerDefaultAllocationStrategies(manager *StrategyManager) {
 	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault,
-		[]string{canonical.StrategyNameCanonical, gpu_memory.StrategyNameGPUMemory},
-		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical); err != nil {
-		general.Errorf("Failed to register gpu-memory-default strategy: %v", err)
+		[]string{canonical.StrategyNameCanonical, virtual_gpu.StrategyNameVirtualGPU, scheduler.StrategyNameScheduler},
+		virtual_gpu.StrategyNameVirtualGPU, canonical.StrategyNameCanonical); err != nil {
+		general.Errorf("Failed to register default allocation strategy: %v", err)
 	}
 }
 

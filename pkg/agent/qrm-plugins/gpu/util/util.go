@@ -25,12 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var ErrNoAvailableGPUMemoryHints = pkgerrors.New("no available gpu memory hints")
+var ErrNoAvailableVirtualGPUHints = pkgerrors.New("no available virtual gpu hints")
 
 func GetNUMANodesCountToFitGPUReq(
 	gpuReq float64, cpuTopology *machine.CPUTopology, gpuTopology *machine.DeviceTopology,
@@ -79,7 +80,7 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 	gpuNames := sets.NewString()
 
 	for _, resourceName := range deviceNames {
-		_, request, err := qrmutil.GetQuantityFromResourceRequests(req.ResourceRequests, resourceName, false)
+		_, request, err := qrmutil.GetQuantityFromResourceRequests(req.ResourceRequests, resourceName, nil)
 		if err != nil && !errors.IsNotFound(err) {
 			return 0, nil, err
 		}
@@ -90,6 +91,11 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 
 		gpuCount += request
 		gpuNames.Insert(resourceName)
+	}
+
+	// Check if there is a milligpu request
+	if _, hasMilligpu := req.ResourceRequests[string(consts.ResourceMilliGPU)]; hasMilligpu {
+		gpuCount += 1
 	}
 
 	if gpuCount == 0 {

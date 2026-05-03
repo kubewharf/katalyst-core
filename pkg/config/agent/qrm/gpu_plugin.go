@@ -31,6 +31,8 @@ type GPUQRMPluginConfig struct {
 	RDMADeviceNames []string
 	// GPUMemoryAllocatablePerGPU is the total memory allocatable for each GPU
 	GPUMemoryAllocatablePerGPU resource.Quantity
+	// MilliGPUAllocatablePerGPU is the total milliGPU allocatable for each GPU
+	MilliGPUAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
 	// RequiredDeviceAffinity specifies whether it is required for pods to follow device affinity strictly.
@@ -38,6 +40,31 @@ type GPUQRMPluginConfig struct {
 	RequiredDeviceAffinity bool
 	// EnableKubeletCheckpointFallback specifies whether to fallback to kubelet device plugin checkpoint for allocation.
 	EnableKubeletCheckpointFallback bool
+	// VirtualGPUPrefersSpreading indicates whether virtual GPU allocation prefers spreading across devices.
+	// If true, it sorts devices by available GPU memory and compute in descending order (spreading).
+	// If false, it sorts in ascending order (packing).
+	VirtualGPUPrefersSpreading bool
+	// VirtualGPUMemoryWeightEnvName is the environment variable name injected into the pod to specify
+	// the allocated GPU memory percentage. The format will be "<deviceID>:<percentage>",
+	// where the percentage is an integer from 1 to 100.
+	VirtualGPUMemoryWeightEnvName string
+	// VirtualGPUComputeWeightEnvName is the environment variable name injected into the pod to specify
+	// the allocated Virtual GPU compute percentage. The format will be "<deviceID>:<percentage>",
+	// where the percentage is an integer from 1 to 100.
+	VirtualGPUComputeWeightEnvName string
+	// VirtualGPUTimesliceEnvName is the environment variable name injected into the pod to specify
+	// the timeslice configuration for Virtual GPU isolation.
+	VirtualGPUTimesliceEnvName string
+	// VirtualGPUComputePolicyEnvName is the environment variable name injected into the pod to specify
+	// the compute policy for Virtual GPU isolation.
+	VirtualGPUComputePolicyEnvName string
+	// VirtualGPUTimesliceEnvValue is the default value of the VirtualGPUTimesliceEnvName environment variable.
+	VirtualGPUTimesliceEnvValue int
+	// VirtualGPUComputePolicyEnvValue is the default value of the VirtualGPUComputePolicyEnvName environment variable.
+	VirtualGPUComputePolicyEnvValue int
+	// GPUSelectionResultAnnotationKey is the pod annotation key used to retrieve the GPU selection result
+	// (e.g., a comma-separated list of device IDs) scheduled by the control plane scheduler.
+	GPUSelectionResultAnnotationKey string
 
 	*gpustrategy.GPUStrategyConfig
 }

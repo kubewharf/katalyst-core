@@ -100,8 +100,9 @@ func (m *memoryProvisioner) Reconcile(status *types.MemoryPressureStatus) (err e
 		ReservedResourceForAllocate[v1.ResourceMemory]
 	m.policy.SetEssentials(
 		types.ResourceEssentials{
-			EnableReclaim:       m.conf.GetDynamicConfiguration().EnableReclaim,
-			ResourceUpperBound:  float64(m.metaServer.MemoryCapacity),
+			EnableReclaim: m.conf.GetDynamicConfiguration().EnableReclaim,
+			// Use NormalMemoryCapacity which excludes static hugepages for accurate upper bound calculation
+			ResourceUpperBound:  float64(m.metaServer.MemoryTopology.NormalMemoryCapacity),
 			ReservedForAllocate: reservedForAllocate.AsApproximateFloat64(),
 		})
 	err = m.policy.Update()
