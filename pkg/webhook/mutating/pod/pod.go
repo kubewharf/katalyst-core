@@ -141,7 +141,7 @@ func NewWebhookPod(
 
 func (wp *WebhookPod) Run() bool {
 	if !cache.WaitForCacheSync(wp.ctx.Done(), wp.syncedFunc...) {
-		klog.Errorf("unable to sync caches for %s webhook")
+		klog.Errorf("unable to sync caches for %s webhook", podWebhookName)
 		return false
 	}
 	klog.Infof("Caches are synced for %s webhook", podWebhookName)

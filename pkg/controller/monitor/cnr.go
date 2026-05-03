@@ -189,7 +189,7 @@ func (ctrl *CNRMonitorController) syncCNR(key string) error {
 	cnr, err := ctrl.cnrLister.Get(name)
 	if errors.IsNotFound(err) {
 		// cnr is deleted, so we can skip
-		klog.Info("CNR has been deleted %v", key)
+		klog.Infof("CNR has been deleted %v", key)
 		return nil
 	}
 	if err != nil {
