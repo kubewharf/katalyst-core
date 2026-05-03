@@ -672,7 +672,7 @@ func (vc *VPAController) patchPodResources(vpa *apis.KatalystVerticalPodAutoscal
 		podUpdater := vc.podUpdater
 		if vpa == nil || vpa.Spec.UpdatePolicy.PodUpdatingStrategy == apis.PodUpdatingStrategyOff {
 			podUpdater = &control.DummyPodUpdater{}
-			klog.Warning("will not update pod %s/%s due to PodUpdatingStrategy", pod.Namespace, pod.Name)
+			klog.Warningf("will not update pod %s/%s due to PodUpdatingStrategy", pod.Namespace, pod.Name)
 		}
 
 		if err := podUpdater.PatchPod(vc.ctx, pod, podCopy); err != nil {

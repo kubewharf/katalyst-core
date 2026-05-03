@@ -225,7 +225,7 @@ func (nc *NodeOvercommitController) reconcile() {
 		for _, config := range configList {
 			err = nc.patchNodeOvercommitConfigStatus(config.Name)
 			if err != nil {
-				klog.Errorf("%s controller reconcile patch noc status fail: %v")
+				klog.Errorf("%s controller reconcile patch noc status fail: %v", config.Name, err)
 				continue
 			}
 		}
@@ -370,7 +370,7 @@ func (nc *NodeOvercommitController) syncNodeEvent(key string) error {
 		if err != nil {
 			// fail of patching nodeOvercommitConfigStatus will not affect node overcommit ratio
 			// can be fixed by reconcile
-			klog.Warning("failed to patch %s nodeOvercommitConfigStatus: %v", config.Name, err)
+			klog.Warningf("failed to patch %s nodeOvercommitConfigStatus: %v", config.Name, err)
 			continue
 		}
 	}
@@ -409,7 +409,7 @@ func (nc *NodeOvercommitController) patchNodeOvercommitConfigStatus(configName s
 	oldConfig, err := nc.nodeOvercommitLister.Get(configName)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			klog.Warning("nodeOvercommitConfig %v has been deleted.")
+			klog.Warningf("nodeOvercommitConfig %v has been deleted.", configName)
 			return nil
 		}
 		klog.Errorf("get nodeOvercommitConfig %v fail: %v", configName, err)

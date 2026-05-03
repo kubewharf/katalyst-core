@@ -160,7 +160,7 @@ func (m *ManagerImpl) updateContainerByNRI(podUID, containerId, containerName st
 	containerUpdate := m.getNRIContainerUpdate(podUID, containerId, containerName)
 	_, err := m.nriStub.UpdateContainers([]*api.ContainerUpdate{containerUpdate})
 	if err != nil {
-		klog.Errorf("[ORM] updateContainerByNRI fail, pod %v container %v,resource %v, err: %v", podUID, containerName, err)
+		klog.Errorf("[ORM] updateContainerByNRI fail, pod %v container %v, err: %v", podUID, containerName, err)
 	}
 }
 

@@ -201,7 +201,7 @@ func (p *prometheusCollector) addPod(obj interface{}) {
 	}
 
 	if p.checkTargetPod(pod) {
-		klog.Info("pod %v added with target scraping", pod.Name)
+		klog.Infof("pod %v added with target scraping", pod.Name)
 		p.addRequest(pod)
 	}
 }

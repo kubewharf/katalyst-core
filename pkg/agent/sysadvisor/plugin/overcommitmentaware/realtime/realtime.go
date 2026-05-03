@@ -364,7 +364,7 @@ func (ra *RealtimeOvercommitmentAdvisor) GetOvercommitRatio() (map[v1.ResourceNa
 	defer cancel()
 	node, err := ra.metaServer.GetNode(ctx)
 	if err != nil {
-		klog.Error("GetOvercommitRatio getNode fail: %v", err)
+		klog.Errorf("GetOvercommitRatio getNode fail: %v", err)
 		return nil, err
 	}
 	if cpuOvercommitRatioAnno, ok := node.Annotations[apiconsts.NodeAnnotationCPUOvercommitRatioKey]; ok {

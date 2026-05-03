@@ -241,7 +241,7 @@ func unregisterHealthCheck(name string, mode HealthzCheckMode) {
 	}
 
 	if current.Mode != mode {
-		klog.Warning("reject to unregister health check(name: %s) with unmatched mode: %s (current mode: %s)", name, mode, current.Mode)
+		klog.Warningf("reject to unregister health check(name: %s) with unmatched mode: %s (current mode: %s)", name, mode, current.Mode)
 		return
 	}
 
