@@ -80,6 +80,7 @@ type TmoStats struct {
 	qosLevel             string
 	memUsage             float64
 	memInactive          float64
+	memInactiveFile      uint64
 	memPsiAvg60          float64
 	pgscan               float64
 	pgsteal              float64
@@ -303,6 +304,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 		}
 		tmoStats.memUsage = memUsage.Value
 		tmoStats.memInactive = memInactiveFile.Value + memInactiveAnon.Value
+		tmoStats.memInactiveFile = uint64(memInactiveFile.Value)
 		tmoStats.memPsiAvg60 = psiAvg60.Value
 		tmoStats.pgsteal = pgsteal.Value
 		tmoStats.pgscan = pgscan.Value
@@ -356,6 +358,7 @@ func (tmoEngine *tmoEngineInstance) getStats() (TmoStats, error) {
 			return err
 		}
 		tmoStats.memUsage = memUsage.Value
+		tmoStats.memInactiveFile = uint64(memInactiveFile.Value)
 		tmoStats.memInactive = memInactiveFile.Value + memInactiveAnon.Value
 		tmoStats.memPsiAvg60 = psiAvg60.Value
 		tmoStats.pgsteal = pgsteal.Value
@@ -396,6 +399,7 @@ func (tmoEngine *tmoEngineInstance) GetCgpath() string {
 func (tmoEngine *tmoEngineInstance) LoadConf(detail *tmo.TMOConfigDetail) {
 	tmoEngine.conf.EnableTMO = detail.EnableTMO
 	tmoEngine.conf.EnableSwap = detail.EnableSwap
+	tmoEngine.conf.ReservedInactiveFile = detail.ReservedInactiveFile
 	tmoEngine.conf.Interval = detail.Interval
 	tmoEngine.conf.PolicyName = detail.PolicyName
 	if psiPolicyConfDynamic := detail.PSIPolicyConf; psiPolicyConfDynamic != nil {
@@ -424,6 +428,16 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 	if err != nil {
 		general.Infof("Failed to get metrics %v", err)
 		return
+	}
+
+	// ReservedInactiveFile should be checked in file-reclaiming-only mode
+	if !tmoEngine.conf.EnableSwap && tmoEngine.conf.ReservedInactiveFile > 0 {
+		inactiveFile := currStats.memInactiveFile
+		reservedInactiveFile := uint64(currStats.mapped) + tmoEngine.conf.ReservedInactiveFile
+		if inactiveFile < reservedInactiveFile {
+			tmoEngine.offloadingTargetSize = 0
+			return
+		}
 	}
 
 	// TODO: get result from qrm to make sure last offloading action finished
@@ -456,6 +470,15 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 			// and does not exceed the policy's recommendation.
 			targetSize := math.Max(0, math.Min(math.Max(CacheExceptMappedCoeff*cacheExceptMapped, minSizeCacheExceptMap), targetFromPolicy))
 
+			// ReservedInactiveFile should be checked in file-reclaiming-only mode
+			if !tmoEngine.conf.EnableSwap && tmoEngine.conf.ReservedInactiveFile > 0 {
+				inactiveFile := uint64(currStats.memInactiveFile)
+				maxReclaimable := float64(inactiveFile) - float64(tmoEngine.conf.ReservedInactiveFile) - CacheMappedCoeff*currStats.mapped
+
+				if targetSize > maxReclaimable {
+					targetSize = math.Max(0, maxReclaimable)
+				}
+			}
 			general.InfoS("Handle targetSize from policy", "Tmo obj:", currStats.obj, "targetFromPolicy:", targetFromPolicy,
 				"cacheExceptMapped", cacheExceptMapped, "targetSize", targetSize)
 
