@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -33,6 +34,14 @@ func (c *MalachiteClient) GetAllPodContainersStats(ctx context.Context) (map[str
 	pods, err := c.fetcher.GetPodList(ctx, func(_ *v1.Pod) bool { return true })
 	if err != nil {
 		return nil, fmt.Errorf("GetAllPodContainersStats fetch-pods err %v", err)
+	}
+
+	if klog.V(5).Enabled() {
+		podNames := make([]string, 0, len(pods))
+		for _, pod := range pods {
+			podNames = append(podNames, pod.Name)
+		}
+		klog.V(5).InfoS("GetAllPodContainersStats is called", "pods", podNames)
 	}
 
 	podsContainersStats := make(map[string]map[string]*types.MalachiteCgroupInfo)
@@ -60,8 +69,9 @@ func (c *MalachiteClient) GetPodStats(ctx context.Context, podUID string) (map[s
 		containerID := native.TrimContainerIDPrefix(containerStatus.ContainerID)
 		stats, err := c.GetPodContainerStats(podUID, containerID)
 		if err != nil {
-			general.Errorf("failed to get pod %s container %s stats, err %v", podUID, containerID, err)
+			general.ErrorS(err, "GetPodContainerStats err", "podUID", podUID, "containerID", containerID, "podName", pod.Name)
 			_ = c.emitter.StoreInt64(metricMalachiteContainerStatsMissing, 1, metrics.MetricTypeNameCount,
+				metrics.MetricTag{Key: "podName", Val: pod.Name},
 				metrics.MetricTag{Key: "podUID", Val: podUID},
 				metrics.MetricTag{Key: "containerID", Val: containerID},
 			)

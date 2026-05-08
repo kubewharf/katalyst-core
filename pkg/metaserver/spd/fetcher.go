@@ -129,7 +129,7 @@ func NewSPDFetcher(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 func (s *spdFetcher) GetSPD(ctx context.Context, podMeta metav1.ObjectMeta) (*workloadapis.ServiceProfileDescriptor, error) {
 	spdName, err := s.getPodSPDNameFunc(podMeta)
 	if err != nil {
-		general.Warningf("get spd for pod (%v/%v) err %v", podMeta.Namespace, podMeta.Name, err)
+		klog.V(5).Infof("get spd for pod (%v/%v) err %v", podMeta.Namespace, podMeta.Name, err)
 		return nil, SPDNameNotFoundError
 	}
 

@@ -18,8 +18,12 @@ package katalyst_base
 
 import (
 	"context"
+	"errors"
+	"flag"
+	"io"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -48,8 +52,16 @@ import (
 )
 
 const (
-	healthZPath = "/healthz"
-	debugPrefix = "/debug"
+	healthZPath         = "/healthz"
+	debugPrefix         = "/debug"
+	debugMetricsPath    = "/debug/metrics"
+	debugVerbosityVPath = "/debug/flags/v"
+	debugVModulePath    = "/debug/flags/vmodule"
+)
+
+var (
+	errMissingDebugFlagValue = errors.New("missing flag value")
+	errKlogFlagUnavailable   = errors.New("klog flag is unavailable")
 )
 
 // GenericOptions is used as an extendable way to support
@@ -205,6 +217,7 @@ func NewGenericContext(
 
 	// add profiling and health check http paths listening on generic endpoint
 	serveProfilingHTTP(mux)
+	serveDebugFlagsHTTP(mux)
 	c.serveHealthZHTTP(mux, genericConf.EnableHealthzCheck)
 
 	return c, nil
@@ -285,5 +298,110 @@ func serveProfilingHTTP(mux *http.ServeMux) {
 	mux.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
 	mux.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 
-	mux.Handle("/debug/metrics", promhttp.Handler())
+	mux.Handle(debugMetricsPath, promhttp.Handler())
+}
+
+// serveDebugFlagsHTTP exposes lightweight debug endpoints for mutable process flags.
+func serveDebugFlagsHTTP(mux *http.ServeMux) {
+	registerDebugFlagHandler(mux, debugVerbosityVPath, "v")
+	registerDebugFlagHandler(mux, debugVModulePath, "vmodule")
+}
+
+func registerDebugFlagHandler(mux *http.ServeMux, path string, flagName string) {
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			value, err := getKlogFlagValue(flagName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			writeLogFlagResponse(w, http.StatusOK, flagName, value)
+		case http.MethodPut, http.MethodPost:
+			value, err := extractDebugFlagValue(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			if err := setKlogFlagValue(flagName, value); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			updatedValue, err := getKlogFlagValue(flagName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			writeLogFlagResponse(w, http.StatusOK, flagName, updatedValue)
+		default:
+			w.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPut, http.MethodPost}, ", "))
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+func writeLogFlagResponse(w http.ResponseWriter, statusCode int, name string, value string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write([]byte(`{"name":"` + name + `","value":"` + value + `"}`))
+}
+
+func extractDebugFlagValue(r *http.Request) (string, error) {
+	value := strings.TrimSpace(r.URL.Query().Get("value"))
+	if value != "" {
+		return value, nil
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+
+	value = strings.TrimSpace(string(body))
+	if value == "" {
+		return "", errMissingDebugFlagValue
+	}
+
+	return value, nil
+}
+
+func getKlogVerbosity() string {
+	value, err := getKlogFlagValue("v")
+	if err != nil {
+		return ""
+	}
+
+	return value
+}
+
+func setKlogVerbosity(value string) error {
+	return setKlogFlagValue("v", value)
+}
+
+func getKlogFlagValue(flagName string) (string, error) {
+	logFlag := newKlogFlag(flagName)
+	if logFlag == nil {
+		return "", errKlogFlagUnavailable
+	}
+
+	return logFlag.Value.String(), nil
+}
+
+func setKlogFlagValue(flagName string, value string) error {
+	logFlag := newKlogFlag(flagName)
+	if logFlag == nil {
+		return errKlogFlagUnavailable
+	}
+
+	return logFlag.Value.Set(value)
+}
+
+func newKlogFlag(flagName string) *flag.Flag {
+	fs := flag.NewFlagSet("klog", flag.ContinueOnError)
+	klog.InitFlags(fs)
+	return fs.Lookup(flagName)
 }

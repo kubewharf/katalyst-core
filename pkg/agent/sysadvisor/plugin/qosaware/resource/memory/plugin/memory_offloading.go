@@ -29,6 +29,7 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -422,7 +423,7 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 
 	currStats, err := tmoEngine.getStats()
 	if err != nil {
-		general.Infof("Failed to get metrics %v", err)
+		klog.V(2).Infof("Failed to get metrics %v", err)
 		return
 	}
 
@@ -631,14 +632,14 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 	// calculate memory offloading size for each container
 	for podContainerName, tmoEngine := range tmo.containerTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
-		general.InfoS("Calculate target offloading size", "podContainer", podContainerName,
+		klog.V(2).InfoS("Calculate target offloading size", "podContainer", podContainerName,
 			"result", general.FormatMemoryQuantity(tmoEngine.GetOffloadingTargetSize()))
 	}
 
 	// calculate memory offloading size for each cgroups
 	for cgpath, tmoEngine := range tmo.cgpathTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
-		general.InfoS("Calculate target offloading size", "groupPath", cgpath,
+		klog.V(2).InfoS("Calculate target offloading size", "groupPath", cgpath,
 			"result", general.FormatMemoryQuantity(tmoEngine.GetOffloadingTargetSize()))
 	}
 	return nil
