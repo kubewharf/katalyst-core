@@ -828,7 +828,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				restrictIndicator: true,
 			},
 			want: types.Indicator{
-				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.55},
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.6},
 			},
 		},
 		{

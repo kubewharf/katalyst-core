@@ -96,7 +96,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, false, true),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -112,7 +112,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, false, false),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -128,7 +128,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, true, true),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -144,7 +144,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, true, false),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -160,7 +160,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, false, false),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -176,7 +176,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, true, false),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -192,7 +192,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, false, true),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -208,7 +208,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, true, true),
 				enabled: false,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -224,7 +224,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, false, true),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -240,7 +240,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, false, false),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -256,7 +256,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, true, true),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -272,7 +272,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(true, true, false),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor: 1,
+					ExpandFactor: 7.0 / 6.0,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -287,7 +287,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, false, false),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -303,7 +303,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, true, false),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -319,7 +319,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, false, true),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},
@@ -335,7 +335,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:    generatePluginConfig(false, true, true),
 				enabled: true,
 				numaPressureConfig: &rules.NumaPressureConfig{
-					ExpandFactor:   1,
+					ExpandFactor:   7.0 / 6.0,
 					MetricRingSize: 2,
 				},
 			},

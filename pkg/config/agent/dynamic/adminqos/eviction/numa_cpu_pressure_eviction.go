@@ -26,6 +26,7 @@ type NumaCPUPressureEvictionConfiguration struct {
 	MetricRingSize                 int
 	GracePeriod                    int64
 	ThresholdExpandFactor          float64
+	CpuUsageRatioThreshold         float64
 	CandidateCount                 int
 	WorkloadMetricsLabelKeys       []string
 	SkippedPodKinds                []string
@@ -61,6 +62,11 @@ func (n *NumaCPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dyna
 		if config.ThresholdExpandFactor != nil {
 			n.ThresholdExpandFactor = *config.ThresholdExpandFactor
 		}
+
+		// TODO: Uncomment after katalyst-api adds CpuUsageRatioThreshold field to NumaCPUPressureEvictionConfig
+		// if config.CpuUsageRatioThreshold != nil {
+		//     n.CpuUsageRatioThreshold = *config.CpuUsageRatioThreshold
+		// }
 
 		if config.CandidateCount != nil {
 			n.CandidateCount = *config.CandidateCount

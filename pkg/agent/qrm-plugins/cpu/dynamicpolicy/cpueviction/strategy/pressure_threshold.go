@@ -48,7 +48,15 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 
 	numaPressureConfig := getNumaPressureConfig(dynamicConf)
 
-	thresholds := threshold.GetMetricThresholds(targetThresholdNames, p.metaServer, dynamicConf.MetricThresholdConfiguration.Threshold)
+	var thresholds map[string]float64
+	if dynamicConf.NumaCPUPressureEvictionConfiguration.CpuUsageRatioThreshold > 0 {
+		thresholds = map[string]float64{
+			metricthreshold.NUMACPUUsageRatioThreshold: dynamicConf.NumaCPUPressureEvictionConfiguration.CpuUsageRatioThreshold,
+		}
+		general.Infof("use CpuUsageRatioThreshold from AQC: %v", thresholds)
+	} else {
+		thresholds = threshold.GetMetricThresholds(targetThresholdNames, p.metaServer, dynamicConf.MetricThresholdConfiguration.Threshold)
+	}
 	if thresholds == nil {
 		general.Errorf("got no valid threshold")
 		return
