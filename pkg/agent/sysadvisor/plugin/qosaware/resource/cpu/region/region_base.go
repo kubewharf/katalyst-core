@@ -279,13 +279,9 @@ func NewQoSRegionBase(name string, ownerPoolName string, resourcePackageName str
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
 	r.initProvisionPolicy(conf, extraConf, metaReader, metaServer, emitter)
 
-	// enableBorweinModel is initialized according to rama provision policy config.
-	// it only takes effect when updating target indicators,
-	// if there are more code positions depending on it,
-	// we should consider provide a dummy borwein controller to avoid redundant judgement.
-	if r.conf.PolicyRama.EnableBorwein {
-		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
-	}
+	// Borwein controller is always initialized for Rama target update path.
+	// When Borwein model flags are disabled, it only applies strategy_special_time from strategy group.
+	r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
 	r.enableReclaim = r.EnableReclaimFunc
 
 	r.indicatorTargetGetters = map[string]indicatorTargetGetter{
@@ -475,7 +471,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 		if r.provisionPolicyNameInUse != oldProvisionPolicyNameInUse {
 			klog.Infof("[qosaware-cpu] region: %v provision policy switch from %v to %v",
 				r.Name(), oldProvisionPolicyNameInUse, r.provisionPolicyNameInUse)
-			if r.conf.PolicyRama.EnableBorwein {
+			if r.borweinController != nil {
 				r.borweinController.ResetIndicatorOffsets()
 			}
 		}
@@ -804,10 +800,20 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 				"binding_numas":  r.bindingNumas.String(),
 			})...)
 	}
-	if r.conf.PolicyRama.EnableBorwein && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
-		general.Infof("try to update indicators by borwein model")
+	if r.borweinController != nil && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
+		general.InfoS("try to update indicators by borwein controller",
+			"regionName", r.name,
+			"regionType", r.regionType,
+			"isRama", true,
+			"provisionPolicyInUse", r.provisionPolicyNameInUse)
 		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
 	} else {
+		general.InfoS("skip borwein controller indicator update",
+			"regionName", r.name,
+			"regionType", r.regionType,
+			"isRama", false,
+			"provisionPolicyInUse", r.provisionPolicyNameInUse,
+			"borweinControllerInitialized", r.borweinController != nil)
 		return indicators, nil
 	}
 }

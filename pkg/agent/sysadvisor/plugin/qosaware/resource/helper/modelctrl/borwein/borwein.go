@@ -275,14 +275,66 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator, st
 	return finalIndicators
 }
 
-func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
-	strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
-	if err != nil {
-		general.Errorf("get enabled borwein strategy failed with error: %v", err)
+func (bc *BorweinController) getUpdatedIndicatorsBySpecialTime(indicators types.Indicator, strategyName string,
+	strategy *latencyregression.BorweinStrategy,
+) types.Indicator {
+	finalIndicators := make(types.Indicator, len(indicators))
+	strategySpecialTime := latencyregression.ClusterSpecialTimeStrategy{}
+
+	if strategy == nil || len(strategy.StrategySpecialTime) == 0 {
+		general.Infof("[borwein-debug] strategy=%s has no strategy_special_time config, strategy_special_time=%s keep all raw targets",
+			strategyName, general.ToString(strategySpecialTime))
 		return indicators
 	}
-	bc.updateIndicatorOffsets(podSet, strategyName, strategy)
-	return bc.getUpdatedIndicators(indicators, strategyName)
+	strategySpecialTime = strategy.StrategySpecialTime
+
+	for indicatorName, indicatorValue := range indicators {
+		originalTarget := indicatorValue.Target
+		specialTimeSlots := strategySpecialTime[indicatorName]
+		specialTimeValue := ""
+		if len(specialTimeSlots) > 0 {
+			specialTimeValue = general.ToString(specialTimeSlots)
+		}
+		specialTarget, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime, indicatorName)
+		if match {
+			indicatorValue.Target = specialTarget
+			general.Infof("[borwein-debug] special time override target indicator=%s strategy=%s strategy_special_time=%s rawTarget=%.6f finalTarget=%.6f",
+				indicatorName, strategyName, specialTimeValue, originalTarget, indicatorValue.Target)
+		} else {
+			general.Infof("[borwein-debug] no special time matched indicator=%s strategy=%s strategy_special_time=%s rawTarget=%.6f finalTarget=%.6f",
+				indicatorName, strategyName, specialTimeValue, originalTarget, indicatorValue.Target)
+		}
+		finalIndicators[indicatorName] = indicatorValue
+	}
+
+	return finalIndicators
+}
+
+func (bc *BorweinController) borweinModelEnabled() bool {
+	return bc.conf.EnableBorweinV2 || bc.conf.EnableBorweinV3
+}
+
+func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
+	if bc.borweinModelEnabled() {
+		strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+		if err != nil {
+			general.Errorf("get enabled borwein strategy failed with error: %v", err)
+			return indicators
+		}
+		general.Infof("[borwein-debug] selected strategy=%s indicators=%d podCount=%d, apply borwein model path",
+			strategyName, len(indicators), len(podSet))
+		bc.updateIndicatorOffsets(podSet, strategyName, strategy)
+		return bc.getUpdatedIndicators(indicators, strategyName)
+	}
+
+	strategyName, strategy, err := getStrategyForSpecialTimeOnly(bc.conf)
+	if err != nil {
+		general.Warningf("[borwein-debug] get strategy_special_time only strategy failed with error: %v, keep raw targets", err)
+		return indicators
+	}
+	general.Infof("[borwein-debug] selected strategy=%s indicators=%d podCount=%d, skip borwein model calculation and only apply strategy_special_time",
+		strategyName, len(indicators), len(podSet))
+	return bc.getUpdatedIndicatorsBySpecialTime(indicators, strategyName, strategy)
 }
 
 func (bc *BorweinController) ResetIndicatorOffsets() {
@@ -327,6 +379,35 @@ func fetchBorweinStrategy(conf *config.Configuration, strategyName string, defau
 		return nil, fmt.Errorf("parse %v strategy error: %v", strategyName, err)
 	}
 	return &strategy, nil
+}
+
+func getStrategyForSpecialTimeOnly(conf *config.Configuration) (string, *latencyregression.BorweinStrategy, error) {
+	dynamicConf := conf.GetDynamicConfiguration()
+	if dynamicConf == nil || dynamicConf.StrategyGroupConfiguration == nil {
+		return consts.StrategyNameNone, nil, fmt.Errorf("nil strategy group configuration")
+	}
+
+	for _, strategyName := range []string{consts.StrategyNameBorweinV3, consts.StrategyNameBorweinV2} {
+		for _, strategy := range dynamicConf.StrategyGroupConfiguration.EnabledStrategies {
+			if strategy.Name == nil || *strategy.Name != strategyName {
+				continue
+			}
+
+			strategyContent := strategy.Parameters[strategyName]
+			if strategyContent == "" {
+				return consts.StrategyNameNone, nil, fmt.Errorf("empty strategy content for %s", strategyName)
+			}
+
+			parsedStrategy, err := latencyregression.ParseStrategy(strategyContent)
+			if err != nil {
+				return consts.StrategyNameNone, nil, fmt.Errorf("parse %s strategy error: %v", strategyName, err)
+			}
+			return strategyName, &parsedStrategy, nil
+		}
+	}
+
+	return consts.StrategyNameNone, nil, fmt.Errorf("neither %s nor %s strategy exists in strategy group",
+		consts.StrategyNameBorweinV3, consts.StrategyNameBorweinV2)
 }
 
 func getBindingNumas(metaReader metacache.MetaReader, regionName string) string {
