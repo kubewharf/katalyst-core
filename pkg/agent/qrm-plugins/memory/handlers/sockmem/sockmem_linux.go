@@ -199,6 +199,10 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 			general.Errorf("get nil pod from metaServer")
 			continue
 		}
+		if native.PodIsTerminated(pod) {
+			general.Infof("pod %s/%s is marked for deletion", pod.Namespace, pod.Name)
+			continue
+		}
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			if !containerStatus.Ready {
 				continue
