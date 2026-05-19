@@ -250,3 +250,104 @@ func TestConvertResourcePoolsRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertNPDMetricsToResourcePoolMap(t *testing.T) {
+	t.Parallel()
+
+	maxAggr := nodev1alpha1.AggregatorMax
+	metrics := []nodev1alpha1.ScopedNodeMetrics{
+		{
+			Scope: MetricScope,
+			Metrics: []nodev1alpha1.MetricValue{
+				{
+					MetricName: "cpu",
+					MetricLabels: map[string]string{
+						"pool-name": "L1",
+					},
+					Value:      resource.MustParse("8"),
+					Aggregator: &maxAggr,
+				},
+				{
+					MetricName: "cpu",
+					MetricLabels: map[string]string{
+						"pool-name": "L1",
+						"numa-id":   "0",
+					},
+					Value:      resource.MustParse("4"),
+					Aggregator: &maxAggr,
+				},
+				{
+					MetricName: "memory",
+					MetricLabels: map[string]string{
+						"pool-name": "L2",
+						"numa-id":   "0",
+					},
+					Value:      resource.MustParse("16Gi"),
+					Aggregator: &maxAggr,
+				},
+			},
+		},
+	}
+
+	got := ConvertNPDMetricsToResourcePoolMap(metrics)
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 NUMA scopes, got %d", len(got))
+	}
+	nodePools, ok := got[NumaIDAll]
+	if !ok {
+		t.Fatal("expected NumaIDAll entry")
+	}
+	if len(nodePools) != 1 {
+		t.Fatalf("expected 1 node-level pool, got %d", len(nodePools))
+	}
+	l1Node, ok := nodePools["L1"]
+	if !ok {
+		t.Fatal("expected pool L1 at node scope")
+	}
+	if l1Node.MaxAllocatable == nil {
+		t.Fatal("expected non-nil MaxAllocatable")
+	}
+	cpuQ := (*l1Node.MaxAllocatable)[v1.ResourceCPU]
+	if cpuQ.Cmp(resource.MustParse("8")) != 0 {
+		t.Fatalf("expected node-level L1 cpu=8, got %s", cpuQ.String())
+	}
+
+	numa0Pools, ok := got[0]
+	if !ok {
+		t.Fatal("expected NUMA-0 entry")
+	}
+	if len(numa0Pools) != 2 {
+		t.Fatalf("expected 2 NUMA-0 pools, got %d", len(numa0Pools))
+	}
+	l1Numa, ok := numa0Pools["L1"]
+	if !ok {
+		t.Fatal("expected pool L1 at NUMA-0 scope")
+	}
+	cpuQ = (*l1Numa.MaxAllocatable)[v1.ResourceCPU]
+	if cpuQ.Cmp(resource.MustParse("4")) != 0 {
+		t.Fatalf("expected NUMA-0 L1 cpu=4, got %s", cpuQ.String())
+	}
+	l2Numa, ok := numa0Pools["L2"]
+	if !ok {
+		t.Fatal("expected pool L2 at NUMA-0 scope")
+	}
+	memQ := (*l2Numa.MaxAllocatable)[v1.ResourceMemory]
+	if memQ.Cmp(resource.MustParse("16Gi")) != 0 {
+		t.Fatalf("expected NUMA-0 L2 memory=16Gi, got %s", memQ.String())
+	}
+}
+
+func TestConvertNPDMetricsToResourcePoolMap_Empty(t *testing.T) {
+	t.Parallel()
+
+	got := ConvertNPDMetricsToResourcePoolMap(nil)
+	if len(got) != 0 {
+		t.Fatalf("expected empty map for nil input, got %d entries", len(got))
+	}
+
+	got = ConvertNPDMetricsToResourcePoolMap([]nodev1alpha1.ScopedNodeMetrics{})
+	if len(got) != 0 {
+		t.Fatalf("expected empty map for empty input, got %d entries", len(got))
+	}
+}

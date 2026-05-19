@@ -49,10 +49,10 @@ func (s *stubReadonlyState) GetAllocationInfo(_ string, _ string) *state.Allocat
 
 // stubPoolsProvider is a minimal ResourcePoolsProvider for tests.
 type stubPoolsProvider struct {
-	pools map[int][]nodev1alpha1.ResourcePool
+	pools map[int]map[string]nodev1alpha1.ResourcePool
 }
 
-func (s *stubPoolsProvider) NodeResourcePools(_ context.Context) (map[int][]nodev1alpha1.ResourcePool, error) {
+func (s *stubPoolsProvider) NodeResourcePools(_ context.Context) (map[int]map[string]nodev1alpha1.ResourcePool, error) {
 	return s.pools, nil
 }
 
@@ -231,7 +231,7 @@ func TestCPUResourcePoolAllocatedProvider_EmptyPool(t *testing.T) {
 }
 
 // helper to build a *DynamicPolicy minimally for validateResourcePool tests.
-func newPolicyWithValidator(pools map[int][]nodev1alpha1.ResourcePool, st state.ReadonlyState) *DynamicPolicy {
+func newPolicyWithValidator(pools map[int]map[string]nodev1alpha1.ResourcePool, st state.ReadonlyState) *DynamicPolicy {
 	p := &DynamicPolicy{}
 	p.resourcePoolValidator = rpvalidator.NewValidator(
 		&stubPoolsProvider{pools: pools},
@@ -251,8 +251,8 @@ func mustListPtr(items map[v1.ResourceName]string) *v1.ResourceList {
 func TestValidateResourcePool_CPU_NoPoolAnnotation(t *testing.T) {
 	t.Parallel()
 
-	p := newPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
+	p := newPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
 	}, &stubReadonlyState{entries: state.PodEntries{}})
 
 	err := p.validateResourcePool(context.Background(), &pluginapi.ResourceRequest{Annotations: map[string]string{}}, 100)
@@ -267,8 +267,8 @@ func TestValidateResourcePool_CPU_NodeExceeded(t *testing.T) {
 	st := &stubReadonlyState{entries: state.PodEntries{
 		"pod-a": {"c": newAI("p1", 8, nil)},
 	}}
-	p := newPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	p := newPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}, st)
 
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{
@@ -285,8 +285,8 @@ func TestValidateResourcePool_CPU_Ok(t *testing.T) {
 	t.Parallel()
 
 	st := &stubReadonlyState{entries: state.PodEntries{}}
-	p := newPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	p := newPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}, st)
 
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{
@@ -303,8 +303,8 @@ func TestCPUResourcePoolMaskExceeds_NoAnnotation(t *testing.T) {
 	t.Parallel()
 
 	st := &stubReadonlyState{entries: state.PodEntries{}}
-	p := newPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
+	p := newPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
 	}, st)
 
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{}}
@@ -323,8 +323,8 @@ func TestCPUResourcePoolMaskExceeds_SingleNUMAExceeded(t *testing.T) {
 			0: machine.NewCPUSet(0, 1, 2),
 		})},
 	}}
-	pools := map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+	pools := map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
 	}
 	p := newPolicyWithValidator(pools, st)
 
@@ -348,9 +348,9 @@ func TestCPUResourcePoolMaskExceeds_MultiNUMAPerNUMAShare(t *testing.T) {
 			1: machine.NewCPUSet(3, 4, 5),
 		})},
 	}}
-	pools := map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
-		1: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+	pools := map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+		1: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
 	}
 	p := newPolicyWithValidator(pools, st)
 

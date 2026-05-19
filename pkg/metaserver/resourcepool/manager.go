@@ -30,13 +30,13 @@ import (
 type ResourcePoolManager interface {
 	// NodeResourcePools returns the resource pool division for the current node.
 	// The returned map's keys are NUMA IDs (as int) where resourcepool.NumaIDAll(-1)
-	// indicates node-level pools, and the values are slices of v1alpha1.ResourcePool
-	// belonging to that scope: map[NUMA ID] -> []v1alpha1.ResourcePool.
-	NodeResourcePools(ctx context.Context) (map[int][]nodev1alpha1.ResourcePool, error)
+	// indicates node-level pools. The inner map is keyed by pool name for O(1)
+	// lookup: map[NUMA ID] -> map[pool name] -> v1alpha1.ResourcePool.
+	NodeResourcePools(ctx context.Context) (map[int]map[string]nodev1alpha1.ResourcePool, error)
 
 	// ConvertNPDResourcePools converts a given NodeProfileDescriptor to resource
 	// pools. The returned map shares the same shape as NodeResourcePools.
-	ConvertNPDResourcePools(npd *nodev1alpha1.NodeProfileDescriptor) (map[int][]nodev1alpha1.ResourcePool, error)
+	ConvertNPDResourcePools(npd *nodev1alpha1.NodeProfileDescriptor) (map[int]map[string]nodev1alpha1.ResourcePool, error)
 }
 
 // resourcePoolManager is the default implementation of ResourcePoolManager.
@@ -45,7 +45,7 @@ type resourcePoolManager struct {
 }
 
 // NodeResourcePools returns the resource pool division for the current node.
-func (m *resourcePoolManager) NodeResourcePools(ctx context.Context) (map[int][]nodev1alpha1.ResourcePool, error) {
+func (m *resourcePoolManager) NodeResourcePools(ctx context.Context) (map[int]map[string]nodev1alpha1.ResourcePool, error) {
 	desc, err := m.fetcher.GetNPD(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get NPD from fetcher")
@@ -54,17 +54,12 @@ func (m *resourcePoolManager) NodeResourcePools(ctx context.Context) (map[int][]
 }
 
 // ConvertNPDResourcePools converts a given NodeProfileDescriptor to resource pools.
-func (m *resourcePoolManager) ConvertNPDResourcePools(desc *nodev1alpha1.NodeProfileDescriptor) (map[int][]nodev1alpha1.ResourcePool, error) {
+func (m *resourcePoolManager) ConvertNPDResourcePools(desc *nodev1alpha1.NodeProfileDescriptor) (map[int]map[string]nodev1alpha1.ResourcePool, error) {
 	if desc == nil {
 		return nil, nil
 	}
 
-	numaPools := resourcepool.ConvertNPDMetricsToResourcePools(desc.Status.NodeMetrics)
-	result := make(map[int][]nodev1alpha1.ResourcePool, len(numaPools))
-	for _, np := range numaPools {
-		result[np.NumaID] = np.ResourcePools
-	}
-	return result, nil
+	return resourcepool.ConvertNPDMetricsToResourcePoolMap(desc.Status.NodeMetrics), nil
 }
 
 // NewResourcePoolManager creates a new ResourcePoolManager that uses the

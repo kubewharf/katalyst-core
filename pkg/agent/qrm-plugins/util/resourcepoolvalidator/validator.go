@@ -55,11 +55,12 @@ func NumaScope(numaID int) Scope {
 
 // ResourcePoolsProvider returns the resource pool division for the current
 // node. The returned map keys are NUMA ids (resourcepool.NumaIDAll(-1)
-// represents node-level pools).
+// represents node-level pools), and the inner map is keyed by pool name for
+// O(1) lookup.
 //
 // MetaServer's ResourcePoolManager satisfies this interface natively.
 type ResourcePoolsProvider interface {
-	NodeResourcePools(ctx context.Context) (map[int][]nodev1alpha1.ResourcePool, error)
+	NodeResourcePools(ctx context.Context) (map[int]map[string]nodev1alpha1.ResourcePool, error)
 }
 
 // AllocatedProvider returns the already-allocated resource amounts for a given
@@ -236,14 +237,15 @@ func (v *validator) PrefetchNumaAllocations(
 	return result, nil
 }
 
-// lookupPool finds a ResourcePool by name within the given scope.
-func lookupPool(pools map[int][]nodev1alpha1.ResourcePool, scope Scope, poolName string) (nodev1alpha1.ResourcePool, bool) {
-	for _, p := range pools[scope.NumaID] {
-		if p.PoolName == poolName {
-			return p, true
-		}
+// lookupPool finds a ResourcePool by name within the given scope using O(1)
+// map lookup.
+func lookupPool(pools map[int]map[string]nodev1alpha1.ResourcePool, scope Scope, poolName string) (nodev1alpha1.ResourcePool, bool) {
+	poolMap, ok := pools[scope.NumaID]
+	if !ok {
+		return nodev1alpha1.ResourcePool{}, false
 	}
-	return nodev1alpha1.ResourcePool{}, false
+	p, ok := poolMap[poolName]
+	return p, ok
 }
 
 // CapacityExceededError indicates that admitting a request would exceed the

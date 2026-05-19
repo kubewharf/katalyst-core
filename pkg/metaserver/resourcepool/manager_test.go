@@ -88,6 +88,8 @@ func TestConvertNPDResourcePools(t *testing.T) {
 	require.Len(t, pools, 2)
 	require.Contains(t, pools, rputil.NumaIDAll)
 	require.Contains(t, pools, 0)
+	require.Contains(t, pools[rputil.NumaIDAll], "L1")
+	require.Contains(t, pools[0], "L1")
 }
 
 func TestConvertNPDResourcePoolsNil(t *testing.T) {

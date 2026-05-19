@@ -153,10 +153,10 @@ func convertResourceToMetrics(pool nodev1alpha1.ResourcePool, numaID string, agg
 	return metrics
 }
 
-// ConvertNPDMetricsToResourcePools converts NPD ScopedNodeMetrics back into
-// per-NUMA resource pools. The returned slice is sorted by NumaID and PoolName.
-func ConvertNPDMetricsToResourcePools(metrics []nodev1alpha1.ScopedNodeMetrics) []NumaResourcePool {
-	// numaID -> poolName -> ResourcePool
+// ConvertNPDMetricsToResourcePoolMap converts NPD ScopedNodeMetrics into a
+// map keyed by NUMA ID then pool name. This is the primary representation
+// used by the resource pool validator for O(1) pool lookups.
+func ConvertNPDMetricsToResourcePoolMap(metrics []nodev1alpha1.ScopedNodeMetrics) map[int]map[string]nodev1alpha1.ResourcePool {
 	numaPoolMap := make(map[int]map[string]nodev1alpha1.ResourcePool)
 
 	for _, m := range metrics {
@@ -168,7 +168,6 @@ func ConvertNPDMetricsToResourcePools(metrics []nodev1alpha1.ScopedNodeMetrics) 
 			if poolName == "" {
 				continue
 			}
-			// numa ID
 			numaID := NumaIDAll
 			if v.MetricLabels[metricLabelNumaID] != "" {
 				var err error
@@ -201,12 +200,19 @@ func ConvertNPDMetricsToResourcePools(metrics []nodev1alpha1.ScopedNodeMetrics) 
 				pool.MaxAllocatable = addResource(pool.MaxAllocatable, v.MetricName, v.Value)
 				pool.MinAllocatable = addResource(pool.MinAllocatable, v.MetricName, v.Value)
 			}
-			// attributes
 			pool.Attributes = addAttributes(pool.Attributes, v.MetricLabels)
 
 			numaPoolMap[numaID][poolName] = pool
 		}
 	}
+
+	return numaPoolMap
+}
+
+// ConvertNPDMetricsToResourcePools converts NPD ScopedNodeMetrics back into
+// per-NUMA resource pools. The returned slice is sorted by NumaID and PoolName.
+func ConvertNPDMetricsToResourcePools(metrics []nodev1alpha1.ScopedNodeMetrics) []NumaResourcePool {
+	numaPoolMap := ConvertNPDMetricsToResourcePoolMap(metrics)
 
 	var numaPools []NumaResourcePool
 	for numaID := range numaPoolMap {

@@ -80,8 +80,8 @@ func TestMaskExceeds_NilOrEmptyInputs(t *testing.T) {
 func TestMaskExceeds_SingleNUMACapacityExceeded(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
 	}}
 	allocated := &stubAllocatedProvider{allocated: map[string]map[int]v1.ResourceList{
 		"p": {0: mustList(map[v1.ResourceName]string{v1.ResourceCPU: "3"})},
@@ -102,9 +102,9 @@ func TestMaskExceeds_SingleNUMACapacityExceeded(t *testing.T) {
 func TestMaskExceeds_MultiNUMAPerNUMAShareWithinLimit(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
-		1: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+		1: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
 	}}
 	allocated := &stubAllocatedProvider{allocated: map[string]map[int]v1.ResourceList{
 		"p": {
@@ -155,8 +155,8 @@ func TestMaskExceeds_NonCapacityErrorReturnsFalse(t *testing.T) {
 func TestMaskExceeds_CacheHit(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "8Gi"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "8Gi"})}},
 	}}
 	v := NewValidator(pools, &stubAllocatedProvider{})
 
@@ -177,9 +177,9 @@ func TestMaskExceeds_CacheHit(t *testing.T) {
 func TestMaskExceeds_PartialCacheMiss(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "8Gi"})}},
-		1: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "8Gi"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "8Gi"})}},
+		1: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "8Gi"})}},
 	}}
 	allocated := &stubAllocatedProvider{allocated: map[string]map[int]v1.ResourceList{
 		"p": {1: {v1.ResourceMemory: *resource.NewQuantity(6<<30, resource.BinarySI)}},
@@ -204,8 +204,8 @@ func TestMaskExceeds_PartialCacheMiss(t *testing.T) {
 func TestMaskExceeds_NilCacheEquivalentToNoCache(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		0: {{PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p": {PoolName: "p", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
 	}}
 	allocated := &stubAllocatedProvider{allocated: map[string]map[int]v1.ResourceList{
 		"p": {0: {v1.ResourceCPU: *resource.NewMilliQuantity(3000, resource.DecimalSI)}},

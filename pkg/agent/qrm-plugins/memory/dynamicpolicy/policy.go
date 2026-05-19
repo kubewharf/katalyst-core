@@ -173,6 +173,10 @@ type DynamicPolicy struct {
 	// resourcePoolValidator enforces MaxAllocatable of ResourcePool annotated
 	// pods at GetTopologyHints / Allocate time. nil disables the check.
 	resourcePoolValidator rpvalidator.Validator
+
+	// resourcePoolPoolsCache caches resource pool data asynchronously to avoid
+	// redundant NPD fetches on every Validate call.
+	resourcePoolPoolsCache *rpvalidator.CachedResourcePoolsProvider
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -269,8 +273,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	// initialize the ResourcePool MaxAllocatable validator. The MetaServer
 	// already embeds resourcepool.ResourcePoolManager, which satisfies
 	// rpvalidator.ResourcePoolsProvider.
+	policyImplement.resourcePoolPoolsCache = rpvalidator.NewCachedResourcePoolsProvider(agentCtx.MetaServer)
 	policyImplement.resourcePoolValidator = rpvalidator.NewValidator(
-		agentCtx.MetaServer,
+		policyImplement.resourcePoolPoolsCache,
 		newMemoryResourcePoolAllocatedProvider(stateImpl),
 	)
 
@@ -346,6 +351,10 @@ func (p *DynamicPolicy) Start() (err error) {
 		return nil
 	}
 	p.stopCh = make(chan struct{})
+
+	if p.resourcePoolPoolsCache != nil {
+		go p.resourcePoolPoolsCache.Run(p.stopCh)
+	}
 
 	p.registerControlKnobHandlerCheckRules()
 	go wait.Until(func() {

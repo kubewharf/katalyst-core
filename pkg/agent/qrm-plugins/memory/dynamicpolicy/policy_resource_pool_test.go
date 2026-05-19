@@ -62,10 +62,10 @@ func (s *stubMemoryReadonlyState) GetReservedMemory() map[v1.ResourceName]map[in
 
 // stubMemoryPoolsProvider is a minimal ResourcePoolsProvider for tests.
 type stubMemoryPoolsProvider struct {
-	pools map[int][]nodev1alpha1.ResourcePool
+	pools map[int]map[string]nodev1alpha1.ResourcePool
 }
 
-func (s *stubMemoryPoolsProvider) NodeResourcePools(_ context.Context) (map[int][]nodev1alpha1.ResourcePool, error) {
+func (s *stubMemoryPoolsProvider) NodeResourcePools(_ context.Context) (map[int]map[string]nodev1alpha1.ResourcePool, error) {
 	return s.pools, nil
 }
 
@@ -177,7 +177,7 @@ func TestMemoryResourcePoolAllocatedProvider_EmptyPool(t *testing.T) {
 }
 
 // helper to build a *DynamicPolicy minimally for validateResourcePool tests.
-func newMemoryPolicyWithValidator(pools map[int][]nodev1alpha1.ResourcePool, st state.ReadonlyState) *DynamicPolicy {
+func newMemoryPolicyWithValidator(pools map[int]map[string]nodev1alpha1.ResourcePool, st state.ReadonlyState) *DynamicPolicy {
 	p := &DynamicPolicy{}
 	p.resourcePoolValidator = rpvalidator.NewValidator(
 		&stubMemoryPoolsProvider{pools: pools},
@@ -197,8 +197,8 @@ func memMustListPtr(items map[v1.ResourceName]string) *v1.ResourceList {
 func TestValidateResourcePool_Memory_NoPoolAnnotation(t *testing.T) {
 	t.Parallel()
 
-	p := newMemoryPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "1Gi"})}},
+	p := newMemoryPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "1Gi"})}},
 	}, &stubMemoryReadonlyState{entries: state.PodResourceEntries{}})
 
 	err := p.validateResourcePool(context.Background(), &pluginapi.ResourceRequest{Annotations: map[string]string{}}, map[v1.ResourceName]int{
@@ -215,8 +215,8 @@ func TestValidateResourcePool_Memory_NodeExceeded(t *testing.T) {
 	st := &stubMemoryReadonlyState{entries: memEntries(map[string]map[string]*state.AllocationInfo{
 		"pod-a": {"c": newMemAI("p1", 8<<30, nil)},
 	})}
-	p := newMemoryPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "10Gi"})}},
+	p := newMemoryPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "10Gi"})}},
 	}, st)
 
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{
@@ -235,8 +235,8 @@ func TestValidateResourcePool_Memory_Ok(t *testing.T) {
 	t.Parallel()
 
 	st := &stubMemoryReadonlyState{entries: state.PodResourceEntries{}}
-	p := newMemoryPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "10Gi"})}},
+	p := newMemoryPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{v1.ResourceMemory: "10Gi"})}},
 	}, st)
 
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{
@@ -262,8 +262,8 @@ func TestValidateResourcePool_Memory_HugePagesNodeExceeded(t *testing.T) {
 			"pod-a": {"c": newMemAI("p1", 8<<20, nil)}, // 8 MiB hugepages already allocated
 		}),
 	}}
-	p := newMemoryPolicyWithValidator(map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{
+	p := newMemoryPolicyWithValidator(map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: memMustListPtr(map[v1.ResourceName]string{
 			v1.ResourceMemory: "100Gi",
 			hugepages2Mi:      "10Mi",
 		})}},

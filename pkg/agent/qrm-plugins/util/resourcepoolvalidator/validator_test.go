@@ -19,6 +19,7 @@ package resourcepoolvalidator
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -30,12 +31,15 @@ import (
 
 // stubPoolsProvider is a simple in-memory ResourcePoolsProvider for tests.
 type stubPoolsProvider struct {
-	pools map[int][]nodev1alpha1.ResourcePool
+	mu    sync.Mutex
+	pools map[int]map[string]nodev1alpha1.ResourcePool
 	err   error
 	calls int
 }
 
-func (s *stubPoolsProvider) NodeResourcePools(_ context.Context) (map[int][]nodev1alpha1.ResourcePool, error) {
+func (s *stubPoolsProvider) NodeResourcePools(_ context.Context) (map[int]map[string]nodev1alpha1.ResourcePool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls++
 	return s.pools, s.err
 }
@@ -76,8 +80,8 @@ func mustListPtr(items map[v1.ResourceName]string) *v1.ResourceList {
 func TestValidator_EmptyPoolName(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}}
 	allocated := &stubAllocatedProvider{}
 	v := NewValidator(pools, allocated)
@@ -93,8 +97,8 @@ func TestValidator_EmptyPoolName(t *testing.T) {
 func TestValidator_PoolNotFound(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "other", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"other": {PoolName: "other", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}}
 	allocated := &stubAllocatedProvider{}
 	v := NewValidator(pools, allocated)
@@ -125,8 +129,8 @@ func TestValidator_NilOrMissingMaxAllocatable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-				resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: tc.max}},
+			pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+				resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: tc.max}},
 			}}
 			allocated := &stubAllocatedProvider{}
 			v := NewValidator(pools, allocated)
@@ -144,8 +148,8 @@ func TestValidator_NilOrMissingMaxAllocatable(t *testing.T) {
 func TestValidator_WithinCapacity(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}}
 	allocated := &stubAllocatedProvider{
 		allocated: map[string]map[int]v1.ResourceList{
@@ -165,8 +169,8 @@ func TestValidator_WithinCapacity(t *testing.T) {
 func TestValidator_CapacityExceeded(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}}
 	allocated := &stubAllocatedProvider{
 		allocated: map[string]map[int]v1.ResourceList{
@@ -202,9 +206,9 @@ func TestValidator_CapacityExceeded(t *testing.T) {
 func TestValidator_PerNumaScope(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "100"})}},
-		0:                      {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "100"})}},
+		0:                      {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}}
 	allocated := &stubAllocatedProvider{
 		allocated: map[string]map[int]v1.ResourceList{
@@ -239,8 +243,8 @@ func TestValidator_PerNumaScope(t *testing.T) {
 func TestValidator_MultiResource(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{
 			v1.ResourceCPU:    "10",
 			v1.ResourceMemory: "10Gi",
 		})}},
@@ -294,8 +298,8 @@ func TestValidator_AllocatedProviderError(t *testing.T) {
 	t.Parallel()
 
 	wantErr := errors.New("boom")
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "10"})}},
 	}}
 	allocated := &stubAllocatedProvider{err: wantErr}
 	v := NewValidator(pools, allocated)
@@ -311,8 +315,8 @@ func TestValidator_AllocatedProviderError(t *testing.T) {
 func TestValidator_ZeroIncoming(t *testing.T) {
 	t.Parallel()
 
-	pools := &stubPoolsProvider{pools: map[int][]nodev1alpha1.ResourcePool{
-		resourcepool.NumaIDAll: {{PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
 	}}
 	// allocated already at max, but incoming==0 -> still ok.
 	allocated := &stubAllocatedProvider{
