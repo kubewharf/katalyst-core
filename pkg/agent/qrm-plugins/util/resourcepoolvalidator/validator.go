@@ -26,6 +26,7 @@ package resourcepoolvalidator
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -38,19 +39,29 @@ import (
 // dimensions (socket, device, ...) can be added as additional fields without
 // breaking callers.
 type Scope struct {
-	// NumaID identifies the NUMA node to validate against.
-	// Use resourcepool.NumaIDAll(-1) for node-level validation.
-	NumaID int
+	// NumaIDs identifies the NUMA nodes to validate against.
+	// An empty slice represents node-level validation (NodeScope).
+	// A non-empty slice represents one or more NUMA nodes (NumaScope).
+	NumaIDs []int
+}
+
+// IsNodeScope reports whether the scope represents a node-level (numa-agnostic)
+// view, i.e. NumaIDs is empty.
+func (s Scope) IsNodeScope() bool {
+	return len(s.NumaIDs) == 0
 }
 
 // NodeScope returns a Scope representing the node-level (numa-agnostic) view.
 func NodeScope() Scope {
-	return Scope{NumaID: resourcepool.NumaIDAll}
+	return Scope{}
 }
 
-// NumaScope returns a Scope tied to the given NUMA node id.
-func NumaScope(numaID int) Scope {
-	return Scope{NumaID: numaID}
+// NumaScope returns a Scope tied to the given NUMA node ids.
+// A single id produces a single-NUMA scope; multiple ids produce a
+// multi-NUMA scope whose allocated and MaxAllocatable are aggregated across
+// all listed NUMAs.
+func NumaScope(numaIDs ...int) Scope {
+	return Scope{NumaIDs: numaIDs}
 }
 
 // ResourcePoolsProvider returns the resource pool division for the current
@@ -66,6 +77,9 @@ type ResourcePoolsProvider interface {
 // AllocatedProvider returns the already-allocated resource amounts for a given
 // (poolName, scope) pair. Each QRM plugin implements this against its own
 // in-memory state so the validator stays agnostic of plugin internals.
+//
+// When scope.NumaIDs contains multiple NUMA IDs, the implementation must
+// aggregate the allocated quantities across all listed NUMAs.
 //
 // excludePodUIDs lists pod UIDs that should be excluded from the allocated
 // total. This is needed during inplace-update-resize: the current pod's
@@ -87,10 +101,10 @@ type AllocatedProvider interface {
 //     validateResourcePool NodeScope guard at GetTopologyHints entry).
 //
 //   - NumaScope batch guard (IterateBitMasks): pre-fetch all per-NUMA
-//     allocations once via PrefetchNumaAllocations, then pass the resulting map
-//     entry-by-entry as the `allocated` parameter to Validate inside the mask
-//     iteration loop. This avoids O(N×2^(N-1)) redundant GetAllocated calls
-//     down to O(N), where N is the number of NUMA nodes.
+//     allocations once via PrefetchNumaAllocations, then aggregate the cache
+//     entries for the mask and pass the result as the `allocated` parameter to
+//     Validate. This avoids O(N×2^(N-1)) redundant GetAllocated calls down to
+//     O(N), where N is the number of NUMA nodes.
 type Validator interface {
 	// Validate returns nil if admitting `incoming` keeps the running total
 	// within MaxAllocatable for every resource in `resources`. The caller is
@@ -104,6 +118,10 @@ type Validator interface {
 	//   - allocated[name] + incoming[name] > MaxAllocatable[name]: returns
 	//     CapacityExceededError for the first resource that exceeds.
 	//
+	// For NodeScope (empty NumaIDs), MaxAllocatable is looked up from the
+	// node-level pool entry. For NumaScope (non-empty NumaIDs), MaxAllocatable
+	// and allocated are aggregated across all NUMA IDs in the scope.
+	//
 	// The `allocated` parameter controls how already-allocated quantities are
 	// obtained:
 	//   - allocated == nil: the method calls GetAllocated internally (on-demand
@@ -111,8 +129,8 @@ type Validator interface {
 	//   - allocated != nil: used directly as the pre-fetched allocated
 	//     quantity, skipping the GetAllocated call. Intended for the NumaScope
 	//     batch path where the caller has already fetched allocations via
-	//     PrefetchNumaAllocations. If the map is missing a resource name, its
-	//     allocated quantity is treated as zero.
+	//     PrefetchNumaAllocations and aggregated them for the mask. If the map
+	//     is missing a resource name, its allocated quantity is treated as zero.
 	//
 	// excludePodUIDs is forwarded to GetAllocated when allocated == nil so
 	// that the specified pods are excluded from the allocated total.
@@ -122,9 +140,9 @@ type Validator interface {
 
 	// PrefetchNumaAllocations batch-fetches per-NUMA allocated quantities for
 	// the given pool across all specified NUMA nodes. The returned map (key:
-	// numaID) should be passed entry-by-entry as the `allocated` parameter to
-	// Validate inside IterateBitMasks loops to avoid redundant GetAllocated
-	// calls.
+	// numaID) should be aggregated by the caller for the mask's NUMA set and
+	// passed as the `allocated` parameter to Validate inside IterateBitMasks
+	// loops to avoid redundant GetAllocated calls.
 	//
 	// excludePodUIDs is forwarded to GetAllocated so that the specified pods
 	// are excluded from the allocated total.
@@ -150,7 +168,7 @@ type validator struct {
 
 // Validate implements Validator.
 //
-// Behavioural rules:
+// Behavioral rules:
 //   - poolName == "": treated as no-op, returns nil.
 //   - The pool is not declared in the requested scope: treated as no constraint
 //     (returns nil).
@@ -160,6 +178,9 @@ type validator struct {
 //     CapacityExceededError for that resource.
 //   - When allocated is nil the method falls back to calling GetAllocated
 //     internally.
+//
+// For NodeScope, the node-level pool entry is used directly. For NumaScope,
+// MaxAllocatable is aggregated across all NUMA IDs in the scope.
 func (v *validator) Validate(ctx context.Context, poolName string, scope Scope,
 	incoming v1.ResourceList, resources []v1.ResourceName,
 	allocated v1.ResourceList, excludePodUIDs ...string,
@@ -173,9 +194,22 @@ func (v *validator) Validate(ctx context.Context, poolName string, scope Scope,
 		return err
 	}
 
-	pool, ok := lookupPool(pools, scope, poolName)
-	if !ok || pool.MaxAllocatable == nil {
-		return nil
+	var maxAlloc v1.ResourceList
+	if scope.IsNodeScope() {
+		pool, ok := lookupPool(pools, resourcepool.NumaIDAll, poolName)
+		if !ok || pool.MaxAllocatable == nil {
+			return nil
+		}
+		maxAlloc = *pool.MaxAllocatable
+	} else {
+		found := lookupPools(pools, scope.NumaIDs, poolName)
+		if len(found) == 0 {
+			return nil
+		}
+		maxAlloc = aggregateMaxAllocatable(found, resources)
+		if len(maxAlloc) == 0 {
+			return nil
+		}
 	}
 
 	if allocated == nil {
@@ -186,7 +220,7 @@ func (v *validator) Validate(ctx context.Context, poolName string, scope Scope,
 	}
 
 	for _, name := range resources {
-		maxAllocatable, hasMax := (*pool.MaxAllocatable)[name]
+		maxAllocatable, hasMax := maxAlloc[name]
 		if !hasMax {
 			continue
 		}
@@ -215,9 +249,9 @@ func (v *validator) Validate(ctx context.Context, poolName string, scope Scope,
 
 // PrefetchNumaAllocations batch-fetches per-NUMA allocated quantities for the
 // given pool across all specified NUMA nodes in a single pass. Callers should
-// use the returned map with ValidateWithAllocated to avoid redundant
-// GetAllocated invocations when validating multiple NUMA scopes (e.g. inside
-// IterateBitMasks).
+// aggregate the returned per-NUMA entries for their mask's NUMA set and pass
+// the result to Validate to avoid redundant GetAllocated invocations when
+// validating multiple masks (e.g. inside IterateBitMasks).
 //
 // Returns nil if the provider or pool name is empty, or numaIDs is empty.
 func (v *validator) PrefetchNumaAllocations(
@@ -237,15 +271,50 @@ func (v *validator) PrefetchNumaAllocations(
 	return result, nil
 }
 
-// lookupPool finds a ResourcePool by name within the given scope using O(1)
+// lookupPool finds a ResourcePool by name within a single scope key using O(1)
 // map lookup.
-func lookupPool(pools map[int]map[string]nodev1alpha1.ResourcePool, scope Scope, poolName string) (nodev1alpha1.ResourcePool, bool) {
-	poolMap, ok := pools[scope.NumaID]
+func lookupPool(pools map[int]map[string]nodev1alpha1.ResourcePool, scopeKey int, poolName string) (nodev1alpha1.ResourcePool, bool) {
+	poolMap, ok := pools[scopeKey]
 	if !ok {
 		return nodev1alpha1.ResourcePool{}, false
 	}
 	p, ok := poolMap[poolName]
 	return p, ok
+}
+
+// lookupPools finds ResourcePools by name across multiple NUMA IDs. Returns a
+// map keyed by numaID containing only the NUMAs where the pool was found.
+func lookupPools(pools map[int]map[string]nodev1alpha1.ResourcePool, numaIDs []int, poolName string) map[int]nodev1alpha1.ResourcePool {
+	result := make(map[int]nodev1alpha1.ResourcePool, len(numaIDs))
+	for _, nid := range numaIDs {
+		if p, ok := lookupPool(pools, nid, poolName); ok {
+			result[nid] = p
+		}
+	}
+	return result
+}
+
+// aggregateMaxAllocatable sums the MaxAllocatable quantities across all given
+// pools for the requested resources. Only resources present in at least one
+// pool's MaxAllocatable are included in the result.
+func aggregateMaxAllocatable(pools map[int]nodev1alpha1.ResourcePool, resources []v1.ResourceName) v1.ResourceList {
+	result := v1.ResourceList{}
+	for _, p := range pools {
+		if p.MaxAllocatable == nil {
+			continue
+		}
+		for _, name := range resources {
+			if q, ok := (*p.MaxAllocatable)[name]; ok {
+				if existing, has := result[name]; has {
+					existing.Add(q)
+					result[name] = existing
+				} else {
+					result[name] = q.DeepCopy()
+				}
+			}
+		}
+	}
+	return result
 }
 
 // CapacityExceededError indicates that admitting a request would exceed the
@@ -261,10 +330,15 @@ type CapacityExceededError struct {
 
 // Error implements the error interface.
 func (e *CapacityExceededError) Error() string {
+	scopeStr := "NodeScope"
+	if !e.Scope.IsNodeScope() {
+		scopeStr = fmt.Sprintf("NumaScope=%v", e.Scope.NumaIDs)
+	}
 	return "resource pool " + e.PoolName + " " + string(e.Resource) +
 		" capacity exceeded: allocated=" + e.Allocated.String() +
 		", incoming=" + e.Incoming.String() +
-		", max=" + e.Max.String()
+		", max=" + e.Max.String() +
+		", scope=" + scopeStr
 }
 
 // IsCapacityExceeded reports whether the given error (or any error wrapped

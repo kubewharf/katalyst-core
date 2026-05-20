@@ -43,13 +43,14 @@ func newCPUResourcePoolAllocatedProvider(s state.ReadonlyState) rpvalidator.Allo
 // GetAllocated returns the already-allocated CPU quantity for the given pool
 // within the requested scope.
 //
-//   - When scope.NumaID == resourcepool.NumaIDAll, the full RequestQuantity of
-//     each matching container is summed (NodeScope).
-//   - When scope.NumaID >= 0 (NumaScope), accounting is split by binding type:
+//   - When scope.IsNodeScope() (empty NumaIDs), the full RequestQuantity of
+//     each matching container is summed.
+//   - When scope.NumaIDs is non-empty (NumaScope), accounting is split by
+//     binding type and aggregated across all NUMA IDs in the scope:
 //     SNB (shared_cores numa-binding) containers contribute their whole
 //     RequestQuantity against the persisted target NUMA hint; DNB
 //     (dedicated_cores numa-binding) containers are pro-rated by the cpuset
-//     share landing on this NUMA via TopologyAwareAssignments. Containers
+//     share landing on each NUMA via TopologyAwareAssignments. Containers
 //     that are neither SNB nor DNB are skipped under NumaScope because they
 //     are not bound to a specific NUMA.
 func (c *cpuResourcePoolAllocatedProvider) GetAllocated(poolName string, scope rpvalidator.Scope, excludePodUIDs ...string) (v1.ResourceList, error) {
@@ -60,6 +61,11 @@ func (c *cpuResourcePoolAllocatedProvider) GetAllocated(poolName string, scope r
 	excluded := make(map[string]struct{}, len(excludePodUIDs))
 	for _, uid := range excludePodUIDs {
 		excluded[uid] = struct{}{}
+	}
+
+	numaSet := make(map[int]struct{}, len(scope.NumaIDs))
+	for _, nid := range scope.NumaIDs {
+		numaSet[nid] = struct{}{}
 	}
 
 	var totalMilli int64
@@ -79,7 +85,7 @@ func (c *cpuResourcePoolAllocatedProvider) GetAllocated(poolName string, scope r
 				continue
 			}
 
-			if scope.NumaID == resourcepool.NumaIDAll {
+			if scope.IsNodeScope() {
 				totalMilli += int64(ai.RequestQuantity * 1000)
 				continue
 			}
@@ -93,7 +99,10 @@ func (c *cpuResourcePoolAllocatedProvider) GetAllocated(poolName string, scope r
 				// latter is allowed to temporarily span multiple NUMAs during
 				// ramp-up.
 				targetNUMA, err := ai.GetSpecifiedNUMABindingNUMAID()
-				if err != nil || targetNUMA != scope.NumaID {
+				if err != nil {
+					continue
+				}
+				if _, ok := numaSet[targetNUMA]; !ok {
 					continue
 				}
 				totalMilli += int64(ai.RequestQuantity * 1000)
@@ -101,14 +110,14 @@ func (c *cpuResourcePoolAllocatedProvider) GetAllocated(poolName string, scope r
 			case ai.CheckDedicatedNUMABinding():
 				// DNB has its cpuset strictly partitioned per NUMA in
 				// TopologyAwareAssignments by machine.GetNumaAwareAssignments.
-				// Pro-rate the RequestQuantity by the share landing on this
-				// NUMA.
+				// Pro-rate the RequestQuantity by the share landing on each
+				// NUMA in the scope.
 				share, total := 0, 0
 				for numaID, cset := range ai.TopologyAwareAssignments {
 					size := cset.Size()
 					total += size
-					if numaID == scope.NumaID {
-						share = size
+					if _, ok := numaSet[numaID]; ok {
+						share += size
 					}
 				}
 				if total == 0 || share == 0 {
@@ -156,18 +165,20 @@ func (p *DynamicPolicy) validateResourcePool(ctx context.Context, req *pluginapi
 // resourcepoolvalidator.MaskExceeds. It hides the (ResourceCPU only) resource
 // list / MilliQuantity construction noise from hint handlers.
 //
-// `perNUMACPU` is the per-NUMA share (in cores, possibly fractional) that
-// every NUMA node in `maskBits` would receive. Callers compute it as:
-//   - SNB single NUMA:   request          (mask size == 1)
-//   - DNB / distribute:  request / count  (mask size == count)
+// `totalCPU` is the total CPU request (in cores, possibly fractional) for the
+// pod. When `evenlyDistributed` is true and the mask spans multiple NUMAs,
+// MaskExceeds validates each NUMA independently against the evenly-divided
+// per-NUMA share; otherwise it validates the aggregated capacity across all
+// NUMAs in the mask.
 func (p *DynamicPolicy) cpuResourcePoolMaskExceeds(
 	ctx context.Context,
 	req *pluginapi.ResourceRequest,
-	perNUMACPU float64,
+	totalCPU float64,
 	maskBits []int,
 	allocCache map[int]v1.ResourceList,
+	evenlyDistributed bool,
 ) bool {
-	if p == nil || req == nil || perNUMACPU <= 0 || len(maskBits) == 0 {
+	if p == nil || req == nil || totalCPU <= 0 || len(maskBits) == 0 {
 		return false
 	}
 	poolName := resourcepool.GetResourcePoolName(req.Annotations)
@@ -176,11 +187,12 @@ func (p *DynamicPolicy) cpuResourcePoolMaskExceeds(
 	}
 	return rpvalidator.MaskExceeds(ctx, p.resourcePoolValidator, poolName,
 		v1.ResourceList{
-			v1.ResourceCPU: *resource.NewMilliQuantity(int64(perNUMACPU*1000), resource.DecimalSI),
+			v1.ResourceCPU: *resource.NewMilliQuantity(int64(totalCPU*1000), resource.DecimalSI),
 		},
 		[]v1.ResourceName{v1.ResourceCPU},
 		maskBits,
 		allocCache,
+		evenlyDistributed,
 		req.PodUid,
 	)
 }

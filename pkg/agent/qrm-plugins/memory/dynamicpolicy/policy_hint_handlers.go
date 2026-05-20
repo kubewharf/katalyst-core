@@ -542,14 +542,19 @@ func (p *DynamicPolicy) calculateHints(
 
 		// ResourcePool NumaScope mask filter: skip masks that would exceed
 		// pool capacity for any requested resource (memory + hugepages-*).
+		// The incoming values represent the total request (not per-NUMA).
+		// When distributeEvenlyAcrossNuma and mask spans multiple NUMAs,
+		// validate each NUMA independently against the evenly-divided share;
+		// otherwise MaskExceeds aggregates allocated and MaxAllocatable across
+		// all NUMAs in the mask, allowing non-uniform NUMA distribution.
 		if poolName := resourcepool.GetResourcePoolName(req.Annotations); poolName != "" && maskCount > 0 {
-			incomingPerNUMA := make(v1.ResourceList, len(requestedResources))
+			incoming := make(v1.ResourceList, len(requestedResources))
 			resources := make([]v1.ResourceName, 0, len(requestedResources))
 			for resourceName, requestedSize := range requestedResources {
-				incomingPerNUMA[resourceName] = *resource.NewQuantity(int64(requestedSize)/int64(maskCount), resource.BinarySI)
+				incoming[resourceName] = *resource.NewQuantity(int64(requestedSize), resource.BinarySI)
 				resources = append(resources, resourceName)
 			}
-			if rpvalidator.MaskExceeds(ctx, p.resourcePoolValidator, poolName, incomingPerNUMA, resources, maskBits, memRPAllocCache, req.PodUid) {
+			if rpvalidator.MaskExceeds(ctx, p.resourcePoolValidator, poolName, incoming, resources, maskBits, memRPAllocCache, distributeEvenlyAcrossNuma && maskCount > 1, req.PodUid) {
 				return
 			}
 		}

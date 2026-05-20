@@ -372,12 +372,14 @@ func (p *DynamicPolicy) calculateHints(
 			return
 		}
 
-		// Filter out hints whose mask would breach the per-NUMA ResourcePool
-		// MaxAllocatable for this pod's pool. Uses the pre-fetched allocation
-		// cache to avoid redundant GetAllocated calls across masks.
+		// Filter out hints whose mask would breach the aggregated
+		// ResourcePool MaxAllocatable for this pod's pool. Uses the
+		// pre-fetched allocation cache to avoid redundant GetAllocated
+		// calls across masks.
+		// When distributeEvenlyAcrossNuma and mask spans multiple NUMAs,
+		// validate each NUMA independently against the evenly-divided share.
 		if poolName := resourcepool.GetResourcePoolName(req.Annotations); poolName != "" && maskCount > 0 {
-			perNUMA := request / float64(maskCount)
-			if p.cpuResourcePoolMaskExceeds(ctx, req, perNUMA, maskBits, cpuRPAllocCache) {
+			if p.cpuResourcePoolMaskExceeds(ctx, req, request, maskBits, cpuRPAllocCache, distributeEvenlyAcrossNuma && maskCount > 1) {
 				return
 			}
 		}
@@ -700,7 +702,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(ctx context.Contex
 			}
 
 			if poolName := resourcepool.GetResourcePoolName(req.Annotations); poolName != "" {
-				if p.cpuResourcePoolMaskExceeds(ctx, req, request, []int{nodeID}, nil) {
+				if p.cpuResourcePoolMaskExceeds(ctx, req, request, []int{nodeID}, nil, false) {
 					general.Errorf("pod: %s/%s, container: %s request cpu inplace update resize, but resource pool %s exceeds for numa %d",
 						req.PodNamespace, req.PodName, req.ContainerName, poolName, nodeID)
 					return nil, cpuutil.ErrNoAvailableCPUHints
@@ -802,7 +804,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(ctx context.Cont
 	if snbPoolName := resourcepool.GetResourcePoolName(req.Annotations); snbPoolName != "" && len(numaNodes) > 0 {
 		filtered := numaNodes[:0]
 		for _, n := range numaNodes {
-			if !p.cpuResourcePoolMaskExceeds(ctx, req, request, []int{n}, nil) {
+			if !p.cpuResourcePoolMaskExceeds(ctx, req, request, []int{n}, nil, false) {
 				filtered = append(filtered, n)
 			}
 		}

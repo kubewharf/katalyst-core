@@ -308,7 +308,7 @@ func TestCPUResourcePoolMaskExceeds_NoAnnotation(t *testing.T) {
 	}, st)
 
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{}}
-	if p.cpuResourcePoolMaskExceeds(context.Background(), req, 100, []int{0}, nil) {
+	if p.cpuResourcePoolMaskExceeds(context.Background(), req, 100, []int{0}, nil, false) {
 		t.Fatalf("expected pod without pool annotation to be unfiltered")
 	}
 }
@@ -332,14 +332,14 @@ func TestCPUResourcePoolMaskExceeds_SingleNUMAExceeded(t *testing.T) {
 		apiconsts.PodAnnotationResourcePoolKey: "p1",
 	}}
 	// already 3, incoming 2 on numa-0 -> 5 > 4 -> exceeded.
-	if !p.cpuResourcePoolMaskExceeds(context.Background(), req, 2, []int{0}, nil) {
+	if !p.cpuResourcePoolMaskExceeds(context.Background(), req, 2, []int{0}, nil, false) {
 		t.Fatalf("expected mask filter to reject single-numa overflow")
 	}
 }
 
-// TestCPUResourcePoolMaskExceeds_MultiNUMAPerNUMAShare verifies that the
-// per-NUMA share (request / maskCount) is properly applied across NUMAs.
-func TestCPUResourcePoolMaskExceeds_MultiNUMAPerNUMAShare(t *testing.T) {
+// TestCPUResourcePoolMaskExceeds_MultiNUMAAggregated verifies that the
+// total request is validated against the aggregated capacity across NUMAs.
+func TestCPUResourcePoolMaskExceeds_MultiNUMAAggregated(t *testing.T) {
 	t.Parallel()
 
 	st := &stubReadonlyState{entries: state.PodEntries{
@@ -357,9 +357,13 @@ func TestCPUResourcePoolMaskExceeds_MultiNUMAPerNUMAShare(t *testing.T) {
 	req := &pluginapi.ResourceRequest{Annotations: map[string]string{
 		apiconsts.PodAnnotationResourcePoolKey: "p1",
 	}}
-	// allocated 3 per numa, full request 4 split across 2 numa => per-numa share 2.
-	// 3 + 2 = 5 ... actually exceeds. Adjust: full request 2 -> per-numa 1, 3+1=4 ok.
-	if p.cpuResourcePoolMaskExceeds(context.Background(), req, 1, []int{0, 1}, nil) {
-		t.Fatalf("expected per-numa share to fit, got rejection")
+	// allocated 3 per numa (total 6), max 4+4=8, total request 2 -> 6+2=8 <= 8 -> ok.
+	if p.cpuResourcePoolMaskExceeds(context.Background(), req, 2, []int{0, 1}, nil, false) {
+		t.Fatalf("expected total request to fit within aggregated capacity")
+	}
+
+	// allocated 3 per numa (total 6), max 4+4=8, total request 3 -> 6+3=9 > 8 -> exceeded.
+	if !p.cpuResourcePoolMaskExceeds(context.Background(), req, 3, []int{0, 1}, nil, false) {
+		t.Fatalf("expected total request to exceed aggregated capacity")
 	}
 }

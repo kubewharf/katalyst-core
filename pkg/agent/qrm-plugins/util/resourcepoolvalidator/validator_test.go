@@ -29,7 +29,6 @@ import (
 	resourcepool "github.com/kubewharf/katalyst-core/pkg/util/resource-pool"
 )
 
-// stubPoolsProvider is a simple in-memory ResourcePoolsProvider for tests.
 type stubPoolsProvider struct {
 	mu    sync.Mutex
 	pools map[int]map[string]nodev1alpha1.ResourcePool
@@ -44,9 +43,8 @@ func (s *stubPoolsProvider) NodeResourcePools(_ context.Context) (map[int]map[st
 	return s.pools, s.err
 }
 
-// stubAllocatedProvider is a simple in-memory AllocatedProvider for tests.
 type stubAllocatedProvider struct {
-	allocated map[string]map[int]v1.ResourceList // poolName -> numaID -> ResourceList
+	allocated map[string]map[int]v1.ResourceList
 	err       error
 	calls     int
 }
@@ -56,9 +54,28 @@ func (s *stubAllocatedProvider) GetAllocated(poolName string, scope Scope, _ ...
 	if s.err != nil {
 		return nil, s.err
 	}
-	if byScope, ok := s.allocated[poolName]; ok {
-		if rl, ok := byScope[scope.NumaID]; ok {
-			return rl.DeepCopy(), nil
+	if byPool, ok := s.allocated[poolName]; ok {
+		if scope.IsNodeScope() {
+			if rl, ok := byPool[resourcepool.NumaIDAll]; ok {
+				return rl.DeepCopy(), nil
+			}
+			return nil, nil
+		}
+		result := v1.ResourceList{}
+		for _, nid := range scope.NumaIDs {
+			if rl, ok := byPool[nid]; ok {
+				for name, q := range rl {
+					if existing, has := result[name]; has {
+						existing.Add(q)
+						result[name] = existing
+					} else {
+						result[name] = q.DeepCopy()
+					}
+				}
+			}
+		}
+		if len(result) > 0 {
+			return result, nil
 		}
 	}
 	return nil, nil
@@ -186,7 +203,7 @@ func TestValidator_CapacityExceeded(t *testing.T) {
 		t.Fatalf("expected CapacityExceededError, got %v", err)
 	}
 	ce := err.(*CapacityExceededError)
-	if ce.PoolName != "p1" || ce.Resource != v1.ResourceCPU || ce.Scope.NumaID != resourcepool.NumaIDAll {
+	if ce.PoolName != "p1" || ce.Resource != v1.ResourceCPU || !ce.Scope.IsNodeScope() {
 		t.Fatalf("unexpected error fields: %+v", ce)
 	}
 	if ce.Max.Cmp(resource.MustParse("10")) != 0 {
@@ -235,8 +252,42 @@ func TestValidator_PerNumaScope(t *testing.T) {
 		t.Fatalf("expected CapacityExceededError for numa-0 scope, got %v", err)
 	}
 	ce := err.(*CapacityExceededError)
-	if ce.Scope.NumaID != 0 {
-		t.Fatalf("expected scope numa=0, got %d", ce.Scope.NumaID)
+	if len(ce.Scope.NumaIDs) != 1 || ce.Scope.NumaIDs[0] != 0 {
+		t.Fatalf("expected scope numa=[0], got %v", ce.Scope.NumaIDs)
+	}
+}
+
+func TestValidator_MultiNumaScopeAggregated(t *testing.T) {
+	t.Parallel()
+
+	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
+		0: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+		1: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "4"})}},
+	}}
+	allocated := &stubAllocatedProvider{
+		allocated: map[string]map[int]v1.ResourceList{
+			"p1": {
+				0: mustList(map[v1.ResourceName]string{v1.ResourceCPU: "3"}),
+				1: mustList(map[v1.ResourceName]string{v1.ResourceCPU: "1"}),
+			},
+		},
+	}
+	v := NewValidator(pools, allocated)
+
+	// Aggregated: allocated=3+1=4, incoming=4, max=4+4=8 -> 4+4=8 <= 8 -> ok
+	err := v.Validate(context.Background(), "p1", NumaScope(0, 1),
+		mustList(map[v1.ResourceName]string{v1.ResourceCPU: "4"}),
+		[]v1.ResourceName{v1.ResourceCPU}, nil)
+	if err != nil {
+		t.Fatalf("expected nil err for aggregated multi-numa scope, got %v", err)
+	}
+
+	// Aggregated: allocated=3+1=4, incoming=5, max=4+4=8 -> 4+5=9 > 8 -> exceeded
+	err = v.Validate(context.Background(), "p1", NumaScope(0, 1),
+		mustList(map[v1.ResourceName]string{v1.ResourceCPU: "5"}),
+		[]v1.ResourceName{v1.ResourceCPU}, nil)
+	if !IsCapacityExceeded(err) {
+		t.Fatalf("expected CapacityExceededError for aggregated overflow, got %v", err)
 	}
 }
 
@@ -318,7 +369,6 @@ func TestValidator_ZeroIncoming(t *testing.T) {
 	pools := &stubPoolsProvider{pools: map[int]map[string]nodev1alpha1.ResourcePool{
 		resourcepool.NumaIDAll: {"p1": {PoolName: "p1", MaxAllocatable: mustListPtr(map[v1.ResourceName]string{v1.ResourceCPU: "1"})}},
 	}}
-	// allocated already at max, but incoming==0 -> still ok.
 	allocated := &stubAllocatedProvider{
 		allocated: map[string]map[int]v1.ResourceList{
 			"p1": {resourcepool.NumaIDAll: mustList(map[v1.ResourceName]string{v1.ResourceCPU: "1"})},
@@ -331,5 +381,19 @@ func TestValidator_ZeroIncoming(t *testing.T) {
 		[]v1.ResourceName{v1.ResourceCPU}, nil)
 	if err != nil {
 		t.Fatalf("expected nil err for zero incoming, got %v", err)
+	}
+}
+
+func TestScope_IsNodeScope(t *testing.T) {
+	t.Parallel()
+
+	if !NodeScope().IsNodeScope() {
+		t.Fatalf("expected NodeScope().IsNodeScope() == true")
+	}
+	if NumaScope(0).IsNodeScope() {
+		t.Fatalf("expected NumaScope(0).IsNodeScope() == false")
+	}
+	if NumaScope(0, 1).IsNodeScope() {
+		t.Fatalf("expected NumaScope(0,1).IsNodeScope() == false")
 	}
 }

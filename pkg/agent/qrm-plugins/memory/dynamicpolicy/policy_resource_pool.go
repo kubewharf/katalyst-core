@@ -45,10 +45,11 @@ func newMemoryResourcePoolAllocatedProvider(s state.ReadonlyState) rpvalidator.A
 // resource present in PodResourceEntries (memory + hugepages-* etc.), so the
 // hint-phase NumaScope mask filter can validate hugepage capacity uniformly.
 //
-//   - When scope.NumaID == resourcepool.NumaIDAll, the full AggregatedQuantity
+//   - When scope.IsNodeScope() (empty NumaIDs), the full AggregatedQuantity
 //     of each matching container is summed.
-//   - When scope.NumaID >= 0, only the per-NUMA share recorded in
-//     TopologyAwareAllocations[numa] is summed.
+//   - When scope.NumaIDs is non-empty (NumaScope), the per-NUMA shares
+//     recorded in TopologyAwareAllocations are summed across all NUMA IDs in
+//     the scope.
 func (m *memoryResourcePoolAllocatedProvider) GetAllocated(poolName string, scope rpvalidator.Scope, excludePodUIDs ...string) (v1.ResourceList, error) {
 	if m == nil || m.state == nil || poolName == "" {
 		return nil, nil
@@ -57,6 +58,11 @@ func (m *memoryResourcePoolAllocatedProvider) GetAllocated(poolName string, scop
 	excluded := make(map[string]struct{}, len(excludePodUIDs))
 	for _, uid := range excludePodUIDs {
 		excluded[uid] = struct{}{}
+	}
+
+	numaSet := make(map[int]struct{}, len(scope.NumaIDs))
+	for _, nid := range scope.NumaIDs {
+		numaSet[nid] = struct{}{}
 	}
 
 	out := v1.ResourceList{}
@@ -74,12 +80,14 @@ func (m *memoryResourcePoolAllocatedProvider) GetAllocated(poolName string, scop
 					continue
 				}
 
-				if scope.NumaID == resourcepool.NumaIDAll {
+				if scope.IsNodeScope() {
 					totalBytes += int64(ai.AggregatedQuantity)
 					continue
 				}
-				if numaQty, ok := ai.TopologyAwareAllocations[scope.NumaID]; ok {
-					totalBytes += int64(numaQty)
+				for numaID, numaQty := range ai.TopologyAwareAllocations {
+					if _, ok := numaSet[numaID]; ok {
+						totalBytes += int64(numaQty)
+					}
 				}
 			}
 		}
