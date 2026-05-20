@@ -160,7 +160,6 @@ type DynamicPolicy struct {
 	enableEvictingLogCache  bool
 	logCacheEvictionManager logcache.Manager
 
-	enableReclaimNUMABinding                      bool
 	enableSNBHighNumaPreference                   bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
 
@@ -235,7 +234,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableOOMPriority:           conf.EnableOOMPriority,
 		oomPriorityMapPinnedPath:    conf.OOMPriorityPinnedMapAbsPath,
 		enableEvictingLogCache:      conf.EnableEvictingLogCache,
-		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
 		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,

@@ -32,10 +32,6 @@ type GenericQRMPluginConfiguration struct {
 	PodLabelKeptKeys []string
 	// MainContainerAnnotationKey the annotation key indicates the name of main container
 	MainContainerAnnotationKey string
-	// EnableReclaimNUMABinding indicates whether to enable NUMA Binding for reclaim pods
-	// if this flag is set to true, reclaim pod will be allocated on a specific NUMA node
-	// best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes
-	EnableReclaimNUMABinding bool
 	// EnableSNBHighNumaPreference indicates whether to enable high numa preference for snb pods
 	// if set true, snb pod will be preferentially allocated on high numa node
 	EnableSNBHighNumaPreference bool

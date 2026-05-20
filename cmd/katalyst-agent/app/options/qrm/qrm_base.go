@@ -32,7 +32,6 @@ type GenericQRMPluginOptions struct {
 	PodAnnotationKeptKeys       []string
 	PodLabelKeptKeys            []string
 	MainContainerAnnotationKey  string
-	EnableReclaimNUMABinding    bool
 	EnableSNBHighNumaPreference bool
 	*statedirectory.StateDirectoryOptions
 }
@@ -64,8 +63,6 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PodLabelKeptKeys, "pod label keys will be kept in qrm state")
 	fs.StringVar(&o.MainContainerAnnotationKey, "main-container-annotation-key",
 		o.MainContainerAnnotationKey, "annotation key indicates the name of main container")
-	fs.BoolVar(&o.EnableReclaimNUMABinding, "enable-reclaim-numa-binding",
-		o.EnableReclaimNUMABinding, "if set true, reclaim pod will be allocated on a specific NUMA node best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes")
 	fs.BoolVar(&o.EnableSNBHighNumaPreference, "enable-snb-high-numa-preference",
 		o.EnableSNBHighNumaPreference, "default false,if set true, snb pod will be preferentially allocated on high numa node")
 	o.StateDirectoryOptions.AddFlags(fss)
@@ -79,7 +76,6 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.PodAnnotationKeptKeys = append(conf.PodAnnotationKeptKeys, o.PodAnnotationKeptKeys...)
 	conf.PodLabelKeptKeys = append(conf.PodLabelKeptKeys, o.PodLabelKeptKeys...)
 	conf.MainContainerAnnotationKey = o.MainContainerAnnotationKey
-	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
 
 	if err := o.StateDirectoryOptions.ApplyTo(conf.StateDirectoryConfiguration); err != nil {

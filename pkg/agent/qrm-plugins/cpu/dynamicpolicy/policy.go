@@ -124,7 +124,6 @@ type DynamicPolicy struct {
 	cpuAdvisorSocketAbsPath                   string
 	cpuPluginSocketAbsPath                    string
 	extraStateFileAbsPath                     string
-	enableReclaimNUMABinding                  bool
 	enableSNBHighNumaPreference               bool
 	enableCPUIdle                             bool
 	enableSyncingCPUIdle                      bool
@@ -211,7 +210,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		dynamicConfig:                 conf.DynamicAgentConfiguration,
 		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
-		enableReclaimNUMABinding:      conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference:   conf.EnableSNBHighNumaPreference,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
 		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,

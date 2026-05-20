@@ -157,7 +157,6 @@ func getTestDynamicPolicyWithoutInitialization(
 		featureGateManager:        featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
 		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
 		reservedCPUs:              reservedCPUs,
-		enableReclaimNUMABinding:  true,
 		emitter:                   metrics.DummyMetrics{},
 		podDebugAnnoKeys:          []string{podDebugAnnoKey},
 		numaNumberAnnotationKey:   consts.PodAnnotationCPUEnhancementNumaNumber,

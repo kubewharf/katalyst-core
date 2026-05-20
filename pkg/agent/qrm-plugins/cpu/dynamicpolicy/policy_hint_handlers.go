@@ -83,8 +83,7 @@ func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
-		p.enableReclaimNUMABinding {
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
 		return p.reclaimedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
