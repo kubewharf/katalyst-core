@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	resourcepool "github.com/kubewharf/katalyst-core/pkg/util/resource-pool"
 )
 
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
@@ -52,7 +53,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 
 	// TODO: support sidecar follow main container for non-binding share cores in future
 	if req.ContainerType == pluginapi.ContainerType_MAIN {
-		ok, err := p.checkNonBindingShareCoresCpuResource(req)
+		ok, err := p.checkNonBindingShareCoresCpuResource(ctx, req)
 		if err != nil {
 			general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
 				req.PodNamespace, req.PodName, req.ContainerName)
@@ -113,7 +114,7 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 	}
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
@@ -174,7 +175,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	if hints == nil {
 		var calculateErr error
 		// calculate hint for container without allocated cpus
-		hints, calculateErr = p.calculateHints(request, podEntries, machineState, req)
+		hints, calculateErr = p.calculateHints(ctx, request, podEntries, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
@@ -197,6 +198,7 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Co
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
 func (p *DynamicPolicy) calculateHints(
+	ctx context.Context,
 	request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
@@ -299,6 +301,14 @@ func (p *DynamicPolicy) calculateHints(
 	}
 
 	var availableNumaHints []*pluginapi.TopologyHint
+	// Pre-fetch per-NUMA ResourcePool allocations once so that the
+	// MaskExceeds check inside IterateBitMasks does not redundantly call
+	// GetAllocated for the same (poolName, numaID) across every mask.
+	var cpuRPAllocCache map[int]v1.ResourceList
+	if poolName := resourcepool.GetResourcePoolName(req.Annotations); poolName != "" {
+		cpuRPAllocCache, _ = p.resourcePoolValidator.PrefetchNumaAllocations(
+			ctx, poolName, numaNodes, req.PodUid)
+	}
 	// minAffinitySize is the minimum number of NUMA nodes from the hints
 	minAffinitySize := p.machineInfo.CPUDetails.NUMANodes().Size()
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
@@ -360,6 +370,18 @@ func (p *DynamicPolicy) calculateHints(
 			}
 		} else if numaNumber != 0 && maskCount != numaNumber {
 			return
+		}
+
+		// Filter out hints whose mask would breach the aggregated
+		// ResourcePool MaxAllocatable for this pod's pool. Uses the
+		// pre-fetched allocation cache to avoid redundant GetAllocated
+		// calls across masks.
+		// When distributeEvenlyAcrossNuma and mask spans multiple NUMAs,
+		// validate each NUMA independently against the evenly-divided share.
+		if poolName := resourcepool.GetResourcePoolName(req.Annotations); poolName != "" && maskCount > 0 {
+			if p.cpuResourcePoolMaskExceeds(ctx, req, request, maskBits, cpuRPAllocCache, distributeEvenlyAcrossNuma && maskCount > 1) {
+				return
+			}
 		}
 
 		// For first pass, set all the preferred fields to "false". We will update the preferred fields on the second pass.
@@ -621,7 +643,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(req *pluginap
 	}, nil
 }
 
-func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
@@ -678,13 +700,21 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 					req.PodNamespace, req.PodName, req.ContainerName)
 				return nil, cpuutil.ErrNoAvailableCPUHints
 			}
+
+			if poolName := resourcepool.GetResourcePoolName(req.Annotations); poolName != "" {
+				if p.cpuResourcePoolMaskExceeds(ctx, req, request, []int{nodeID}, nil, false) {
+					general.Errorf("pod: %s/%s, container: %s request cpu inplace update resize, but resource pool %s exceeds for numa %d",
+						req.PodNamespace, req.PodName, req.ContainerName, poolName, nodeID)
+					return nil, cpuutil.ErrNoAvailableCPUHints
+				}
+			}
 			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
 				req.PodNamespace, req.PodName, req.ContainerName)
 			hints = cpuutil.RegenerateHints(allocationInfo, false)
 		}
 	} else {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(request, podEntries, machineState, req)
+		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(ctx, request, podEntries, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
 		}
@@ -761,11 +791,25 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 	return machine.NewCPUSet(filteredNUMANodes...)
 }
 
-func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64, podEntries state.PodEntries,
+func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(ctx context.Context, request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	numaNodes := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req, 0).ToSliceInt()
+
+	// Filter out NUMA nodes whose ResourcePool MaxAllocatable would be
+	// exceeded by admitting the full request (SNB hints are single-NUMA, so
+	// per-NUMA share equals the full request). Skip entirely when the pod
+	// has no resource pool annotation.
+	if snbPoolName := resourcepool.GetResourcePoolName(req.Annotations); snbPoolName != "" && len(numaNodes) > 0 {
+		filtered := numaNodes[:0]
+		for _, n := range numaNodes {
+			if !p.cpuResourcePoolMaskExceeds(ctx, req, request, []int{n}, nil, false) {
+				filtered = append(filtered, n)
+			}
+		}
+		numaNodes = filtered
+	}
 
 	hints := &pluginapi.ListOfTopologyHints{}
 

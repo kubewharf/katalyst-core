@@ -17,6 +17,7 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -621,7 +622,7 @@ func TestCalculateHintsForNUMABindingSharedCores1(t *testing.T) {
 			}
 			p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult = tt.preferUseExistNUMAHintResult
 
-			result, err := p.calculateHintsForNUMABindingSharedCores(tt.request, podEntries, machineState, tt.req)
+			result, err := p.calculateHintsForNUMABindingSharedCores(context.Background(), tt.request, podEntries, machineState, tt.req)
 
 			if tt.expectedError {
 				assert.Error(t, err)

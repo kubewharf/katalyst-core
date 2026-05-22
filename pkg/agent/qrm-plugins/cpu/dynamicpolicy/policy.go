@@ -52,6 +52,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	rpvalidator "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/resourcepoolvalidator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -148,6 +149,14 @@ type DynamicPolicy struct {
 
 	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
+
+	// resourcePoolValidator enforces MaxAllocatable of ResourcePool annotated
+	// pods at GetTopologyHints / Allocate time. nil disables the check.
+	resourcePoolValidator rpvalidator.Validator
+
+	// resourcePoolPoolsCache caches resource pool data asynchronously to avoid
+	// redundant NPD fetches on every Validate call.
+	resourcePoolPoolsCache *rpvalidator.CachedResourcePoolsProvider
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -238,6 +247,15 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	if err != nil {
 		return false, nil, err
 	}
+
+	// initialize the ResourcePool MaxAllocatable validator. The MetaServer
+	// already embeds resourcepool.ResourcePoolManager, which satisfies
+	// rpvalidator.ResourcePoolsProvider.
+	policyImplement.resourcePoolPoolsCache = rpvalidator.NewCachedResourcePoolsProvider(agentCtx.MetaServer)
+	policyImplement.resourcePoolValidator = rpvalidator.NewValidator(
+		policyImplement.resourcePoolPoolsCache,
+		newCPUResourcePoolAllocatedProvider(stateImpl),
+	)
 
 	if conf.EnableIRQTuner {
 		irqTuner, err := irqtuingcontroller.NewIrqTuningController(conf.AgentConfiguration, policyImplement, policyImplement.emitter, policyImplement.machineInfo)
@@ -339,6 +357,10 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	if p.irqTuner != nil {
 		go p.irqTuner.Run(p.stopCh)
+	}
+
+	if p.resourcePoolPoolsCache != nil {
+		go p.resourcePoolPoolsCache.Run(p.stopCh)
 	}
 
 	go wait.Until(func() {
@@ -1347,7 +1369,7 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 	return cpuutil.GetContainerRequestedCores(p.metaServer, allocationInfo)
 }
 
-func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(req *pluginapi.ResourceRequest) (bool, error) {
+func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(ctx context.Context, req *pluginapi.ResourceRequest) (bool, error) {
 	_, reqFloat64, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
@@ -1365,6 +1387,10 @@ func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(req *pluginapi.Reso
 		general.Warningf("[checkNonBindingShareCoresCpuResource] no enough cpu resource for non-binding share cores pod: %s/%s, container: %s (request: %.02f, node allocated: %d, node allocatable: %d)",
 			req.PodNamespace, req.PodName, req.ContainerName, reqFloat64, shareCoresAllocatedInt, pooledCPUs.Size())
 		return false, nil
+	}
+
+	if err := p.validateResourcePool(ctx, req, reqFloat64); err != nil {
+		return false, err
 	}
 
 	general.InfoS("checkNonBindingShareCoresCpuResource cpu successfully",

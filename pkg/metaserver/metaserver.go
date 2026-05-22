@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepool"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -46,6 +47,7 @@ type MetaServer struct {
 	kcc.ConfigurationManager
 	spd.ServiceProfilingManager
 	resourcepackage.ResourcePackageManager
+	resourcepool.ResourcePoolManager
 	external.ExternalManager
 	npd.NPDFetcher
 }
@@ -95,6 +97,7 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		ServiceProfilingManager: spd.NewServiceProfilingManager(spdFetcher),
 		ExternalManager:         external.InitExternalManager(metaAgent.PodFetcher),
 		ResourcePackageManager:  resourcepackage.NewResourcePackageManager(npdFetcher),
+		ResourcePoolManager:     resourcepool.NewResourcePoolManager(npdFetcher),
 		NPDFetcher:              npdFetcher,
 	}, nil
 }
@@ -135,5 +138,16 @@ func (m *MetaServer) SetResourcePackageManager(manager resourcepackage.ResourceP
 	}
 
 	m.ResourcePackageManager = manager
+	return nil
+}
+
+func (m *MetaServer) SetResourcePoolManager(manager resourcepool.ResourcePoolManager) error {
+	m.Lock()
+	defer m.Unlock()
+	if m.start {
+		return fmt.Errorf("meta agent has already started, not allowed to set implementations")
+	}
+
+	m.ResourcePoolManager = manager
 	return nil
 }

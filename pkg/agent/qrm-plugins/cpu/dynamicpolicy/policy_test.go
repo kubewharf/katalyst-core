@@ -54,6 +54,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	rpvalidator "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/resourcepoolvalidator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -64,6 +65,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepool"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -187,7 +190,14 @@ func getTestDynamicPolicyWithoutInitialization(
 			MetricsFetcher:      metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 		},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+		ResourcePoolManager:     resourcepool.NewResourcePoolManager(&npd.DummyNPDFetcher{}),
 	}
+
+	policyImplement.resourcePoolPoolsCache = rpvalidator.NewCachedResourcePoolsProvider(policyImplement.metaServer)
+	policyImplement.resourcePoolValidator = rpvalidator.NewValidator(
+		policyImplement.resourcePoolPoolsCache,
+		newCPUResourcePoolAllocatedProvider(stateImpl),
+	)
 
 	// initialize hint optimizer
 	err = policyImplement.initHintOptimizers()
@@ -8125,6 +8135,7 @@ func TestNewDynamicPolicy(t *testing.T) {
 			},
 		},
 		ConfigurationManager: kccMgr,
+		ResourcePoolManager:  resourcepool.NewResourcePoolManager(&npd.DummyNPDFetcher{}),
 	}
 	testingDir, err := ioutil.TempDir("", "dynamic_policy_new")
 	if err != nil {

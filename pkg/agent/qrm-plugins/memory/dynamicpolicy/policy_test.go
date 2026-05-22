@@ -62,6 +62,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
+	rpvalidator "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/resourcepoolvalidator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -76,6 +77,8 @@ import (
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepool"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -198,6 +201,14 @@ func getTestDynamicPolicyWithInitialization(
 
 	policyImplement.numaAllocationReactor = reactor.DummyAllocationReactor{}
 
+	policyImplement.resourcePoolPoolsCache = rpvalidator.NewCachedResourcePoolsProvider(
+		&metaserver.MetaServer{ResourcePoolManager: resourcepool.NewResourcePoolManager(&npd.DummyNPDFetcher{})},
+	)
+	policyImplement.resourcePoolValidator = rpvalidator.NewValidator(
+		policyImplement.resourcePoolPoolsCache,
+		newMemoryResourcePoolAllocatedProvider(stateImpl),
+	)
+
 	return policyImplement, nil
 }
 
@@ -269,6 +280,14 @@ func getTestDynamicPolicyWithExtraResourcesWithInitialization(
 	}
 
 	policyImplement.numaAllocationReactor = reactor.DummyAllocationReactor{}
+
+	policyImplement.resourcePoolPoolsCache = rpvalidator.NewCachedResourcePoolsProvider(
+		resourcepool.NewResourcePoolManager(&npd.DummyNPDFetcher{}),
+	)
+	policyImplement.resourcePoolValidator = rpvalidator.NewValidator(
+		policyImplement.resourcePoolPoolsCache,
+		newMemoryResourcePoolAllocatedProvider(stateImpl),
+	)
 
 	return policyImplement, nil
 }
@@ -4026,7 +4045,8 @@ func makeMetaServer() *metaserver.MetaServer {
 			},
 			PodFetcher: &pod.PodFetcherStub{},
 		},
-		ExternalManager: external.InitExternalManager(&pod.PodFetcherStub{}),
+		ExternalManager:     external.InitExternalManager(&pod.PodFetcherStub{}),
+		ResourcePoolManager: resourcepool.NewResourcePoolManager(&npd.DummyNPDFetcher{}),
 	}
 }
 
