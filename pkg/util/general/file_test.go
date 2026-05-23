@@ -747,3 +747,149 @@ func TestIsFileUpToDate(t *testing.T) {
 		})
 	}
 }
+
+func TestIsRegularFileExists(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	type testCase struct {
+		name                 string
+		setup                func(baseDir string) string
+		makeHidden           bool
+		wantExists           bool
+		expectOriginalExists bool
+		expectHiddenExists   bool
+	}
+
+	makeHiddenPath := func(p string) string {
+		dir := filepath.Dir(p)
+		base := filepath.Base(p)
+		return filepath.Join(dir, "."+base)
+	}
+
+	tests := []testCase{
+		{
+			name:                 "non-existent path without hiding",
+			setup:                func(baseDir string) string { return filepath.Join(baseDir, "not_exists.txt") },
+			makeHidden:           false,
+			wantExists:           false,
+			expectOriginalExists: false,
+			expectHiddenExists:   false,
+		},
+		{
+			name:                 "non-existent path with hiding",
+			setup:                func(baseDir string) string { return filepath.Join(baseDir, "not_exists_2.txt") },
+			makeHidden:           true,
+			wantExists:           false,
+			expectOriginalExists: false,
+			expectHiddenExists:   false,
+		},
+		{
+			name: "regular file exists, no hiding",
+			setup: func(baseDir string) string {
+				p := filepath.Join(baseDir, "regular.txt")
+				assert.NoError(t, os.WriteFile(p, []byte("hello"), 0o644))
+				return p
+			},
+			makeHidden:           false,
+			wantExists:           true,
+			expectOriginalExists: true,
+			expectHiddenExists:   false,
+		},
+		{
+			name: "regular file exists, hiding requested",
+			setup: func(baseDir string) string {
+				p := filepath.Join(baseDir, "regular2.txt")
+				assert.NoError(t, os.WriteFile(p, []byte("hello2"), 0o644))
+				return p
+			},
+			makeHidden:           true,
+			wantExists:           true,
+			expectOriginalExists: true,
+			expectHiddenExists:   false,
+		},
+		{
+			name: "directory exists, no hiding",
+			setup: func(baseDir string) string {
+				p := filepath.Join(baseDir, "adir")
+				assert.NoError(t, os.MkdirAll(p, 0o755))
+				return p
+			},
+			makeHidden:           false,
+			wantExists:           false,
+			expectOriginalExists: true,
+			expectHiddenExists:   false,
+		},
+		{
+			name: "directory exists, hiding requested",
+			setup: func(baseDir string) string {
+				p := filepath.Join(baseDir, "bdir")
+				assert.NoError(t, os.MkdirAll(p, 0o755))
+				return p
+			},
+			makeHidden:           true,
+			wantExists:           false,
+			expectOriginalExists: false,
+			expectHiddenExists:   true,
+		},
+		{
+			name: "symlink to regular file, hiding requested",
+			setup: func(baseDir string) string {
+				target := filepath.Join(baseDir, "target_regular.txt")
+				assert.NoError(t, os.WriteFile(target, []byte("data"), 0o644))
+				link := filepath.Join(baseDir, "link_to_regular")
+				assert.NoError(t, os.Symlink(target, link))
+				return link
+			},
+			makeHidden:           true,
+			wantExists:           true,
+			expectOriginalExists: true,
+			expectHiddenExists:   false,
+		},
+		{
+			name: "symlink to directory, hiding requested",
+			setup: func(baseDir string) string {
+				target := filepath.Join(baseDir, "target_dir")
+				assert.NoError(t, os.MkdirAll(target, 0o755))
+				link := filepath.Join(baseDir, "link_to_dir")
+				assert.NoError(t, os.Symlink(target, link))
+				return link
+			},
+			makeHidden:           true,
+			wantExists:           false,
+			expectOriginalExists: false,
+			expectHiddenExists:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := tt.setup(tmpDir)
+
+			exists, err := IsRegularFileExists(p, tt.makeHidden)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantExists, exists)
+
+			// verify rename behavior
+			hidden := makeHiddenPath(p)
+			_, origErr := os.Stat(p)
+			_, hiddenErr := os.Stat(hidden)
+
+			if tt.expectOriginalExists {
+				assert.NoError(t, origErr)
+			} else {
+				assert.True(t, os.IsNotExist(origErr))
+			}
+
+			if tt.expectHiddenExists {
+				assert.NoError(t, hiddenErr)
+			} else {
+				assert.True(t, os.IsNotExist(hiddenErr))
+			}
+		})
+	}
+}
