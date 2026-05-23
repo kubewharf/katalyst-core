@@ -295,6 +295,60 @@ func Test_getCPI(t *testing.T) {
 	assert.Equal(t, float64(1), data.Value)
 }
 
+func Test_registerDynamicCgroupPathOnMetricMiss(t *testing.T) {
+	t.Parallel()
+	store := utilmetric.NewMetricStore()
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
+		ReclaimRelativeRootCgroupPath: "test",
+		MalachiteConfiguration: &global.MalachiteConfiguration{
+			GeneralRelativeCgroupPaths:  []string{"d1"},
+			OptionalRelativeCgroupPaths: []string{"d2"},
+		},
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
+		&machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		})
+
+	provisioner := implement.(*MalachiteMetricsProvisioner)
+	_, err = store.GetCgroupMetric("dynamic-cgroup", consts.MetricMemUsageCgroup)
+	assert.Error(t, err)
+	assert.Contains(t, provisioner.getCgroupPaths(), "dynamic-cgroup")
+
+	_, err = store.GetCgroupNumaMetric("dynamic-cgroup-numa", 0, consts.MetricsMemTotalPerNumaCgroup)
+	assert.Error(t, err)
+	assert.Contains(t, provisioner.getCgroupPaths(), "dynamic-cgroup-numa")
+}
+
+func Test_cleanupExpiredDynamicCgroupPaths(t *testing.T) {
+	t.Parallel()
+	store := utilmetric.NewMetricStore()
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
+		ReclaimRelativeRootCgroupPath: "test",
+		MalachiteConfiguration:        &global.MalachiteConfiguration{},
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
+		&machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		})
+
+	provisioner := implement.(*MalachiteMetricsProvisioner)
+	now := time.Now()
+	provisioner.addOrTouchDynamicCgroupPath("fresh-cgroup", now, true)
+	provisioner.addOrTouchDynamicCgroupPath("stale-cgroup", now.Add(-dynamicCgroupPathTTL-time.Second), true)
+
+	provisioner.cleanupExpiredDynamicCgroupPaths(now)
+
+	assert.True(t, provisioner.dynamicCgroupPaths.Has("fresh-cgroup"))
+	assert.False(t, provisioner.dynamicCgroupPaths.Has("stale-cgroup"))
+	_, ok := provisioner.dynamicCgroupLastQueryAt["stale-cgroup"]
+	assert.False(t, ok)
+}
+
 func Test_setContainerMbmTotalMetric(t *testing.T) {
 	t.Parallel()
 

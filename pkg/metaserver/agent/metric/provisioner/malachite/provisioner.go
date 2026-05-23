@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
@@ -57,6 +58,8 @@ const (
 
 	CpiFetchFreq = time.Second * 10
 	window       = time.Second * 30
+
+	dynamicCgroupPathTTL = 5 * time.Minute
 )
 
 var Exp30s = 1 / math.Exp(float64(CpiFetchFreq)/float64(window))
@@ -65,23 +68,31 @@ var Exp30s = 1 / math.Exp(float64(CpiFetchFreq)/float64(window))
 func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore, machineInfo *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
-	return &MalachiteMetricsProvisioner{
-		malachiteClient: client.NewMalachiteClient(fetcher, emitter),
-		metricStore:     metricStore,
-		emitter:         emitter,
-		baseConf:        baseConf,
-		machineInfo:     machineInfo,
+	provisioner := &MalachiteMetricsProvisioner{
+		malachiteClient:          client.NewMalachiteClient(fetcher, emitter),
+		metricStore:              metricStore,
+		emitter:                  emitter,
+		baseConf:                 baseConf,
+		machineInfo:              machineInfo,
+		dynamicCgroupPaths:       sets.NewString(),
+		dynamicCgroupLastQueryAt: make(map[string]time.Time),
 	}
+	metricStore.SetOnCgroupMetricAccess(provisioner.TouchDynamicCgroupPath)
+	metricStore.SetOnCgroupMetricMiss(provisioner.AddDynamicCgroupPath)
+	return provisioner
 }
 
 type MalachiteMetricsProvisioner struct {
-	metricStore     *utilmetric.MetricStore
-	malachiteClient *client.MalachiteClient
-	baseConf        *global.BaseConfiguration
-	emitter         metrics.MetricEmitter
-	machineInfo     *machine.KatalystMachineInfo
-	startOnce       sync.Once
-	cpuToNumaMap    map[int]int
+	metricStore              *utilmetric.MetricStore
+	malachiteClient          *client.MalachiteClient
+	baseConf                 *global.BaseConfiguration
+	emitter                  metrics.MetricEmitter
+	machineInfo              *machine.KatalystMachineInfo
+	startOnce                sync.Once
+	cpuToNumaMap             map[int]int
+	dynamicPathsMu           sync.RWMutex
+	dynamicCgroupPaths       sets.String
+	dynamicCgroupLastQueryAt map[string]time.Time
 }
 
 func (m *MalachiteMetricsProvisioner) Run(ctx context.Context) {
@@ -190,6 +201,8 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 }
 
 func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
+	m.cleanupExpiredDynamicCgroupPaths(time.Now())
+
 	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
 	for _, path := range common.GetNUMABindingReclaimRelativeRootCgroupPaths(m.baseConf.ReclaimRelativeRootCgroupPath,
 		m.machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()) {
@@ -200,7 +213,6 @@ func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
 	for _, path := range m.baseConf.OptionalRelativeCgroupPaths {
 		absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)
 		if !general.IsPathExists(absPath) {
-			general.Infof("cgroup path %v not existed, ignore it", path)
 			continue
 		}
 		cgroupPaths = append(cgroupPaths, path)
@@ -210,8 +222,56 @@ func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
 		cgroupPaths = append(cgroupPaths, path)
 	}
 
+	m.dynamicPathsMu.RLock()
+	for path := range m.dynamicCgroupPaths {
+		cgroupPaths = append(cgroupPaths, path)
+	}
+	m.dynamicPathsMu.RUnlock()
+
 	dedupCgroupPaths := general.DedupStringSlice(cgroupPaths)
 	return dedupCgroupPaths
+}
+
+func (m *MalachiteMetricsProvisioner) AddDynamicCgroupPath(cgroupPath string) {
+	m.addOrTouchDynamicCgroupPath(cgroupPath, time.Now(), true)
+}
+
+func (m *MalachiteMetricsProvisioner) TouchDynamicCgroupPath(cgroupPath string) {
+	m.addOrTouchDynamicCgroupPath(cgroupPath, time.Now(), false)
+}
+
+func (m *MalachiteMetricsProvisioner) addOrTouchDynamicCgroupPath(cgroupPath string, now time.Time, addIfAbsent bool) {
+	if cgroupPath == "" {
+		return
+	}
+
+	m.dynamicPathsMu.Lock()
+	defer m.dynamicPathsMu.Unlock()
+
+	if !m.dynamicCgroupPaths.Has(cgroupPath) {
+		if !addIfAbsent {
+			return
+		}
+		m.dynamicCgroupPaths.Insert(cgroupPath)
+		general.Infof("[malachite] register cgroup path %v for on-demand metric collection", cgroupPath)
+	}
+
+	m.dynamicCgroupLastQueryAt[cgroupPath] = now
+}
+
+func (m *MalachiteMetricsProvisioner) cleanupExpiredDynamicCgroupPaths(now time.Time) {
+	m.dynamicPathsMu.Lock()
+	defer m.dynamicPathsMu.Unlock()
+
+	for cgroupPath := range m.dynamicCgroupPaths {
+		lastQueryAt, ok := m.dynamicCgroupLastQueryAt[cgroupPath]
+		if ok && now.Sub(lastQueryAt) <= dynamicCgroupPathTTL {
+			continue
+		}
+		m.dynamicCgroupPaths.Delete(cgroupPath)
+		delete(m.dynamicCgroupLastQueryAt, cgroupPath)
+		general.Infof("[malachite] remove stale dynamic cgroup path %v from on-demand metric collection", cgroupPath)
+	}
 }
 
 func (m *MalachiteMetricsProvisioner) updateCgroupData() error {

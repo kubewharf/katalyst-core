@@ -52,6 +52,8 @@ type MetricStore struct {
 	cgroupMetricMap           map[string]map[string]MetricData                    // map[cgroupPath]map[metricName]value
 	cgroupNumaMetricMap       map[string]map[int]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
 	stringIndexedMetricMap    map[string]interface{}
+	onCgroupMetricAccess      func(cgroupPath string)
+	onCgroupMetricMiss        func(cgroupPath string)
 }
 
 func NewMetricStore() *MetricStore {
@@ -80,6 +82,36 @@ func (c *MetricStore) SetByStringIndex(metricName string, metricMap interface{})
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.stringIndexedMetricMap[metricName] = metricMap
+}
+
+func (c *MetricStore) SetOnCgroupMetricMiss(handler func(cgroupPath string)) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.onCgroupMetricMiss = handler
+}
+
+func (c *MetricStore) SetOnCgroupMetricAccess(handler func(cgroupPath string)) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.onCgroupMetricAccess = handler
+}
+
+func (c *MetricStore) notifyCgroupMetricAccess(cgroupPath string) {
+	c.mutex.RLock()
+	handler := c.onCgroupMetricAccess
+	c.mutex.RUnlock()
+	if handler != nil {
+		handler(cgroupPath)
+	}
+}
+
+func (c *MetricStore) notifyCgroupMetricMiss(cgroupPath string) {
+	c.mutex.RLock()
+	handler := c.onCgroupMetricMiss
+	c.mutex.RUnlock()
+	if handler != nil {
+		handler(cgroupPath)
+	}
 }
 
 func (c *MetricStore) SetNodeMetric(metricName string, data MetricData) {
@@ -319,14 +351,16 @@ func (c *MetricStore) SetCgroupMetric(cgroupPath, metricName string, data Metric
 }
 
 func (c *MetricStore) GetCgroupMetric(cgroupPath, metricName string) (MetricData, error) {
+	c.notifyCgroupMetricAccess(cgroupPath)
 	c.mutex.RLock()
-	defer c.mutex.RUnlock()
-
 	metrics, ok := c.cgroupMetricMap[cgroupPath]
 	if !ok {
+		c.mutex.RUnlock()
+		c.notifyCgroupMetricMiss(cgroupPath)
 		return MetricData{}, fmt.Errorf("[MetricStore] load cgroup for %v failed", cgroupPath)
 	}
 	data, ok := metrics[metricName]
+	c.mutex.RUnlock()
 	if !ok {
 		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", metricName)
 	}
@@ -351,17 +385,21 @@ func (c *MetricStore) SetCgroupNumaMetric(cgroupPath string, numaNode int, metri
 }
 
 func (c *MetricStore) GetCgroupNumaMetric(cgroupPath string, numaNode int, metricName string) (MetricData, error) {
+	c.notifyCgroupMetricAccess(cgroupPath)
 	c.mutex.RLock()
-	defer c.mutex.RUnlock()
 	numaMetrics, ok := c.cgroupNumaMetricMap[cgroupPath]
 	if !ok {
+		c.mutex.RUnlock()
+		c.notifyCgroupMetricMiss(cgroupPath)
 		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", cgroupPath)
 	}
 	metrics, ok := numaMetrics[numaNode]
 	if !ok {
+		c.mutex.RUnlock()
 		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", numaNode)
 	}
 	metric, ok := metrics[metricName]
+	c.mutex.RUnlock()
 	if !ok {
 		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", metricName)
 	}
