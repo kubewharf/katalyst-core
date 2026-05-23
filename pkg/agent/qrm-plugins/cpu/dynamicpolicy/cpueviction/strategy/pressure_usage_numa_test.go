@@ -188,7 +188,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 					MetricRingSize:         1,
 					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().ThresholdMetPercentage,
 					GracePeriod:            conf.DynamicAgentConfiguration.GetDynamicConfiguration().DeletionGracePeriod,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetContainerNumaMetric("pod1", "container", 0,
@@ -228,7 +228,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 					MetricRingSize:         1,
 					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCPUPressureEvictionConfiguration.ThresholdMetPercentage,
 					GracePeriod:            conf.DynamicAgentConfiguration.GetDynamicConfiguration().DeletionGracePeriod,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetContainerNumaMetric("pod1", "container", 0,
@@ -497,7 +497,7 @@ func TestNumaCPUPressureEviction_GetTopEvictionPods(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 					SkippedPodKinds:        []string{"DaemonSet"},
 					EnabledFilters:         []string{rules.OwnerRefFilterName},
 				},
@@ -551,7 +551,7 @@ func TestNumaCPUPressureEviction_GetTopEvictionPods(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 					SkippedPodKinds:        []string{"DaemonSet"},
 					EnabledFilters:         []string{rules.OwnerRefFilterName},
 					EnabledScorers:         []string{rules.ScorerNameUsageGap},
@@ -627,7 +627,7 @@ func TestNumaCPUPressureEviction_GetTopEvictionPods(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 					EnabledScorers:         []string{rules.ScorerNameUsageGap},
 				},
 				metricsHistory: &util.NumaMetricHistory{
@@ -701,7 +701,7 @@ func TestNumaCPUPressureEviction_GetTopEvictionPods(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            30,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 					EnabledScorers:         []string{rules.ScorerNameUsageGap},
 					SkippedPodKinds:        []string{"DaemonSet"},
 					EnabledFilters:         []string{rules.OwnerRefFilterName},
@@ -869,7 +869,7 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 				},
 				metricsHistory: &util.NumaMetricHistory{
 					Inner: map[int]map[string]map[string]*util.MetricRing{
@@ -951,7 +951,7 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 				},
 				metricsHistory: &util.NumaMetricHistory{
 					Inner: map[int]map[string]map[string]*util.MetricRing{
@@ -1157,7 +1157,7 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
-					ExpandFactor:           1.2,
+					ExpandFactor:           7.0 / 6.0,
 				},
 				metricsHistory: &util.NumaMetricHistory{
 					Inner: map[int]map[string]map[string]*util.MetricRing{

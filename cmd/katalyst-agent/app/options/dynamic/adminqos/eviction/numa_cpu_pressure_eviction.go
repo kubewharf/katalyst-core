@@ -28,6 +28,7 @@ type NumaCPUPressureEvictionOptions struct {
 	MetricRingSize                 int
 	GracePeriod                    int64
 	ThresholdExpandFactor          float64
+	CpuUsageRatioThreshold         float64
 	CandidateCount                 int
 	WorkloadMetricsLabelKeys       []string
 	SkippedPodKinds                []string
@@ -42,7 +43,8 @@ func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
 		ThresholdMetPercentage:         0.7,
 		MetricRingSize:                 4,
 		GracePeriod:                    -1,
-		ThresholdExpandFactor:          1.1,
+		ThresholdExpandFactor:          7.0 / 6.0,
+		CpuUsageRatioThreshold:         0.6,
 		CandidateCount:                 2,
 		WorkloadMetricsLabelKeys:       []string{},
 		SkippedPodKinds:                []string{},
@@ -65,6 +67,8 @@ func (o *NumaCPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The grace period (in seconds) before evicting pods due to NUMA CPU pressure")
 	fs.Float64Var(&o.ThresholdExpandFactor, "numa-cpu-pressure-eviction-threshold-expand-factor", o.ThresholdExpandFactor,
 		"The factor by which to expand the NUMA CPU pressure threshold")
+	fs.Float64Var(&o.CpuUsageRatioThreshold, "numa-cpu-pressure-eviction-cpu-usage-ratio-threshold", o.CpuUsageRatioThreshold,
+		"The CPU usage ratio threshold for NUMA CPU pressure eviction (before expansion). Eviction trigger line = cpuUsageRatioThreshold * thresholdExpandFactor. If set to 0, falls back to NPD or MetricThresholdConfiguration")
 	fs.IntVar(&o.CandidateCount, "numa-cpu-pressure-eviction-candidate-count", o.CandidateCount,
 		"The candidate count when pick victim pods")
 	fs.StringSliceVar(&o.WorkloadMetricsLabelKeys, "numa-cpu-pressure-eviction-workload-metrics-label-keys", o.WorkloadMetricsLabelKeys,
@@ -85,6 +89,7 @@ func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvic
 	c.MetricRingSize = o.MetricRingSize
 	c.GracePeriod = o.GracePeriod
 	c.ThresholdExpandFactor = o.ThresholdExpandFactor
+	c.CpuUsageRatioThreshold = o.CpuUsageRatioThreshold
 	c.CandidateCount = o.CandidateCount
 	c.WorkloadMetricsLabelKeys = o.WorkloadMetricsLabelKeys
 	c.SkippedPodKinds = o.SkippedPodKinds
