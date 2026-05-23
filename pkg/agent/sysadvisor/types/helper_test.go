@@ -63,3 +63,52 @@ func TestClonePodEntries(t *testing.T) {
 
 	assert.True(t, reflect.DeepEqual(copyPodEntries, podEntries))
 }
+
+func TestContainerInfo_GetResourcePackageName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		ci       *ContainerInfo
+		expected string
+	}{
+		{
+			name: "normal case",
+			ci: &ContainerInfo{
+				Annotations: map[string]string{
+					consts.PodAnnotationResourcePackageKey: "pkg1",
+				},
+			},
+			expected: "pkg1",
+		},
+		{
+			name:     "nil container info",
+			ci:       nil,
+			expected: "",
+		},
+		{
+			name: "nil annotations",
+			ci: &ContainerInfo{
+				Annotations: nil,
+			},
+			expected: "",
+		},
+		{
+			name: "no resource package annotation",
+			ci: &ContainerInfo{
+				Annotations: map[string]string{
+					"other": "val",
+				},
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, tt.ci.GetResourcePackageName())
+		})
+	}
+}

@@ -418,6 +418,68 @@ func TestGetNUMANodesCountToFitCPUReq(t *testing.T) {
 	}
 }
 
+func TestGetPodAggregatedRequestResourceByAnnotations(t *testing.T) {
+	t.Parallel()
+
+	rl := v1.ResourceList{
+		v1.ResourceCPU: *resource.NewQuantity(2, resource.DecimalSI),
+	}
+	b, _ := json.Marshal(rl)
+
+	tests := []struct {
+		name          string
+		annotations   map[string]string
+		resName       v1.ResourceName
+		fallback      func() (int, float64, error)
+		expectedInt   int
+		expectedFloat float64
+	}{
+		{
+			name:          "empty annotations",
+			annotations:   nil,
+			resName:       v1.ResourceCPU,
+			fallback:      func() (int, float64, error) { return 1, 1.0, nil },
+			expectedInt:   1,
+			expectedFloat: 1.0,
+		},
+		{
+			name:          "no aggregated key",
+			annotations:   map[string]string{"k1": "v1"},
+			resName:       v1.ResourceCPU,
+			fallback:      func() (int, float64, error) { return 1, 1.0, nil },
+			expectedInt:   1,
+			expectedFloat: 1.0,
+		},
+		{
+			name:          "valid aggregated json",
+			annotations:   map[string]string{consts.PodAnnotationAggregatedRequestsKey: string(b)},
+			resName:       v1.ResourceCPU,
+			fallback:      func() (int, float64, error) { return 1, 1.0, nil },
+			expectedInt:   2,
+			expectedFloat: 2.0,
+		},
+		{
+			name:          "valid aggregated json but resource missing",
+			annotations:   map[string]string{consts.PodAnnotationAggregatedRequestsKey: string(b)},
+			resName:       v1.ResourceMemory,
+			fallback:      func() (int, float64, error) { return 1, 1.0, nil },
+			expectedInt:   1,
+			expectedFloat: 1.0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotInt, gotFloat, err := GetPodAggregatedRequestResourceByAnnotations(tt.annotations, tt.resName, tt.fallback)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedInt, gotInt)
+			assert.Equal(t, tt.expectedFloat, gotFloat)
+		})
+	}
+}
+
 func TestGetNUMANodesCountToFitMemoryReq(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

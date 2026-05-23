@@ -64,7 +64,7 @@ func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, 
 
 	isNumaBinding := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionDedicated{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, configapi.QoSRegionTypeDedicated, conf, extraConf,
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, GetResourcePackageName(ci), configapi.QoSRegionTypeDedicated, conf, extraConf,
 			isNumaBinding, ci.IsDedicatedNumaExclusive(), metaReader, metaServer, emitter),
 	}
 

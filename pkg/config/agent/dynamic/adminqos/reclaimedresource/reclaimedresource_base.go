@@ -25,15 +25,16 @@ import (
 )
 
 type ReclaimedResourceConfiguration struct {
-	EnableReclaim                            bool
-	DisableReclaimSharePools                 []string
-	ReservedResourceForReport                v1.ResourceList
-	MinReclaimedResourceForReport            v1.ResourceList
-	MinIgnoredReclaimedResourceForReport     v1.ResourceList
-	ReservedResourceForAllocate              v1.ResourceList
-	MinReclaimedResourceForAllocate          v1.ResourceList
-	NumaMinReclaimedResourceRatioForAllocate v1.ResourceList
-	NumaMinReclaimedResourceForAllocate      v1.ResourceList
+	EnableReclaim                                     bool
+	DisableReclaimSharePools                          []string
+	DisableReclaimPinnedCPUSetResourcePackageSelector string
+	ReservedResourceForReport                         v1.ResourceList
+	MinReclaimedResourceForReport                     v1.ResourceList
+	MinIgnoredReclaimedResourceForReport              v1.ResourceList
+	ReservedResourceForAllocate                       v1.ResourceList
+	MinReclaimedResourceForAllocate                   v1.ResourceList
+	NumaMinReclaimedResourceRatioForAllocate          v1.ResourceList
+	NumaMinReclaimedResourceForAllocate               v1.ResourceList
 
 	*cpuheadroom.CPUHeadroomConfiguration
 	*memoryheadroom.MemoryHeadroomConfiguration

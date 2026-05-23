@@ -36,12 +36,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func TestSNBMemoryVPA(t *testing.T) {
+func TestSNBMemoryResize(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryVPA")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryResize")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -205,12 +205,12 @@ func TestSNBMemoryVPA(t *testing.T) {
 	as.NotNil(err)
 }
 
-func TestSNBMemoryVPAWithZeroRequest(t *testing.T) {
+func TestSNBMemoryResizeWithZeroRequest(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryVPAWithZeroRequest")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryResizeWithZeroRequest")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -351,12 +351,12 @@ func TestSNBMemoryVPAWithZeroRequest(t *testing.T) {
 	as.Equal(float64(2147483648), resizeAllocation.PodResources[req.PodUid].ContainerResources[req.ContainerName].ResourceAllocation[string(v1.ResourceMemory)].AllocatedQuantity)
 }
 
-func TestSNBMemoryVPAWithSidecar(t *testing.T) {
+func TestSNBMemoryResizeWithSidecar(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryResizeWithSidecar")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -768,12 +768,12 @@ func TestSNBMemoryVPAWithSidecar(t *testing.T) {
 	as.Nil(err)
 }
 
-func TestNonBindingShareCoresMemoryVPA(t *testing.T) {
+func TestNonBindingShareCoresMemoryResize(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresMemoryVPA")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresMemoryResize")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -877,12 +877,12 @@ func TestNonBindingShareCoresMemoryVPA(t *testing.T) {
 	as.NotNil(err)
 }
 
-func TestNonBindingShareCoresMemoryVPAWithSidecar(t *testing.T) {
+func TestNonBindingShareCoresMemoryResizeWithSidecar(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresMemoryVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresMemoryResizeWithSidecar")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -1061,7 +1061,7 @@ func TestNonBindingShareCoresMemoryVPAWithSidecar(t *testing.T) {
 	as.NotNil(err)
 }
 
-func TestRNBMemoryVPA(t *testing.T) {
+func TestRNBMemoryResize(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
@@ -1148,11 +1148,15 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3221225472,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   3221225472,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1242,11 +1246,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 1073741824,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   1073741824,
+							AllocationResult:    machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1256,7 +1261,11 @@ func TestRNBMemoryVPA(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                   consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:  consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:           "0",
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1345,11 +1354,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3221225472,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   3221225472,
+							AllocationResult:    machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1359,7 +1369,11 @@ func TestRNBMemoryVPA(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                   consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:  consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:           "0",
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1483,11 +1497,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 6442450944,
-							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   6442450944,
+							AllocationResult:    machine.NewCPUSet(0, 1).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1495,6 +1510,11 @@ func TestRNBMemoryVPA(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{},"1":{}}}`,
 							},
 						},
 					},

@@ -31,6 +31,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -434,24 +435,34 @@ func GetPodAggregatedRequestResourceMap(req *pluginapi.ResourceRequest) (map[v1.
 	return intQuantities, floatQuantities, nil
 }
 
-// GetPodAggregatedRequestResource returns both integer and float64 quantities for the main resource in the pod request.
-// If the pod has aggregated resource annotations, those values are used; otherwise, it falls back to the original
-// request quantities. Returns an error if any calculation fails.
-func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float64, error) {
-	annotations := req.Annotations
+// GetPodAggregatedRequestResourceByAnnotations returns both integer and float64 quantities for the main resource based on annotations.
+// If the annotations contain aggregated resource keys, those values are used; otherwise, it falls back to the fallback function.
+// Returns an error if any calculation fails.
+func GetPodAggregatedRequestResourceByAnnotations(annotations map[string]string, resourceName v1.ResourceName, fallback func() (int, float64, error)) (int, float64, error) {
 	if annotations == nil {
-		return GetQuantityFromResourceReq(req)
+		return fallback()
 	}
 	value, ok := annotations[apiconsts.PodAnnotationAggregatedRequestsKey]
 	if !ok {
-		return GetQuantityFromResourceReq(req)
+		return fallback()
 	}
 	var resourceList v1.ResourceList
 	if err := json.Unmarshal([]byte(value), &resourceList); err != nil {
-		return GetQuantityFromResourceReq(req)
+		return fallback()
 	}
 
-	return calculateAggregatedResource(v1.ResourceName(req.ResourceName), resourceList)
+	if _, ok = resourceList[resourceName]; !ok {
+		return fallback()
+	}
+
+	return calculateAggregatedResource(resourceName, resourceList)
+}
+
+// GetPodAggregatedRequestResource returns both integer and float64 quantities for the main resource in the pod request.
+func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float64, error) {
+	return GetPodAggregatedRequestResourceByAnnotations(req.Annotations, v1.ResourceName(req.ResourceName), func() (int, float64, error) {
+		return GetQuantityFromResourceReq(req)
+	})
 }
 
 func calculateAggregatedResource(resourceName v1.ResourceName, resourceList v1.ResourceList) (int, float64, error) {
@@ -463,6 +474,24 @@ func calculateAggregatedResource(resourceName v1.ResourceName, resourceList v1.R
 		podAggregatedReqFloat64 := float64(resourceList.Name(resourceName, resource.BinarySI).Value())
 		return int(podAggregatedReqFloat64), podAggregatedReqFloat64, nil
 	}
+}
+
+// MakeTopologyAllocationResourceAllocationAnnotations converts the topology allocation to annotations.
+func MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation v1alpha1.TopologyAllocation,
+	topologyAllocationAnnotationKey string,
+) map[string]string {
+	annotations := make(map[string]string)
+	if topologyAllocation == nil {
+		return annotations
+	}
+
+	b, err := json.Marshal(topologyAllocation)
+	if err != nil {
+		general.Errorf("Error marshaling topology allocation: %v", err)
+	}
+
+	annotations[topologyAllocationAnnotationKey] = string(b)
+	return annotations
 }
 
 // CreateEmptyAllocationResponse creates an empty allocation response

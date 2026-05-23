@@ -21,17 +21,21 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func GetFullyDropCacheBytes(container *v1.Container) int64 {
@@ -215,4 +219,95 @@ func applySidecarAllocationInfoFromMainContainer(sidecarAllocationInfo, mainAllo
 	}
 
 	return changed
+}
+
+// IsTopologyAllocationChanged checks if the memory topology allocation of a container has changed.
+func IsTopologyAllocationChanged(oldInfo, newInfo *state.AllocationInfo) bool {
+	if oldInfo == nil || newInfo == nil {
+		return true
+	}
+
+	return !oldInfo.NumaAllocationResult.Equals(newInfo.NumaAllocationResult) ||
+		oldInfo.AggregatedQuantity != newInfo.AggregatedQuantity ||
+		!machine.MemoryDetails(oldInfo.TopologyAwareAllocations).Equal(newInfo.TopologyAwareAllocations)
+}
+
+// getMemoryTopologyAllocationsAnnotationsByAllocationInfo gets the memory topology allocation for a specific allocation info in the form of annotations.
+func getMemoryTopologyAllocationsAnnotationsByAllocationInfo(resourceName v1.ResourceName, ai *state.AllocationInfo,
+	topologyAllocationAnnotationKey string,
+) map[string]string {
+	if ai == nil {
+		return nil
+	}
+
+	topologyAllocation := make(v1alpha1.TopologyAllocation)
+	topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+
+	// In the case where there are no topology aware allocations, we just report the numa nodes.
+	if ai.TopologyAwareAllocations == nil {
+		if ai.NumaAllocationResult.IsEmpty() {
+			return nil
+		}
+
+		numaNodes := ai.NumaAllocationResult.ToSliceNoSortInt()
+		for _, numaNode := range numaNodes {
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		}
+	} else {
+		for numaNode, allocated := range ai.TopologyAwareAllocations {
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{
+				Allocated: map[v1.ResourceName]resource.Quantity{
+					resourceName: *resource.NewQuantity(int64(allocated), resource.BinarySI),
+				},
+			}
+		}
+	}
+
+	return util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation, topologyAllocationAnnotationKey)
+}
+
+// getMemoryTopologyAllocationsAnnotations gets the memory topology allocation in the form of annotations.
+func getMemoryTopologyAllocationsAnnotations(allocationInfos map[v1.ResourceName]*state.AllocationInfo,
+	topologyAllocationAnnotationKey string,
+) map[v1.ResourceName]map[string]string {
+	if allocationInfos == nil {
+		return nil
+	}
+
+	resourceAnnos := make(map[v1.ResourceName]map[string]string)
+	for resourceName, ai := range allocationInfos {
+		if ai == nil {
+			continue
+		}
+
+		topologyAllocation := make(v1alpha1.TopologyAllocation)
+		topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+
+		// In the case where there are no topology aware allocations, we just report the numa nodes.
+		if ai.TopologyAwareAllocations == nil {
+			if ai.NumaAllocationResult.IsEmpty() {
+				continue
+			}
+
+			numaNodes := ai.NumaAllocationResult.ToSliceNoSortInt()
+			for _, numaNode := range numaNodes {
+				topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+			}
+		} else {
+			for numaNode, allocated := range ai.TopologyAwareAllocations {
+				topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{
+					Allocated: map[v1.ResourceName]resource.Quantity{
+						resourceName: *resource.NewQuantity(int64(allocated), resource.BinarySI),
+					},
+				}
+			}
+		}
+
+		resourceAnnos[resourceName] = util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation, topologyAllocationAnnotationKey)
+	}
+
+	if len(resourceAnnos) == 0 {
+		return nil
+	}
+	return resourceAnnos
 }

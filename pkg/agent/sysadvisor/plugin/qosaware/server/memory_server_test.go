@@ -200,7 +200,7 @@ type MockMemoryAdvisor struct {
 	err    error
 }
 
-func (a *MockMemoryAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+func (a *MockMemoryAdvisor) UpdateAndGetAdvice(_ context.Context) (interface{}, error) {
 	return a.advice, a.err
 }
 

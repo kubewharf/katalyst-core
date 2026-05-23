@@ -303,6 +303,34 @@ func TestSetHostWatermark_AutoCalc_ClampMax(t *testing.T) {
 	})
 }
 
+func TestSetHostWatermark_SetScaleFactor_WithHugePagesAdjustment(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "watermark_scale_factor")
+	require.NoError(t, os.WriteFile(targetFile, []byte("100\n"), 0o644))
+
+	var oldPath string
+	hostWatermarkTestMu.Lock()
+	defer func() {
+		watermarkScaleFactorPath = oldPath
+		hostWatermarkTestMu.Unlock()
+	}()
+
+	mockey.PatchConvey("test set host watermark with set_scale_factor_and_huge_pages_adjustment", t, func() {
+		oldPath = watermarkScaleFactorPath
+		watermarkScaleFactorPath = targetFile
+		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNormalMemInfo(), nil).Build()
+
+		conf := makeTestCoreConf(500, 0)
+		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, nil)
+
+		val, err := general.ReadInt64FromFile(targetFile)
+		require.NoError(t, err)
+		require.Equal(t, int64(450), val)
+	})
+}
+
 func TestAdjustWatermarkForHugePages_Unchanged(t *testing.T) {
 	t.Parallel()
 
@@ -312,7 +340,7 @@ func TestAdjustWatermarkForHugePages_Unchanged(t *testing.T) {
 	mockey.PatchConvey("test adjust watermark for huge pages with unchanged", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		var originalWatermark uint64 = 50
+		var originalWatermark int64 = 50
 		newWatermark := adjustWatermarkForHugePages(originalWatermark)
 		require.Equal(t, originalWatermark, newWatermark)
 	})
@@ -327,8 +355,8 @@ func TestAdjustWatermarkForHugePages(t *testing.T) {
 	mockey.PatchConvey("test adjust watermark for huge pages", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNormalMemInfo(), nil).Build()
 
-		var originalWatermark uint64 = 500
-		var expectedWatermark uint64 = 450
+		var originalWatermark int64 = 500
+		var expectedWatermark int64 = 450
 		newWatermark := adjustWatermarkForHugePages(originalWatermark)
 		require.Equal(t, expectedWatermark, newWatermark)
 	})

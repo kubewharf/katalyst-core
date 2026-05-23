@@ -32,6 +32,10 @@ func (f *FakeCgroupManager) ApplyCPUSet(absCgroupPath string, data *common.CPUSe
 	return nil
 }
 
+func (f *FakeCgroupManager) ApplyCPUSetPartition(absCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error {
+	return nil
+}
+
 func (f *FakeCgroupManager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
 	return nil
 }

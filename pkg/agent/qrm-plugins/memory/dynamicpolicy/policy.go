@@ -96,6 +96,11 @@ const (
 	movePagesWorkLimit    = 2
 )
 
+// AllocationHook is a hook function which can be registered and called when allocationInfo changes.
+// It is designed to intercept state updates and perform actions like injecting or updating annotations
+// (e.g., NUMA topology information) based on the differences between old and new allocation info.
+type AllocationHook func(resourceName v1.ResourceName, oldAllocationInfo, newAllocationInfo *state.AllocationInfo) error
+
 type DynamicPolicy struct {
 	sync.RWMutex
 	pluginapi.UnimplementedResourcePluginServer
@@ -166,6 +171,8 @@ type DynamicPolicy struct {
 
 	numaAllocationReactor                         reactor.AllocationReactor
 	numaBindResultResourceAllocationAnnotationKey string
+	topologyAllocationAnnotationKey               string
+	allocationHooks                               []AllocationHook
 
 	extraResourceNames []string
 }
@@ -240,8 +247,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
+		topologyAllocationAnnotationKey:               conf.TopologyAllocationAnnotationKey,
 		extraResourceNames:                            conf.ExtraMemoryResources,
 	}
+
+	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
 		apiconsts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
@@ -751,7 +761,9 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					if applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
 						general.Infof("pod: %s/%s sidecar container: %s update its allocation",
 							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-						p.state.SetAllocationInfo(resourceName, podUID, containerName, allocationInfo, true)
+						if hookErr := p.updateAllocationInfo(resourceName, podUID, containerName, nil, allocationInfo, true); hookErr != nil {
+							general.Errorf("updateAllocationInfo failed for pod: %s, container: %s: %v", podUID, containerName, hookErr)
+						}
 						needUpdateMachineState = true
 					}
 				}
@@ -1340,4 +1352,94 @@ func (p *DynamicPolicy) checkNonBindingShareCoresMemoryResource(req *pluginapi.R
 		"reqInt", reqInt)
 
 	return true, nil
+}
+
+// RegisterAllocationHook registers a hook that is called before allocation info is updated.
+// Currently only supports one hook per policy, but we maintain a list for future extension.
+func (p *DynamicPolicy) RegisterAllocationHook(hook AllocationHook) {
+	p.Lock()
+	defer p.Unlock()
+	p.allocationHooks = append(p.allocationHooks, hook)
+}
+
+// invokeAllocationHooks triggers all registered allocation hooks.
+// Note: This method must be called with the lock held by the caller if concurrency protection is needed.
+// We avoid internal locking here to prevent potential deadlocks when called from methods that already hold the lock.
+func (p *DynamicPolicy) invokeAllocationHooks(resourceName v1.ResourceName, oldInfo, newInfo *state.AllocationInfo) error {
+	for _, hook := range p.allocationHooks {
+		if err := hook(resourceName, oldInfo, newInfo); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// invokeAllocationHooksForPodResourceEntries triggers allocation hooks for non-pool containers across all resources.
+// Note: This method must be called with the lock held by the caller to ensure state consistency
+// and avoid deadlocks due to nested locking.
+func (p *DynamicPolicy) invokeAllocationHooksForPodResourceEntries(curPodResourceEntries, newPodResourceEntries state.PodResourceEntries) error {
+	if len(p.allocationHooks) == 0 {
+		return nil
+	}
+
+	for resourceName, newPodEntries := range newPodResourceEntries {
+		for podUID, containerEntries := range newPodEntries {
+			for containerName, newAllocationInfo := range containerEntries {
+				var oldAllocationInfo *state.AllocationInfo
+				if curPodEntries, ok := curPodResourceEntries[resourceName]; ok {
+					if curContainerEntries, ok := curPodEntries[podUID]; ok {
+						oldAllocationInfo = curContainerEntries[containerName]
+					}
+				}
+				if err := p.invokeAllocationHooks(resourceName, oldAllocationInfo, newAllocationInfo); err != nil {
+					return fmt.Errorf("invokeAllocationHooks failed for resource: %s, pod: %s, container: %s: %v",
+						resourceName, podUID, containerName, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// updateAllocationInfo wraps state.SetAllocationInfo with hook execution.
+// If no hooks are registered, it avoids the overhead of retrieving the old allocation info.
+func (p *DynamicPolicy) updateAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, oldAllocationInfo, allocationInfo *state.AllocationInfo, persist bool) error {
+	if len(p.allocationHooks) > 0 {
+		if oldAllocationInfo == nil {
+			oldAllocationInfo = p.state.GetAllocationInfo(resourceName, podUID, containerName)
+		}
+		if err := p.invokeAllocationHooks(resourceName, oldAllocationInfo, allocationInfo); err != nil {
+			return err
+		}
+	}
+
+	p.state.SetAllocationInfo(resourceName, podUID, containerName, allocationInfo, persist)
+	return nil
+}
+
+// topologyAllocationHook is the default hook that injects topology allocation annotations
+// into the allocation info when the topology allocation changes.
+func (p *DynamicPolicy) topologyAllocationHook(resourceName v1.ResourceName, oldInfo, newInfo *state.AllocationInfo) error {
+	if newInfo == nil || !newInfo.CheckMainContainer() || !newInfo.CheckNUMABinding() {
+		return nil
+	}
+
+	if !IsTopologyAllocationChanged(oldInfo, newInfo) {
+		return nil
+	}
+
+	if newInfo.CheckReclaimedActualNUMABinding() {
+		if newInfo.Annotations == nil {
+			newInfo.Annotations = make(map[string]string)
+		}
+		newInfo.Annotations[p.numaBindResultResourceAllocationAnnotationKey] = newInfo.NumaAllocationResult.String()
+	}
+
+	annotations := getMemoryTopologyAllocationsAnnotationsByAllocationInfo(resourceName, newInfo, p.topologyAllocationAnnotationKey)
+	if annotations != nil {
+		newInfo.Annotations = general.MergeAnnotations(newInfo.Annotations, annotations)
+	}
+
+	return nil
 }

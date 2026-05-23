@@ -56,6 +56,7 @@ import (
 	appagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
@@ -171,9 +172,15 @@ func getTestDynamicPolicyWithInitialization(
 		podDebugAnnoKeys:         []string{podDebugAnnoKey},
 		enableReclaimNUMABinding: true,
 		enableNonBindingShareCoresMemoryResourceCheck: true,
+		topologyAllocationAnnotationKey:               coreconsts.QRMPodAnnotationTopologyAllocationKey,
 		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 		extraResourceNames:                            fakeConf.ExtraMemoryResources,
 	}
+
+	// Important: We must register the topologyAllocationHook and set the annotation keys
+	// to ensure that the test environment correctly generates NUMA topology annotations
+	// in the allocation response, matching the production behavior.
+	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
@@ -243,9 +250,12 @@ func getTestDynamicPolicyWithExtraResourcesWithInitialization(
 		podDebugAnnoKeys:         []string{podDebugAnnoKey},
 		enableReclaimNUMABinding: true,
 		enableNonBindingShareCoresMemoryResourceCheck: true,
+		topologyAllocationAnnotationKey:               coreconsts.QRMPodAnnotationTopologyAllocationKey,
 		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 		extraResourceNames:                            fakeConfWithExtraResources.ExtraMemoryResources,
 	}
+
+	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
 		consts.PodAnnotationQoSLevelSharedCores:    policyImplement.sharedCoresAllocationHandler,
@@ -305,6 +315,7 @@ func TestCheckMemorySet(t *testing.T) {
 						Annotations: map[string]string{
 							consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 						},
 						Labels: map[string]string{
 							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -656,11 +667,15 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 1073741824,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   1073741824,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -705,11 +720,15 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 1073741824,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   1073741824,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -764,6 +783,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 7516192768,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 7516192768,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -771,6 +793,12 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"memory":"7Gi"}}}}`,
 							},
 						},
 					},
@@ -825,6 +853,16 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2147483648,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive: "false",
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:            "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -886,6 +924,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 7516192768,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 7516192768,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -893,6 +934,12 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"memory":"7Gi"}}}}`,
 							},
 						},
 					},
@@ -950,6 +997,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2147483648,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -957,6 +1007,12 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
 							},
 						},
 					},
@@ -1010,6 +1066,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2147483648,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1017,6 +1076,12 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
 							},
 						},
 					},
@@ -1061,21 +1126,29 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 2147483648,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   2147483648,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
 						},
 						"hugepages-2Mi": {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 2147483648,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   2147483648,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1125,12 +1198,17 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 2147483648,
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   2147483648,
+							TopologyAssignments: map[uint64]uint64{},
 							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                   consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:  consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:           "0",
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 							AllocationResult: machine.NewCPUSet(0).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
@@ -1184,11 +1262,15 @@ func TestAllocate(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 2147483648,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   2147483648,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									nil,
@@ -1246,6 +1328,15 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2147483648,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1261,6 +1352,15 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2147483648,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"hugepages-2Mi":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1322,6 +1422,18 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1073741824,
+								1: 1073741824,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive:           "false",
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:                      "0-1",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:             `{"Numa":{"0":{"allocated":{"memory":"1Gi"}},"1":{"allocated":{"memory":"1Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1337,6 +1449,18 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1073741824,
+								1: 1073741824,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive:           "false",
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:                      "0-1",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:             `{"Numa":{"0":{"allocated":{"hugepages-2Mi":"1Gi"}},"1":{"allocated":{"hugepages-2Mi":"1Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1417,6 +1541,15 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2147483648,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"hugepages-2Mi":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1479,6 +1612,161 @@ func TestAllocate(t *testing.T) {
 			os.RemoveAll(tmpDir)
 		})
 	}
+}
+
+func TestDynamicPolicy_AllocationHooks(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		req          *pluginapi.ResourceRequest
+		hook         AllocationHook
+		expectErr    bool
+		verifyResult func(t *testing.T, policy *DynamicPolicy)
+	}{
+		{
+			name: "hook modifies allocation",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "modify-pod-uid",
+				PodNamespace:  "default",
+				PodName:       "modify-pod",
+				ContainerName: "c1",
+				ContainerType: pluginapi.ContainerType_MAIN,
+				ResourceName:  string(v1.ResourceMemory),
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1024 * 1024 * 1024,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+			},
+			hook: func(resourceName v1.ResourceName, oldAlloc, newAlloc *state.AllocationInfo) error {
+				if newAlloc.PodName == "modify-pod" {
+					if newAlloc.Annotations == nil {
+						newAlloc.Annotations = make(map[string]string)
+					}
+					newAlloc.Annotations["hook-modified"] = "true"
+				}
+				return nil
+			},
+			expectErr: false,
+			verifyResult: func(t *testing.T, policy *DynamicPolicy) {
+				allocInfo := policy.state.GetAllocationInfo(v1.ResourceMemory, "modify-pod-uid", "c1")
+				require.NotNil(t, allocInfo)
+				require.Equal(t, "true", allocInfo.Annotations["hook-modified"])
+			},
+		},
+		{
+			name: "hook returns error",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "error-pod-uid",
+				PodNamespace:  "default",
+				PodName:       "error-pod",
+				ContainerName: "c1",
+				ContainerType: pluginapi.ContainerType_MAIN,
+				ResourceName:  string(v1.ResourceMemory),
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1024 * 1024 * 1024,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+			},
+			hook: func(resourceName v1.ResourceName, oldAlloc, newAlloc *state.AllocationInfo) error {
+				return fmt.Errorf("hook error")
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocationHooks")
+			require.NoError(t, err)
+			defer os.RemoveAll(tmpDir)
+
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			require.NoError(t, err)
+			machineInfo := &info.MachineInfo{}
+
+			policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			require.NoError(t, err)
+
+			policy.RegisterAllocationHook(tc.hook)
+
+			_, err = policy.Allocate(context.Background(), tc.req)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				if tc.verifyResult != nil {
+					tc.verifyResult(t, policy)
+				}
+			}
+		})
+	}
+}
+
+func TestDynamicPolicy_InvokeAllocationHooksForPodResourceEntries(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestInvokeAllocationHooks")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+	machineInfo := &info.MachineInfo{}
+
+	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	require.NoError(t, err)
+
+	hookCalled := false
+	policy.RegisterAllocationHook(func(resourceName v1.ResourceName, oldAlloc, newAlloc *state.AllocationInfo) error {
+		if newAlloc.PodName == "test-pod" {
+			hookCalled = true
+		}
+		return nil
+	})
+
+	curEntries := state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"test-pod-uid": state.ContainerEntries{
+				"c1": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:  "test-pod-uid",
+						PodName: "test-pod",
+					},
+				},
+			},
+		},
+	}
+	newEntries := state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			"test-pod-uid": state.ContainerEntries{
+				"c1": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:  "test-pod-uid",
+						PodName: "test-pod",
+					},
+				},
+			},
+		},
+	}
+
+	err = policy.invokeAllocationHooksForPodResourceEntries(curEntries, newEntries)
+	require.NoError(t, err)
+	require.True(t, hookCalled)
 }
 
 func TestAllocateForPod(t *testing.T) {
@@ -2738,11 +3026,12 @@ func TestGetResourcesAllocation(t *testing.T) {
 				}
 			},
 			expectedMemory: &pluginapi.ResourceAllocationInfo{
-				OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-				IsNodeResource:    false,
-				IsScalarResource:  true,
-				AllocatedQuantity: 1073741824,
-				AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+				OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+				IsNodeResource:      false,
+				IsScalarResource:    true,
+				AllocatedQuantity:   1073741824,
+				AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+				TopologyAssignments: map[uint64]uint64{},
 			},
 		},
 		{
@@ -2770,11 +3059,12 @@ func TestGetResourcesAllocation(t *testing.T) {
 				}
 			},
 			expectedMemory: &pluginapi.ResourceAllocationInfo{
-				OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-				IsNodeResource:    false,
-				IsScalarResource:  true,
-				AllocatedQuantity: 1073741824,
-				AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+				OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+				IsNodeResource:      false,
+				IsScalarResource:    true,
+				AllocatedQuantity:   1073741824,
+				AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+				TopologyAssignments: map[uint64]uint64{},
 			},
 		},
 		{
@@ -2812,6 +3102,9 @@ func TestGetResourcesAllocation(t *testing.T) {
 				IsScalarResource:  true,
 				AllocatedQuantity: 7516192768,
 				AllocationResult:  machine.NewCPUSet(0).String(),
+				TopologyAssignments: map[uint64]uint64{
+					0: 7516192768,
+				},
 			},
 		},
 		{
@@ -2844,11 +3137,12 @@ func TestGetResourcesAllocation(t *testing.T) {
 				}
 			},
 			expectedMemory: &pluginapi.ResourceAllocationInfo{
-				OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-				IsNodeResource:    false,
-				IsScalarResource:  true,
-				AllocatedQuantity: 0,
-				AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+				OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+				IsNodeResource:      false,
+				IsScalarResource:    true,
+				AllocatedQuantity:   0,
+				AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+				TopologyAssignments: map[uint64]uint64{},
 			},
 		},
 		{
@@ -2904,11 +3198,12 @@ func TestGetResourcesAllocation(t *testing.T) {
 				}
 			},
 			expectedMemory: &pluginapi.ResourceAllocationInfo{
-				OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-				IsNodeResource:    false,
-				IsScalarResource:  true,
-				AllocatedQuantity: 0,
-				AllocationResult:  machine.NewCPUSet(1, 2, 3).String(),
+				OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+				IsNodeResource:      false,
+				IsScalarResource:    true,
+				AllocatedQuantity:   0,
+				AllocationResult:    machine.NewCPUSet(1, 2, 3).String(),
+				TopologyAssignments: map[uint64]uint64{},
 			},
 		},
 		{
@@ -2947,6 +3242,9 @@ func TestGetResourcesAllocation(t *testing.T) {
 				IsScalarResource:  true,
 				AllocatedQuantity: 2147483648,
 				AllocationResult:  machine.NewCPUSet(0).String(),
+				TopologyAssignments: map[uint64]uint64{
+					0: 2147483648,
+				},
 			},
 			checkHugepages: true,
 			expectedHugepages: &pluginapi.ResourceAllocationInfo{
@@ -2955,6 +3253,9 @@ func TestGetResourcesAllocation(t *testing.T) {
 				IsScalarResource:  true,
 				AllocatedQuantity: 2147483648,
 				AllocationResult:  machine.NewCPUSet(0).String(),
+				TopologyAssignments: map[uint64]uint64{
+					0: 2147483648,
+				},
 			},
 		},
 	}
@@ -4431,7 +4732,7 @@ func createMap(t *testing.T) *ebpf.Map {
 		MaxEntries: 2,
 	})
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("skipping BPF test: %v", err)
 	}
 	return m
 }
@@ -5055,7 +5356,7 @@ func TestSNBMemoryAdmitWithSidecarReallocate(t *testing.T) {
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryAdmitWithSidecarReallocate")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 

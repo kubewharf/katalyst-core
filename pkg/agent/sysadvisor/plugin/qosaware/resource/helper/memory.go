@@ -35,8 +35,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-var configTranslator = general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix)
-
 func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) (machine.CPUSet, []*types.ContainerInfo, error) {
 	var errList []error
 
@@ -111,7 +109,7 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 		}
 
 		if containerInfo.IsSharedNumaBinding() &&
-			sets.NewString(dynamicConf.DisableReclaimSharePools...).Has(configTranslator.Translate(containerInfo.OriginOwnerPoolName)) {
+			sets.NewString(dynamicConf.DisableReclaimSharePools...).Has(commonstate.OwnerPoolNameTranslator.Translate(containerInfo.OriginOwnerPoolName)) {
 			bindingResult, err := containerInfo.GetActualNUMABindingResult()
 			if err != nil {
 				errList = append(errList, err)

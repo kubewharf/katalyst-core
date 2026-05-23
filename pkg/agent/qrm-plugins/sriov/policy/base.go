@@ -20,17 +20,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/handler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -54,16 +59,17 @@ var ResourceName = string(apiconsts.ResourceSriovNic)
 type basePolicy struct {
 	pluginapi.UnimplementedResourcePluginServer
 
-	state                 state.State
-	stateReconciler       *handler.StateReconciler
-	agentCtx              *agent.GenericContext
-	dryRun                bool
-	machineInfoConf       *global.MachineInfoConfiguration
-	qosConfig             *generic.QoSConfiguration
-	podAnnotationKeptKeys []string
-	podLabelKeptKeys      []string
-	allocationConfig      qrm.SriovAllocationConfig
-	bondingHostNetwork    bool
+	state                           state.State
+	stateReconciler                 *handler.StateReconciler
+	agentCtx                        *agent.GenericContext
+	dryRun                          bool
+	machineInfoConf                 *global.MachineInfoConfiguration
+	qosConfig                       *generic.QoSConfiguration
+	podAnnotationKeptKeys           []string
+	podLabelKeptKeys                []string
+	allocationConfig                qrm.SriovAllocationConfig
+	bondingHostNetwork              bool
+	topologyAllocationAnnotationKey string
 }
 
 func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -91,16 +97,17 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	general.Infof("detect host network bonding=%t", bondingHostNetwork)
 
 	return &basePolicy{
-		state:                 stateImpl,
-		stateReconciler:       stateReconciler,
-		agentCtx:              agentCtx,
-		dryRun:                conf.SriovDryRun,
-		machineInfoConf:       conf.MachineInfoConfiguration,
-		allocationConfig:      conf.SriovAllocationConfig,
-		qosConfig:             conf.QoSConfiguration,
-		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:      conf.PodLabelKeptKeys,
-		bondingHostNetwork:    bondingHostNetwork,
+		state:                           stateImpl,
+		stateReconciler:                 stateReconciler,
+		agentCtx:                        agentCtx,
+		dryRun:                          conf.SriovDryRun,
+		machineInfoConf:                 conf.MachineInfoConfiguration,
+		allocationConfig:                conf.SriovAllocationConfig,
+		qosConfig:                       conf.QoSConfiguration,
+		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:                conf.PodLabelKeptKeys,
+		bondingHostNetwork:              bondingHostNetwork,
+		topologyAllocationAnnotationKey: conf.TopologyAllocationAnnotationKey,
 	}, nil
 }
 
@@ -141,11 +148,24 @@ func (p *basePolicy) packResourceHintsResponse(req *pluginapi.ResourceRequest, r
 	}
 }
 
-func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
-	annotations := general.DeepCopyMap(p.allocationConfig.ExtraAnnotations)
-	if annotations == nil {
-		annotations = make(map[string]string)
+func (p *basePolicy) buildTopologyAllocation(allocationInfo *state.AllocationInfo) v1alpha1.TopologyAllocation {
+	socket := p.agentCtx.CPUDetails.SocketsInNUMANodes(allocationInfo.VFInfo.NumaNode).ToSliceUInt64()[0]
+
+	return v1alpha1.TopologyAllocation{
+		v1alpha1.TopologyTypeSocket: map[string]v1alpha1.ZoneAllocation{
+			strconv.FormatUint(socket, 10): {
+				Allocated: v1.ResourceList{
+					v1.ResourceName(ResourceName): resource.MustParse("1"),
+				},
+			},
+		},
 	}
+}
+
+func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
+	topologyAllocation := p.buildTopologyAllocation(allocationInfo)
+	annotations := util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation, p.topologyAllocationAnnotationKey)
+	annotations = general.MergeAnnotations(annotations, p.allocationConfig.ExtraAnnotations)
 
 	pciDevice := types.PCIDevice{
 		Address: allocationInfo.VFInfo.PCIAddr,

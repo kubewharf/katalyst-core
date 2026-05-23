@@ -26,4 +26,8 @@ const (
 const (
 	// QRMResourceAnnotationKeyNUMABindResult is the annotation key for the numa binding result
 	QRMResourceAnnotationKeyNUMABindResult = "qrm.katalyst.kubewharf.io/numa_bind_result"
+
+	// QRMPodAnnotationTopologyAllocationKey is the annotation key for pod annotation about the pod's topology aware allocations.
+	// It is set during allocation, and kubelet will read the annotation.
+	QRMPodAnnotationTopologyAllocationKey = "qrm.katalyst.kubewharf.io/topology_allocation"
 )

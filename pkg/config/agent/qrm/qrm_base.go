@@ -39,9 +39,11 @@ type GenericQRMPluginConfiguration struct {
 	// EnableSNBHighNumaPreference indicates whether to enable high numa preference for snb pods
 	// if set true, snb pod will be preferentially allocated on high numa node
 	EnableSNBHighNumaPreference bool
-	// IsInMemoryStore indicates whether we want to store the state in memory or on disk
+	// EnableInMemoryState indicates whether we want to store the state in memory or on disk
 	// if set true, the state will be stored in tmpfs
 	EnableInMemoryState bool
+	// TopologyAllocationAnnotationKey is the annotation key that indicates the topology-aware allocations of containers.
+	TopologyAllocationAnnotationKey string
 	*statedirectory.StateDirectoryConfiguration
 }
 

@@ -53,7 +53,7 @@ type subQRMServer interface {
 }
 
 type subResourceAdvisor interface {
-	UpdateAndGetAdvice() (interface{}, error)
+	UpdateAndGetAdvice(ctx context.Context) (interface{}, error)
 }
 
 type qrmServerWrapper struct {

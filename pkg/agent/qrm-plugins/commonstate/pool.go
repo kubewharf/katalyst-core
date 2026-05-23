@@ -22,7 +22,9 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 // notice that pool-name may not have direct mapping relations with qos-level, for instance
@@ -55,6 +57,8 @@ const (
 const (
 	PoolNotFoundErrMsg = "pool not found"
 )
+
+var OwnerPoolNameTranslator = resourcepackage.ResourcePackageSuffixTranslatorWrapper(general.NewCommonSuffixTranslator(NUMAPoolInfix))
 
 func IsIsolationPool(poolName string) bool {
 	return strings.HasPrefix(poolName, PoolNamePrefixIsolation)

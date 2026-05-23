@@ -542,8 +542,9 @@ func TestCountAllocationInfosToPoolsQuantityMap(t *testing.T) {
 	testName := "test"
 
 	type args struct {
-		allocationInfos  []*AllocationInfo
-		poolsQuantityMap map[string]map[int]int
+		numaResourcePackagePinnedCPUSet map[int]map[string]machine.CPUSet
+		allocationInfos                 []*AllocationInfo
+		poolsQuantityMap                map[string]map[int]int
 	}
 	tests := []struct {
 		name    string
@@ -650,6 +651,55 @@ func TestCountAllocationInfosToPoolsQuantityMap(t *testing.T) {
 				},
 			},
 
+			wantErr: false,
+		},
+		{
+			name: "count allocationInfos to pools quantity map with resource package",
+			args: args{
+				numaResourcePackagePinnedCPUSet: map[int]map[string]machine.CPUSet{
+					3: {
+						"package-a": machine.NewCPUSet(6, 7, 14),
+					},
+				},
+				allocationInfos: []*AllocationInfo{
+					{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812ccc",
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  "share-NUMA3",
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationResourcePackageKey:           "package-a",
+							},
+							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("6,7,14"),
+						OriginalAllocationResult: machine.MustParse("6,7,14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							3: machine.NewCPUSet(6, 7, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							3: machine.NewCPUSet(6, 7, 14),
+						},
+						RequestQuantity: 1.1,
+					},
+				},
+				poolsQuantityMap: map[string]map[int]int{},
+			},
+			want: map[string]map[int]int{
+				"package-a/share-NUMA3": {
+					3: 3,
+				},
+			},
 			wantErr: false,
 		},
 		{
@@ -839,7 +889,7 @@ func TestCountAllocationInfosToPoolsQuantityMap(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if err := CountAllocationInfosToPoolsQuantityMap(tt.args.allocationInfos, tt.args.poolsQuantityMap, func(allocationInfo *AllocationInfo) float64 {
+			if err := CountAllocationInfosToPoolsQuantityMap(tt.args.numaResourcePackagePinnedCPUSet, tt.args.allocationInfos, tt.args.poolsQuantityMap, func(allocationInfo *AllocationInfo) float64 {
 				return allocationInfo.RequestQuantity
 			}); (err != nil) != tt.wantErr {
 				t.Errorf("CountAllocationInfosToPoolsQuantityMap() error = %v, wantErr %v", err, tt.wantErr)

@@ -1812,11 +1812,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 							Name: "0",
 							Attributes: []nodev1alpha1.Attribute{
 								{
-									Name:  "numa_distance",
+									Name:  pkgconsts.ZoneAttributeNameNUMADistance,
 									Value: "",
 								},
 								{
-									Name:  "thread_topology_info",
+									Name:  pkgconsts.ZoneAttributeNameThreadTopologyInfo,
 									Value: "0:3,1:2,2:1,3:0",
 								},
 							},
@@ -1874,11 +1874,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 							Name: "1",
 							Attributes: []nodev1alpha1.Attribute{
 								{
-									Name:  "numa_distance",
+									Name:  pkgconsts.ZoneAttributeNameNUMADistance,
 									Value: "",
 								},
 								{
-									Name:  "thread_topology_info",
+									Name:  pkgconsts.ZoneAttributeNameThreadTopologyInfo,
 									Value: "4:7,5:6,6:5,7:4",
 								},
 							},
@@ -2341,11 +2341,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 							Name: "0",
 							Attributes: []nodev1alpha1.Attribute{
 								{
-									Name:  "numa_distance",
+									Name:  pkgconsts.ZoneAttributeNameNUMADistance,
 									Value: "10,20",
 								},
 								{
-									Name:  "thread_topology_info",
+									Name:  pkgconsts.ZoneAttributeNameThreadTopologyInfo,
 									Value: "0:3,1:2,2:1,3:0",
 								},
 							},
@@ -2401,7 +2401,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 									},
 									Attributes: []nodev1alpha1.Attribute{
 										{
-											Name:  "cpu_lists",
+											Name:  pkgconsts.ZoneAttributeNameCPULists,
 											Value: "0,4,8,12,16,20,24,28",
 										},
 									},
@@ -2419,7 +2419,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 									},
 									Attributes: []nodev1alpha1.Attribute{
 										{
-											Name:  "cpu_lists",
+											Name:  pkgconsts.ZoneAttributeNameCPULists,
 											Value: "2,6,10,14,18,22,26,30",
 										},
 									},
@@ -2457,11 +2457,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 							Name: "1",
 							Attributes: []nodev1alpha1.Attribute{
 								{
-									Name:  "numa_distance",
+									Name:  pkgconsts.ZoneAttributeNameNUMADistance,
 									Value: "20,10",
 								},
 								{
-									Name:  "thread_topology_info",
+									Name:  pkgconsts.ZoneAttributeNameThreadTopologyInfo,
 									Value: "4:7,5:6,6:5,7:4",
 								},
 							},
@@ -2514,7 +2514,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 									},
 									Attributes: []nodev1alpha1.Attribute{
 										{
-											Name:  "cpu_lists",
+											Name:  pkgconsts.ZoneAttributeNameCPULists,
 											Value: "1,5,9,13,17,21,25,29",
 										},
 									},
@@ -2532,7 +2532,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 									},
 									Attributes: []nodev1alpha1.Attribute{
 										{
-											Name:  "cpu_lists",
+											Name:  pkgconsts.ZoneAttributeNameCPULists,
 											Value: "3,7,11,15,19,23,27,31",
 										},
 									},
@@ -2909,11 +2909,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 							Name: "0",
 							Attributes: []nodev1alpha1.Attribute{
 								{
-									Name:  "numa_distance",
+									Name:  pkgconsts.ZoneAttributeNameNUMADistance,
 									Value: "",
 								},
 								{
-									Name:  "thread_topology_info",
+									Name:  pkgconsts.ZoneAttributeNameThreadTopologyInfo,
 									Value: "0:3,1:2,2:1,3:0",
 								},
 							},
@@ -2955,11 +2955,11 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 							Name: "1",
 							Attributes: []nodev1alpha1.Attribute{
 								{
-									Name:  "numa_distance",
+									Name:  pkgconsts.ZoneAttributeNameNUMADistance,
 									Value: "",
 								},
 								{
-									Name:  "thread_topology_info",
+									Name:  pkgconsts.ZoneAttributeNameThreadTopologyInfo,
 									Value: "4:7,5:6,6:5,7:4",
 								},
 							},

@@ -35,13 +35,21 @@ import (
 	procfsm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
-// watermarkScaleFactorPath is the procfs sysctl file we write to when tuning vm.watermark_scale_factor.
-// It is a var (not const) so tests can override it with a temp file.
+// watermarkScaleFactorPath is the procfs path for vm.watermark_scale_factor.
+// Declared as a var so tests can redirect it to a temp file.
 var watermarkScaleFactorPath = procfsm.VMWatermarkScaleFactorPath
 
 // SetHostWatermark tunes host vm watermark sysctls.
-// It currently supports:
-// - /proc/sys/vm/watermark_scale_factor
+// Currently supports:
+//   - /proc/sys/vm/watermark_scale_factor
+//
+// The target value is determined by the following precedence:
+//  1. If SetVMWatermarkScaleFactor is explicitly configured, use it directly.
+//  2. Otherwise, auto-calculate from ReservedKswapdWatermarkGB and NUMA memory stats.
+//
+// Regardless of the source, the target is always adjusted for huge pages via
+// adjustWatermarkForHugePages. Clamping is only applied to auto-calculated values;
+// explicitly configured values are respected as-is.
 func SetHostWatermark(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -66,7 +74,6 @@ func SetHostWatermark(conf *coreconfig.Configuration,
 		return
 	}
 
-	// watermark_scale_factor (unit: per 10000)
 	target, err := determineTargetWatermarkScaleFactor(conf, emitter, metaServer)
 	if err != nil {
 		errList = append(errList, err)
@@ -77,14 +84,12 @@ func SetHostWatermark(conf *coreconfig.Configuration,
 		return
 	}
 
-	// Only clamp the auto-calculated value (derived from ReservedKswapdWatermarkGB).
-	// If SetVMWatermarkScaleFactor is explicitly configured, respect it as-is.
+	target = adjustWatermarkForHugePages(target)
+
 	if conf.SetVMWatermarkScaleFactor == 0 {
 		target = clampWatermarkScaleFactor(target)
 	}
 
-	// Use procfs manager to apply with audit + idempotency.
-	// Note: successful write will be logged by the underlying write-if-change helper.
 	if err := procfsm.ApplyVMWatermarkScaleFactorAtPath(watermarkScaleFactorPath, target); err != nil {
 		errList = append(errList, err)
 		general.Errorf("set watermark_scale_factor failed: %v", err)
@@ -100,10 +105,15 @@ func SetHostWatermark(conf *coreconfig.Configuration,
 	_ = emitter.StoreInt64(metricNameVMWatermarkScaleFactor, newVal, metrics.MetricTypeNameRaw)
 }
 
+// clampWatermarkScaleFactor clamps target to [watermarkScaleFactorMin, watermarkScaleFactorMax].
 func clampWatermarkScaleFactor(target int64) int64 {
 	return int64(general.Clamp(float64(target), watermarkScaleFactorMin, watermarkScaleFactorMax))
 }
 
+// determineTargetWatermarkScaleFactor returns the target vm.watermark_scale_factor value.
+// If SetVMWatermarkScaleFactor is explicitly configured, it is returned directly.
+// Otherwise, the value is auto-calculated as ceil(reservedBytes / totalBytes * 10000)
+// based on ReservedKswapdWatermarkGB and the first NUMA node's memory stats.
 func determineTargetWatermarkScaleFactor(conf *coreconfig.Configuration, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) (int64, error) {
 	if conf.SetVMWatermarkScaleFactor != 0 {
 		return int64(conf.SetVMWatermarkScaleFactor), nil
@@ -125,7 +135,6 @@ func determineTargetWatermarkScaleFactor(conf *coreconfig.Configuration, emitter
 	if len(numaIDs) == 0 {
 		return 0, fmt.Errorf("empty NUMA nodes")
 	}
-	// Pick a single NUMA node (default: the first one) for watermark_scale_factor calculation.
 	numaID := numaIDs[0]
 
 	totalWithTime, err := helper.GetNumaMetricWithTime(metaServer.MetricsFetcher, emitter, coreconsts.MetricMemTotalNuma, numaID)
@@ -138,7 +147,6 @@ func determineTargetWatermarkScaleFactor(conf *coreconfig.Configuration, emitter
 	}
 
 	reservedBytes := conf.ReservedKswapdWatermarkGB << 30
-	// scaleFactor = ceil(reservedBytes/totalBytes*10000)
 	scale := (reservedBytes*10000 + totalBytes - 1) / totalBytes
 	if scale > 10000 {
 		scale = 10000
@@ -147,16 +155,20 @@ func determineTargetWatermarkScaleFactor(conf *coreconfig.Configuration, emitter
 		scale = 1
 	}
 
-	// Adjust the watermark appropriately based on the size of the node's huge pages to avoid ineffective memory reclamation.
-	scale = adjustWatermarkForHugePages(scale)
-
 	general.Infof("auto-calc vm.watermark_scale_factor: numaID=%d total=%s reserved=%dGB scale=%d",
 		numaID, general.FormatMemoryQuantity(float64(totalBytes)), conf.ReservedKswapdWatermarkGB, scale)
 	return int64(scale), nil
 }
 
-// adjustWatermarkForHugePages adjust the watermark appropriately based on the size of the huge page.
-func adjustWatermarkForHugePages(originalWatermark uint64) uint64 {
+// adjustWatermarkForHugePages scales down the watermark proportionally to account for
+// memory occupied by huge pages. Since huge-page memory is not reclaimable by kswapd,
+// the watermark should be based on the reclaimable portion: (MemTotal - HugePagesTotal * Hugepagesize).
+// The adjusted value is: (MemTotal - HugePagesMem) * originalWatermark / MemTotal.
+func adjustWatermarkForHugePages(originalWatermark int64) int64 {
+	if originalWatermark <= 0 {
+		return 0
+	}
+
 	newWatermark := originalWatermark
 
 	memInfo, err := procfsm.GetMemInfo()
@@ -168,7 +180,12 @@ func adjustWatermarkForHugePages(originalWatermark uint64) uint64 {
 	if memInfo.MemTotal != nil && memInfo.HugePagesTotal != nil && memInfo.Hugepagesize != nil {
 		total := *memInfo.MemTotal
 		hugePages := (*memInfo.HugePagesTotal) * (*memInfo.Hugepagesize)
-		newWatermark = (total - hugePages) * originalWatermark / total
+		newWatermark = int64((total - hugePages) * uint64(originalWatermark) / total)
+		general.Infof("total=%d hugePages=%d originalWatermark=%d newWatermark=%d",
+			total, hugePages, originalWatermark, newWatermark)
+	} else {
+		general.Infof("mem info incomplete, skip adjustment (memTotal=%v hugePagesTotal=%v hugepagesize=%v)",
+			memInfo.MemTotal, memInfo.HugePagesTotal, memInfo.Hugepagesize)
 	}
 
 	return newWatermark

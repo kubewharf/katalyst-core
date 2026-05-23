@@ -302,3 +302,53 @@ func TestConvertLinuxListToString(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSelector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		selectorStr string
+		wantEmpty   bool
+		wantErr     bool
+	}{
+		{
+			name:        "empty string",
+			selectorStr: "",
+			wantEmpty:   true,
+			wantErr:     false,
+		},
+		{
+			name:        "valid selector",
+			selectorStr: "foo=bar",
+			wantEmpty:   false,
+			wantErr:     false,
+		},
+		{
+			name:        "invalid selector",
+			selectorStr: "foo=bar,,baz",
+			wantEmpty:   false,
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParseSelector(tt.selectorStr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseSelector() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if tt.wantEmpty && got != nil && got.String() != "" {
+					t.Errorf("ParseSelector() got = %v, want empty selector", got)
+				}
+				if !tt.wantEmpty && got != nil && got.String() == "" {
+					t.Errorf("ParseSelector() got empty selector, want non-empty")
+				}
+			}
+		})
+	}
+}

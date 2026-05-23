@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -43,21 +42,17 @@ import (
 )
 
 const (
-	pciAnnotationKey   = "pci-devices"
-	netNsAnnotationKey = "net-ns"
+	pciAnnotationKey                = "pci-devices"
+	netNsAnnotationKey              = "net-ns"
+	topologyAllocationAnnotationKey = "topology_allocation"
 )
 
 func TestBasePolicy(t *testing.T) {
 	t.Parallel()
 
 	Convey("BasePolicy", t, func() {
-		policy := &basePolicy{
-			allocationConfig: qrm.SriovAllocationConfig{
-				PCIAnnotationKey:   "pci",
-				NetNsAnnotationKey: "netns",
-				ExtraAnnotations:   map[string]string{"extraKey": "extraValue"},
-			},
-		}
+		policy := generateBasePolicy(t, false, false, nil, nil)
+		policy.allocationConfig.ExtraAnnotations = map[string]string{"extraKey": "extraValue"}
 
 		Convey("generateResourceAllocationInfo", func() {
 			resourceAllocationInfo, err := policy.generateResourceAllocationInfo(&state.AllocationInfo{
@@ -79,8 +74,9 @@ func TestBasePolicy(t *testing.T) {
 				IsScalarResource:  true,
 				AllocatedQuantity: 1,
 				Annotations: map[string]string{
-					"pci":      `[{"address":"0000:40:00.1","repName":"eth0_0","vfName":"enp65s0v0"}]`,
-					"extraKey": "extraValue",
+					pciAnnotationKey:                `[{"address":"0000:40:00.1","repName":"eth0_0","vfName":"enp65s0v0"}]`,
+					topologyAllocationAnnotationKey: `{"Socket":{"0":{"allocated":{"resource.katalyst.kubewharf.io/sriov_nic":"1"}}}}`,
+					"extraKey":                      "extraValue",
 				},
 				Devices: []*pluginapi.DeviceSpec{
 					{
@@ -164,6 +160,7 @@ func generateBasePolicy(t *testing.T, dryRun bool, bondingHostNetwork bool, vfSt
 			PCIAnnotationKey:   pciAnnotationKey,
 			NetNsAnnotationKey: netNsAnnotationKey,
 		},
-		bondingHostNetwork: bondingHostNetwork,
+		bondingHostNetwork:              bondingHostNetwork,
+		topologyAllocationAnnotationKey: topologyAllocationAnnotationKey,
 	}
 }

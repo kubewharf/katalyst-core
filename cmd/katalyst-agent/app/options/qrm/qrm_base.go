@@ -25,26 +25,28 @@ import (
 )
 
 type GenericQRMPluginOptions struct {
-	QRMPluginSocketDirs         []string
-	ExtraStateFileAbsPath       string
-	PodDebugAnnoKeys            []string
-	UseKubeletReservedConfig    bool
-	PodAnnotationKeptKeys       []string
-	PodLabelKeptKeys            []string
-	MainContainerAnnotationKey  string
-	EnableReclaimNUMABinding    bool
-	EnableSNBHighNumaPreference bool
+	QRMPluginSocketDirs             []string
+	ExtraStateFileAbsPath           string
+	PodDebugAnnoKeys                []string
+	UseKubeletReservedConfig        bool
+	PodAnnotationKeptKeys           []string
+	PodLabelKeptKeys                []string
+	MainContainerAnnotationKey      string
+	EnableReclaimNUMABinding        bool
+	EnableSNBHighNumaPreference     bool
+	TopologyAllocationAnnotationKey string
 	*statedirectory.StateDirectoryOptions
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
 	return &GenericQRMPluginOptions{
-		QRMPluginSocketDirs:        []string{"/var/lib/kubelet/plugins_registry"},
-		PodDebugAnnoKeys:           []string{},
-		PodAnnotationKeptKeys:      []string{},
-		PodLabelKeptKeys:           []string{},
-		MainContainerAnnotationKey: consts.MainContainerNameAnnotationKey,
-		StateDirectoryOptions:      statedirectory.NewStateDirectoryOptions(),
+		QRMPluginSocketDirs:             []string{"/var/lib/kubelet/plugins_registry"},
+		PodDebugAnnoKeys:                []string{},
+		PodAnnotationKeptKeys:           []string{},
+		PodLabelKeptKeys:                []string{},
+		MainContainerAnnotationKey:      consts.MainContainerNameAnnotationKey,
+		TopologyAllocationAnnotationKey: consts.QRMPodAnnotationTopologyAllocationKey,
+		StateDirectoryOptions:           statedirectory.NewStateDirectoryOptions(),
 	}
 }
 
@@ -68,6 +70,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableReclaimNUMABinding, "if set true, reclaim pod will be allocated on a specific NUMA node best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes")
 	fs.BoolVar(&o.EnableSNBHighNumaPreference, "enable-snb-high-numa-preference",
 		o.EnableSNBHighNumaPreference, "default false,if set true, snb pod will be preferentially allocated on high numa node")
+	fs.StringVar(&o.TopologyAllocationAnnotationKey, "topology-allocation-annotation-key",
+		o.TopologyAllocationAnnotationKey, "the annotation key used to describe a topology aware allocation of a container")
 	o.StateDirectoryOptions.AddFlags(fss)
 }
 
@@ -81,6 +85,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.MainContainerAnnotationKey = o.MainContainerAnnotationKey
 	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
+	conf.TopologyAllocationAnnotationKey = o.TopologyAllocationAnnotationKey
 
 	if err := o.StateDirectoryOptions.ApplyTo(conf.StateDirectoryConfiguration); err != nil {
 		return err

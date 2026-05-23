@@ -222,7 +222,10 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	}
 
 	for resName, allocationInfo := range resourceAllocationInfo {
-		p.state.SetAllocationInfo(resName, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
+		oldAllocationInfo := p.state.GetAllocationInfo(resName, req.PodUid, req.ContainerName)
+		if err := p.updateAllocationInfo(resName, req.PodUid, req.ContainerName, oldAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+			return nil, fmt.Errorf("updateAllocationInfo failed: %v", err)
+		}
 
 		// only v1.ResourceMemory can be adjusted
 		if resName == v1.ResourceMemory {
@@ -251,7 +254,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	}
 	p.state.SetMachineState(machineState, persistCheckpoint)
 
-	return packAllocationResponse(resourceAllocationInfo, req, nil)
+	return p.getPackAllocationResponse(resourceAllocationInfo, req)
 }
 
 // reclaimedCoresBestEffortNUMABindingAllocationHandler allocates reclaimed cores with numa binding pods in best-effort manner.
@@ -295,8 +298,12 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 		}
 		general.Infof("pod: %s/%s, container: %s request to memory inplace update resize allocation, request: %d->%d",
 			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.AggregatedQuantity, podAggregatedRequest)
-		allocationInfo.AggregatedQuantity = uint64(podAggregatedRequest)
-		p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
+		newAllocationInfo := allocationInfo.Clone()
+		newAllocationInfo.AggregatedQuantity = uint64(podAggregatedRequest)
+		if err := p.updateAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, newAllocationInfo, persistCheckpoint); err != nil {
+			return nil, fmt.Errorf("updateAllocationInfo failed: %v", err)
+		}
+		allocationInfo = newAllocationInfo
 	} else {
 		if allocationInfo != nil {
 			if allocationInfo.AggregatedQuantity >= uint64(podAggregatedRequest) {
@@ -306,9 +313,9 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 					"containerName", req.ContainerName,
 					"memoryReq(bytes)", allocationInfo.AggregatedQuantity,
 					"currentResult(bytes)", allocationInfo.AggregatedQuantity)
-				return packAllocationResponse(map[v1.ResourceName]*state.AllocationInfo{
+				return p.getPackAllocationResponse(map[v1.ResourceName]*state.AllocationInfo{
 					v1.ResourceMemory: allocationInfo,
-				}, req, nil)
+				}, req)
 			}
 
 			general.InfoS("not meet requirement, clear record and re-allocate",
@@ -336,6 +343,8 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 			}
 		}
 
+		oldAllocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
+
 		allocationInfo = &state.AllocationInfo{
 			AllocationMeta:     state.GenerateMemoryContainerAllocationMeta(req, apiconsts.PodAnnotationQoSLevelReclaimedCores),
 			AggregatedQuantity: uint64(podAggregatedRequest),
@@ -360,7 +369,9 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 
 		allocationInfo.NumaAllocationResult = numaAllocationResult
 
-		p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
+		if err := p.updateAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, oldAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+			return nil, fmt.Errorf("updateAllocationInfo failed: %v", err)
+		}
 
 		machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), p.state.GetPodResourceEntries(),
 			p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
@@ -377,15 +388,6 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 		}
 	}
 
-	resp, err := packAllocationResponse(map[v1.ResourceName]*state.AllocationInfo{
-		v1.ResourceMemory: allocationInfo,
-	}, req, p.getReclaimedResourceAllocationAnnotations(allocationInfo))
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
-	}
-
 	// we only support updating the NUMA allocation results for pods with explicit NUMA binding annotation
 	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
 		err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
@@ -394,6 +396,15 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
 		}
+	}
+
+	resp, err := p.getPackAllocationResponse(map[v1.ResourceName]*state.AllocationInfo{
+		v1.ResourceMemory: allocationInfo,
+	}, req)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
 
 	general.InfoS("allocate memory successfully",
@@ -449,7 +460,9 @@ func (p *DynamicPolicy) numaBindingAllocationSidecarHandler(_ context.Context,
 	}
 
 	for resourceName, allocationInfo := range resourceAllocationInfo {
-		p.state.SetAllocationInfo(resourceName, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
+		if err := p.updateAllocationInfo(resourceName, req.PodUid, req.ContainerName, nil, allocationInfo, persistCheckpoint); err != nil {
+			return nil, fmt.Errorf("updateAllocationInfo failed: %v", err)
+		}
 	}
 
 	podResourceEntries = p.state.GetPodResourceEntries()
@@ -462,7 +475,7 @@ func (p *DynamicPolicy) numaBindingAllocationSidecarHandler(_ context.Context,
 	}
 	p.state.SetMachineState(resourcesState, persistCheckpoint)
 
-	resp, err := packAllocationResponse(resourceAllocationInfo, req, nil)
+	resp, err := p.getPackAllocationResponse(resourceAllocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -508,7 +521,10 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 	}
 
 	for resourceName, allocationInfo := range resourceAllocationInfo {
-		p.state.SetAllocationInfo(resourceName, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
+		oldAllocationInfo := p.state.GetAllocationInfo(resourceName, req.PodUid, req.ContainerName)
+		if err := p.updateAllocationInfo(resourceName, req.PodUid, req.ContainerName, oldAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+			return nil, fmt.Errorf("updateAllocationInfo failed: %v", err)
+		}
 	}
 
 	podResourceEntries := p.state.GetPodResourceEntries()
@@ -521,7 +537,7 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 		return nil, fmt.Errorf("calculate resourceState by updated pod entries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(resourceAllocationInfo, req, nil)
+	resp, err := p.getPackAllocationResponse(resourceAllocationInfo, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -548,12 +564,15 @@ func (p *DynamicPolicy) allocateTargetNUMAs(req *pluginapi.ResourceRequest,
 			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.String(), targetNUMAs.String())
 	}
 
+	oldAllocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
 	allocationInfo = &state.AllocationInfo{
 		AllocationMeta:       state.GenerateMemoryContainerAllocationMeta(req, qosLevel),
 		NumaAllocationResult: targetNUMAs.Clone(),
 	}
 
-	p.state.SetAllocationInfo(v1.ResourceMemory, allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, persistCheckpoint)
+	if err := p.updateAllocationInfo(v1.ResourceMemory, allocationInfo.PodUid, allocationInfo.ContainerName, oldAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+		return nil, fmt.Errorf("updateAllocationInfo failed: %v", err)
+	}
 	podResourceEntries := p.state.GetPodResourceEntries()
 
 	machineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
@@ -564,9 +583,9 @@ func (p *DynamicPolicy) allocateTargetNUMAs(req *pluginapi.ResourceRequest,
 		return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(map[v1.ResourceName]*state.AllocationInfo{
+	resp, err := p.getPackAllocationResponse(map[v1.ResourceName]*state.AllocationInfo{
 		v1.ResourceMemory: allocationInfo,
-	}, req, nil)
+	}, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -607,6 +626,10 @@ func (p *DynamicPolicy) adjustAllocationEntries(persistCheckpoint bool) error {
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
+	if err := p.invokeAllocationHooksForPodResourceEntries(p.state.GetPodResourceEntries(), podResourceEntries); err != nil {
+		return fmt.Errorf("invokeAllocationHooksForPodResourceEntries failed: %v", err)
+	}
+
 	p.state.SetPodResourceEntries(podResourceEntries, false)
 	p.state.SetMachineState(resourcesMachineState, false)
 	if persistCheckpoint {
@@ -623,9 +646,9 @@ func (p *DynamicPolicy) adjustAllocationEntries(persistCheckpoint bool) error {
 	return nil
 }
 
-// calculateMemoryAllocation will not store the allocation in states, instead,
-// it will update the passed by machineState in-place; so the function will be
-// called `calculateXXX` rather than `allocateXXX`
+// calculateMemoryAllocation determines the memory distribution across NUMA nodes based on request hints and QoS requirements.
+// It supports exclusive allocation and shared allocation with options for even distribution.
+// Note: This function updates the provided machineState in-place.
 func (p *DynamicPolicy) calculateMemoryAllocation(req *pluginapi.ResourceRequest, machineState state.NUMANodeMap, qosLevel string, podAggregatedRequest int) error {
 	numaBinding := qosutil.AnnotationsIndicateNUMABinding(req.Annotations)
 	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations)
@@ -800,9 +823,29 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 	return reqQuantity, nil
 }
 
-// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from map of resource to AllocationInfo and pluginapi.ResourceRequest
+// getPackAllocationResponse gathers exported annotations for each resource and packs the allocation response.
+func (p *DynamicPolicy) getPackAllocationResponse(resourceAllocationInfo map[v1.ResourceName]*state.AllocationInfo, req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+	var resourceAllocationAnnotations map[v1.ResourceName]map[string]string
+	for resName, ai := range resourceAllocationInfo {
+		if ai == nil {
+			continue
+		}
+		// Return all annotations as requested.
+		if len(ai.Annotations) > 0 {
+			if resourceAllocationAnnotations == nil {
+				resourceAllocationAnnotations = make(map[v1.ResourceName]map[string]string)
+			}
+			resourceAllocationAnnotations[resName] = ai.Annotations
+		}
+	}
+	return packAllocationResponse(resourceAllocationInfo, req, resourceAllocationAnnotations)
+}
+
+// packAllocationResponse assembles a ResourceAllocationResponse for the memory plugin.
+// It populates the response with pod/container metadata and resource allocation results for all memory-related resources.
+// It directly applies the pre-processed resourceAllocationAnnotations to each resource's allocation info.
 func packAllocationResponse(resourceAllocationInfo map[v1.ResourceName]*state.AllocationInfo, req *pluginapi.ResourceRequest,
-	resourceAllocationAnnotations map[string]string,
+	resourceAllocationAnnotations map[v1.ResourceName]map[string]string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if resourceAllocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil resourceAllocationInfo")
@@ -832,13 +875,24 @@ func packAllocationResponse(resourceAllocationInfo map[v1.ResourceName]*state.Al
 			continue
 		}
 
+		var resourceAnnotations map[string]string
+		if resourceAllocationAnnotations != nil {
+			resourceAnnotations = resourceAllocationAnnotations[resourceName]
+		}
+
+		topologyAssignments := make(map[uint64]uint64)
+		for numaID, quantity := range allocationInfo.TopologyAwareAllocations {
+			topologyAssignments[uint64(numaID)] = quantity
+		}
+
 		resp.AllocationResult.ResourceAllocation[string(resourceName)] = &pluginapi.ResourceAllocationInfo{
-			OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-			IsNodeResource:    false,
-			IsScalarResource:  true,
-			Annotations:       resourceAllocationAnnotations,
-			AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-			AllocationResult:  allocationInfo.NumaAllocationResult.String(),
+			OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+			IsNodeResource:      false,
+			IsScalarResource:    true,
+			Annotations:         resourceAnnotations,
+			AllocatedQuantity:   float64(allocationInfo.AggregatedQuantity),
+			AllocationResult:    allocationInfo.NumaAllocationResult.String(),
+			TopologyAssignments: topologyAssignments,
 			ResourceHints: &pluginapi.ListOfTopologyHints{
 				Hints: []*pluginapi.TopologyHint{
 					req.Hint,
@@ -1104,20 +1158,6 @@ func (p *DynamicPolicy) getDefaultSystemCoresNUMAs(machineState state.NUMANodeMa
 		return p.topology.CPUDetails.NUMANodes()
 	}
 	return numaNodesWithoutNUMABindingAndNUMAExclusivePods
-}
-
-// getReclaimedResourceAllocationAnnotations return the resource allocation annotations for the given allocation.
-func (p *DynamicPolicy) getReclaimedResourceAllocationAnnotations(allocation *state.AllocationInfo) map[string]string {
-	resourceAllocationAnnotations := make(map[string]string)
-	if allocation.CheckReclaimedActualNUMABinding() {
-		resourceAllocationAnnotations[p.numaBindResultResourceAllocationAnnotationKey] = allocation.NumaAllocationResult.String()
-	}
-
-	if len(resourceAllocationAnnotations) == 0 {
-		return nil
-	}
-
-	return resourceAllocationAnnotations
 }
 
 // updateSpecifiedNUMAAllocation update NUMA allocation by allocation reactor.

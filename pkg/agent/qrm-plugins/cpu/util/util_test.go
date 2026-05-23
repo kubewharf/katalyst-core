@@ -17,17 +17,22 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/ptr"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -37,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -331,6 +337,10 @@ func TestPackAllocationResponse(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: float64(6),
 							AllocationResult:  machine.NewCPUSet(1, 3, 8, 9, 10, 11).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+								1: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									nil,
@@ -808,6 +818,300 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 	}
 }
 
+// helper to extract topology allocation from annotations JSON
+func parseCPUTopologyAllocationFromAnno(t *testing.T, annos map[string]string) v1alpha1.TopologyAllocation {
+	t.Helper()
+	if annos == nil {
+		return nil
+	}
+	raw, ok := annos[coreconsts.QRMPodAnnotationTopologyAllocationKey]
+	if !ok {
+		return nil
+	}
+	var ta v1alpha1.TopologyAllocation
+	if err := json.Unmarshal([]byte(raw), &ta); err != nil {
+		t.Fatalf("failed to unmarshal topology allocation: %v", err)
+	}
+	return ta
+}
+
+func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		ai           *state.AllocationInfo
+		wantNilAnno  bool
+		wantErr      bool
+		wantTopology v1alpha1.TopologyAllocation
+	}{
+		{
+			name:        "nil allocation info returns nil",
+			ai:          nil,
+			wantNilAnno: true,
+		},
+		{
+			name: "empty assignments produce empty NUMA map",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{},
+				RequestQuantity:          2,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{},
+			},
+		},
+		{
+			name: "non-empty assignments add quantities and attributes",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+					2: machine.NewCPUSet(4),
+				},
+				RequestQuantity: 2,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-1",
+						},
+					},
+					"2": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("1"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "4",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "non-empty assignments add quantities and attributes (multiple zones)",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),       // size 2 => "2"
+					1: machine.NewCPUSet(3, 5, 6, 7), // size 4 => "4"
+				},
+				RequestQuantity: 4,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-1",
+						},
+					},
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("4"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "3,5-7",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with single NUMA and request quantity",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+				RequestQuantity: 2,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with single NUMA and decimal request quantity",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+				RequestQuantity: 0.5,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("500m"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with single NUMA and decimal request quantity (high precision)",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+				RequestQuantity: 0.125,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("125m"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "reclaimed with single NUMA and decimal request quantity",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						cpuconsts.CPUStateAnnotationKeyNUMAHint:          "1",
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					1: machine.NewCPUSet(4, 5),
+				},
+				RequestQuantity: 1.75,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("1750m"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "dedicated cores with multiple NUMAs (uses assignment size)",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+					1: machine.NewCPUSet(8, 9, 10),
+				},
+				RequestQuantity: 5,
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-1",
+						},
+					},
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("3"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "8-10",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with multiple NUMAs returns error",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0),
+					1: machine.NewCPUSet(1),
+				},
+				RequestQuantity: 2,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := GetCPUTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantNilAnno {
+				if got != nil {
+					t.Fatalf("expected nil annotations, got: %#v", got)
+				}
+				return
+			}
+			ta := parseCPUTopologyAllocationFromAnno(t, got)
+			if !reflect.DeepEqual(ta, tt.wantTopology) {
+				t.Fatalf("unexpected topology allocation. got=%v, want=%v", ta, tt.wantTopology)
+			}
+		})
+	}
+}
+
 // generatePod returns a pod with the given name and QoS level annotation.
 func generatePod(name, qosLevel string) *v1.Pod {
 	return &v1.Pod{
@@ -1030,6 +1334,295 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 
 			actual := IsSoleSharedCoresPod(tt.conf, tt.podList, dynamicConfig)
 			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
+func TestGetAggResourcePackagePinnedCPUSet(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		attributeSelector labels.Selector
+		machineState      state.NUMANodeMap
+	}
+	tests := []struct {
+		name string
+		args args
+		want machine.CPUSet
+	}{
+		{
+			name: "empty resource package map",
+			args: args{
+				attributeSelector: labels.Everything(),
+				machineState:      state.NUMANodeMap{},
+			},
+			want: machine.NewCPUSet(),
+		},
+		{
+			name: "resource package matches selector",
+			args: args{
+				attributeSelector: labels.SelectorFromSet(labels.Set{"key1": "value1"}),
+				machineState: state.NUMANodeMap{
+					0: {
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								Attributes:   map[string]string{"key1": "value1"},
+								PinnedCPUSet: machine.NewCPUSet(1, 2),
+							},
+						},
+					},
+				},
+			},
+			want: machine.NewCPUSet(1, 2),
+		},
+		{
+			name: "resource package does not match selector",
+			args: args{
+				attributeSelector: labels.SelectorFromSet(labels.Set{"key1": "value2"}),
+				machineState: state.NUMANodeMap{
+					0: {
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								Attributes:   map[string]string{"key1": "value1"},
+								PinnedCPUSet: machine.NewCPUSet(1, 2),
+							},
+						},
+					},
+				},
+			},
+			want: machine.NewCPUSet(),
+		},
+		{
+			name: "missing machine state",
+			args: args{
+				attributeSelector: labels.SelectorFromSet(labels.Set{"key1": "value1"}),
+				machineState:      state.NUMANodeMap{},
+			},
+			want: machine.NewCPUSet(),
+		},
+		{
+			name: "multiple numa nodes and packages",
+			args: args{
+				attributeSelector: labels.SelectorFromSet(labels.Set{"type": "A"}),
+				machineState: state.NUMANodeMap{
+					0: {
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								Attributes:   map[string]string{"type": "A"},
+								PinnedCPUSet: machine.NewCPUSet(0, 1),
+							},
+						},
+					},
+					1: {
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg2": {
+								Attributes:   map[string]string{"type": "A"},
+								PinnedCPUSet: machine.NewCPUSet(2, 3),
+							},
+							"pkg3": {
+								Attributes:   map[string]string{"type": "B"},
+								PinnedCPUSet: machine.NewCPUSet(4, 5),
+							},
+						},
+					},
+				},
+			},
+			want: machine.NewCPUSet(0, 1, 2, 3),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := GetAggResourcePackagePinnedCPUSet(tt.args.attributeSelector, tt.args.machineState)
+			if !got.Equals(tt.want) {
+				t.Errorf("GetAggResourcePackagePinnedCPUSet() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsTopologyAllocationChanged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		oldInfo  *state.AllocationInfo
+		newInfo  *state.AllocationInfo
+		expected bool
+	}{
+		{
+			name:     "old is nil",
+			oldInfo:  nil,
+			newInfo:  &state.AllocationInfo{},
+			expected: true,
+		},
+		{
+			name:     "new is nil",
+			oldInfo:  &state.AllocationInfo{},
+			newInfo:  nil,
+			expected: true,
+		},
+		{
+			name: "allocation result changed",
+			oldInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+			},
+			newInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 2),
+			},
+			expected: true,
+		},
+		{
+			name: "request quantity changed",
+			oldInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+				RequestQuantity:  2.0,
+			},
+			newInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+				RequestQuantity:  3.0,
+			},
+			expected: true,
+		},
+		{
+			name: "topology aware assignments changed",
+			oldInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+				RequestQuantity:  2.0,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0),
+					1: machine.NewCPUSet(1),
+				},
+			},
+			newInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+				RequestQuantity:  2.0,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "no change",
+			oldInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+				RequestQuantity:  2.0,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0),
+					1: machine.NewCPUSet(1),
+				},
+			},
+			newInfo: &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(0, 1),
+				RequestQuantity:  2.0,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0),
+					1: machine.NewCPUSet(1),
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := IsTopologyAllocationChanged(tt.oldInfo, tt.newInfo)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestGetPodAggregatedRequestResourceFromAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		ai           *state.AllocationInfo
+		resourceName v1.ResourceName
+		wantInt      int
+		wantFloat    float64
+		wantErr      bool
+	}{
+		{
+			name:    "nil allocation info returns error",
+			ai:      nil,
+			wantErr: true,
+		},
+		{
+			name: "fallback to request quantity",
+			ai: &state.AllocationInfo{
+				RequestQuantity: 2.5,
+			},
+			resourceName: v1.ResourceCPU,
+			wantInt:      3,
+			wantFloat:    2.5,
+			wantErr:      false,
+		},
+		{
+			name: "use aggregated request from annotations",
+			ai: &state.AllocationInfo{
+				RequestQuantity: 2.5,
+				AllocationMeta: commonstate.AllocationMeta{
+					Annotations: map[string]string{
+						consts.PodAnnotationAggregatedRequestsKey: `{"cpu":"4"}`,
+					},
+				},
+			},
+			resourceName: v1.ResourceCPU,
+			wantInt:      4,
+			wantFloat:    4,
+			wantErr:      false,
+		},
+		{
+			name: "aggregated request from annotations with milli-cpu",
+			ai: &state.AllocationInfo{
+				RequestQuantity: 2.5,
+				AllocationMeta: commonstate.AllocationMeta{
+					Annotations: map[string]string{
+						consts.PodAnnotationAggregatedRequestsKey: `{"cpu":"500m"}`,
+					},
+				},
+			},
+			resourceName: v1.ResourceCPU,
+			wantInt:      1,
+			wantFloat:    0.5,
+			wantErr:      false,
+		},
+		{
+			name: "fallback when resource not in aggregated requests",
+			ai: &state.AllocationInfo{
+				RequestQuantity: 2.5,
+				AllocationMeta: commonstate.AllocationMeta{
+					Annotations: map[string]string{
+						consts.PodAnnotationAggregatedRequestsKey: `{"memory":"1Gi"}`,
+					},
+				},
+			},
+			resourceName: v1.ResourceCPU,
+			wantInt:      3,
+			wantFloat:    2.5,
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotInt, gotFloat, err := GetPodAggregatedRequestResourceFromAllocationInfo(tt.ai, tt.resourceName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPodAggregatedRequestResourceFromAllocationInfo() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				assert.Equal(t, tt.wantInt, gotInt)
+				assert.Equal(t, tt.wantFloat, gotFloat)
+			}
 		})
 	}
 }

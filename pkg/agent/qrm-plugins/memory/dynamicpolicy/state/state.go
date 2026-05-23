@@ -217,12 +217,18 @@ func (pre PodResourceEntries) GetResourceAllocation(podUID, containerName string
 			continue
 		}
 
+		topologyAssignments := make(map[uint64]uint64)
+		for numaID, quantity := range allocationInfo.TopologyAwareAllocations {
+			topologyAssignments[uint64(numaID)] = quantity
+		}
+
 		resourceAllocation[string(resourceName)] = &pluginapi.ResourceAllocationInfo{
-			OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-			IsNodeResource:    false,
-			IsScalarResource:  true,
-			AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-			AllocationResult:  allocationInfo.NumaAllocationResult.String(),
+			OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+			IsNodeResource:      false,
+			IsScalarResource:    true,
+			AllocatedQuantity:   float64(allocationInfo.AggregatedQuantity),
+			AllocationResult:    allocationInfo.NumaAllocationResult.String(),
+			TopologyAssignments: topologyAssignments,
 		}
 
 		// deal with accompanying resources
