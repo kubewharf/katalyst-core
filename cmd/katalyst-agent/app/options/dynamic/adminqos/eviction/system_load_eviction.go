@@ -22,6 +22,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 )
 
+var (
+	SortByLoad = "load"
+	SortPByQoS = "qos"
+)
+
 type SystemLoadPressureEvictionOptions struct {
 	SoftThreshold          int64
 	HardThreshold          int64
@@ -30,6 +35,7 @@ type SystemLoadPressureEvictionOptions struct {
 	CoolDownTime           int64
 	GracePeriod            int64
 	ThresholdMetPercentage float64
+	SortPodBy              []string
 }
 
 func NewSystemLoadPressureEvictionOptions() *SystemLoadPressureEvictionOptions {
@@ -41,6 +47,7 @@ func NewSystemLoadPressureEvictionOptions() *SystemLoadPressureEvictionOptions {
 		CoolDownTime:           300,
 		GracePeriod:            30,
 		ThresholdMetPercentage: 0.8,
+		SortPodBy:              []string{SortPByQoS},
 	}
 }
 
@@ -61,6 +68,7 @@ func (s *SystemLoadPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets)
 		"period of pod deletion")
 	fs.Float64Var(&s.ThresholdMetPercentage, "system-load-pressure-eviction-threshold-met-percentage", s.ThresholdMetPercentage,
 		"when the ratio of load history which is greater than threshold is greater than this percentage, it met the threshold")
+	fs.StringSliceVar(&s.SortPodBy, "system-load-pressure-sort-pod-by", s.SortPodBy, "the sort pod rule, default is qos, can be load or qos")
 }
 
 func (s *SystemLoadPressureEvictionOptions) ApplyTo(c *eviction.SystemLoadEvictionPluginConfiguration) error {
@@ -71,5 +79,6 @@ func (s *SystemLoadPressureEvictionOptions) ApplyTo(c *eviction.SystemLoadEvicti
 	c.CoolDownTime = s.CoolDownTime
 	c.GracePeriod = s.GracePeriod
 	c.ThresholdMetPercentage = s.ThresholdMetPercentage
+	c.SortPodBy = s.SortPodBy
 	return nil
 }
