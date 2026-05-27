@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
@@ -34,6 +35,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 )
@@ -105,6 +107,184 @@ func RegisterFileEventWatcher(stop <-chan struct{}, fileWatcherInfo FileWatcherI
 	}()
 
 	return watcherCh, nil
+}
+
+// SubDirWatcherInfo describes a directory tree (root + first-level children) to watch.
+// It is used by RegisterSubDirEventWatcher to monitor pod-cgroup-like layouts where:
+//   - a root path is watched for child directory creation/removal,
+//   - first-level child directories under each root are also watched and
+//     dynamically added/removed as the tree changes.
+type SubDirWatcherInfo struct {
+	// RootPaths are the parent directories whose first-level subdirectories
+	// should be discovered and watched. Each root itself is also watched so
+	// that newly created / removed subdirectories can be tracked.
+	RootPaths []string
+}
+
+// DirWatchListFunc returns a snapshot of the paths currently being watched
+// (both root paths and discovered first-level children), sorted to keep log
+// output stable. It is goroutine safe and may be called from any goroutine.
+// After the watcher is stopped, the returned slice is best-effort and may be
+// empty or contain a stale snapshot, depending on the underlying fsnotify
+// implementation.
+type DirWatchListFunc func() []string
+
+// RegisterSubDirEventWatcher watches a set of root directories together with
+// their first-level child directories, and reports a "needs-sync" signal to
+// the caller through the returned channel whenever a create / remove event
+// happens on a watched root or one of its child directories.
+//
+// Behavior:
+//   - On startup every root in watcherInfo.RootPaths is added to the watcher and
+//     its first-level child directories are discovered via filepath.WalkDir
+//     and also added.
+//   - At runtime, when a Create event fires on a path whose parent is a
+//     watched root and the new path is a directory, the new child is added
+//     to the watcher set.
+//   - When a Remove event fires on a previously watched child, the child is
+//     removed from the watcher set.
+//   - Any Create / Remove event hitting a watched root or child triggers a
+//     send on the returned channel. Sends are non-blocking: if the receiver
+//     is slow, events may be coalesced (the channel is buffered with size 1).
+//   - On <-stop, the underlying fsnotify watcher is closed and the returned
+//     channel is closed.
+//
+// The returned DirWatchListFunc gives the caller an observability hook to dump
+// the currently watched paths (mirroring fsnotify.Watcher.WatchList()).
+//
+// The caller is responsible for any rate limiting / periodic fallback /
+// actual sync behavior on top of the returned signal channel.
+func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherInfo) (<-chan struct{}, DirWatchListFunc, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, nil, fmt.Errorf("new fsNotify watcher failed: %w", err)
+	}
+
+	notifyCh := make(chan struct{}, 1)
+
+	// rootPaths and childPaths are only accessed from the watcher goroutine
+	// below, so they don't need synchronization.
+	rootPaths := sets.NewString()
+	childPaths := sets.NewString()
+
+	// watchList delegates to the underlying fsnotify watcher, which is safe
+	// for concurrent use. After the watcher is closed, the returned slice is
+	// best-effort and may be empty or contain a stale snapshot, depending on
+	// the underlying fsnotify implementation.
+	watchList := watcher.WatchList
+
+	addChild := func(p string) {
+		p = filepath.Clean(p)
+		if childPaths.Has(p) {
+			return
+		}
+		if err := watcher.Add(p); err != nil {
+			klog.Errorf("failed add watch path %s: %v", p, err)
+			return
+		}
+		childPaths.Insert(p)
+	}
+
+	removeChild := func(p string) bool {
+		p = filepath.Clean(p)
+		if !childPaths.Has(p) {
+			return false
+		}
+		if err := watcher.Remove(p); err != nil {
+			klog.ErrorS(err, "failed remove event path", "path", p)
+		}
+		childPaths.Delete(p)
+		return true
+	}
+
+	notify := func() {
+		select {
+		case notifyCh <- struct{}{}:
+		default:
+		}
+	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				klog.Errorf("RegisterSubDirEventWatcher panic: %v", r)
+			}
+		}()
+
+		defer func() {
+			close(notifyCh)
+			if cerr := watcher.Close(); cerr != nil {
+				klog.Errorf("failed close watcher: %v", cerr)
+			}
+		}()
+
+		for _, rootPath := range watcherInfo.RootPaths {
+			rootPath = filepath.Clean(rootPath)
+			if err := watcher.Add(rootPath); err != nil {
+				klog.Errorf("failed add event path %s: %s", rootPath, err)
+				continue
+			}
+			rootPaths.Insert(rootPath)
+
+			if err := filepath.WalkDir(rootPath, func(p string, info fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if p == rootPath {
+					return nil
+				}
+				if info.IsDir() {
+					klog.Infof("walk dir: %s", p)
+					addChild(p)
+					return filepath.SkipDir
+				}
+				return nil
+			}); err != nil {
+				klog.ErrorS(err, "failed to walkDir", "path", rootPath)
+			}
+		}
+
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				eventPath := filepath.Clean(event.Name)
+				needSync := false
+				if rootPaths.Has(filepath.Dir(eventPath)) {
+					if event.Op&fsnotify.Create != 0 {
+						info, statErr := os.Stat(eventPath)
+						if statErr != nil {
+							klog.ErrorS(statErr, "failed stat event path", "path", eventPath)
+						} else if info.IsDir() {
+							addChild(eventPath)
+							needSync = true
+						}
+					} else if event.Op&fsnotify.Remove != 0 {
+						if removeChild(eventPath) {
+							needSync = true
+						}
+					}
+				}
+				if event.Op&(fsnotify.Create|fsnotify.Remove) != 0 &&
+					(needSync || rootPaths.Has(eventPath) || childPaths.Has(eventPath)) {
+					klog.InfoS("sub-dir watcher path event", "event", event.String())
+					notify()
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				klog.Warningf("sub-dir watcher error: %v", err)
+			case <-stop:
+				klog.Infof("shutting down sub-dir event watcher")
+				return
+			}
+		}
+	}()
+
+	return notifyCh, watchList, nil
 }
 
 // GetOneExistPath is to get one of exist paths

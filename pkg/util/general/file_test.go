@@ -747,3 +747,74 @@ func TestIsFileUpToDate(t *testing.T) {
 		})
 	}
 }
+
+func TestRegisterSubDirEventWatcher(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stop := make(chan struct{})
+
+	syncCh, watchList, err := RegisterSubDirEventWatcher(stop, SubDirWatcherInfo{
+		RootPaths: []string{root},
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, syncCh)
+	assert.NotNil(t, watchList)
+
+	// initial watch list should only contain the root.
+	assert.Eventually(t, func() bool {
+		paths := watchList()
+		return len(paths) == 1 && paths[0] == root
+	}, 2*time.Second, 20*time.Millisecond)
+
+	// drain helper: receives one notification within the timeout.
+	waitNotify := func(timeout time.Duration) bool {
+		select {
+		case _, ok := <-syncCh:
+			return ok
+		case <-time.After(timeout):
+			return false
+		}
+	}
+
+	// 1) mkdir child -> expect notification, watchList contains the child.
+	child := filepath.Join(root, "child")
+	assert.NoError(t, os.Mkdir(child, 0o755))
+	assert.True(t, waitNotify(2*time.Second), "expect notification after mkdir child")
+	assert.Eventually(t, func() bool {
+		for _, p := range watchList() {
+			if p == child {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 20*time.Millisecond)
+
+	// 2) mkdir grandchild inside child -> NO notification expected
+	// (only first-level subdirectories under root are tracked).
+	assert.NoError(t, os.Mkdir(filepath.Join(child, "grand"), 0o755))
+	assert.False(t, waitNotify(500*time.Millisecond), "should not receive notification for grandchild")
+
+	// 3) rmdir child -> expect notification, watchList no longer contains child.
+	assert.NoError(t, os.RemoveAll(child))
+	assert.True(t, waitNotify(2*time.Second), "expect notification after remove child")
+	assert.Eventually(t, func() bool {
+		for _, p := range watchList() {
+			if p == child {
+				return false
+			}
+		}
+		return true
+	}, 2*time.Second, 20*time.Millisecond)
+
+	// 4) close stop -> sync channel closed.
+	close(stop)
+	assert.Eventually(t, func() bool {
+		select {
+		case _, ok := <-syncCh:
+			return !ok
+		default:
+			return false
+		}
+	}, 2*time.Second, 20*time.Millisecond)
+}

@@ -19,16 +19,11 @@ package pod
 import (
 	"context"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -161,123 +156,39 @@ func (w *podFetcherImpl) GetContainerID(podUID, containerName string) (string, e
 // startSyncKubeletPods starts the kubelet pod cache synchronization loop driven by
 // cgroup directory changes and a periodic fallback timer.
 //
-// The function creates an fsnotify watcher and initializes it with:
-// 1. every path in w.cgroupRootPaths, which represents the parent directory of pod cgroups;
-// 2. each root path's first-level child directories, which represent pod-level cgroup directories.
+// Directory watching (root cgroup paths plus their first-level pod-level child
+// directories) is delegated to general.RegisterSubDirEventWatcher, which reports
+// a "needs-sync" signal whenever a watched root or child directory is created or
+// removed. On top of that signal this function applies:
+//   - a rate limiter to bound sync frequency for filesystem-triggered events;
+//   - a periodic timer to ensure syncs happen even without filesystem notifications.
 //
-// Runtime behavior:
-//   - When a pod-level directory is created directly under a watched root path, it is added to
-//     the watcher set and triggers a kubelet pod cache sync.
-//   - When a watched pod-level directory is removed, it is removed from the watcher set and
-//     triggers a kubelet pod cache sync.
-//   - A periodic timer also triggers syncs to avoid relying only on filesystem notifications.
-//   - A rate limiter bounds sync frequency for filesystem-triggered events.
-//
-// Only create/remove events are used to maintain the watcher membership for pod-level
-// directories. Non-directory creations under root paths are ignored. The loop exits when
-// ctx is canceled, at which point the watcher is closed.
+// The loop exits when ctx is canceled, at which point the underlying watcher
+// is closed by the util.
 func (w *podFetcherImpl) startSyncKubeletPods(ctx context.Context) {
-	podCgroupWatcher, err := fsnotify.NewWatcher()
+	syncCh, watchList, err := general.RegisterSubDirEventWatcher(ctx.Done(), general.SubDirWatcherInfo{
+		RootPaths: w.cgroupRootPaths,
+	})
 	if err != nil {
 		klog.Fatalf("init kubelet pod cgroup watcher failed: %v", err)
-	}
-
-	rootCgroupPaths := sets.NewString()
-	podCgroupPaths := sets.NewString()
-	addPodCgroupPath := func(path string) {
-		path = filepath.Clean(path)
-		if podCgroupPaths.Has(path) {
-			return
-		}
-		if err := podCgroupWatcher.Add(path); err != nil {
-			klog.Errorf("failed add watch path %s: %v", path, err)
-			return
-		}
-		podCgroupPaths.Insert(path)
-	}
-
-	for _, cgroupRootPath := range w.cgroupRootPaths {
-		cgroupRootPath = filepath.Clean(cgroupRootPath)
-		err = podCgroupWatcher.Add(cgroupRootPath)
-		if err != nil {
-			klog.Errorf("failed add event path %s: %s", cgroupRootPath, err)
-			continue
-		}
-		rootCgroupPaths.Insert(cgroupRootPath)
-
-		if err = filepath.WalkDir(cgroupRootPath, func(path string, info fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if path == cgroupRootPath {
-				return nil
-			}
-
-			if info.IsDir() {
-				klog.Infof("walk dir: %s", path)
-				addPodCgroupPath(path)
-				return filepath.SkipDir
-			}
-
-			return nil
-		}); err != nil {
-			klog.ErrorS(err, "failed to walkDir", "path", cgroupRootPath)
-		}
 	}
 
 	timer := time.NewTimer(w.podConf.KubeletPodCacheSyncPeriod)
 	rateLimiter := rate.NewLimiter(w.podConf.KubeletPodCacheSyncMaxRate, w.podConf.KubeletPodCacheSyncBurstBulk)
 
 	go func() {
-		defer func() {
-			err = podCgroupWatcher.Close()
-			if err != nil {
-				klog.Errorf("failed close watcher: %v", err)
-				return
-			}
-		}()
 		for {
 			select {
-			case event, ok := <-podCgroupWatcher.Events:
+			case _, ok := <-syncCh:
 				if !ok {
 					return
 				}
-				needSync := false
-				eventPath := filepath.Clean(event.Name)
-				if rootCgroupPaths.Has(filepath.Dir(eventPath)) {
-					if event.Op&fsnotify.Create != 0 {
-						info, statErr := os.Stat(eventPath)
-						if statErr != nil {
-							klog.ErrorS(statErr, "failed stat event path", "path", eventPath)
-						} else if info.IsDir() {
-							addPodCgroupPath(eventPath)
-							needSync = true
-						}
-					} else if event.Op&fsnotify.Remove != 0 {
-						if podCgroupPaths.Has(eventPath) {
-							if err := podCgroupWatcher.Remove(eventPath); err != nil {
-								klog.ErrorS(err, "failed remove event path", "path", eventPath)
-							}
-							podCgroupPaths.Delete(eventPath)
-							needSync = true
-						}
-					}
+				if rateLimiter.Allow() {
+					w.syncKubeletPod(ctx)
+					timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
 				}
-				if event.Op&(fsnotify.Create|fsnotify.Remove) != 0 &&
-					(needSync || rootCgroupPaths.Has(eventPath) || podCgroupPaths.Has(eventPath)) {
-					klog.InfoS("pod cgroup path event", "event", event.String())
-					if rateLimiter.Allow() {
-						w.syncKubeletPod(ctx)
-						timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
-					}
-				}
-			case err, ok := <-podCgroupWatcher.Errors:
-				if !ok {
-					return
-				}
-				klog.Warningf("watcher error: %v", err)
 			case <-timer.C:
-				klog.Infof("cgroup watch list %v", podCgroupWatcher.WatchList())
+				klog.Infof("cgroup watch list %v", watchList())
 				w.syncKubeletPod(ctx)
 				timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
 			case <-ctx.Done():
