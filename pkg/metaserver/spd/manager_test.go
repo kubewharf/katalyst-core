@@ -274,12 +274,15 @@ func Test_serviceProfilingManager_ServiceBusinessPerformanceLevel(t *testing.T) 
 			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			// first get spd add spd key to cache
-			_, _ = s.GetSPD(context.Background(), tt.args.pod.ObjectMeta)
-			go m.Run(context.Background())
+			_, _ = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
+			go m.Run(ctx)
 			time.Sleep(1 * time.Second)
 
-			got, err := m.ServiceBusinessPerformanceLevel(context.Background(), tt.args.pod.ObjectMeta)
+			got, err := m.ServiceBusinessPerformanceLevel(ctx, tt.args.pod.ObjectMeta)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ServiceBusinessPerformanceLevel() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -415,12 +418,15 @@ func Test_serviceProfilingManager_ServiceSystemPerformanceTarget(t *testing.T) {
 			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			// first get spd add pod spd key to cache
-			_, _ = s.GetSPD(context.Background(), tt.args.pod.ObjectMeta)
-			go m.Run(context.Background())
+			_, _ = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
+			go m.Run(ctx)
 			time.Sleep(1 * time.Second)
 
-			got, err := m.ServiceSystemPerformanceTarget(context.Background(), tt.args.pod.ObjectMeta)
+			got, err := m.ServiceSystemPerformanceTarget(ctx, tt.args.pod.ObjectMeta)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ServiceSystemPerformanceTarget() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -654,13 +660,16 @@ func Test_serviceProfilingManager_ServiceExtendedIndicator(t *testing.T) {
 			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			// first get spd add pod spd key to cache
-			_, _ = s.GetSPD(context.Background(), tt.args.pod.ObjectMeta)
-			go m.Run(context.Background())
+			_, _ = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
+			go m.Run(ctx)
 			time.Sleep(1 * time.Second)
 
 			got := &workloadapis.TestExtendedIndicators{}
-			isBaseline, err := m.ServiceExtendedIndicator(context.Background(), tt.args.pod.ObjectMeta, got)
+			isBaseline, err := m.ServiceExtendedIndicator(ctx, tt.args.pod.ObjectMeta, got)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ServiceExtendedIndicator() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -804,12 +813,15 @@ func Test_serviceProfilingManager_ServiceBaseline(t *testing.T) {
 			m := NewServiceProfilingManager(s)
 			require.NoError(t, err)
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			// first get spd add pod spd key to cache
-			_, _ = s.GetSPD(context.Background(), tt.args.pod.ObjectMeta)
-			go m.Run(context.Background())
+			_, _ = s.GetSPD(ctx, tt.args.pod.ObjectMeta)
+			go m.Run(ctx)
 			time.Sleep(1 * time.Second)
 
-			isBaseline, err := m.ServiceBaseline(context.Background(), tt.args.pod.ObjectMeta)
+			isBaseline, err := m.ServiceBaseline(ctx, tt.args.pod.ObjectMeta)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ServiceBaseline() error = %v, wantErr %v", err, tt.wantErr)
 				return

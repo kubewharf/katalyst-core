@@ -32,6 +32,9 @@ const (
 	TargetReferenceIndex = "target-reference-index"
 	// VPANameIndex is the lookup name for the index function
 	VPANameIndex = "vpa-name-index"
+	// DefaultClusterSPDIndex is the lookup name for the index function used to
+	// quickly enumerate cluster-default SPDs by their label.
+	DefaultClusterSPDIndex = "default-cluster-spd-index"
 )
 
 // const variables for pod eviction reason identifier in event.

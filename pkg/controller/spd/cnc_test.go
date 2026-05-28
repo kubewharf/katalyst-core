@@ -392,3 +392,133 @@ func Test_cncCacheController_Run(t *testing.T) {
 		})
 	}
 }
+
+// Test_cncCacheController_DefaultClusterSPD verifies that a cluster-default SPD
+// (labeled with SPDLabelDefaultClusterSPDKey=true) is synced to CNC even when
+// no pod on this node references it.
+func Test_cncCacheController_DefaultClusterSPD(t *testing.T) {
+	t.Parallel()
+
+	defaultSPD := &apiworkload.ServiceProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-default",
+			Namespace: "default",
+			Labels: map[string]string{
+				consts.SPDLabelDefaultClusterSPDKey: consts.SPDLabelDefaultClusterSPDValue,
+			},
+		},
+		Spec: apiworkload.ServiceProfileDescriptorSpec{
+			TargetRef: apis.CrossVersionObjectReference{
+				Kind:       stsGVK.Kind,
+				Name:       "cluster-default",
+				APIVersion: stsGVK.GroupVersion().String(),
+			},
+		},
+		Status: apiworkload.ServiceProfileDescriptorStatus{
+			AggMetrics: []apiworkload.AggPodMetrics{},
+		},
+	}
+	cncObj := &configapi.CustomNodeConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+	}
+
+	spdConfig := &controller.SPDConfig{
+		EnableCNCCache:         true,
+		SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
+	}
+	genericConfig := &generic.GenericConfiguration{}
+	controllerConf := &controller.GenericControllerConfiguration{
+		DynamicGVResources: []string{"statefulsets.v1.apps"},
+	}
+
+	ctx := context.TODO()
+	controlCtx, err := katalystbase.GenerateFakeGenericContext(
+		nil,
+		[]runtime.Object{defaultSPD, cncObj},
+		nil,
+	)
+	assert.NoError(t, err)
+
+	spdController, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf,
+		spdConfig, generic.NewQoSConfiguration(), struct{}{})
+	assert.NoError(t, err)
+
+	controlCtx.StartInformer(ctx)
+	go spdController.Run()
+	synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
+	assert.True(t, synced)
+	time.Sleep(1 * time.Second)
+
+	newCNC, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().
+		Get(ctx, cncObj.Name, metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Len(t, newCNC.Status.ServiceProfileConfigList, 1, "default SPD should be propagated to CNC even without pods")
+	assert.Equal(t, "cluster-default", newCNC.Status.ServiceProfileConfigList[0].ConfigName)
+	assert.Equal(t, "default", newCNC.Status.ServiceProfileConfigList[0].ConfigNamespace)
+}
+
+// Test_enqueueCNCForSPD_DefaultEnqueuesAllCNCs verifies that enqueueCNCForSPD
+// enqueues every CNC (regardless of pod placement) when the spd is a cluster-default SPD.
+func Test_enqueueCNCForSPD_DefaultEnqueuesAllCNCs(t *testing.T) {
+	t.Parallel()
+
+	defaultSPD := &apiworkload.ServiceProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-default",
+			Namespace: "default",
+			Labels: map[string]string{
+				consts.SPDLabelDefaultClusterSPDKey: consts.SPDLabelDefaultClusterSPDValue,
+			},
+			Annotations: map[string]string{
+				// pre-fill spd hash so enqueueCNCForSPD does not early-return
+				"spd.katalyst.kubewharf.io/config.hash": "h",
+			},
+		},
+	}
+	cnc1 := &configapi.CustomNodeConfig{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
+	cnc2 := &configapi.CustomNodeConfig{ObjectMeta: metav1.ObjectMeta{Name: "node2"}}
+
+	spdConfig := &controller.SPDConfig{
+		EnableCNCCache:         true,
+		SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
+	}
+	genericConfig := &generic.GenericConfiguration{}
+	controllerConf := &controller.GenericControllerConfiguration{
+		DynamicGVResources: []string{"statefulsets.v1.apps"},
+	}
+
+	ctx := context.TODO()
+	controlCtx, err := katalystbase.GenerateFakeGenericContext(
+		nil,
+		[]runtime.Object{defaultSPD, cnc1, cnc2},
+		nil,
+	)
+	assert.NoError(t, err)
+
+	spdController, err := NewSPDController(ctx, controlCtx, genericConfig, controllerConf,
+		spdConfig, generic.NewQoSConfiguration(), struct{}{})
+	assert.NoError(t, err)
+
+	controlCtx.StartInformer(ctx)
+	synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
+	assert.True(t, synced)
+
+	// drain whatever was enqueued during informer sync
+	cncCtl := spdController.cncCacheController
+	for cncCtl.cncSyncQueue.Len() > 0 {
+		k, _ := cncCtl.cncSyncQueue.Get()
+		cncCtl.cncSyncQueue.Done(k)
+	}
+
+	cncCtl.enqueueCNCForSPD(defaultSPD)
+
+	got := map[string]bool{}
+	expectedLen := cncCtl.cncSyncQueue.Len()
+	for i := 0; i < expectedLen; i++ {
+		k, _ := cncCtl.cncSyncQueue.Get()
+		got[k.(string)] = true
+		cncCtl.cncSyncQueue.Done(k)
+	}
+	assert.True(t, got["node1"], "node1 should be enqueued for default spd")
+	assert.True(t, got["node2"], "node2 should be enqueued for default spd")
+}

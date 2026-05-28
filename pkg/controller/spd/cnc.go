@@ -315,6 +315,13 @@ func (c *cncCacheController) updateSPD(oldObj, newObj interface{}) {
 		return
 	}
 
+	// when an spd transitions from non-default to default, all CNCs need to be enqueued
+	// to sync this newly-promoted cluster-default spd, even if its hash didn't change.
+	if !util.IsDefaultClusterSPD(oldSPD) && util.IsDefaultClusterSPD(newSPD) {
+		c.enqueueAllCNCs()
+		return
+	}
+
 	if util.GetSPDHash(oldSPD) != util.GetSPDHash(newSPD) {
 		c.enqueueCNCForSPD(newSPD)
 	}
@@ -354,6 +361,13 @@ func (c *cncCacheController) enqueueCNCForSPD(spd *apiworkload.ServiceProfileDes
 		return
 	}
 
+	// cluster-default SPDs need to be synced to every CNC, regardless of which pods
+	// are scheduled on which node.
+	if util.IsDefaultClusterSPD(spd) {
+		c.enqueueAllCNCs()
+		return
+	}
+
 	podList, err := util.GetPodListForSPD(spd, c.podIndexer, c.conf.SPDPodLabelIndexerKeys,
 		c.workloadLister, c.podLister)
 	if err != nil {
@@ -366,6 +380,19 @@ func (c *cncCacheController) enqueueCNCForSPD(spd *apiworkload.ServiceProfileDes
 		}
 
 		c.enqueueCNCForPod(pod)
+	}
+}
+
+// enqueueAllCNCs enqueues every CNC currently in the lister, used for syncing cluster-wide
+// resources such as cluster-default SPDs.
+func (c *cncCacheController) enqueueAllCNCs() {
+	cncList, err := c.cncLister.List(labels.Everything())
+	if err != nil {
+		general.Errorf("failed to list cnc to enqueue all: %v", err)
+		return
+	}
+	for _, cnc := range cncList {
+		c.enqueueCNC(cnc)
 	}
 }
 
@@ -414,6 +441,21 @@ func (c *cncCacheController) getSPDMapForCNC(cnc *configapis.CustomNodeConfig) (
 
 		spdKey := native.GenerateUniqObjectNameKey(spd)
 		spdMap[spdKey] = spd
+	}
+
+	// always include cluster-default SPDs so they are propagated to every CNC,
+	// regardless of whether any pod on this node references them.
+	defaultSPDs, err := util.ListDefaultClusterSPDsFromIndexer(c.spdIndexer)
+	if err != nil {
+		general.Errorf("failed to list cluster-default spd from indexer: %v", err)
+	} else {
+		for _, spd := range defaultSPDs {
+			if spd == nil {
+				continue
+			}
+			spdKey := native.GenerateUniqObjectNameKey(spd)
+			spdMap[spdKey] = spd
+		}
 	}
 
 	return spdMap, nil

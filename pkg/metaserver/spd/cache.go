@@ -47,6 +47,11 @@ type spdInfo struct {
 	// get spd, which is used for gc spd cache
 	lastGetTime time.Time
 
+	// pinned indicates this spd should not be cleared by clearUnusedSPDs even if
+	// no caller invokes GetSPD on it. It is used for cluster-default SPDs which
+	// must stay in cache regardless of pod scheduling on this node.
+	pinned bool
+
 	// spd is target spd
 	spd *workloadapis.ServiceProfileDescriptor
 }
@@ -252,7 +257,16 @@ func (s *Cache) clearUnusedSPDs(_ context.Context) {
 
 	now := time.Now()
 	for key, info := range s.spdInfo {
-		if info != nil && info.lastGetTime.Add(s.expiredTime).Before(now) {
+		if info == nil {
+			continue
+		}
+		// pinned spd entries (e.g. cluster-default SPDs) must remain in cache.
+		// avoid calling IsSPDPinned() here because clearUnusedSPDs already holds
+		// the write lock and RWMutex is not re-entrant.
+		if info.pinned {
+			continue
+		}
+		if info.lastGetTime.Add(s.expiredTime).Before(now) {
 			err := checkpoint.DeleteSPD(s.manager, info.spd)
 			if err != nil {
 				klog.Errorf("clear unused spd %s failed: %v", key, err)
@@ -262,6 +276,28 @@ func (s *Cache) clearUnusedSPDs(_ context.Context) {
 			klog.Infof("clear spd cache %s", key)
 		}
 	}
+}
+
+// SetSPDPinned sets the pinned flag for the given key. A pinned entry will not
+// be evicted by clearUnusedSPDs.
+func (s *Cache) SetSPDPinned(key string, pinned bool) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.initSPDInfoWithoutLock(key)
+	s.spdInfo[key].pinned = pinned
+}
+
+// IsSPDPinned reports whether the given key is pinned in cache.
+func (s *Cache) IsSPDPinned(key string) bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	info, ok := s.spdInfo[key]
+	if !ok || info == nil {
+		return false
+	}
+	return info.pinned
 }
 
 func (s *Cache) initSPDInfoWithoutLock(key string) {
