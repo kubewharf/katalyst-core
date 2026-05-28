@@ -176,7 +176,7 @@ func (o *resourcePackageHintOptimizer) getResourcePackageAllocatable(resourcePac
 				}
 
 				// Use the native package to get CPU quantity safely
-				cpuQuantity := native.CPUQuantityGetter()(*pkg.Allocatable)
+				cpuQuantity := native.CPUQuantityGetter().Get(*pkg.Allocatable)
 				if cpuQuantity.IsZero() {
 					continue
 				}

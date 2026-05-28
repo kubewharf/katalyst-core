@@ -212,7 +212,7 @@ func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filter
 ) ([]*v1alpha1.EvictPod, error) {
 	totalCPURequest := resource.Quantity{}
 	for _, pod := range filteredPods {
-		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
+		totalCPURequest.Add(native.CPUQuantityGetter().Get(native.SumUpPodRequestResources(pod)))
 	}
 
 	general.InfoS("info", "reclaim cpu request", totalCPURequest.String(), "reclaimMetrics", reclaimMetrics)
@@ -248,7 +248,7 @@ func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filter
 					}
 				}
 				evictPods = append(evictPods, evictPod)
-				totalCPURequest.Sub(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
+				totalCPURequest.Sub(native.CPUQuantityGetter().Get(native.SumUpPodRequestResources(pod)))
 			}
 		} else {
 			p.lastToleranceTime.Delete(key)

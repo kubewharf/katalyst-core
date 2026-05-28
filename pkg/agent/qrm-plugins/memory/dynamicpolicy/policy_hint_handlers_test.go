@@ -67,6 +67,10 @@ func TestDynamicPolicy_numaBindingHintHandler(t *testing.T) {
 					PodName:       "pod1",
 					ContainerName: "container1",
 					ContainerType: pluginapi.ContainerType_SIDECAR,
+					ResourceRequests: map[string]float64{
+						string(v1.ResourceMemory): 1024 * 1024 * 1024,
+						"hugepages-2Mi":           2 * 1024 * 1024 * 1024,
+					},
 				},
 			},
 			wantErr: false,
@@ -78,6 +82,7 @@ func TestDynamicPolicy_numaBindingHintHandler(t *testing.T) {
 				ResourceName:  string(v1.ResourceMemory),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
 					string(v1.ResourceMemory): nil,
+					"hugepages-2Mi":           nil,
 				},
 			},
 		},
@@ -627,4 +632,91 @@ func TestDynamicPolicy_numaBindingHintHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDynamicPolicy_sharedCoresHintHandlerNoPreferenceIncludesRequestedResources(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "checkpoint-TestSharedCoresHintHandlerNoPreference")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	machineInfo := &info.MachineInfo{
+		Topology: []info.Node{
+			{
+				Id:     0,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+			{
+				Id:     1,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+			{
+				Id:     2,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+			{
+				Id:     3,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+		},
+	}
+
+	policy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
+	require.NoError(t, err)
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:        "pod1_uid",
+		PodName:       "pod1",
+		ContainerName: "container1",
+		ContainerType: pluginapi.ContainerType_MAIN,
+		ResourceName:  string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 1024 * 1024 * 1024,
+			"hugepages-2Mi":           2 * 1024 * 1024 * 1024,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	resp, err := policy.sharedCoresHintHandler(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Equal(t, map[string]*pluginapi.ListOfTopologyHints{
+		string(v1.ResourceMemory): nil,
+		"hugepages-2Mi":           nil,
+	}, resp.ResourceHints)
+
+	req.ResourceRequests["hugepages-2Mi"] = 10 * 1024 * 1024 * 1024
+	resp, err = policy.sharedCoresHintHandler(context.Background(), req)
+	require.ErrorIs(t, err, errNoAvailableMemoryHints)
+	require.Nil(t, resp)
 }

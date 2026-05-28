@@ -39,6 +39,19 @@ import (
 
 var errNoAvailableMemoryHints = fmt.Errorf("no available memory hints")
 
+func noPreferenceResourceHints(req *pluginapi.ResourceRequest) map[string]*pluginapi.ListOfTopologyHints {
+	resourceHints := make(map[string]*pluginapi.ListOfTopologyHints, len(req.ResourceRequests))
+	for resourceName := range req.ResourceRequests {
+		resourceHints[resourceName] = nil
+	}
+
+	if len(resourceHints) == 0 {
+		resourceHints[string(v1.ResourceMemory)] = nil
+	}
+
+	return resourceHints
+}
+
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
@@ -71,10 +84,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		}
 	}
 
-	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
-		map[string]*pluginapi.ListOfTopologyHints{
-			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
-		})
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory), noPreferenceResourceHints(req))
 }
 
 func (p *DynamicPolicy) systemCoresHintHandler(_ context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
@@ -133,10 +143,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
 	// so there is no numa preference here.
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
-		return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
-			map[string]*pluginapi.ListOfTopologyHints{
-				string(v1.ResourceMemory): nil,
-			})
+		return util.PackResourceHintsResponse(req, string(v1.ResourceMemory), noPreferenceResourceHints(req))
 	}
 
 	requestedResources, _, err := util.GetPodAggregatedRequestResourceMap(req)

@@ -23,6 +23,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 var makePod = func(name string, request, limits v1.ResourceList) *v1.Pod {
@@ -41,6 +43,14 @@ var makePod = func(name string, request, limits v1.ResourceList) *v1.Pod {
 		},
 	}
 	return pod
+}
+
+func getQuantityGetterResources(getter *QuantityGetter) []v1.ResourceName {
+	if getter == nil {
+		return nil
+	}
+
+	return append([]v1.ResourceName(nil), getter.resourceNames...)
 }
 
 func TestNeedUpdateResources(t *testing.T) {
@@ -258,4 +268,62 @@ func TestAggregateAvgQuantities(t *testing.T) {
 			assert.Equalf(t, tt.want, AggregateAvgQuantities(tt.args.quantities), "AggregateAvgQuantities(%v)", tt.args.quantities)
 		})
 	}
+}
+
+func TestQuantityGetter(t *testing.T) {
+	t.Parallel()
+
+	orig := NewQuantityGetter(DefaultMemoryQuantityGetter, v1.ResourceMemory)
+	getter := orig.WithAddedResource("hugepages-2Mi")
+
+	assert.Equal(t, []v1.ResourceName{v1.ResourceMemory}, getQuantityGetterResources(orig))
+	assert.Equal(t, []v1.ResourceName{v1.ResourceMemory, "hugepages-2Mi"}, getQuantityGetterResources(getter))
+
+	got := getter.Get(v1.ResourceList{
+		"hugepages-2Mi": resource.MustParse("2Gi"),
+	})
+	assert.True(t, got.Equal(resource.MustParse("2Gi")))
+
+	clone := NewQuantityGetter(getter.resolve, "hugepages-1Gi")
+	assert.Equal(t, []v1.ResourceName{"hugepages-1Gi"}, getQuantityGetterResources(clone))
+	assert.Equal(t, []v1.ResourceName{v1.ResourceMemory, "hugepages-2Mi"}, getQuantityGetterResources(getter))
+}
+
+func TestGlobalQuantityGetterResourceMutation(t *testing.T) {
+	t.Parallel()
+
+	origMemoryGetter := MemoryQuantityGetter()
+	origCPUGetter := CPUQuantityGetter()
+
+	t.Cleanup(func() {
+		SetMemoryQuantityGetter(origMemoryGetter)
+		SetCPUQuantityGetter(origCPUGetter)
+	})
+
+	SetMemoryQuantityGetter(NewQuantityGetter(DefaultMemoryQuantityGetter, v1.ResourceMemory, consts.ReclaimedResourceMemory))
+	SetCPUQuantityGetter(NewQuantityGetter(DefaultCPUQuantityGetter, v1.ResourceCPU, consts.ReclaimedResourceMilliCPU))
+
+	beforeMemoryGetter := MemoryQuantityGetter()
+	AddMemoryQuantityResource("hugepages-2Mi")
+	AddMemoryQuantityResource("hugepages-2Mi")
+	afterMemoryGetter := MemoryQuantityGetter()
+	assert.NotSame(t, beforeMemoryGetter, afterMemoryGetter)
+	assert.Equal(t, []v1.ResourceName{v1.ResourceMemory, consts.ReclaimedResourceMemory, "hugepages-2Mi"}, getQuantityGetterResources(afterMemoryGetter))
+
+	memoryQuantity := MemoryQuantityGetter().Get(v1.ResourceList{
+		"hugepages-2Mi": resource.MustParse("2Gi"),
+	})
+	assert.True(t, memoryQuantity.Equal(resource.MustParse("2Gi")))
+
+	beforeCPUGetter := CPUQuantityGetter()
+	AddCPUQuantityResource("batch.cpu")
+	AddCPUQuantityResource("batch.cpu")
+	afterCPUGetter := CPUQuantityGetter()
+	assert.NotSame(t, beforeCPUGetter, afterCPUGetter)
+	assert.Equal(t, []v1.ResourceName{v1.ResourceCPU, consts.ReclaimedResourceMilliCPU, "batch.cpu"}, getQuantityGetterResources(afterCPUGetter))
+
+	cpuQuantity := CPUQuantityGetter().Get(v1.ResourceList{
+		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2500, resource.DecimalSI),
+	})
+	assert.True(t, cpuQuantity.Equal(*resource.NewMilliQuantity(2500, resource.DecimalSI)))
 }

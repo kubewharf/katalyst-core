@@ -52,6 +52,7 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	appagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -5424,6 +5425,79 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
 }
 
+func Test_getContainerRequestedMemoryBytes_EarlyReturns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		policy         *DynamicPolicy
+		allocationInfo *state.AllocationInfo
+		expected       uint64
+	}{
+		{
+			name:     "nil allocationInfo returns zero",
+			policy:   &DynamicPolicy{},
+			expected: 0,
+		},
+		{
+			name:   "nil metaServer returns aggregated quantity",
+			policy: &DynamicPolicy{},
+			allocationInfo: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod-uid",
+					PodName:       "pod-name",
+					ContainerName: "container-name",
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+				},
+				AggregatedQuantity: 2048,
+			},
+			expected: 2048,
+		},
+		{
+			name:   "aggregated requests annotation returns aggregated quantity",
+			policy: &DynamicPolicy{metaServer: &metaserver.MetaServer{}},
+			allocationInfo: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod-uid",
+					PodName:       "pod-name",
+					ContainerName: "container-name",
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationAggregatedRequestsKey: "present",
+					},
+				},
+				AggregatedQuantity: 4096,
+			},
+			expected: 4096,
+		},
+		{
+			name:   "inplace resize annotation returns aggregated quantity",
+			policy: &DynamicPolicy{metaServer: &metaserver.MetaServer{}},
+			allocationInfo: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod-uid",
+					PodName:       "pod-name",
+					ContainerName: "container-name",
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationInplaceUpdateResizingKey: "true",
+					},
+				},
+				AggregatedQuantity: 8192,
+			},
+			expected: 8192,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, tt.policy.getContainerRequestedMemoryBytes(tt.allocationInfo))
+		})
+	}
+}
+
 func Test_adjustAllocationEntries(t *testing.T) {
 	t.Parallel()
 
@@ -5693,6 +5767,89 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	as.Equal(uint64(6442450944), machineStateNew[v1.ResourceMemory][0].Free)
 	as.Equal(uint64(5368709120), machineStateNew[v1.ResourceMemory][1].Free)
 	as.Equal(uint64(6979321856), machineStateNew[v1.ResourceMemory][2].Free)
+}
+
+func TestDynamicPolicy_checkNonBindingShareCoresMemoryResource(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "checkpoint-TestCheckNonBindingShareCoresMemoryResource")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	machineInfo := &info.MachineInfo{
+		Topology: []info.Node{
+			{
+				Id:     0,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+			{
+				Id:     1,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+			{
+				Id:     2,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+			{
+				Id:     3,
+				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
+			},
+		},
+	}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
+	require.NoError(t, err)
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:        "pod1_uid",
+		PodName:       "pod1",
+		ContainerName: "container1",
+		ContainerType: pluginapi.ContainerType_MAIN,
+		ResourceName:  string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 1024 * 1024 * 1024,
+			"hugepages-2Mi":           2 * 1024 * 1024 * 1024,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	ok, err := dynamicPolicy.checkNonBindingShareCoresMemoryResource(req)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	req.ResourceRequests["hugepages-2Mi"] = 10 * 1024 * 1024 * 1024
+	ok, err = dynamicPolicy.checkNonBindingShareCoresMemoryResource(req)
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
 type mockMemoryAdvisor struct {

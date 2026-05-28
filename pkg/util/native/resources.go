@@ -32,52 +32,103 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-type QuantityGetter func(resourceList v1.ResourceList) resource.Quantity
+type QuantityResolveFn func(resourceList v1.ResourceList, resourceNames []v1.ResourceName) resource.Quantity
+
+type QuantityGetter struct {
+	resolve       QuantityResolveFn
+	resourceNames []v1.ResourceName
+}
 
 var (
 	quantityGetterMutex  = sync.RWMutex{}
-	cpuQuantityGetter    = DefaultCPUQuantityGetter
-	memoryQuantityGetter = DefaultMemoryQuantityGetter
+	cpuQuantityGetter    = NewQuantityGetter(DefaultCPUQuantityGetter, v1.ResourceCPU, consts.ReclaimedResourceMilliCPU)
+	memoryQuantityGetter = NewQuantityGetter(DefaultMemoryQuantityGetter, v1.ResourceMemory, consts.ReclaimedResourceMemory)
 )
 
-func CPUQuantityGetter() QuantityGetter {
+func NewQuantityGetter(resolve QuantityResolveFn, resourceNames ...v1.ResourceName) *QuantityGetter {
+	return &QuantityGetter{
+		resolve:       resolve,
+		resourceNames: append([]v1.ResourceName(nil), resourceNames...),
+	}
+}
+
+func (q *QuantityGetter) Get(resourceList v1.ResourceList) resource.Quantity {
+	if q == nil || q.resolve == nil {
+		return resource.Quantity{}
+	}
+
+	return q.resolve(resourceList, q.resourceNames)
+}
+
+func (q *QuantityGetter) WithAddedResource(resourceName v1.ResourceName) *QuantityGetter {
+	if q == nil {
+		return NewQuantityGetter(nil, resourceName)
+	}
+
+	for _, existing := range q.resourceNames {
+		if existing == resourceName {
+			return q
+		}
+	}
+
+	resourceNames := append([]v1.ResourceName(nil), q.resourceNames...)
+	resourceNames = append(resourceNames, resourceName)
+	return NewQuantityGetter(q.resolve, resourceNames...)
+}
+
+func CPUQuantityGetter() *QuantityGetter {
 	quantityGetterMutex.RLock()
 	defer quantityGetterMutex.RUnlock()
 
 	return cpuQuantityGetter
 }
 
-func SetCPUQuantityGetter(getter QuantityGetter) {
+func SetCPUQuantityGetter(getter *QuantityGetter) {
 	quantityGetterMutex.Lock()
 	defer quantityGetterMutex.Unlock()
 
 	cpuQuantityGetter = getter
 }
 
-func MemoryQuantityGetter() QuantityGetter {
+func MemoryQuantityGetter() *QuantityGetter {
 	quantityGetterMutex.RLock()
 	defer quantityGetterMutex.RUnlock()
 
 	return memoryQuantityGetter
 }
 
-func SetMemoryQuantityGetter(getter QuantityGetter) {
+func SetMemoryQuantityGetter(getter *QuantityGetter) {
 	quantityGetterMutex.Lock()
 	defer quantityGetterMutex.Unlock()
 
 	memoryQuantityGetter = getter
 }
 
+func AddCPUQuantityResource(resourceName v1.ResourceName) {
+	quantityGetterMutex.Lock()
+	defer quantityGetterMutex.Unlock()
+
+	cpuQuantityGetter = cpuQuantityGetter.WithAddedResource(resourceName)
+}
+
+func AddMemoryQuantityResource(resourceName v1.ResourceName) {
+	quantityGetterMutex.Lock()
+	defer quantityGetterMutex.Unlock()
+
+	memoryQuantityGetter = memoryQuantityGetter.WithAddedResource(resourceName)
+}
+
 // DefaultCPUQuantityGetter returns cpu quantity for resourceList. since we may have
 // different representations for cpu resource name, the prioritizes will be:
 // native cpu name -> reclaimed milli cpu name
-func DefaultCPUQuantityGetter(resourceList v1.ResourceList) resource.Quantity {
-	if quantity, ok := resourceList[v1.ResourceCPU]; ok {
-		return quantity
-	}
-
-	if quantity, ok := resourceList[consts.ReclaimedResourceMilliCPU]; ok {
-		return *resource.NewMilliQuantity(quantity.Value(), quantity.Format)
+func DefaultCPUQuantityGetter(resourceList v1.ResourceList, resourceNames []v1.ResourceName) resource.Quantity {
+	for _, resourceName := range resourceNames {
+		if quantity, ok := resourceList[resourceName]; ok {
+			if resourceName == consts.ReclaimedResourceMilliCPU {
+				return *resource.NewMilliQuantity(quantity.Value(), quantity.Format)
+			}
+			return quantity
+		}
 	}
 
 	return resource.Quantity{}
@@ -86,13 +137,11 @@ func DefaultCPUQuantityGetter(resourceList v1.ResourceList) resource.Quantity {
 // DefaultMemoryQuantityGetter returns memory quantity for resourceList. since we may have
 // different representations for memory resource name, the prioritizes will be:
 // native memory name -> reclaimed memory name
-func DefaultMemoryQuantityGetter(resourceList v1.ResourceList) resource.Quantity {
-	if quantity, ok := resourceList[v1.ResourceMemory]; ok {
-		return quantity
-	}
-
-	if quantity, ok := resourceList[consts.ReclaimedResourceMemory]; ok {
-		return quantity
+func DefaultMemoryQuantityGetter(resourceList v1.ResourceList, resourceNames []v1.ResourceName) resource.Quantity {
+	for _, resourceName := range resourceNames {
+		if quantity, ok := resourceList[resourceName]; ok {
+			return quantity
+		}
 	}
 
 	return resource.Quantity{}

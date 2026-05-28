@@ -228,7 +228,7 @@ func GetContainerRequestedCores(metaServer *metaserver.MetaServer, allocationInf
 		return allocationInfo.RequestQuantity
 	}
 
-	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
+	cpuQuantity := native.CPUQuantityGetter().Get(container.Resources.Requests)
 	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
 
 	// optimize this logic someday:

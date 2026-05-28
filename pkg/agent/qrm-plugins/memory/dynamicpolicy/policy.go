@@ -257,6 +257,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		apiconsts.PodAnnotationQoSLevelSystemCores:    policyImplement.systemCoresHintHandler,
 	}
 
+	for _, resourceName := range policyImplement.extraResourceNames {
+		native.AddMemoryQuantityResource(v1.ResourceName(resourceName))
+	}
+
 	policyImplement.asyncLimitedWorkersMap = map[string]*asyncworker.AsyncLimitedWorkers{
 		memoryPluginAsyncWorkTopicMovePage: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkTopicMovePage, movePagesWorkLimit, wrappedEmitter),
 	}
@@ -1259,7 +1263,7 @@ func (p *DynamicPolicy) getPodSpecAggregatedMemoryRequestBytes(podUID string) (u
 
 	requestBytes := uint64(0)
 	for _, container := range pod.Spec.Containers {
-		containerMemoryQuantity := native.MemoryQuantityGetter()(container.Resources.Requests)
+		containerMemoryQuantity := native.MemoryQuantityGetter().Get(container.Resources.Requests)
 		requestBytes += uint64(general.Max(int(containerMemoryQuantity.Value()), 0))
 	}
 
@@ -1276,7 +1280,7 @@ func (p *DynamicPolicy) getContainerSpecMemoryRequestBytes(podUID, containerName
 		return 0, errors.New("container not found")
 	}
 
-	memoryQuantity := native.MemoryQuantityGetter()(container.Resources.Requests)
+	memoryQuantity := native.MemoryQuantityGetter().Get(container.Resources.Requests)
 	requestBytes := uint64(general.Max(int(memoryQuantity.Value()), 0))
 
 	return requestBytes, nil
@@ -1298,46 +1302,55 @@ func (p *DynamicPolicy) hasLastLevelEnhancementKey(lastLevelEnhancementKey strin
 }
 
 func (p *DynamicPolicy) checkNonBindingShareCoresMemoryResource(req *pluginapi.ResourceRequest) (bool, error) {
-	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
+	reqResources, _, err := util.GetPodAggregatedRequestResourceMap(req)
 	if err != nil {
-		return false, fmt.Errorf("GetQuantityMapFromResourceReq failed with error: %v", err)
+		return false, fmt.Errorf("GetPodAggregatedRequestResourceMap failed with error: %v", err)
 	}
 
-	shareCoresAllocated := uint64(reqInt)
-	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
-	for podUid, containerEntries := range podEntries {
-		for _, containerAllocation := range containerEntries {
-			// skip the current pod
-			if podUid == req.PodUid {
-				continue
-			}
-			// shareCoresAllocated should involve both main and sidecar containers
-			if containerAllocation.CheckDedicated() && !containerAllocation.CheckNUMABinding() {
-				shareCoresAllocated += p.getContainerRequestedMemoryBytes(containerAllocation)
+	podResourceEntries := p.state.GetPodResourceEntries()
+	machineState := p.state.GetMachineState()
+
+	for resourceName, reqInt := range reqResources {
+		shareCoresAllocated := uint64(reqInt)
+		podEntries := podResourceEntries[resourceName]
+		for podUid, containerEntries := range podEntries {
+			for _, containerAllocation := range containerEntries {
+				// skip the current pod
+				if podUid == req.PodUid {
+					continue
+				}
+				// shareCoresAllocated should involve both main and sidecar containers
+				if containerAllocation.CheckDedicated() && !containerAllocation.CheckNUMABinding() {
+					shareCoresAllocated += p.getContainerRequestedMemoryBytes(containerAllocation)
+				}
 			}
 		}
-	}
 
-	machineState := p.state.GetMachineState()
-	resourceState := machineState[v1.ResourceMemory]
-	numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
-	numaAllocatableWithoutNUMABindingPods := uint64(0)
-	for _, numaID := range numaWithoutNUMABindingPods.ToSliceInt() {
-		numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable
-	}
+		resourceState := machineState[resourceName]
+		if resourceState == nil {
+			return false, fmt.Errorf("resourceState is nil for resource: %s", resourceName)
+		}
 
-	general.Infof("[checkNonBindingShareCoresMemoryResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
-	if shareCoresAllocated > numaAllocatableWithoutNUMABindingPods {
-		general.Warningf("[checkNonBindingShareCoresMemoryResource] no enough memory resource for non-binding share cores pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
-			req.PodNamespace, req.PodName, req.ContainerName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
-		return false, nil
+		numaWithoutNUMABindingPods := resourceState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
+		numaAllocatableWithoutNUMABindingPods := uint64(0)
+		for _, numaID := range numaWithoutNUMABindingPods.ToSliceInt() {
+			numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable
+		}
+
+		general.Infof("[checkNonBindingShareCoresMemoryResource] resource: %s allocated: %d, allocatable: %d",
+			resourceName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+		if shareCoresAllocated > numaAllocatableWithoutNUMABindingPods {
+			general.Warningf("[checkNonBindingShareCoresMemoryResource] no enough resource for non-binding share cores pod: %s/%s, container: %s, resource: %s (allocated: %d, allocatable: %d)",
+				req.PodNamespace, req.PodName, req.ContainerName, resourceName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+			return false, nil
+		}
 	}
 
 	general.InfoS("checkNonBindingShareCoresMemoryResource memory successfully",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
-		"reqInt", reqInt)
+		"reqResources", reqResources)
 
 	return true, nil
 }

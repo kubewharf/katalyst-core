@@ -1182,7 +1182,7 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 		return nil, err
 	}
 
-	cpuRequest := native.CPUQuantityGetter()(spec.Resources.Requests)
+	cpuRequest := native.CPUQuantityGetter().Get(spec.Resources.Requests)
 	if cpuRequest.IsZero() {
 		return zoneAllocated, nil
 	}
