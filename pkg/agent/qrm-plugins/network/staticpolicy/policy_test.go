@@ -46,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/validator"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -147,6 +148,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	mockQrmConfig.ReservedBandwidth = 4000
 	mockQrmConfig.EgressCapacityRate = 0.9
 	mockQrmConfig.IngressCapacityRate = 0.85
+	mockQrmConfig.EnableNICAnnotationValidator = false
 
 	conf := generateTestConfiguration(t)
 
@@ -214,6 +216,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 		netClassIDResourceAllocationAnnotationKey:       testNetClassIDResourceAllocationAnnotationKey,
 		netBandwidthResourceAllocationAnnotationKey:     testNetBandwidthResourceAllocationAnnotationKey,
 		nicAllocationReactor:                            reactor.DummyAllocationReactor{},
+		nicAnnotationValidator:                          validator.DummyAnnotationValidator{},
 	}
 }
 
