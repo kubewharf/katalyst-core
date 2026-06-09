@@ -67,6 +67,12 @@ type CPUTopology struct {
 	NUMAToCPUs           NUMANodeInfo
 	CPUDetails           CPUDetails
 	CPUInfo              *CPUInfo
+
+	// IsolatedCPUs is parsed once from kernel boot parameter `isolcpus=`
+	// in /proc/cmdline. It is static across the agent lifetime because
+	// kernel cmdline can only be changed by reboot. Empty when isolcpus=
+	// is not configured.
+	IsolatedCPUs CPUSet
 }
 
 type MemoryDetails map[int]uint64
@@ -586,6 +592,15 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		numaToCPUs[id] = cpuDetails.CPUsInNUMANodes(id)
 	}
 
+	// isolcpus comes from /proc/cmdline and only changes on reboot, so we read
+	// it once at init time. Failure here is non-fatal: we degrade to an empty
+	// set so the agent can still start on hosts without isolcpus configured.
+	isolatedCPUs, err := GetIsolCPUSet()
+	if err != nil {
+		general.Warningf("failed to parse isolcpus from kernel cmdline, fallback to empty set: %v", err)
+		isolatedCPUs = NewCPUSet()
+	}
+
 	return &CPUTopology{
 		NumCPUs:              machineInfo.NumCores,
 		NumSockets:           machineInfo.NumSockets,
@@ -595,6 +610,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		NUMAToCPUs:           numaToCPUs,
 		CPUDetails:           cpuDetails,
 		CPUInfo:              cpuInfo,
+		IsolatedCPUs:         isolatedCPUs,
 	}, memoryTopology, nil
 }
 

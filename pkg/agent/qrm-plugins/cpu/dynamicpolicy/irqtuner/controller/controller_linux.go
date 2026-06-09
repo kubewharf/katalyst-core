@@ -2639,6 +2639,7 @@ func (ic *IrqTuningController) getNumaQualifiedCCDsForBalanceFairPolicy(numa int
 		}
 
 		// if at least 2/3 cpus of ccd are qualified, then this ccd is qualified
+		// todo it may ignore some numas with only few qualified cores
 		if qualifiedCoresCount >= len(ccdCPUList)*2/3 {
 			qualifiedCCDs = append(qualifiedCCDs, ccd)
 		}
@@ -2999,6 +3000,15 @@ retry:
 	qualifiedNumas = tmpQualifiedNumas
 
 	if len(qualifiedNumas) == 0 {
+		if ccdsBalance {
+			// In some cases, each NUMA node has only a small number of qualified cores.
+			// The system then cannot locate any eligible CCDs per NUMA node.
+			// It falls back to disabling CCD balancing and selects those limited available qualified cores instead.
+			ccdsBalance = false
+			numasWithNotEnoughQualifiedResource = []int{}
+			general.Warningf("%s failed to find qualified numa for nic %s irq affinity with balance-fair policy, try without ccdsBalance", IrqTuningLogPrefix, nic)
+			goto retry
+		}
 		return fmt.Errorf("no qualified numa for nic %s irq affinity with balance-fair policy", nic)
 	}
 
@@ -3115,6 +3125,7 @@ func (ic *IrqTuningController) tuneNicIrqsAffinityLLCDomainsFairly(nic *NicInfo,
 	if ic.CPUInfo.CPUVendor == cpuid.Intel {
 		return ic.tuneNicIrqsAffinityNumasFairly(nic, assignedSockets, false)
 	} else if ic.CPUInfo.CPUVendor == cpuid.AMD {
+		// todo support ccds balance config for amd in the future
 		return ic.tuneNicIrqsAffinityNumasFairly(nic, assignedSockets, true)
 	} else {
 		return fmt.Errorf("unsupport cpu arch: %s", ic.CPUInfo.CPUVendor)

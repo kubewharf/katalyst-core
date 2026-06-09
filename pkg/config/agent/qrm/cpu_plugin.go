@@ -76,6 +76,17 @@ type CPUDynamicPolicyConfig struct {
 	// IRQForbiddenPinnedResourcePackageAttributeSelector is the selector to filter pinned resource packages that are
 	// forbidden for irq binding.
 	IRQForbiddenPinnedResourcePackageAttributeSelector labels.Selector
+	// IRQAffinityMode controls where IRQ can be bound.
+	// Valid values:
+	//   - "non-reserved" (default): IRQ is bound to non-reserved CPUs;
+	//     forbidden = reservedCPUs ∪ pinnedForbiddenCPUs.
+	//   - "reserved-only": IRQ is bound to reserved CPUs only;
+	//     forbidden = (allCPUs \ reservedCPUs) ∪ pinnedForbiddenCPUs.
+	IRQAffinityMode string
+	// ExcludeIsolCPUsFromIRQ indicates whether to exclude kernel isolcpus
+	// (parsed from /proc/cmdline) from IRQ-eligible cores. When true,
+	// isolcpus are added to the forbidden set.
+	ExcludeIsolCPUsFromIRQ bool
 
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration

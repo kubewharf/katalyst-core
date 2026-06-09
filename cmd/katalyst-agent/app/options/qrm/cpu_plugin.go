@@ -17,6 +17,7 @@ limitations under the License.
 package qrm
 
 import (
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -26,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	irqutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/utils"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -57,6 +59,8 @@ type CPUDynamicPolicyOptions struct {
 	EnableDefaultSharedCoresCPUBurst                   bool
 	EnableCPUBurstForMainContainerOnly                 bool
 	IRQForbiddenPinnedResourcePackageAttributeSelector string
+	IRQAffinityMode                                    string
+	ExcludeIsolCPUsFromIRQ                             bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -87,6 +91,8 @@ func NewCPUOptions() *CPUOptions {
 			NUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
 			NUMANumberAnnotationKey:        consts.PodAnnotationCPUEnhancementNumaNumber,
 			NUMAIDsAnnotationKey:           consts.PodAnnotationCPUEnhancementNumaIDs,
+			IRQAffinityMode:                irqutil.IRQAffinityModeNonReserved,
+			ExcludeIsolCPUsFromIRQ:         false,
 			HintOptimizerOptions:           hintoptimizer.NewHintOptimizerOptions(),
 			IRQTunerOptions:                irqtuner.NewIRQTunerOptions(),
 		},
@@ -148,6 +154,11 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.IRQForbiddenPinnedResourcePackageAttributeSelector, "irq-forbidden-pinned-resource-package-attribute-selector",
 		o.IRQForbiddenPinnedResourcePackageAttributeSelector, "The selector to filter pinned resource packages that are"+
 			"forbidden for irq binding.")
+	fs.StringVar(&o.IRQAffinityMode, "irq-affinity-mode", o.IRQAffinityMode,
+		"The IRQ affinity mode. Valid values: \"non-reserved\" (default, IRQ binds to non-reserved CPUs) "+
+			"or \"reserved-only\" (IRQ binds to reserved CPUs only).")
+	fs.BoolVar(&o.ExcludeIsolCPUsFromIRQ, "exclude-isolcpus-from-irq", o.ExcludeIsolCPUsFromIRQ,
+		"if set true, kernel isolcpus parsed from /proc/cmdline will be excluded from IRQ-eligible cores")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -178,6 +189,14 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 		return err
 	}
 	conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
+	switch o.IRQAffinityMode {
+	case irqutil.IRQAffinityModeNonReserved, irqutil.IRQAffinityModeReservedOnly:
+	default:
+		return fmt.Errorf("invalid --irq-affinity-mode %q, valid values: %q, %q",
+			o.IRQAffinityMode, irqutil.IRQAffinityModeNonReserved, irqutil.IRQAffinityModeReservedOnly)
+	}
+	conf.IRQAffinityMode = o.IRQAffinityMode
+	conf.ExcludeIsolCPUsFromIRQ = o.ExcludeIsolCPUsFromIRQ
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}

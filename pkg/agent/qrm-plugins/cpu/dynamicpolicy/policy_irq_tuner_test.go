@@ -265,98 +265,149 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 func TestDynamicPolicy_GetIRQForbiddenCores(t *testing.T) {
 	t.Parallel()
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetIRQForbiddenCores")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	// setupPolicy builds a fresh DynamicPolicy with reserved CPUs (0,1) and a
+	// pinned-forbidden resource package on NUMA 0 (CPUs 2,3). pkg2 (allowed) on
+	// NUMA 1 (CPUs 4,5) is filtered out by the selector.
+	setupPolicy := func(t *testing.T, name string) *DynamicPolicy {
+		t.Helper()
+		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetIRQForbiddenCores-"+name)
+		require.NoError(t, err)
+		t.Cleanup(func() { os.RemoveAll(tmpDir) })
 
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
-	require.NoError(t, err)
+		cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+		require.NoError(t, err)
 
-	policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
-	require.NoError(t, err)
+		policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+		require.NoError(t, err)
 
-	// Mock reserved CPUs
-	policy.reservedCPUs = machine.NewCPUSet(0, 1)
+		policy.reservedCPUs = machine.NewCPUSet(0, 1)
 
-	// Prepare resource packages in NPD
-	npdFetcher := &npd.DummyNPDFetcher{
-		NPD: &nodev1alpha1.NodeProfileDescriptor{
-			Status: nodev1alpha1.NodeProfileDescriptorStatus{
-				NodeMetrics: []nodev1alpha1.ScopedNodeMetrics{
-					{
-						Scope: "resource-package",
-						Metrics: []nodev1alpha1.MetricValue{
-							{
-								MetricName: string(v1.ResourceCPU),
-								MetricLabels: map[string]string{
-									"package-name":  "pkg1",
-									"numa-id":       "0",
-									"pinned-cpuset": "true",
-									"type":          "forbidden",
+		npdFetcher := &npd.DummyNPDFetcher{
+			NPD: &nodev1alpha1.NodeProfileDescriptor{
+				Status: nodev1alpha1.NodeProfileDescriptorStatus{
+					NodeMetrics: []nodev1alpha1.ScopedNodeMetrics{
+						{
+							Scope: "resource-package",
+							Metrics: []nodev1alpha1.MetricValue{
+								{
+									MetricName: string(v1.ResourceCPU),
+									MetricLabels: map[string]string{
+										"package-name":  "pkg1",
+										"numa-id":       "0",
+										"pinned-cpuset": "true",
+										"type":          "forbidden",
+									},
+									Value:      *resource.NewQuantity(2, resource.DecimalSI),
+									Aggregator: func() *nodev1alpha1.Aggregator { a := nodev1alpha1.AggregatorMin; return &a }(),
 								},
-								Value:      *resource.NewQuantity(2, resource.DecimalSI),
-								Aggregator: func() *nodev1alpha1.Aggregator { a := nodev1alpha1.AggregatorMin; return &a }(),
-							},
-							{
-								MetricName: string(v1.ResourceCPU),
-								MetricLabels: map[string]string{
-									"package-name":  "pkg2",
-									"numa-id":       "1",
-									"pinned-cpuset": "true",
-									"type":          "allowed",
+								{
+									MetricName: string(v1.ResourceCPU),
+									MetricLabels: map[string]string{
+										"package-name":  "pkg2",
+										"numa-id":       "1",
+										"pinned-cpuset": "true",
+										"type":          "allowed",
+									},
+									Value:      *resource.NewQuantity(2, resource.DecimalSI),
+									Aggregator: func() *nodev1alpha1.Aggregator { a := nodev1alpha1.AggregatorMin; return &a }(),
 								},
-								Value:      *resource.NewQuantity(2, resource.DecimalSI),
-								Aggregator: func() *nodev1alpha1.Aggregator { a := nodev1alpha1.AggregatorMin; return &a }(),
 							},
 						},
 					},
 				},
 			},
+		}
+		policy.resourcePackageManager = resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(npdFetcher))
+		stopCh := make(chan struct{})
+		t.Cleanup(func() { close(stopCh) })
+		go policy.resourcePackageManager.Run(stopCh)
+		time.Sleep(100 * time.Millisecond)
+
+		machineState := policy.state.GetMachineState()
+		machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+			"pkg1": {
+				PinnedCPUSet: machine.NewCPUSet(2, 3),
+				Attributes:   map[string]string{"type": "forbidden"},
+			},
+		}
+		machineState[1].ResourcePackageStates = map[string]*state.ResourcePackageState{
+			"pkg2": {
+				PinnedCPUSet: machine.NewCPUSet(4, 5),
+				Attributes:   map[string]string{"type": "other"},
+			},
+		}
+		policy.state.SetMachineState(machineState, false)
+
+		selector, err := labels.Parse("type=forbidden")
+		require.NoError(t, err)
+		policy.conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
+
+		return policy
+	}
+
+	// All non-reserved CPUs in the dummy 16-CPU topology are 2..15 (reserved is 0,1).
+	allNonReserved := machine.NewCPUSet(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+
+	tcs := []struct {
+		name              string
+		mode              string
+		excludeIsolCPUs   bool
+		isolatedCPUs      machine.CPUSet
+		expectedForbidden machine.CPUSet
+	}{
+		{
+			name:              "non-reserved mode, isolcpus disabled",
+			mode:              irqutil.IRQAffinityModeNonReserved,
+			excludeIsolCPUs:   false,
+			isolatedCPUs:      machine.NewCPUSet(),
+			expectedForbidden: machine.NewCPUSet(0, 1, 2, 3),
+		},
+		{
+			name:              "reserved-only mode, isolcpus disabled",
+			mode:              irqutil.IRQAffinityModeReservedOnly,
+			excludeIsolCPUs:   false,
+			isolatedCPUs:      machine.NewCPUSet(),
+			expectedForbidden: allNonReserved.Union(machine.NewCPUSet(2, 3)),
+		},
+		{
+			name:              "exclude isolcpus enabled but IsolatedCPUs empty",
+			mode:              irqutil.IRQAffinityModeNonReserved,
+			excludeIsolCPUs:   true,
+			isolatedCPUs:      machine.NewCPUSet(),
+			expectedForbidden: machine.NewCPUSet(0, 1, 2, 3),
+		},
+		{
+			name:              "non-reserved mode + isolcpus 6,7",
+			mode:              irqutil.IRQAffinityModeNonReserved,
+			excludeIsolCPUs:   true,
+			isolatedCPUs:      machine.NewCPUSet(6, 7),
+			expectedForbidden: machine.NewCPUSet(0, 1, 2, 3, 6, 7),
+		},
+		{
+			name:              "reserved-only mode + isolcpus 6,7",
+			mode:              irqutil.IRQAffinityModeReservedOnly,
+			excludeIsolCPUs:   true,
+			isolatedCPUs:      machine.NewCPUSet(6, 7),
+			expectedForbidden: allNonReserved.Union(machine.NewCPUSet(2, 3)),
 		},
 	}
-	policy.resourcePackageManager = resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(npdFetcher))
-	stopCh := make(chan struct{})
-	defer close(stopCh)
-	// Run cached manager to populate cache
-	go policy.resourcePackageManager.Run(stopCh)
-	time.Sleep(100 * time.Millisecond)
 
-	// Mock machine state to include pinned CPUs for packages
-	// Note: In a real scenario, this state is populated by policy logic.
-	// Here we need to manually inject it into the state if we want GetAggResourcePackagePinnedCPUSet to find it.
-	// However, GetAggResourcePackagePinnedCPUSet reads from policy.state.GetMachineState().
-	// We need to update the machine state with ResourcePackagePinnedCPUSet.
+	for _, tc := range tcs {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Assuming NUMA 0 has pkg1 pinned to CPUs 2, 3
-	// Assuming NUMA 1 has pkg2 pinned to CPUs 4, 5
-	machineState := policy.state.GetMachineState()
-	machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
-		"pkg1": {
-			PinnedCPUSet: machine.NewCPUSet(2, 3),
-			Attributes:   map[string]string{"type": "forbidden"},
-		},
+			policy := setupPolicy(t, tc.name)
+			policy.conf.IRQAffinityMode = tc.mode
+			policy.conf.ExcludeIsolCPUsFromIRQ = tc.excludeIsolCPUs
+			policy.machineInfo.IsolatedCPUs = tc.isolatedCPUs
+
+			forbiddenCores, err := policy.GetIRQForbiddenCores()
+			require.NoError(t, err)
+			assert.True(t, tc.expectedForbidden.Equals(forbiddenCores),
+				"case %q: expected %v, got %v", tc.name, tc.expectedForbidden, forbiddenCores)
+		})
 	}
-	machineState[1].ResourcePackageStates = map[string]*state.ResourcePackageState{
-		"pkg2": {
-			PinnedCPUSet: machine.NewCPUSet(4, 5),
-			Attributes:   map[string]string{"type": "other"},
-		},
-	}
-	policy.state.SetMachineState(machineState, false)
-
-	// Configure attribute selector
-	selector, err := labels.Parse("type=forbidden")
-	require.NoError(t, err)
-	policy.conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
-
-	// Run the test
-	forbiddenCores, err := policy.GetIRQForbiddenCores()
-	require.NoError(t, err)
-
-	// Expected: Reserved CPUs (0, 1) + Pinned CPUs for pkg1 (2, 3) = (0, 1, 2, 3)
-	// pkg2 is excluded because type=allowed != type=forbidden
-	expected := machine.NewCPUSet(0, 1, 2, 3)
-	assert.True(t, expected.Equals(forbiddenCores), "expected %v, got %v", expected, forbiddenCores)
 }
 
 func TestDynamicPolicy_GetExclusiveIRQCPUSet(t *testing.T) {

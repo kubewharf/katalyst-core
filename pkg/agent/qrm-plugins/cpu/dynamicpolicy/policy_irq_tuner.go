@@ -153,19 +153,40 @@ func (p *DynamicPolicy) getPinnedResourcePackageIRQForbiddenCPUSet() machine.CPU
 
 // GetIRQForbiddenCores retrieves the cpu set of cores that are forbidden for irq binding.
 // The forbidden cores include:
-// 1. Reserved CPUs (system reserved).
-// 2. CPUs pinned by specific resource packages (as defined by the configuration).
+//  1. Either the reserved CPUs (when IRQAffinityMode == "non-reserved")
+//     or all non-reserved CPUs (when IRQAffinityMode == "reserved-only").
+//  2. CPUs pinned by specific resource packages (as defined by the configuration).
+//  3. Optionally, kernel isolcpus (when ExcludeIsolCPUsFromIRQ is true).
 func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
-	// get irq forbidden cores from cpu plugin checkpoint
-	forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
+	// 1. compute base forbidden set according to IRQ affinity mode.
+	switch p.conf.IRQAffinityMode {
+	case irqutil.IRQAffinityModeReservedOnly:
+		// IRQ must bind to reserved cores only -> forbid all non-reserved CPUs.
+		allCPUs := p.machineInfo.CPUDetails.CPUs()
+		forbiddenCores = forbiddenCores.Union(allCPUs.Difference(p.reservedCPUs))
+	default:
+		// IRQAffinityModeNonReserved (default): IRQ binds to non-reserved CPUs.
+		forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
+	}
 
-	// get irq forbidden cores from pinned resource package
+	// 2. union forbidden cores from pinned resource packages.
 	irqForbiddenCPUSet := p.getPinnedResourcePackageIRQForbiddenCPUSet()
 	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
-	general.Infof("get the irq forbidden cores %v", forbiddenCores)
+	// 3. optionally union kernel isolcpus.
+	// IsolatedCPUs lives on machineInfo.CPUTopology and is parsed once at init
+	// from /proc/cmdline. It is static across the agent lifetime (only changes
+	// on reboot), so we don't re-parse it at runtime.
+	if p.conf.ExcludeIsolCPUsFromIRQ {
+		if isol := p.machineInfo.IsolatedCPUs; !isol.IsEmpty() {
+			forbiddenCores = forbiddenCores.Union(isol)
+		}
+	}
+
+	general.Infof("get the irq forbidden cores: %v, isolated cpu cores: %v (mode=%s, excludeIsolcpus=%v)",
+		forbiddenCores, p.machineInfo.IsolatedCPUs, p.conf.IRQAffinityMode, p.conf.ExcludeIsolCPUsFromIRQ)
 	return forbiddenCores, nil
 }
 

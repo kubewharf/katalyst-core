@@ -23,6 +23,13 @@ const (
 	DefaultIRQExclusiveMaxExpansionRate = 0.3
 	// DefaultIRQExclusiveMaxStepExpansionRate identifies the default irq exclusive maximum single-step expansion ratio.
 	DefaultIRQExclusiveMaxStepExpansionRate = 0.05
+
+	// IRQAffinityModeNonReserved means IRQ is allowed to bind to non-reserved CPUs only;
+	// reserved CPUs (and pinned-forbidden CPUs) are forbidden.
+	IRQAffinityModeNonReserved = "non-reserved"
+	// IRQAffinityModeReservedOnly means IRQ must bind to reserved CPUs only;
+	// all non-reserved CPUs (and pinned-forbidden CPUs) are forbidden.
+	IRQAffinityModeReservedOnly = "reserved-only"
 )
 
 var (
