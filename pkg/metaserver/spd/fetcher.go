@@ -33,6 +33,7 @@ import (
 
 	configapis "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
@@ -138,7 +139,40 @@ func (s *spdFetcher) GetSPD(ctx context.Context, podMeta metav1.ObjectMeta) (*wo
 		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors), fmt.Sprintf("for pod(%v/%v)", podMeta.Namespace, podMeta.Name))
 	}
 
-	return s.getSPDByNamespaceName(ctx, spdNamespace, spdName)
+	spd, err := s.getSPDByNamespaceName(ctx, spdNamespace, spdName)
+	if err != nil && errors.IsNotFound(err) {
+		// fallback to cluster-default spd only when the workload-specific spd was
+		// successfully resolved by name but is not found in cache or remote.
+		if defaultSPD, fbErr := s.fallbackToDefaultClusterSPD(ctx, podMeta); fbErr == nil {
+			return defaultSPD, nil
+		}
+	}
+	return spd, err
+}
+
+// fallbackToDefaultClusterSPD looks up the default cluster spd referenced by pod
+// annotation apiconsts.PodAnnotationDefaultSPDNameKey under apiconsts.DefaultClusterSPDNamespace.
+// The returned SPD must carry the cluster-default label, otherwise NotFound is returned
+// to avoid the pod annotation being abused to pull arbitrary SPDs.
+func (s *spdFetcher) fallbackToDefaultClusterSPD(ctx context.Context, podMeta metav1.ObjectMeta) (*workloadapis.ServiceProfileDescriptor, error) {
+	defaultName, ok := podMeta.GetAnnotations()[apiconsts.PodAnnotationDefaultSPDNameKey]
+	if !ok || defaultName == "" {
+		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors),
+			fmt.Sprintf("default spd for pod(%v/%v)", podMeta.Namespace, podMeta.Name))
+	}
+
+	spd, err := s.getSPDByNamespaceName(ctx, apiconsts.DefaultClusterSPDNamespace, defaultName)
+	if err != nil {
+		return nil, err
+	}
+
+	// validate that the fetched spd is actually a cluster-default SPD
+	if !util.IsDefaultClusterSPD(spd) {
+		general.Warningf("pod (%v/%v) referenced default spd %s/%s but it is not labeled as cluster-default",
+			podMeta.Namespace, podMeta.Name, apiconsts.DefaultClusterSPDNamespace, defaultName)
+		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors), defaultName)
+	}
+	return spd, nil
 }
 
 // SetGetPodSPDNameFunc set get spd name function to override default getPodSPDNameFunc before started
@@ -207,8 +241,12 @@ func (s *spdFetcher) getSPDTargetConfig(ctx context.Context, namespace, name str
 }
 
 func (s *spdFetcher) sync(ctx context.Context) {
-	spdKeys := s.spdCache.ListAllSPDKeys()
-	for _, key := range spdKeys {
+	// keep already-cached spd up-to-date.
+	cachedKeys := s.spdCache.ListAllSPDKeys()
+	cachedKeySet := make(map[string]struct{}, len(cachedKeys))
+	for _, key := range cachedKeys {
+		cachedKeySet[key] = struct{}{}
+
 		namespace, name, err := cache.SplitMetaNamespaceKey(key)
 		if err != nil {
 			continue
@@ -223,6 +261,46 @@ func (s *spdFetcher) sync(ctx context.Context) {
 		originSPD, _ := s.spdCache.GetSPD(key, false)
 
 		_ = s.tryUpdateSPDCache(ctx, namespace, name, originSPD, baseTag, false)
+
+		// keep pin state aligned with the latest label of the cached spd.
+		if latestSPD, _ := s.spdCache.GetSPD(key, false); latestSPD != nil {
+			s.spdCache.SetSPDPinned(key, util.IsDefaultClusterSPD(latestSPD))
+		}
+	}
+
+	// proactively probe entries that exist in CNC but not in our local cache, so that
+	// cluster-default SPDs are populated even when no pod on this node references them.
+	currentCNC, err := s.cncFetcher.GetCNC(ctx)
+	if err != nil {
+		klog.Warningf("[spd-manager] sync: get cnc failed: %v", err)
+		return
+	}
+
+	for _, target := range currentCNC.Status.ServiceProfileConfigList {
+		key := native.GenerateNamespaceNameKey(target.ConfigNamespace, target.ConfigName)
+		if _, ok := cachedKeySet[key]; ok {
+			continue
+		}
+
+		baseTag := []metrics.MetricTag{
+			{Key: "spdNamespace", Val: target.ConfigNamespace},
+			{Key: "spdName", Val: target.ConfigName},
+		}
+
+		if err := s.tryUpdateSPDCache(ctx, target.ConfigNamespace, target.ConfigName, nil, baseTag, false); err != nil {
+			continue
+		}
+
+		// after the probe, decide whether this entry should stay cached.
+		// only cluster-default SPDs are kept proactively; regular SPDs are removed to
+		// avoid polluting the cache on nodes whose pods don't reference them.
+		spd, _ := s.spdCache.GetSPD(key, false)
+		if spd != nil && util.IsDefaultClusterSPD(spd) {
+			s.spdCache.SetSPDPinned(key, true)
+		} else {
+			s.spdCache.SetSPDPinned(key, false)
+			_ = s.spdCache.DeleteSPD(key)
+		}
 	}
 }
 

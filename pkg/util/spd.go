@@ -83,6 +83,46 @@ func SPDTargetReferenceIndex(obj interface{}) ([]string, error) {
 	return objectTargetReferenceIndex(spd.Spec.TargetRef)
 }
 
+// IsDefaultClusterSPD returns true if the given spd is marked as a cluster-default SPD
+// via label apiconsts.SPDLabelDefaultClusterSPDKey=apiconsts.SPDLabelDefaultClusterSPDValue.
+func IsDefaultClusterSPD(spd *apiworkload.ServiceProfileDescriptor) bool {
+	if spd == nil {
+		return false
+	}
+	return spd.GetLabels()[apiconsts.SPDLabelDefaultClusterSPDKey] == apiconsts.SPDLabelDefaultClusterSPDValue
+}
+
+// SPDDefaultClusterIndex is used to construct informer index for cluster-default SPDs.
+// It indexes spd by the value of the cluster-default label so that we can quickly list
+// all cluster-default SPDs.
+func SPDDefaultClusterIndex(obj interface{}) ([]string, error) {
+	spd, ok := obj.(*apiworkload.ServiceProfileDescriptor)
+	if !ok || spd == nil {
+		return nil, fmt.Errorf("failed to reflect a obj to spd")
+	}
+	if IsDefaultClusterSPD(spd) {
+		return []string{apiconsts.SPDLabelDefaultClusterSPDValue}, nil
+	}
+	return []string{}, nil
+}
+
+// ListDefaultClusterSPDsFromIndexer lists all cluster-default SPDs via the indexer.
+func ListDefaultClusterSPDsFromIndexer(spdIndexer cache.Indexer) ([]*apiworkload.ServiceProfileDescriptor, error) {
+	objs, err := spdIndexer.ByIndex(consts.DefaultClusterSPDIndex, apiconsts.SPDLabelDefaultClusterSPDValue)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*apiworkload.ServiceProfileDescriptor, 0, len(objs))
+	for _, obj := range objs {
+		spd, ok := obj.(*apiworkload.ServiceProfileDescriptor)
+		if !ok || spd == nil {
+			continue
+		}
+		result = append(result, spd)
+	}
+	return result, nil
+}
+
 /*
  helper functions to get spd-related objects
 */

@@ -327,3 +327,92 @@ func TestCalculateSPDHash(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDefaultClusterSPD(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		spd  *apiworkload.ServiceProfileDescriptor
+		want bool
+	}{
+		{
+			name: "nil spd",
+			spd:  nil,
+			want: false,
+		},
+		{
+			name: "no labels",
+			spd: &apiworkload.ServiceProfileDescriptor{
+				ObjectMeta: metav1.ObjectMeta{Name: "spd1", Namespace: "default"},
+			},
+			want: false,
+		},
+		{
+			name: "label value mismatch",
+			spd: &apiworkload.ServiceProfileDescriptor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "spd1", Namespace: "default",
+					Labels: map[string]string{apiconsts.SPDLabelDefaultClusterSPDKey: "false"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "label match",
+			spd: &apiworkload.ServiceProfileDescriptor{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "spd1", Namespace: "default",
+					Labels: map[string]string{apiconsts.SPDLabelDefaultClusterSPDKey: apiconsts.SPDLabelDefaultClusterSPDValue},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, c.want, IsDefaultClusterSPD(c.spd))
+		})
+	}
+}
+
+func TestSPDDefaultClusterIndexAndList(t *testing.T) {
+	t.Parallel()
+
+	defaultSPD := &apiworkload.ServiceProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "default-spd", Namespace: "default",
+			Labels: map[string]string{apiconsts.SPDLabelDefaultClusterSPDKey: apiconsts.SPDLabelDefaultClusterSPDValue},
+		},
+	}
+	normalSPD := &apiworkload.ServiceProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{Name: "normal-spd", Namespace: "default"},
+	}
+
+	// index func behavior
+	keys, err := SPDDefaultClusterIndex(defaultSPD)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{apiconsts.SPDLabelDefaultClusterSPDValue}, keys)
+
+	keys, err = SPDDefaultClusterIndex(normalSPD)
+	assert.NoError(t, err)
+	assert.Empty(t, keys)
+
+	_, err = SPDDefaultClusterIndex(nil)
+	assert.Error(t, err)
+
+	// indexer-based listing
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{
+		consts.DefaultClusterSPDIndex: SPDDefaultClusterIndex,
+	})
+	assert.NoError(t, indexer.Add(defaultSPD))
+	assert.NoError(t, indexer.Add(normalSPD))
+
+	got, err := ListDefaultClusterSPDsFromIndexer(indexer)
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	assert.Equal(t, "default-spd", got[0].Name)
+}

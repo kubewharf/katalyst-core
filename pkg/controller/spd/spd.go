@@ -184,6 +184,17 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 		}
 	}
 
+	// build index: cluster-default-spd-label ---> spd
+	if _, exist := spdController.spdIndexer.GetIndexers()[consts.DefaultClusterSPDIndex]; !exist {
+		err := spdController.spdIndexer.AddIndexers(cache.Indexers{
+			consts.DefaultClusterSPDIndex: util.SPDDefaultClusterIndex,
+		})
+		if err != nil {
+			klog.Errorf("[spd] failed to add default cluster spd index for spd: %v", err)
+			return nil, err
+		}
+	}
+
 	// build index: workload ---> pod
 	spdController.podIndexer = podInformer.Informer().GetIndexer()
 	for _, key := range conf.SPDPodLabelIndexerKeys {

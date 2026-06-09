@@ -141,7 +141,6 @@ func TestSortQueuePPSSliceInDecOrder(t *testing.T) {
 
 func Test_configuredStaticNormalThroughputNics(t *testing.T) {
 	t.Parallel()
-	ic := &IrqTuningController{}
 	cases := []struct {
 		name        string
 		conf        *config.IrqTuningConfig
@@ -166,6 +165,7 @@ func Test_configuredStaticNormalThroughputNics(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			ic := &IrqTuningController{}
 			ic.conf = tc.conf
 			b := ic.configuredStaticNormalThroughputNics()
 			assert.Equal(t, b, tc.expectedRet)
