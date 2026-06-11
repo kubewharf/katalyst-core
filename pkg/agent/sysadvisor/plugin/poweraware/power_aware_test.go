@@ -20,6 +20,8 @@ import (
 	"context"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
@@ -28,12 +30,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconf "github.com/kubewharf/katalyst-core/pkg/config/agent"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
@@ -68,6 +72,7 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 		nil,
 		nil,
 		assess.NewPowerChangeAssessor(0, 0),
+		dynamic.NewDynamicAgentConfiguration(),
 	)
 	reconciler := advisor.NewReconciler(expectedDryRun,
 		dummyEmitterPool.GetDefaultMetricsEmitter(),
@@ -77,6 +82,7 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 	)
 
 	stubAdvisor := advisor.NewAdvisor(
+		nil,
 		expectedDryRun,
 		"foo",
 		evictor.NewNoopPodEvictor(),
@@ -154,6 +160,7 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 				nil,
 				nil,
 				assess.NewPowerChangeAssessor(0, 0),
+				dynamic.NewDynamicAgentConfiguration(),
 			)
 			reconciler := advisor.NewReconciler(false,
 				dummyEmitter,
@@ -164,7 +171,9 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 			p := powerAwarePlugin{
 				name:   tt.fields.name,
 				dryRun: tt.fields.dryRun,
-				advisor: advisor.NewAdvisor(false,
+				advisor: advisor.NewAdvisor(
+					nil,
+					false,
 					"bar",
 					evictor.NewNoopPodEvictor(),
 					dummyEmitter,
@@ -188,6 +197,14 @@ type dummyAdvisor struct {
 
 func (d *dummyAdvisor) Run(ctx context.Context) {
 	d.called = true
+}
+
+type dummyConfigManager struct {
+	kcc.ConfigurationManager
+}
+
+func (d dummyConfigManager) AddConfigWatcher(gvrs ...metav1.GroupVersionResource) error {
+	return nil
 }
 
 func Test_powerAwarePlugin_Run(t *testing.T) {
@@ -239,6 +256,7 @@ func TestNewPowerAwarePlugin(t *testing.T) {
 		MetaAgent: &agent.MetaAgent{
 			NodeFetcher: &stubNodeFetcher{},
 		},
+		ConfigurationManager: &dummyConfigManager{},
 	}
 	type args struct {
 		pluginName string

@@ -23,7 +23,6 @@ const (
 
 type PowerAwarePluginConfiguration struct {
 	DryRun                           bool
-	DisablePowerCapping              bool
 	DisablePowerPressureEvict        bool
 	PowerCappingAdvisorSocketAbsPath string
 	AnnotationKeyPrefix              string

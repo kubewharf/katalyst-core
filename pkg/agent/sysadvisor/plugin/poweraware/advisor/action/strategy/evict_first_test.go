@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -49,12 +50,13 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 	mockPorberFalse.On("HasEvictablePods").Return(false)
 
 	type fields struct {
-		coefficient     exponentialDecay
-		evictableProber EvictableProber
-		dvfsUsed        int
-		effectCurrent   bool
-		prevPower       int
-		inDVFS          bool
+		coefficient         exponentialDecay
+		evictableProber     EvictableProber
+		dvfsUsed            int
+		effectCurrent       bool
+		prevPower           int
+		inDVFS              bool
+		powerCapperDisabled bool
 	}
 	type args struct {
 		actualWatt  int
@@ -169,7 +171,7 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 			wantInDVFS: true,
 		},
 		{
-			name: "if no evictable and there is partial room, go for constrint dvfs",
+			name: "if no evictable and there is partial room, go for constraint dvfs",
 			fields: fields{
 				evictableProber: mockPorberFalse,
 				dvfsUsed:        8,
@@ -224,11 +226,36 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 			},
 			wantInDVFS: true,
 		},
+		{
+			name: "if no evictable. power capper disabled, noop",
+			fields: fields{
+				evictableProber:     mockPorberFalse,
+				dvfsUsed:            0,
+				effectCurrent:       true,
+				powerCapperDisabled: true,
+			},
+			args: args{
+				actualWatt:  100,
+				desiredWatt: 95,
+				alert:       spec.PowerAlertP0,
+			},
+			want: action.PowerAction{
+				Op:  spec.InternalOpNoop,
+				Arg: 0,
+			},
+			wantInDVFS: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			dynConf := dynamic.NewDynamicAgentConfiguration()
+			conf := dynConf.GetDynamicConfiguration()
+			conf.DisablePowerCapping = tt.fields.powerCapperDisabled
+			dynConf.SetDynamicConfiguration(conf)
+
 			e := &evictFirstStrategy{
 				emitter:         &metrics.DummyMetrics{},
 				coefficient:     tt.fields.coefficient,
@@ -237,6 +264,7 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 					dvfsAccumEffect: tt.fields.dvfsUsed,
 					isEffectCurrent: tt.fields.effectCurrent,
 					assessor:        assess.NewPowerChangeAssessor(tt.fields.dvfsUsed, 0),
+					conf:            dynConf,
 				},
 				metricsReader: nil,
 			}

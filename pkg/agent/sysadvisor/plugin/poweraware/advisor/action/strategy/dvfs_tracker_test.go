@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
 type mockCapperProber struct {
@@ -34,11 +35,98 @@ func (m *mockCapperProber) IsCapperReady() bool {
 	return args.Bool(0)
 }
 
+func Test_dvfsTracker_isCapperAvailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		disablePowerCapping bool
+		capperProber        CapperProber
+		want                bool
+	}{
+		{
+			name:                "capper disabled by dynamic config",
+			disablePowerCapping: true,
+			capperProber:        new(mockCapperProber),
+			want:                false,
+		},
+		{
+			name:                "capper enabled but prober is nil",
+			disablePowerCapping: false,
+			capperProber:        nil,
+			want:                false,
+		},
+		{
+			name:                "capper enabled and prober ready",
+			disablePowerCapping: false,
+			capperProber: func() CapperProber {
+				m := new(mockCapperProber)
+				m.On("IsCapperReady").Return(true)
+				return m
+			}(),
+			want: true,
+		},
+		{
+			name:                "capper enabled but prober not ready",
+			disablePowerCapping: false,
+			capperProber: func() CapperProber {
+				m := new(mockCapperProber)
+				m.On("IsCapperReady").Return(false)
+				return m
+			}(),
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dynConf := dynamic.NewDynamicAgentConfiguration()
+			c := dynConf.GetDynamicConfiguration()
+			c.DisablePowerCapping = tt.disablePowerCapping
+			dynConf.SetDynamicConfiguration(c)
+			d := &dvfsTracker{
+				capperProber: tt.capperProber,
+				conf:         dynConf,
+			}
+			assert.Equal(t, tt.want, d.isCapperAvailable())
+		})
+	}
+}
+
+func Test_dvfsTracker_updateTrackedEffect_capperUnavailable(t *testing.T) {
+	t.Parallel()
+
+	mockProber := new(mockCapperProber)
+	mockProber.On("IsCapperReady").Return(true)
+	dynConf := dynamic.NewDynamicAgentConfiguration()
+	c := dynConf.GetDynamicConfiguration()
+	c.DisablePowerCapping = true
+	dynConf.SetDynamicConfiguration(c)
+
+	d := &dvfsTracker{
+		capperProber:    mockProber,
+		dvfsAccumEffect: 15,
+		inDVFS:          true,
+		isEffectCurrent: true,
+		assessor:        assess.NewPowerChangeAssessor(15, 100),
+		conf:            dynConf,
+	}
+	d.updateTrackedEffect(90)
+	assert.Equal(t, 0, d.dvfsAccumEffect)
+	assert.True(t, d.isEffectCurrent)
+	assert.False(t, d.inDVFS)
+}
+
 func Test_dvfsTracker_update(t *testing.T) {
 	t.Parallel()
 
 	mockProber := new(mockCapperProber)
 	mockProber.On("IsCapperReady").Return(true)
+	dynConf := dynamic.NewDynamicAgentConfiguration()
+	c := dynConf.GetDynamicConfiguration()
+	c.DisablePowerCapping = false
+	dynConf.SetDynamicConfiguration(c)
 
 	type fields struct {
 		dvfsUsed  int
@@ -72,6 +160,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				isEffectCurrent: true,
 				inDVFS:          false,
 				assessor:        assess.NewPowerChangeAssessor(3, 90),
+				conf:            dynConf,
 			},
 		},
 		{
@@ -91,6 +180,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				isEffectCurrent: true,
 				inDVFS:          true,
 				assessor:        assess.NewPowerChangeAssessor(13, 90),
+				conf:            dynConf,
 			},
 		},
 		{
@@ -110,6 +200,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				isEffectCurrent: true,
 				inDVFS:          true,
 				assessor:        assess.NewPowerChangeAssessor(3, 101),
+				conf:            dynConf,
 			},
 		},
 	}
@@ -122,6 +213,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				dvfsAccumEffect: tt.fields.dvfsUsed,
 				inDVFS:          tt.fields.indvfs,
 				assessor:        assess.NewPowerChangeAssessor(3, tt.fields.prevPower),
+				conf:            dynConf,
 			}
 			d.update(tt.args.actualWatt)
 			assert.Equal(t, &tt.wantDVFSTracker, d)

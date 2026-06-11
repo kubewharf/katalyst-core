@@ -23,6 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -65,6 +66,10 @@ func (e *evictFirstStrategy) OnDVFSReset() {
 }
 
 func (e *evictFirstStrategy) allowVoluntaryFreqCap() bool {
+	if e.dvfsTracker.isCapperDisabled() {
+		return false
+	}
+
 	if e.metricsReader != nil {
 		if cpuUsage, err := e.metricsReader.GetNodeMetric(consts.MetricCPUUsageRatio); err == nil {
 			general.InfofV(6, "pap: cpu usage %v", cpuUsage.Value)
@@ -163,6 +168,7 @@ func (e *evictFirstStrategy) emitDVFSAccumulatedEffect(percentage int) {
 
 func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber,
 	metricsReader metrictypes.MetricsReader, capper capper.PowerCapper, assessor assess.Assessor,
+	conf *dynamic.DynamicAgentConfiguration,
 ) PowerActionStrategy {
 	general.Infof("pap: using EvictFirst strategy")
 	capperProber, _ := capper.(CapperProber)
@@ -175,6 +181,7 @@ func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber
 			isEffectCurrent: true,
 			capperProber:    capperProber,
 			assessor:        assessor,
+			conf:            conf,
 		},
 		metricsReader: metricsReader,
 	}
