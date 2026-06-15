@@ -295,6 +295,41 @@ func Test_getCPI(t *testing.T) {
 	assert.Equal(t, float64(1), data.Value)
 }
 
+func Test_processContainerCPUDataStoresSleepingTasks(t *testing.T) {
+	t.Parallel()
+
+	store := utilmetric.NewMetricStore()
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
+		ReclaimRelativeRootCgroupPath: "test",
+		MalachiteConfiguration:        &global.MalachiteConfiguration{},
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
+		&machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		})
+
+	fakeCgroupInfoV1 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V1",
+		V1: &malachitetypes.MalachiteCgroupV1Info{
+			Cpu: &malachitetypes.CPUCgDataV1{
+				TaskNrRunning:         5,
+				TaskNrUninterruptible: 4,
+				TaskNrIoWait:          3,
+				TaskNrSleeping:        2,
+				UpdateTime:            1,
+			},
+		},
+	}
+
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("podUID", "containerName", fakeCgroupInfoV1)
+
+	data, err := store.GetContainerMetric("podUID", "containerName", consts.MetricCPUNrSleepingContainer)
+	assert.NoError(t, err)
+	assert.Equal(t, 2.0, data.Value)
+}
+
 func Test_setContainerMbmTotalMetric(t *testing.T) {
 	t.Parallel()
 

@@ -1101,6 +1101,8 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
 			utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrSleepingContainer,
+			utilmetric.MetricData{Value: float64(cpu.TaskNrSleeping), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
 			utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
@@ -1213,6 +1215,8 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 				utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
 			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
 				utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrSleepingContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrSleeping), Time: &updateTime})
 			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
 				utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
 			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer,

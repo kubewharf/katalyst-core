@@ -32,6 +32,9 @@ type CPUPressureEvictionConfiguration struct {
 	EnableSuppressionEviction               bool
 	MaxSuppressionToleranceRate             float64
 	MinSuppressionToleranceDuration         time.Duration
+	EnablePIDOveruseEviction                bool
+	PIDOveruseThreshold                     int64
+	PIDOveruseGracePeriod                   int64
 	GracePeriod                             int64
 	NumaCPUPressureEvictionConfiguration    NumaCPUPressureEvictionConfiguration
 	NumaSysCPUPressureEvictionConfiguration NumaSysCPUPressureEvictionConfiguration
@@ -45,47 +48,62 @@ func NewCPUPressureEvictionConfiguration() *CPUPressureEvictionConfiguration {
 }
 
 func (c *CPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
-	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
-		aqc.Spec.Config.EvictionConfig != nil && aqc.Spec.Config.EvictionConfig.CPUPressureEvictionConfig != nil {
-		config := aqc.Spec.Config.EvictionConfig.CPUPressureEvictionConfig
-		if config.EnableLoadEviction != nil {
-			c.EnableLoadEviction = *config.EnableLoadEviction
+	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.EvictionConfig != nil {
+		evictionConfig := aqc.Spec.Config.EvictionConfig
+		if config := evictionConfig.CPUPressureEvictionConfig; config != nil {
+			if config.EnableLoadEviction != nil {
+				c.EnableLoadEviction = *config.EnableLoadEviction
+			}
+
+			if config.LoadUpperBoundRatio != nil {
+				c.LoadUpperBoundRatio = *config.LoadUpperBoundRatio
+			}
+
+			if config.LoadLowerBoundRatio != nil {
+				c.LoadLowerBoundRatio = *config.LoadLowerBoundRatio
+			}
+
+			if config.LoadThresholdMetPercentage != nil {
+				c.LoadThresholdMetPercentage = *config.LoadThresholdMetPercentage
+			}
+
+			if config.LoadMetricRingSize != nil {
+				c.LoadMetricRingSize = *config.LoadMetricRingSize
+			}
+
+			if config.LoadEvictionCoolDownTime != nil {
+				c.LoadEvictionCoolDownTime = config.LoadEvictionCoolDownTime.Duration
+			}
+
+			if config.EnableSuppressionEviction != nil {
+				c.EnableSuppressionEviction = *config.EnableSuppressionEviction
+			}
+
+			if config.MaxSuppressionToleranceRate != nil {
+				c.MaxSuppressionToleranceRate = *config.MaxSuppressionToleranceRate
+			}
+
+			if config.MinSuppressionToleranceDuration != nil {
+				c.MinSuppressionToleranceDuration = config.MinSuppressionToleranceDuration.Duration
+			}
+
+			if config.GracePeriod != nil {
+				c.GracePeriod = *config.GracePeriod
+			}
 		}
 
-		if config.LoadUpperBoundRatio != nil {
-			c.LoadUpperBoundRatio = *config.LoadUpperBoundRatio
-		}
+		if config := evictionConfig.PIDOveruseEvictionConfig; config != nil {
+			if config.EnablePIDOveruseEviction != nil {
+				c.EnablePIDOveruseEviction = *config.EnablePIDOveruseEviction
+			}
 
-		if config.LoadLowerBoundRatio != nil {
-			c.LoadLowerBoundRatio = *config.LoadLowerBoundRatio
-		}
+			if config.PIDOveruseThreshold != nil {
+				c.PIDOveruseThreshold = *config.PIDOveruseThreshold
+			}
 
-		if config.LoadThresholdMetPercentage != nil {
-			c.LoadThresholdMetPercentage = *config.LoadThresholdMetPercentage
-		}
-
-		if config.LoadMetricRingSize != nil {
-			c.LoadMetricRingSize = *config.LoadMetricRingSize
-		}
-
-		if config.LoadEvictionCoolDownTime != nil {
-			c.LoadEvictionCoolDownTime = config.LoadEvictionCoolDownTime.Duration
-		}
-
-		if config.EnableSuppressionEviction != nil {
-			c.EnableSuppressionEviction = *config.EnableSuppressionEviction
-		}
-
-		if config.MaxSuppressionToleranceRate != nil {
-			c.MaxSuppressionToleranceRate = *config.MaxSuppressionToleranceRate
-		}
-
-		if config.MinSuppressionToleranceDuration != nil {
-			c.MinSuppressionToleranceDuration = config.MinSuppressionToleranceDuration.Duration
-		}
-
-		if config.GracePeriod != nil {
-			c.GracePeriod = *config.GracePeriod
+			if config.GracePeriod != nil {
+				c.PIDOveruseGracePeriod = *config.GracePeriod
+			}
 		}
 	}
 

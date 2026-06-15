@@ -25,30 +25,36 @@ import (
 )
 
 const (
-	defaultEnableLoadEviction              = false
-	defaultLoadUpperBoundRatio             = 1.8
-	defaultLoadLowerBoundRatio             = 1.0
-	defaultLoadThresholdMetPercentage      = 0.8
-	defaultLoadMetricSize                  = 10
-	defaultLoadEvictionCoolDownTime        = 300 * time.Second
-	defaultEnableSuppressionEviction       = false
-	defaultMaxSuppressionToleranceRate     = 5
-	defaultMinSuppressionToleranceDuration = 300 * time.Second
-	defaultGracePeriod                     = -1
+	defaultEnableLoadEviction                    = false
+	defaultLoadUpperBoundRatio                   = 1.8
+	defaultLoadLowerBoundRatio                   = 1.0
+	defaultLoadThresholdMetPercentage            = 0.8
+	defaultLoadMetricSize                        = 10
+	defaultLoadEvictionCoolDownTime              = 300 * time.Second
+	defaultEnableSuppressionEviction             = false
+	defaultMaxSuppressionToleranceRate           = 5
+	defaultMinSuppressionToleranceDuration       = 300 * time.Second
+	defaultEnablePIDOveruseEviction              = false
+	defaultPIDOveruseThreshold             int64 = 0
+	defaultGracePeriod                           = -1
 )
 
 // CPUPressureEvictionOptions is the options of cpu pressure eviction
 type CPUPressureEvictionOptions struct {
-	EnableLoadEviction                bool
-	LoadUpperBoundRatio               float64
-	LoadLowerBoundRatio               float64
-	LoadThresholdMetPercentage        float64
-	LoadMetricRingSize                int
-	LoadEvictionCoolDownTime          time.Duration
-	EnableSuppressionEviction         bool
-	MaxSuppressionToleranceRate       float64
-	MinSuppressionToleranceDuration   time.Duration
-	GracePeriod                       int64
+	EnableLoadEviction              bool
+	LoadUpperBoundRatio             float64
+	LoadLowerBoundRatio             float64
+	LoadThresholdMetPercentage      float64
+	LoadMetricRingSize              int
+	LoadEvictionCoolDownTime        time.Duration
+	EnableSuppressionEviction       bool
+	MaxSuppressionToleranceRate     float64
+	MinSuppressionToleranceDuration time.Duration
+	EnablePIDOveruseEviction        bool
+	PIDOveruseThreshold             int64
+	PIDOveruseGracePeriod           int64
+	GracePeriod                     int64
+
 	NumaCPUPressureEvictionOptions    NumaCPUPressureEvictionOptions
 	NumaSysCPUPressureEvictionOptions NumaSysCPUPressureEvictionOptions
 }
@@ -65,6 +71,9 @@ func NewCPUPressureEvictionOptions() *CPUPressureEvictionOptions {
 		EnableSuppressionEviction:         defaultEnableSuppressionEviction,
 		MaxSuppressionToleranceRate:       defaultMaxSuppressionToleranceRate,
 		MinSuppressionToleranceDuration:   defaultMinSuppressionToleranceDuration,
+		EnablePIDOveruseEviction:          defaultEnablePIDOveruseEviction,
+		PIDOveruseThreshold:               defaultPIDOveruseThreshold,
+		PIDOveruseGracePeriod:             defaultGracePeriod,
 		GracePeriod:                       defaultGracePeriod,
 		NumaCPUPressureEvictionOptions:    NewNumaCPUPressureEvictionOptions(),
 		NumaSysCPUPressureEvictionOptions: NewNumaSysCPUPressureEvictionOptions(),
@@ -97,6 +106,12 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the maximum cpu suppression tolerance rate that can be set by the pod")
 	fs.DurationVar(&o.MinSuppressionToleranceDuration, "eviction-suppression-min-tolerance-duration", o.MinSuppressionToleranceDuration,
 		"the minimum duration a pod can tolerate cpu suppression")
+	fs.BoolVar(&o.EnablePIDOveruseEviction, "eviction-pid-overuse-enable", o.EnablePIDOveruseEviction,
+		"set true to enable pod-level pid overuse eviction")
+	fs.Int64Var(&o.PIDOveruseThreshold, "eviction-pid-overuse-threshold", o.PIDOveruseThreshold,
+		"the pod-level pid threshold aggregated from pod spec containers")
+	fs.Int64Var(&o.PIDOveruseGracePeriod, "eviction-pid-overuse-grace-period", o.PIDOveruseGracePeriod,
+		"the grace period of pod-level pid overuse eviction")
 	fs.Int64Var(&o.GracePeriod, "eviction-cpu-grace-period", o.GracePeriod,
 		"the ratio between the times metric value over the bound value and the metric ring size is greater than this percentage "+
 			", the eviction or node taint will be triggered")
@@ -114,6 +129,9 @@ func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConf
 	c.EnableSuppressionEviction = o.EnableSuppressionEviction
 	c.MaxSuppressionToleranceRate = o.MaxSuppressionToleranceRate
 	c.MinSuppressionToleranceDuration = o.MinSuppressionToleranceDuration
+	c.EnablePIDOveruseEviction = o.EnablePIDOveruseEviction
+	c.PIDOveruseThreshold = o.PIDOveruseThreshold
+	c.PIDOveruseGracePeriod = o.PIDOveruseGracePeriod
 	c.GracePeriod = o.GracePeriod
 
 	if err := o.NumaCPUPressureEvictionOptions.ApplyTo(&c.NumaCPUPressureEvictionConfiguration); err != nil {

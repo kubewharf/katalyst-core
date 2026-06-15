@@ -154,6 +154,7 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	innerEvictionPluginInitializers[network.EvictionPluginNameNetwork] = network.NewNICEvictionPlugin
 	innerEvictionPluginInitializers[rootfs.EvictionPluginNamePodRootfsOveruse] = rootfs.NewPodRootfsOveruseEvictionPlugin
 	innerEvictionPluginInitializers[cpu.EvictionPluginNameSystemCPUPressure] = cpu.NewCPUSystemPressureEvictionPlugin
+	innerEvictionPluginInitializers[cpu.EvictionPluginNamePIDOveruse] = cpu.NewPIDOveruseEvictionPlugin
 	return innerEvictionPluginInitializers
 }
 

@@ -72,10 +72,11 @@ var MetricsMap = map[string]map[string]string{
 		"cgmem_total_cache": consts.MetricMemCacheContainer,
 	},
 	ContainerLoadPath: {
-		"loadavg_nrrunning": consts.MetricCPUNrRunnableContainer,
-		"loadavg_loadavg1":  consts.MetricLoad1MinContainer,
-		"loadavg_loadavg5":  consts.MetricLoad5MinContainer,
-		"loadavg_loadavg15": consts.MetricLoad15MinContainer,
+		"loadavg_nrrunning":  consts.MetricCPUNrRunnableContainer,
+		"loadavg_nrsleeping": consts.MetricCPUNrSleepingContainer,
+		"loadavg_loadavg1":   consts.MetricLoad1MinContainer,
+		"loadavg_loadavg5":   consts.MetricLoad5MinContainer,
+		"loadavg_loadavg15":  consts.MetricLoad15MinContainer,
 	},
 	ContainerNumaStatPath: {
 		"filepage": consts.MetricsMemFilePerNumaContainer,
