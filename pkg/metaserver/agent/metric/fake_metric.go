@@ -103,7 +103,11 @@ func (f *FakeMetricsFetcher) GetNumaMetric(numaID int, metricName string) (metri
 }
 
 func (f *FakeMetricsFetcher) GetNetworkMetric(networkName string, metricName string) (metric.MetricData, error) {
-	return f.checkMetricDataExpire(f.metricStore.GetDeviceMetric(networkName, metricName))
+	return f.checkMetricDataExpire(f.metricStore.GetNetworkMetric(networkName, metricName))
+}
+
+func (f *FakeMetricsFetcher) GetNSNetworkMetric(netns, networkName string, metricName string) (metric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetNSNetworkMetric(netns, networkName, metricName))
 }
 
 func (f *FakeMetricsFetcher) GetDeviceMetric(deviceName string, metricName string) (metric.MetricData, error) {
@@ -155,6 +159,14 @@ func (f *FakeMetricsFetcher) SetByStringIndex(metricName string, metricMap inter
 
 func (f *FakeMetricsFetcher) SetDeviceMetric(deviceName string, metricName string, data metric.MetricData) {
 	f.metricStore.SetDeviceMetric(deviceName, metricName, data)
+}
+
+func (f *FakeMetricsFetcher) SetNetworkMetric(networkName string, metricName string, data metric.MetricData) {
+	f.metricStore.SetNetworkMetric(networkName, metricName, data)
+}
+
+func (f *FakeMetricsFetcher) SetNSNetworkMetric(netns, networkName string, metricName string, data metric.MetricData) {
+	f.metricStore.SetNSNetworkMetric(netns, networkName, metricName, data)
 }
 
 func (f *FakeMetricsFetcher) SetContainerMetric(podUID, containerName, metricName string, data metric.MetricData) {

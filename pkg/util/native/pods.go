@@ -28,6 +28,8 @@ import (
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	kubelettypes "k8s.io/kubernetes/pkg/kubelet/types"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
@@ -58,6 +60,41 @@ func PodAnnotationFilter(pod *v1.Pod, key, value string) bool {
 	}
 
 	return pod.Annotations[key] == value
+}
+
+func getPodSaleModeAnnotationKey(annotationKey string) string {
+	if annotationKey == "" {
+		return apiconsts.PodAnnotationSaleModeKey
+	}
+	return annotationKey
+}
+
+// GetPodSaleMode returns the normalized sale mode of the given pod.
+func GetPodSaleMode(pod *v1.Pod, annotationKey string) string {
+	if pod == nil || pod.Annotations == nil {
+		return apiconsts.PodSaleModeDefault
+	}
+
+	switch pod.Annotations[getPodSaleModeAnnotationKey(annotationKey)] {
+	case apiconsts.PodSaleModeSpot:
+		return apiconsts.PodSaleModeSpot
+	case apiconsts.PodSaleModeScheduled:
+		return apiconsts.PodSaleModeScheduled
+	case apiconsts.PodSaleModeReserved:
+		return apiconsts.PodSaleModeReserved
+	default:
+		return apiconsts.PodSaleModeDefault
+	}
+}
+
+// GetPodSaleModePriority returns the fixed sale mode order used by eviction.
+func GetPodSaleModePriority() map[string]int32 {
+	return map[string]int32{
+		apiconsts.PodSaleModeSpot:      0,
+		apiconsts.PodSaleModeScheduled: 1,
+		apiconsts.PodSaleModeReserved:  2,
+		apiconsts.PodSaleModeDefault:   3,
+	}
 }
 
 // FilterPods filter pods that filter func return true.

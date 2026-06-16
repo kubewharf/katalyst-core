@@ -25,18 +25,18 @@ import (
 )
 
 const (
-	defaultEnableLoadEviction                    = false
-	defaultLoadUpperBoundRatio                   = 1.8
-	defaultLoadLowerBoundRatio                   = 1.0
-	defaultLoadThresholdMetPercentage            = 0.8
-	defaultLoadMetricSize                        = 10
-	defaultLoadEvictionCoolDownTime              = 300 * time.Second
-	defaultEnableSuppressionEviction             = false
-	defaultMaxSuppressionToleranceRate           = 5
-	defaultMinSuppressionToleranceDuration       = 300 * time.Second
-	defaultEnablePIDOveruseEviction              = false
-	defaultPIDOveruseThreshold             int64 = 0
-	defaultGracePeriod                           = -1
+	defaultEnableLoadEviction              = false
+	defaultLoadUpperBoundRatio             = 1.8
+	defaultLoadLowerBoundRatio             = 1.0
+	defaultLoadThresholdMetPercentage      = 0.8
+	defaultLoadMetricSize                  = 10
+	defaultLoadEvictionCoolDownTime        = 300 * time.Second
+	defaultEnableSuppressionEviction       = false
+	defaultMaxSuppressionToleranceRate     = 5
+	defaultMinSuppressionToleranceDuration = 300 * time.Second
+	defaultEnablePIDOveruseEviction        = false
+	defaultPIDOveruseThreshold             = 4000
+	defaultGracePeriod                     = -1
 )
 
 // CPUPressureEvictionOptions is the options of cpu pressure eviction

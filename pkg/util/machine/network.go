@@ -244,3 +244,28 @@ func GetInterfaceAddr(iface net.Interface) (*IfaceAddr, error) {
 func IsContainerNetNS(netnsName string) bool {
 	return strings.HasPrefix(netnsName, ContainerNetNSPrefix)
 }
+
+func FormatNICIdentifier(netns, nic string) string {
+	if netns != DefaultNICNamespace {
+		return fmt.Sprintf("%s-%s", netns, nic)
+	}
+
+	return nic
+}
+
+func ParseNICIdentifier(identifier string) (string, string, bool) {
+	if identifier == "" {
+		return "", "", false
+	}
+
+	if !strings.Contains(identifier, "-") {
+		return DefaultNICNamespace, identifier, true
+	}
+
+	index := strings.LastIndex(identifier, "-")
+	if index <= 0 || index >= len(identifier)-1 {
+		return "", "", false
+	}
+
+	return identifier[:index], identifier[index+1:], true
+}

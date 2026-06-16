@@ -465,102 +465,108 @@ func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachit
 	}
 }
 
-func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malachitetypes.SystemNetworkData) {
-	if systemNetData == nil {
+func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData []malachitetypes.SystemNetworkData) {
+	if len(systemNetData) == 0 {
 		return
 	}
 
-	// todo, currently we only get a unified data for the whole system io data
-	updateTime := time.Unix(systemNetData.UpdateTime, 0)
-
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpDelayedAcks,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPDelayAcks), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpOverflows,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPListenOverflows), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpDrops,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPListenDrops), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpAbort,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPAbortOnMemory), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpDrop,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPReqQFullDrop), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpRetran,
-		utilmetric.MetricData{Value: systemNetData.TCP.TCPRetran, Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpRetranSegs,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPRetransSegs), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpRecvPackets,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPOutSegs), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetTcpCloseWait,
-		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPCloseWait), Time: &updateTime})
-	m.metricStore.SetNodeMetric(consts.MetricNetUpdateTime,
-		utilmetric.MetricData{Value: float64(systemNetData.UpdateTime), Time: &updateTime})
-
-	for _, device := range systemNetData.NetworkCard {
-		// for now, we will only consider standard network interface
-		// todo, may need to use configurations in the future to filter
-		if !strings.HasPrefix(device.Name, "eth") {
-			continue
+	var defaultNetData *malachitetypes.SystemNetworkData
+	for i := range systemNetData {
+		if systemNetData[i].NetNS == machine.DefaultNICNamespace {
+			defaultNetData = &systemNetData[i]
+			break
 		}
+	}
 
-		errs := []error{}
-		// setNetworkRateMetric will use metricStore.GetNetworkMetric to get previous round metric,
-		// we should call setNetworkRateMetric before calling SetNetworkMetric
-		errs = append(errs, m.setNetworkRateMetric(device.Name, consts.MetricNetTransmitBPS,
-			consts.MetricNetTransmitBytes, float64(device.TransmitBytes), &updateTime))
-		errs = append(errs, m.setNetworkRateMetric(device.Name, consts.MetricNetReceiveBPS,
-			consts.MetricNetReceiveBytes, float64(device.ReceiveBytes), &updateTime))
+	if defaultNetData == nil {
+		klog.Warningf("[malachite] skip node tcp metrics because default network namespace data is missing")
+	} else {
+		updateTime := time.Unix(defaultNetData.UpdateTime, 0)
 
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveBytes,
-			utilmetric.MetricData{Value: float64(device.ReceiveBytes), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceivePackets,
-			utilmetric.MetricData{Value: float64(device.ReceivePackets), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveErrs,
-			utilmetric.MetricData{Value: float64(device.ReceiveErrs), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveDrops,
-			utilmetric.MetricData{Value: float64(device.ReceiveDrop), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveFIFO,
-			utilmetric.MetricData{Value: float64(device.ReceiveFifo), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveFrame,
-			utilmetric.MetricData{Value: float64(device.ReceiveFrame), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveCompressed,
-			utilmetric.MetricData{Value: float64(device.ReceiveCompressed), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitMulticast,
-			utilmetric.MetricData{Value: float64(device.ReceiveMulticast), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitBytes,
-			utilmetric.MetricData{Value: float64(device.TransmitBytes), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitPackets,
-			utilmetric.MetricData{Value: float64(device.TransmitPackets), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitErrs,
-			utilmetric.MetricData{Value: float64(device.TransmitErrs), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitDrops,
-			utilmetric.MetricData{Value: float64(device.TransmitDrop), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitFIFO,
-			utilmetric.MetricData{Value: float64(device.TransmitFifo), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitColls,
-			utilmetric.MetricData{Value: float64(device.TransmitColls), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitCarrier,
-			utilmetric.MetricData{Value: float64(device.TransmitCarrier), Time: &updateTime})
-		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitCompressed,
-			utilmetric.MetricData{Value: float64(device.TransmitCompressed), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpDelayedAcks,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPDelayAcks), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpOverflows,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPListenOverflows), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpDrops,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPListenDrops), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpAbort,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPAbortOnMemory), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpDrop,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPReqQFullDrop), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpRetran,
+			utilmetric.MetricData{Value: defaultNetData.TCP.TCPRetran, Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpRetranSegs,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPRetransSegs), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpRecvPackets,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPOutSegs), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetTcpCloseWait,
+			utilmetric.MetricData{Value: float64(defaultNetData.TCP.TCPCloseWait), Time: &updateTime})
+		m.metricStore.SetNodeMetric(consts.MetricNetUpdateTime,
+			utilmetric.MetricData{Value: float64(defaultNetData.UpdateTime), Time: &updateTime})
+	}
 
-		if device.Speeds != nil {
-			m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetSpeed,
-				utilmetric.MetricData{Value: float64(*device.Speeds), Time: &updateTime})
-		}
+	for _, netData := range systemNetData {
+		updateTime := time.Unix(netData.UpdateTime, 0)
+		for _, device := range netData.NetworkCard {
+			if !m.shouldStoreNetworkMetricDevice(netData.NetNS, device.Name) {
+				continue
+			}
 
-		aggErrs := errors.NewAggregate(errs)
+			errs := []error{}
+			// setNetworkRateMetric will use metricStore.GetNSNetworkMetric to get previous round metric,
+			// we should call setNetworkRateMetric before calling SetNSNetworkMetric
+			errs = append(errs, m.setNetworkRateMetric(netData.NetNS, device.Name, consts.MetricNetTransmitBPS,
+				consts.MetricNetTransmitBytes, float64(device.TransmitBytes), &updateTime))
+			errs = append(errs, m.setNetworkRateMetric(netData.NetNS, device.Name, consts.MetricNetReceiveBPS,
+				consts.MetricNetReceiveBytes, float64(device.ReceiveBytes), &updateTime))
 
-		if aggErrs != nil {
-			general.Warningf("set network metrics for: %s got errors: %s", device.Name, aggErrs.Error())
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceiveBytes,
+				utilmetric.MetricData{Value: float64(device.ReceiveBytes), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceivePackets,
+				utilmetric.MetricData{Value: float64(device.ReceivePackets), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceiveErrs,
+				utilmetric.MetricData{Value: float64(device.ReceiveErrs), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceiveDrops,
+				utilmetric.MetricData{Value: float64(device.ReceiveDrop), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceiveFIFO,
+				utilmetric.MetricData{Value: float64(device.ReceiveFifo), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceiveFrame,
+				utilmetric.MetricData{Value: float64(device.ReceiveFrame), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetReceiveCompressed,
+				utilmetric.MetricData{Value: float64(device.ReceiveCompressed), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitMulticast,
+				utilmetric.MetricData{Value: float64(device.ReceiveMulticast), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitBytes,
+				utilmetric.MetricData{Value: float64(device.TransmitBytes), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitPackets,
+				utilmetric.MetricData{Value: float64(device.TransmitPackets), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitErrs,
+				utilmetric.MetricData{Value: float64(device.TransmitErrs), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitDrops,
+				utilmetric.MetricData{Value: float64(device.TransmitDrop), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitFIFO,
+				utilmetric.MetricData{Value: float64(device.TransmitFifo), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitColls,
+				utilmetric.MetricData{Value: float64(device.TransmitColls), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitCarrier,
+				utilmetric.MetricData{Value: float64(device.TransmitCarrier), Time: &updateTime})
+			m.metricStore.SetNSNetworkMetric(netData.NetNS, device.Name, consts.MetricNetTransmitCompressed,
+				utilmetric.MetricData{Value: float64(device.TransmitCompressed), Time: &updateTime})
+
+			aggErrs := errors.NewAggregate(errs)
+			if aggErrs != nil {
+				general.Warningf("set network metrics for: %s got errors: %s", machine.FormatNICIdentifier(netData.NetNS, device.Name), aggErrs.Error())
+			}
 		}
 	}
 }
 
-func (m *MalachiteMetricsProvisioner) setNetworkRateMetric(deviceName,
+func (m *MalachiteMetricsProvisioner) setNetworkRateMetric(netns, deviceName,
 	rateMetricName, valueMetricName string,
 	curValue float64,
 	curUpdateTime *time.Time,
 ) error {
-	lastMetric, err := m.metricStore.GetNetworkMetric(deviceName, valueMetricName)
+	lastMetric, err := m.metricStore.GetNSNetworkMetric(netns, deviceName, valueMetricName)
 	if err != nil {
 		return fmt.Errorf("get value metric: %s for %s failed with err: %v",
 			valueMetricName, rateMetricName, err)
@@ -580,7 +586,7 @@ func (m *MalachiteMetricsProvisioner) setNetworkRateMetric(deviceName,
 	}
 
 	if (curValue > lastValue) && (curValue != 0) && (lastValue != 0) {
-		m.metricStore.SetNetworkMetric(deviceName, rateMetricName,
+		m.metricStore.SetNSNetworkMetric(netns, deviceName, rateMetricName,
 			utilmetric.MetricData{Value: (curValue - lastValue) / timeDeltaInSec, Time: curUpdateTime})
 	} else {
 		return fmt.Errorf("invalid curValue: %.2f, lastValue: %.2f for rateMetricName: %s",
@@ -588,6 +594,32 @@ func (m *MalachiteMetricsProvisioner) setNetworkRateMetric(deviceName,
 	}
 
 	return nil
+}
+
+func isNetworkMetricDevice(deviceName string) bool {
+	if deviceName == "" {
+		return false
+	}
+
+	return strings.HasPrefix(deviceName, "eth") || strings.HasPrefix(deviceName, "bond")
+}
+
+func (m *MalachiteMetricsProvisioner) shouldStoreNetworkMetricDevice(netns, deviceName string) bool {
+	if !isNetworkMetricDevice(deviceName) {
+		return false
+	}
+	if m == nil || m.baseConf == nil || m.baseConf.MachineInfoConfiguration == nil {
+		return true
+	}
+
+	// all_netns can return many namespaces; store only those enabled by machine config.
+	if netns == machine.DefaultNICNamespace {
+		return true
+	}
+	if !m.baseConf.NetMultipleNS {
+		return false
+	}
+	return general.IsNameEnabled(netns, nil, m.baseConf.NetAllocatableNS)
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemNumaData(systemMemoryData *malachitetypes.SystemMemoryData, systemComputeData *malachitetypes.SystemComputeData) {

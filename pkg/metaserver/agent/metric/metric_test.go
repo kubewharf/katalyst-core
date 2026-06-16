@@ -159,6 +159,28 @@ func Test_notifySystem(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
+func TestMetricsFetcher_GetNSNetworkMetric(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	conf := generateTestConfiguration(t)
+	f := NewMetricsFetcher(conf.BaseConfiguration, conf.MetricConfiguration,
+		metrics.DummyMetrics{}, &pod.PodFetcherStub{}, &machine.KatalystMachineInfo{}).(*MetricsFetcherImpl)
+	f.metricStore.SetNetworkMetric("eth0", "test-net-metric", metric.MetricData{Value: 1, Time: &now})
+	f.metricStore.SetNSNetworkMetric("ns1", "eth0", "test-net-metric", metric.MetricData{Value: 2, Time: &now})
+
+	data, err := f.GetNetworkMetric("eth0", "test-net-metric")
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), data.Value)
+
+	data, err = f.GetNSNetworkMetric("ns1", "eth0", "test-net-metric")
+	require.NoError(t, err)
+	assert.Equal(t, float64(2), data.Value)
+
+	_, err = f.GetNSNetworkMetric("ns2", "eth0", "test-net-metric")
+	assert.Error(t, err)
+}
+
 func TestStore_Aggregate(t *testing.T) {
 	t.Parallel()
 

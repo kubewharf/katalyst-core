@@ -27,6 +27,7 @@ import (
 	v1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	katalystconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // helper to extract topology allocation from annotations JSON
@@ -131,6 +132,40 @@ func TestGetNetworkTopologyAllocationsAnnotations(t *testing.T) {
 				if !reflect.DeepEqual(ta, tt.wantTopology) {
 					t.Fatalf("unexpected topology allocation. got=%v, want=%v", ta, tt.wantTopology)
 				}
+			}
+		})
+	}
+}
+
+func TestGetResourceIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		ifaceNS   string
+		ifaceName string
+		want      string
+	}{
+		{
+			name:      "default namespace keeps nic name",
+			ifaceNS:   "",
+			ifaceName: "eth0",
+			want:      "eth0",
+		},
+		{
+			name:      "named namespace prefixes nic name",
+			ifaceNS:   "ns1",
+			ifaceName: "eth0",
+			want:      "ns1-eth0",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := machine.FormatNICIdentifier(tt.ifaceNS, tt.ifaceName); got != tt.want {
+				t.Fatalf("unexpected resource identifier, got=%q want=%q", got, tt.want)
 			}
 		})
 	}

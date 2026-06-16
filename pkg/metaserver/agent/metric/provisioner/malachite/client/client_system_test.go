@@ -81,12 +81,13 @@ var (
 
 	fakeSystemNet = &types.MalachiteSystemNetworkResponse{
 		Status: 0,
-		Data: types.SystemNetworkData{
+		Data: []types.SystemNetworkData{{
+			NetNS: "",
 			NetworkCard: []types.NetworkCard{
 				{},
 			},
 			TCP: types.TCP{},
-		},
+		}},
 	}
 )
 
@@ -228,6 +229,13 @@ func TestGetSystemNetStats(t *testing.T) {
 	})
 	_, err = malachiteClient.GetSystemComputeStats()
 	assert.NotNil(t, err)
+}
+
+func TestNewMalachiteClientUsesAllNetNSSystemNetworkResource(t *testing.T) {
+	t.Parallel()
+
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
+	assert.Contains(t, malachiteClient.urls[SystemNetResource], "/system/network/all_netns")
 }
 
 func TestGetSystemNonExistStats(t *testing.T) {

@@ -109,14 +109,14 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 			},
 		},
 	}
-	fakeSystemNet := &malachitetypes.SystemNetworkData{
+	fakeSystemNet := []malachitetypes.SystemNetworkData{{
 		TCP: malachitetypes.TCP{},
 		NetworkCard: []malachitetypes.NetworkCard{
 			{
 				Name: "eth0",
 			},
 		},
-	}
+	}}
 	fakeCgroupInfoV1 := &malachitetypes.MalachiteCgroupInfo{
 		CgroupType: "V1",
 		V1: &malachitetypes.MalachiteCgroupV1Info{
@@ -293,6 +293,128 @@ func Test_getCPI(t *testing.T) {
 	data, err = store.GetContainerMetric("pod2", "container1", consts.MetricCPUCPIContainer)
 	assert.NoError(t, err)
 	assert.Equal(t, float64(1), data.Value)
+}
+
+func Test_processSystemNetDataStoresNamespacedNICMetrics(t *testing.T) {
+	t.Parallel()
+
+	store := utilmetric.NewMetricStore()
+	provisioner := &MalachiteMetricsProvisioner{metricStore: store}
+	speed := uint64(100)
+
+	provisioner.processSystemNetData([]malachitetypes.SystemNetworkData{{
+		NetNS:      "ns1",
+		UpdateTime: 1,
+		NetworkCard: []malachitetypes.NetworkCard{{
+			Name:          "eth0",
+			ReceiveBytes:  100,
+			TransmitBytes: 200,
+			Speeds:        &speed,
+		}},
+	}})
+	provisioner.processSystemNetData([]malachitetypes.SystemNetworkData{{
+		NetNS:      "ns1",
+		UpdateTime: 2,
+		NetworkCard: []malachitetypes.NetworkCard{{
+			Name:          "eth0",
+			ReceiveBytes:  190,
+			TransmitBytes: 320,
+			Speeds:        &speed,
+		}},
+	}})
+
+	rx, err := store.GetNSNetworkMetric("ns1", "eth0", consts.MetricNetReceiveBPS)
+	assert.NoError(t, err)
+	assert.Equal(t, 90.0, rx.Value)
+
+	tx, err := store.GetNSNetworkMetric("ns1", "eth0", consts.MetricNetTransmitBPS)
+	assert.NoError(t, err)
+	assert.Equal(t, 120.0, tx.Value)
+
+	_, err = store.GetNSNetworkMetric("ns1", "eth0", consts.MetricNetSpeed)
+	assert.Error(t, err)
+}
+
+func Test_processSystemNetDataFiltersUnallocatableNamespaces(t *testing.T) {
+	t.Parallel()
+
+	store := utilmetric.NewMetricStore()
+	provisioner := &MalachiteMetricsProvisioner{
+		metricStore: store,
+		baseConf: &global.BaseConfiguration{
+			MachineInfoConfiguration: &global.MachineInfoConfiguration{
+				NetMultipleNS:    true,
+				NetAllocatableNS: []string{"ns1"},
+			},
+		},
+	}
+
+	provisioner.processSystemNetData([]malachitetypes.SystemNetworkData{{
+		NetNS:      "ns1",
+		UpdateTime: 1,
+		NetworkCard: []malachitetypes.NetworkCard{
+			{Name: "eth0", ReceiveBytes: 100, TransmitBytes: 100},
+		},
+	}, {
+		NetNS:      "ns2",
+		UpdateTime: 1,
+		NetworkCard: []malachitetypes.NetworkCard{
+			{Name: "eth0", ReceiveBytes: 100, TransmitBytes: 100},
+		},
+	}})
+	provisioner.processSystemNetData([]malachitetypes.SystemNetworkData{{
+		NetNS:      "ns1",
+		UpdateTime: 2,
+		NetworkCard: []malachitetypes.NetworkCard{
+			{Name: "eth0", ReceiveBytes: 190, TransmitBytes: 190},
+		},
+	}, {
+		NetNS:      "ns2",
+		UpdateTime: 2,
+		NetworkCard: []malachitetypes.NetworkCard{
+			{Name: "eth0", ReceiveBytes: 190, TransmitBytes: 190},
+		},
+	}})
+
+	_, err := store.GetNSNetworkMetric("ns1", "eth0", consts.MetricNetReceiveBPS)
+	assert.NoError(t, err)
+
+	_, err = store.GetNSNetworkMetric("ns2", "eth0", consts.MetricNetReceiveBPS)
+	assert.Error(t, err)
+}
+
+func Test_processSystemNetDataSkipsNodeTCPMetricsWithoutDefaultNamespace(t *testing.T) {
+	t.Parallel()
+
+	store := utilmetric.NewMetricStore()
+	provisioner := &MalachiteMetricsProvisioner{
+		metricStore: store,
+		baseConf: &global.BaseConfiguration{
+			MachineInfoConfiguration: &global.MachineInfoConfiguration{
+				NetMultipleNS:    true,
+				NetAllocatableNS: []string{"ns1"},
+			},
+		},
+	}
+
+	provisioner.processSystemNetData([]malachitetypes.SystemNetworkData{{
+		NetNS:      "ns1",
+		UpdateTime: 1,
+		TCP: malachitetypes.TCP{
+			TCPDelayAcks: 99,
+		},
+		NetworkCard: []malachitetypes.NetworkCard{{
+			Name:         "eth0",
+			ReceiveBytes: 100,
+		}},
+	}})
+
+	data, err := store.GetNSNetworkMetric("ns1", "eth0", consts.MetricNetReceiveBytes)
+	assert.NoError(t, err)
+	assert.Equal(t, 100.0, data.Value)
+
+	_, err = store.GetNodeMetric(consts.MetricNetTcpDelayedAcks)
+	assert.Error(t, err)
 }
 
 func Test_processContainerCPUDataStoresSleepingTasks(t *testing.T) {
