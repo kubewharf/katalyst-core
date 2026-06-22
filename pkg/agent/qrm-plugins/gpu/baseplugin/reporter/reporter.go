@@ -75,9 +75,11 @@ type gpuReporterImpl struct {
 var _ GPUReporter = (*gpuReporterImpl)(nil)
 
 func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
+	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
+	enableShareGPU func(resourceName, id string) *bool,
+	stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (GPUReporter, error) {
-	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
+	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, enableShareGPU, conf, topologyRegistry, stateGetter, deviceTypeToNames)
 	if err != nil {
 		return nil, fmt.Errorf("create reporter failed: %v", err)
 	}
@@ -116,6 +118,7 @@ type gpuReporterPlugin struct {
 	gpuDeviceNames         []string
 	numaSocketZoneNodeMap  map[util.ZoneNode]util.ZoneNode
 	deviceTopologyRegistry *machine.DeviceTopologyRegistry
+	enableShareGPU         func(resourceName, id string) *bool
 	stateGetter            func() state.State
 	deviceTypeToNames      map[string]sets.String
 
@@ -132,7 +135,7 @@ var (
 	_ v1alpha1.ReporterPluginServer = (*gpuReporterPlugin)(nil)
 )
 
-func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, enableShareGPU func(resourceName, id string) *bool,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
@@ -146,6 +149,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		emitter:                         emitter,
 		deviceTopologyRegistry:          topologyRegistry,
 		stateGetter:                     stateGetter,
+		enableShareGPU:                  enableShareGPU,
 		deviceTypeToNames:               deviceTypeToNames,
 		reportNotifyCh:                  make(chan struct{}, 1),
 		reportRetryInterval:             defaultReportRetryInterval,
@@ -453,8 +457,10 @@ func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.D
 					if !deviceOk {
 						continue
 					}
+
 					// Allocatable: 1 is reported when device is healthy, 0 is reported when device is unhealthy
-					if !healthy {
+					enableShare := p.enableShareGPU(deviceName, id)
+					if !healthy || (enableShare != nil && !*enableShare) {
 						allocatableQuantity = zeroQuantity
 					} else {
 						allocatableQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
@@ -475,7 +481,13 @@ func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.D
 					idToResources[id] = resources
 				}
 			} else {
-				allocatableQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
+				enableShare := p.enableShareGPU(string(resourceName), id)
+				if enableShare != nil && !*enableShare {
+					allocatableQuantity = zeroQuantity
+				} else {
+					allocatableQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
+				}
+
 				capacityQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
 
 				resources, ok := idToResources[id]

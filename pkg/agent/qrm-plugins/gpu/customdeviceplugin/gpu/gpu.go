@@ -180,6 +180,10 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		// Filter out devices that already have allocations in other resources
 		filterOccupiedDevicesFromRequest(deviceReq, p.GetState().GetMachineState())
 
+		// Filter unshareable devices in place when the resource is configured under
+		// ShareGPUResourceNames. For other resources this is a no-op.
+		p.ShareGPUManager.PreAllocate(ctx, resReq, deviceReq)
+
 		// Use the strategy framework to allocate GPU devices
 		result, err := manager.AllocateGPUUsingStrategy(
 			resReq,
@@ -252,6 +256,9 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		"containerName", resReq.ContainerName,
 		"qosLevel", qosLevel,
 		"allocatedDevices", allocatedDevices)
+
+	// call shareGPUManager to update GPU device state
+	p.ShareGPUManager.PostAllocate(ctx, gpuDeviceAllocationInfo)
 
 	return &pluginapi.AssociatedDeviceAllocationResponse{
 		AllocationResult: &pluginapi.AssociatedDeviceAllocation{

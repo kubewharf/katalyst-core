@@ -33,7 +33,8 @@ type AllocationInfo struct {
 
 	AllocatedAllocation      Allocation            `json:"allocated_allocation"`
 	TopologyAwareAllocations map[string]Allocation `json:"topology_aware_allocations"`
-	DeviceName               string                `json:"device_name"`
+	// DeviceName refers to the name of the device that the container is using.
+	DeviceName string `json:"device_name"`
 }
 
 type Allocation struct {

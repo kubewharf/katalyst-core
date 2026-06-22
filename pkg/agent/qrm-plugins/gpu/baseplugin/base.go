@@ -56,6 +56,8 @@ type BasePlugin struct {
 	state state.State
 	// Registry of device topology providers
 	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
+	// ShareGPUManager is a manager that manages share GPU devices
+	ShareGPUManager ShareGPUManager
 
 	// Registry of default resource state generators
 	DefaultResourceStateGeneratorRegistry *state.DefaultResourceStateGeneratorRegistry
@@ -95,8 +97,10 @@ func NewBasePlugin(
 
 		stateInitializedCh: make(chan struct{}),
 	}
+	basePlugin.ShareGPUManager = NewShareGPUManager(basePlugin, conf.ShareGPUResourceNames)
 
-	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry, basePlugin.GetState,
+	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer,
+		conf, deviceTopologyRegistry, basePlugin.ShareGPUManager.EnableShareGPU, basePlugin.GetState,
 		basePlugin.deviceTypeToNames)
 	if err != nil {
 		return nil, fmt.Errorf("newGPUReporterPlugin failed with error: %v", err)
@@ -114,6 +118,7 @@ func (p *BasePlugin) Run(stopCh <-chan struct{}) {
 		select {
 		case <-p.stateInitializedCh:
 			general.Infof("state initialized, starting reporter")
+			p.ShareGPUManager.Run(stopCh)
 			p.reporter.Run(stopCh)
 		case <-stopCh:
 			general.Infof("stop channel closed before state initialization, skipping reporter run")
@@ -298,12 +303,12 @@ func (p *BasePlugin) GenerateMachineStateFromPodEntries(
 // For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "hw.com/npu",
 // so we map them to the same device type, which allows us to allocate them interchangeably.
 func (p *BasePlugin) RegisterDeviceNames(deviceNames []string, deviceType string) {
-	for _, deviceeName := range deviceNames {
-		p.deviceNameToTypeMap[deviceeName] = deviceType
+	for _, deviceName := range deviceNames {
+		p.deviceNameToTypeMap[deviceName] = deviceType
 		if _, ok := p.deviceTypeToNames[deviceType]; !ok {
 			p.deviceTypeToNames[deviceType] = sets.NewString()
 		}
-		p.deviceTypeToNames[deviceType].Insert(deviceeName)
+		p.deviceTypeToNames[deviceType].Insert(deviceName)
 	}
 }
 

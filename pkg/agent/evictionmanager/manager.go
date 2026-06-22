@@ -147,6 +147,7 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	innerEvictionPluginInitializers := make(map[string]plugin.InitFunc)
 	innerEvictionPluginInitializers[resource.ReclaimedResourcesEvictionPluginName] = resource.NewReclaimedResourcesEvictionPlugin
 	innerEvictionPluginInitializers[resource.ReclaimedNumaResourcesEvictionPluginName] = resource.NewReclaimedNumaResourcesEvictionPlugin
+	innerEvictionPluginInitializers[resource.ReclaimedGPUResourcesEvictionPluginName] = resource.NewReclaimedGPUResourcesEvictionPlugin
 	innerEvictionPluginInitializers[memory.EvictionPluginNameNumaMemoryPressure] = memory.NewNumaMemoryPressureEvictionPlugin
 	innerEvictionPluginInitializers[memory.EvictionPluginNameSystemMemoryPressure] = memory.NewSystemPressureEvictionPlugin
 	innerEvictionPluginInitializers[memory.EvictionPluginNameRssOveruse] = memory.NewRssOveruseEvictionPlugin

@@ -27,6 +27,10 @@ type GPUQRMPluginConfig struct {
 	PolicyName string
 	// GPUDeviceNames is the names of the GPU device
 	GPUDeviceNames []string
+	// ShareGPUResourceNames is the resource names of GPU devices that participate in ShareGPU decision.
+	// Only EnableShareGPU calls with resourceName in this list return a non-nil decision; otherwise the
+	// caller should not adjust device behavior based on ShareGPU status.
+	ShareGPUResourceNames []string
 	// RDMADeviceNames is the names of the RDMA device
 	RDMADeviceNames []string
 	// GPUMemoryAllocatablePerGPU is the total memory allocatable for each GPU

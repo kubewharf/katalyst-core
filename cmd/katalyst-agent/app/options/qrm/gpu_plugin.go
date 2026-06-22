@@ -28,6 +28,7 @@ import (
 type GPUOptions struct {
 	PolicyName                                  string
 	GPUDeviceNames                              []string
+	ShareGPUResourceNames                       []string
 	GPUMemoryAllocatablePerGPU                  string
 	MilliGPUAllocatablePerGPU                   string
 	SkipGPUStateCorruption                      bool
@@ -53,6 +54,7 @@ func NewGPUOptions() *GPUOptions {
 	return &GPUOptions{
 		PolicyName:                                  "static",
 		GPUDeviceNames:                              []string{"nvidia.com/gpu"},
+		ShareGPUResourceNames:                       nil,
 		GPUMemoryAllocatablePerGPU:                  "100",
 		MilliGPUAllocatablePerGPU:                   "1000",
 		RDMADeviceNames:                             []string{},
@@ -74,6 +76,9 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.PolicyName, "gpu-resource-plugin-policy",
 		o.PolicyName, "The policy gpu resource plugin should use")
 	fs.StringSliceVar(&o.GPUDeviceNames, "gpu-resource-names", o.GPUDeviceNames, "The name of the GPU resource")
+	fs.StringSliceVar(&o.ShareGPUResourceNames, "share-gpu-resource-names", o.ShareGPUResourceNames,
+		"Resource names of GPU devices that participate in ShareGPU decision. "+
+			"Only EnableShareGPU calls with resourceName in this list return a non-nil result.")
 	fs.StringVar(&o.GPUMemoryAllocatablePerGPU, "gpu-memory-allocatable-per-gpu",
 		o.GPUMemoryAllocatablePerGPU, "The total memory allocatable for each GPU, e.g. 100")
 	fs.StringVar(&o.MilliGPUAllocatablePerGPU, "gpu-milligpu-allocatable-per-gpu",
@@ -114,6 +119,7 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.GPUDeviceNames = o.GPUDeviceNames
+	conf.ShareGPUResourceNames = o.ShareGPUResourceNames
 	gpuMemory, err := resource.ParseQuantity(o.GPUMemoryAllocatablePerGPU)
 	if err != nil {
 		return err

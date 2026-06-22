@@ -119,6 +119,11 @@ func (b *ResourcesEvictionPlugin) Start() {
 // ThresholdMet evict pods when the beset effort resources usage is greater than
 // the supply (after considering toleration).
 func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(b.pluginName, err)
+	}()
+
 	activePods, err := b.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to list pods from metaServer: %v", err)

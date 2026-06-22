@@ -57,6 +57,10 @@ type testGPUState struct {
 	machineState state.AllocationResourcesMap
 }
 
+// testEnableShareGPU is a default ShareGPU decision callback for tests:
+// it always returns nil so reporter retains the original (pre-feature) behavior.
+func testEnableShareGPU(_, _ string) *bool { return nil }
+
 func cloneMachineState(src state.AllocationResourcesMap) state.AllocationResourcesMap {
 	if src == nil {
 		return nil
@@ -1862,7 +1866,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			deviceTypeToNames := map[string]sets.String{string(resourceTypeName): sets.NewString(gpuDeviceNames...)}
 
 			stateGetter := func() state.State { return testState }
-			reporter, err := NewGPUReporter(metrics.DummyMetrics{}, generateTestMetaServer(tt.machineTopology), testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+			reporter, err := NewGPUReporter(metrics.DummyMetrics{}, generateTestMetaServer(tt.machineTopology), testConfig, topologyRegistry, testEnableShareGPU, stateGetter, deviceTypeToNames)
 			assert.NoError(t, err)
 			reporterImpl, ok := reporter.(*gpuReporterImpl)
 			assert.True(t, ok)
@@ -1948,7 +1952,7 @@ func TestListAndWatchReportContent(t *testing.T) {
 		},
 	})
 
-	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, testEnableShareGPU, stateGetter, deviceTypeToNames)
 	assert.NoError(t, err)
 	reporterImpl := reporter.(*gpuReporterImpl)
 	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
@@ -2055,7 +2059,7 @@ func TestListAndWatchReportContentRetry(t *testing.T) {
 		},
 	})
 
-	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, testEnableShareGPU, stateGetter, deviceTypeToNames)
 	assert.NoError(t, err)
 	reporterImpl := reporter.(*gpuReporterImpl)
 	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)

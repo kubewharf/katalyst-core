@@ -129,6 +129,11 @@ func (p *ZoneResourcesPlugin) Start() {
 // - Skips resources with zero total when configured in skip list.
 // - Returns HARD_MET with GREATER_THAN semantics when used > threshold(total).
 func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
+	var err error
+	defer func() {
+		_ = general.UpdateHealthzStateByError(p.pluginName, err)
+	}()
+
 	activePods, err := p.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		errWrapped := fmt.Errorf("list pods from metaServer: %w", err)
