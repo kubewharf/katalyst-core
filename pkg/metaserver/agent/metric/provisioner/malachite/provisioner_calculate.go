@@ -408,7 +408,7 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 			}
 		}
 
-		numaID, maxBytesPS := getNumaAndMaxBandwidth(int(l3CacheID), cpuCodeName)
+		numaID, maxBytesPS := m.getNumaAndMaxBandwidth(int(l3CacheID), cpuCodeName)
 		adjustedTotalBytesPS := totalBytesPS
 
 		if strings.Contains(cpuCodeName, consts.AMDGenoaArch) {
@@ -445,68 +445,6 @@ func uint64CounterDelta(previous, current uint64) uint64 {
 	// Return 0 when previous > current, because we may not be able to make sure
 	// the upper bound for each counter.
 	return 0
-}
-
-func getNumaIDByL3CacheID(l3ID int, cpuPath, nodePath string) (int, error) {
-	files, err := ioutil.ReadDir(cpuPath)
-	if err != nil {
-		return -1, fmt.Errorf("failed to read CPU directory: %v", err)
-	}
-
-	for _, file := range files {
-		if !strings.HasPrefix(file.Name(), "cpu") {
-			continue
-		}
-
-		cpuID, err := strconv.Atoi(strings.TrimPrefix(file.Name(), "cpu"))
-		if err != nil {
-			continue
-		}
-
-		cacheIDPath := filepath.Join(cpuPath, file.Name(), consts.SystemL3CacheSubPath)
-		cacheIDBytes, err := os.ReadFile(cacheIDPath)
-		if err != nil {
-			continue
-		}
-
-		cacheID, err := strconv.Atoi(strings.TrimSpace(string(cacheIDBytes)))
-		if err != nil {
-			continue
-		}
-
-		if cacheID == l3ID {
-			nodeFiles, err := ioutil.ReadDir(nodePath)
-			if err != nil {
-				return -1, fmt.Errorf("failed to read NUMA node directory: %v", err)
-			}
-
-			for _, nodeFile := range nodeFiles {
-				if !strings.HasPrefix(nodeFile.Name(), "node") {
-					continue
-				}
-
-				numaID, err := strconv.Atoi(strings.TrimPrefix(nodeFile.Name(), "node"))
-				if err != nil {
-					continue
-				}
-
-				cpuListPath := filepath.Join(nodePath, nodeFile.Name(), "cpulist")
-				cpuListBytes, err := os.ReadFile(cpuListPath)
-				if err != nil {
-					continue
-				}
-				cpuList := strings.TrimSpace(string(cpuListBytes))
-
-				if cpuInList(cpuID, cpuList) {
-					return numaID, nil
-				}
-			}
-
-			return -1, fmt.Errorf("NUMA ID not found for CPU %d", cpuID)
-		}
-	}
-
-	return -1, fmt.Errorf("no matching NUMA ID found for L3 Cache ID: %d", l3ID)
 }
 
 func cpuInList(cpu int, cpuList string) bool {
@@ -570,9 +508,96 @@ func clampMBMDelta(current, previous, oldValue uint64, maxDiff, maxStep uint64) 
 	return current
 }
 
+func buildL3ToNumaMap(cpuPath, nodePath string) map[int]int {
+	files, err := ioutil.ReadDir(cpuPath)
+	if err != nil {
+		return nil
+	}
+
+	nodeFiles, err := ioutil.ReadDir(nodePath)
+	if err != nil {
+		return nil
+	}
+
+	cpuToNumaMap := make(map[int]int)
+	for _, nodeFile := range nodeFiles {
+		if !strings.HasPrefix(nodeFile.Name(), "node") {
+			continue
+		}
+
+		numaID, err := strconv.Atoi(strings.TrimPrefix(nodeFile.Name(), "node"))
+		if err != nil {
+			continue
+		}
+
+		cpuListPath := filepath.Join(nodePath, nodeFile.Name(), "cpulist")
+		cpuListBytes, err := os.ReadFile(cpuListPath)
+		if err != nil {
+			continue
+		}
+		cpuList := strings.TrimSpace(string(cpuListBytes))
+
+		for _, file := range files {
+			if !strings.HasPrefix(file.Name(), "cpu") {
+				continue
+			}
+
+			cpuID, err := strconv.Atoi(strings.TrimPrefix(file.Name(), "cpu"))
+			if err != nil {
+				continue
+			}
+
+			if cpuInList(cpuID, cpuList) {
+				cpuToNumaMap[cpuID] = numaID
+			}
+		}
+	}
+
+	l3ToNumaMap := make(map[int]int)
+	for _, file := range files {
+		if !strings.HasPrefix(file.Name(), "cpu") {
+			continue
+		}
+
+		cpuID, err := strconv.Atoi(strings.TrimPrefix(file.Name(), "cpu"))
+		if err != nil {
+			continue
+		}
+
+		cacheIDPath := filepath.Join(cpuPath, file.Name(), consts.SystemL3CacheSubPath)
+		cacheIDBytes, err := os.ReadFile(cacheIDPath)
+		if err != nil {
+			continue
+		}
+
+		cacheID, err := strconv.Atoi(strings.TrimSpace(string(cacheIDBytes)))
+		if err != nil {
+			continue
+		}
+
+		if _, found := l3ToNumaMap[cacheID]; found {
+			continue
+		}
+
+		if numaID, found := cpuToNumaMap[cpuID]; found {
+			l3ToNumaMap[cacheID] = numaID
+		}
+	}
+
+	return l3ToNumaMap
+}
+
 // getNumaAndMaxBandwidth: Get NUMA ID and max bandwidth for L3 cache
-func getNumaAndMaxBandwidth(l3ID int, cpuCodeName string) (int, uint64) {
-	numaID, _ := getNumaIDByL3CacheID(l3ID, consts.SystemCpuDir, consts.SystemNodeDir)
+func (m *MalachiteMetricsProvisioner) getNumaAndMaxBandwidth(l3ID int, cpuCodeName string) (int, uint64) {
+	numaID := -1
+	if m.l3ToNumaMap == nil {
+		m.l3ToNumaMap = buildL3ToNumaMap(consts.SystemCpuDir, consts.SystemNodeDir)
+	}
+
+	if cachedNumaID, found := m.l3ToNumaMap[l3ID]; found {
+		numaID = cachedNumaID
+	}
+
 	maxBytesPS := getCCDMaxMemBandwidth(cpuCodeName)
 	if maxBytesPS == 0 {
 		maxBytesPS = consts.MaxMBGBps
