@@ -376,6 +376,8 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 	var totalMbmBytesPS, totalLocalBytesPS float64
 	l3CacheBandwidthStats := make(map[int]types.L3CacheBytesPS)
 
+	systemL3Stats, _ := m.metricStore.GetByStringIndex(consts.MetricL3MbmTotalPs).(map[int]types.L3CacheBytesPS)
+
 	for _, l3Mon := range resctrlData.Mbm {
 		l3CacheID := l3Mon.ID
 
@@ -408,7 +410,7 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 			}
 		}
 
-		numaID, maxBytesPS := getNumaAndMaxBandwidth(int(l3CacheID), cpuCodeName)
+		numaID, maxBytesPS := getNumaAndMaxBandwidthFromSystemL3Stats(systemL3Stats, int(l3CacheID), cpuCodeName)
 		adjustedTotalBytesPS := totalBytesPS
 
 		if strings.Contains(cpuCodeName, consts.AMDGenoaArch) {
@@ -578,6 +580,18 @@ func getNumaAndMaxBandwidth(l3ID int, cpuCodeName string) (int, uint64) {
 		maxBytesPS = consts.MaxMBGBps
 	}
 	return numaID, maxBytesPS
+}
+
+func getNumaAndMaxBandwidthFromSystemL3Stats(
+	systemL3Stats map[int]types.L3CacheBytesPS,
+	l3ID int,
+	cpuCodeName string,
+) (int, uint64) {
+	if stats, ok := systemL3Stats[l3ID]; ok {
+		return stats.NumaID, stats.MBMMaxBytesPS
+	}
+
+	return getNumaAndMaxBandwidth(l3ID, cpuCodeName)
 }
 
 // aggregateNUMABytesPS: Aggregate per-NUMA stats from L3 cache stats
