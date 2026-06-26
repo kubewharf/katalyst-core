@@ -43,18 +43,18 @@ func TestPowerManagementConfiguration_ApplyConfiguration(t *testing.T) {
 			name: "nil conf",
 			conf: nil,
 			want: &PowerManagementConfiguration{
-				DisablePowerAdvisor: DefaultDisablePowerAdvisor,
-				DisablePowerCapping: DefaultDisablePowerCapping,
-				PowerReductionRatio: DefaultPowerReductionRatio,
+				DisablePowerAdvisor: false,
+				DisablePowerCapping: false,
+				PowerReductionRatio: 10,
 			},
 		},
 		{
 			name: "nil PowerManagementConfiguration in conf",
 			conf: &crd.DynamicConfigCRD{},
 			want: &PowerManagementConfiguration{
-				DisablePowerAdvisor: DefaultDisablePowerAdvisor,
-				DisablePowerCapping: DefaultDisablePowerCapping,
-				PowerReductionRatio: DefaultPowerReductionRatio,
+				DisablePowerAdvisor: false,
+				DisablePowerCapping: false,
+				PowerReductionRatio: 10,
 			},
 		},
 		{
@@ -63,16 +63,16 @@ func TestPowerManagementConfiguration_ApplyConfiguration(t *testing.T) {
 				PowerManagementConfiguration: &v1alpha1.PowerManagementConfiguration{
 					Spec: v1alpha1.PowerManagementConfigurationSpec{
 						Config: v1alpha1.PowerManagementConfig{
-							DisablePowerAdvisor: boolPtr(false),
-							DisablePowerCapping: boolPtr(false),
+							DisablePowerAdvisor: boolPtr(true),
+							DisablePowerCapping: boolPtr(true),
 							PowerReductionRatio: int32Ptr(50),
 						},
 					},
 				},
 			},
 			want: &PowerManagementConfiguration{
-				DisablePowerAdvisor: false,
-				DisablePowerCapping: false,
+				DisablePowerAdvisor: true,
+				DisablePowerCapping: true,
 				PowerReductionRatio: 50,
 			},
 		},
@@ -82,15 +82,15 @@ func TestPowerManagementConfiguration_ApplyConfiguration(t *testing.T) {
 				PowerManagementConfiguration: &v1alpha1.PowerManagementConfiguration{
 					Spec: v1alpha1.PowerManagementConfigurationSpec{
 						Config: v1alpha1.PowerManagementConfig{
-							DisablePowerAdvisor: boolPtr(false),
+							DisablePowerAdvisor: boolPtr(true),
 						},
 					},
 				},
 			},
 			want: &PowerManagementConfiguration{
-				DisablePowerAdvisor: false,
-				DisablePowerCapping: DefaultDisablePowerCapping,
-				PowerReductionRatio: DefaultPowerReductionRatio,
+				DisablePowerAdvisor: true,
+				DisablePowerCapping: false,
+				PowerReductionRatio: 10,
 			},
 		},
 	}

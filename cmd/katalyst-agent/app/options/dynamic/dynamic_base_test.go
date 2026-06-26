@@ -41,6 +41,9 @@ func TestNewDynamicOptions(t *testing.T) {
 	if options.IRQTuningOptions == nil {
 		t.Errorf("IRQTuningOptions is nil")
 	}
+	if options.PowerOptions == nil {
+		t.Errorf("PowerOptions is nil")
+	}
 }
 
 func TestDynamicOptions_AddFlags(t *testing.T) {
@@ -68,6 +71,11 @@ func TestDynamicOptions_AddFlags(t *testing.T) {
 	if irqTuningFlagSet == nil {
 		t.Errorf("irq-tuning flag set not found")
 	}
+
+	powerFlatSet := fss.FlagSet("power-management")
+	if powerFlatSet == nil {
+		t.Errorf("irq-tuning flag set not found")
+	}
 }
 
 func TestDynamicOptions_ApplyTo(t *testing.T) {
@@ -93,5 +101,8 @@ func TestDynamicOptions_ApplyTo(t *testing.T) {
 	}
 	if config.IRQTuningConfiguration == nil {
 		t.Errorf("IRQTuningConfiguration is nil after ApplyTo")
+	}
+	if config.PowerManagementConfiguration == nil {
+		t.Errorf("PowerManagementConfiguration is nil after ApplyTo")
 	}
 }

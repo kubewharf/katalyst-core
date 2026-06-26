@@ -23,12 +23,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const (
-	DefaultDisablePowerAdvisor = true
-	DefaultDisablePowerCapping = true
-	DefaultPowerReductionRatio = 10
-)
-
 type PowerManagementConfiguration struct {
 	DisablePowerAdvisor bool
 	DisablePowerCapping bool
@@ -36,13 +30,8 @@ type PowerManagementConfiguration struct {
 }
 
 func NewPowerManagementConfiguration() *PowerManagementConfiguration {
-	// set the safe static-default values initially
-	// overridden once by the startup args when app boosts
-	// regularly updated by kcc-cnc mechanism later on
 	return &PowerManagementConfiguration{
-		DisablePowerAdvisor: DefaultDisablePowerAdvisor,
-		PowerReductionRatio: DefaultPowerReductionRatio,
-		DisablePowerCapping: DefaultDisablePowerCapping,
+		PowerReductionRatio: 10,
 	}
 }
 

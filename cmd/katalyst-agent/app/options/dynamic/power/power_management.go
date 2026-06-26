@@ -22,6 +22,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/power"
 )
 
+// by default to keep backward compatible  unless the default profile enables otherwise
+const (
+	defaultOptionDisablePowerAdvisor = false
+	defaultOptionDisablePowerCapping = false
+	defaultOptionPowerReductionRatio = 10
+)
+
 type PowerOptions struct {
 	DisablePowerAdvisor bool
 	DisablePowerCapping bool
@@ -32,9 +39,9 @@ type PowerOptions struct {
 
 func NewPowerOptions() *PowerOptions {
 	return &PowerOptions{
-		DisablePowerAdvisor: true,
-		DisablePowerCapping: true,
-		PowerReductionRatio: 10,
+		DisablePowerAdvisor: defaultOptionDisablePowerAdvisor,
+		DisablePowerCapping: defaultOptionDisablePowerCapping,
+		PowerReductionRatio: defaultOptionPowerReductionRatio,
 	}
 }
 
