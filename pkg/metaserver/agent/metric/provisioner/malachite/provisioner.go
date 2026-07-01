@@ -82,6 +82,7 @@ type MalachiteMetricsProvisioner struct {
 	machineInfo     *machine.KatalystMachineInfo
 	startOnce       sync.Once
 	cpuToNumaMap    map[int]int
+	l3ToNumaMap     map[int]int
 }
 
 func (m *MalachiteMetricsProvisioner) Run(ctx context.Context) {
@@ -780,7 +781,7 @@ func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemCompute
 		var numaID int
 		var maxBytesPS uint64
 		if stats, exists := oldL3CacheBandwidthStats[l3Cache.ID]; !exists {
-			numaID, maxBytesPS = getNumaAndMaxBandwidth(l3Cache.ID, systemComputeData.CPUCodeName)
+			numaID, maxBytesPS = m.getNumaAndMaxBandwidth(l3Cache.ID, systemComputeData.CPUCodeName)
 		} else {
 			numaID = stats.NumaID
 			maxBytesPS = stats.MBMMaxBytesPS

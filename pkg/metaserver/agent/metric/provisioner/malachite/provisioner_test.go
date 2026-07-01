@@ -598,7 +598,7 @@ func setupFakeSysfs(t *testing.T, l3ID, cpuID, numaID int) (cpuDir, nodeDir stri
 	return cpuDir, nodeDir, func() {}
 }
 
-func Test_getNumaIDByL3CacheID(t *testing.T) {
+func Test_buildL3ToNumaMap(t *testing.T) {
 	t.Parallel()
 
 	type sysfsSetup struct {
@@ -607,33 +607,23 @@ func Test_getNumaIDByL3CacheID(t *testing.T) {
 		numaID int
 	}
 	testCases := []struct {
-		name       string
-		setup      *sysfsSetup
-		queryL3ID  int
-		wantNumaID int
-		wantErr    bool
+		name    string
+		setup   *sysfsSetup
+		wantMap map[int]int
 	}{
 		{
-			name: "found numa id",
+			name: "build mapping",
 			setup: &sysfsSetup{
 				l3ID:   10,
 				cpuID:  2,
 				numaID: 1,
 			},
-			queryL3ID:  10,
-			wantNumaID: 1,
-			wantErr:    false,
+			wantMap: map[int]int{10: 1},
 		},
 		{
-			name: "not found",
-			setup: &sysfsSetup{
-				l3ID:   10,
-				cpuID:  2,
-				numaID: 1,
-			},
-			queryL3ID:  999,
-			wantNumaID: -1,
-			wantErr:    true,
+			name:    "empty setup",
+			setup:   nil,
+			wantMap: nil,
 		},
 	}
 
@@ -647,13 +637,7 @@ func Test_getNumaIDByL3CacheID(t *testing.T) {
 				cpuDir, nodeDir, cleanup = setupFakeSysfs(t, tc.setup.l3ID, tc.setup.cpuID, tc.setup.numaID)
 				defer cleanup()
 			}
-			numaID, err := getNumaIDByL3CacheID(tc.queryL3ID, cpuDir, nodeDir)
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.Equal(t, tc.wantNumaID, numaID)
+			assert.Equal(t, tc.wantMap, buildL3ToNumaMap(cpuDir, nodeDir))
 		})
 	}
 }
@@ -801,10 +785,23 @@ func Test_getNumaAndMaxBandwidth(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, maxBW := getNumaAndMaxBandwidth(0, tc.cpuCodeName)
+			mmp := &MalachiteMetricsProvisioner{}
+			_, maxBW := mmp.getNumaAndMaxBandwidth(0, tc.cpuCodeName)
 			assert.Equal(t, tc.expectBW, maxBW)
 		})
 	}
+}
+
+func Test_getNumaAndMaxBandwidth_UsesProvisionerMapping(t *testing.T) {
+	t.Parallel()
+
+	mmp := &MalachiteMetricsProvisioner{
+		l3ToNumaMap: map[int]int{10: 3},
+	}
+
+	numaID, maxBW := mmp.getNumaAndMaxBandwidth(10, "")
+	assert.Equal(t, 3, numaID)
+	assert.EqualValues(t, consts.MaxMBGBps, maxBW)
 }
 
 func Test_aggregateNUMABytesPS(t *testing.T) {
