@@ -23,21 +23,23 @@ import (
 )
 
 type CPUPressureEvictionConfiguration struct {
-	EnableLoadEviction                      bool
-	LoadUpperBoundRatio                     float64
-	LoadLowerBoundRatio                     float64
-	LoadThresholdMetPercentage              float64
-	LoadMetricRingSize                      int
-	LoadEvictionCoolDownTime                time.Duration
-	EnableSuppressionEviction               bool
-	MaxSuppressionToleranceRate             float64
-	MinSuppressionToleranceDuration         time.Duration
-	EnablePIDOveruseEviction                bool
-	PIDOveruseThreshold                     int64
-	PIDOveruseGracePeriod                   int64
-	GracePeriod                             int64
-	NumaCPUPressureEvictionConfiguration    NumaCPUPressureEvictionConfiguration
-	NumaSysCPUPressureEvictionConfiguration NumaSysCPUPressureEvictionConfiguration
+	EnableLoadEviction                       bool
+	LoadUpperBoundRatio                      float64
+	LoadLowerBoundRatio                      float64
+	LoadThresholdMetPercentage               float64
+	LoadMetricRingSize                       int
+	LoadEvictionCoolDownTime                 time.Duration
+	EnableSuppressionEviction                bool
+	MaxSuppressionToleranceRate              float64
+	MinSuppressionToleranceDuration          time.Duration
+	EnablePIDOveruseEviction                 bool
+	PIDOveruseThreshold                      int64
+	PIDOveruseGracePeriod                    int64
+	PIDOveruseCandidatePodLabelSelector      string
+	PIDOveruseCandidatePodAnnotationSelector string
+	GracePeriod                              int64
+	NumaCPUPressureEvictionConfiguration     NumaCPUPressureEvictionConfiguration
+	NumaSysCPUPressureEvictionConfiguration  NumaSysCPUPressureEvictionConfiguration
 }
 
 func NewCPUPressureEvictionConfiguration() *CPUPressureEvictionConfiguration {
@@ -99,6 +101,14 @@ func (c *CPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.DynamicC
 
 			if config.PIDOveruseThreshold != nil {
 				c.PIDOveruseThreshold = *config.PIDOveruseThreshold
+			}
+
+			if config.CandidatePodLabelSelector != nil {
+				c.PIDOveruseCandidatePodLabelSelector = *config.CandidatePodLabelSelector
+			}
+
+			if config.CandidatePodAnnotationSelector != nil {
+				c.PIDOveruseCandidatePodAnnotationSelector = *config.CandidatePodAnnotationSelector
 			}
 
 			if config.GracePeriod != nil {

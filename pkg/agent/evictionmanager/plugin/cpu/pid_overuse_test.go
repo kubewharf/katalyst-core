@@ -83,7 +83,101 @@ func TestPIDOveruseEvictionPluginGetEvictPods(t *testing.T) {
 	require.Equal(t, EvictionPluginNamePIDOveruse, resp.EvictPods[0].EvictionPluginName)
 }
 
+func TestPIDOveruseEvictionPluginGetEvictPodsFiltersCandidatePodsBySelectors(t *testing.T) {
+	t.Parallel()
+
+	emitter := metrics.DummyMetrics{}
+	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
+	now := metav1.Now().Time
+
+	setPIDMetrics := func(podUID, containerName string, runnable, uninterruptible, ioWait, sleeping float64) {
+		fakeFetcher.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer, utilmetric.MetricData{Value: runnable, Time: &now})
+		fakeFetcher.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer, utilmetric.MetricData{Value: uninterruptible, Time: &now})
+		fakeFetcher.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer, utilmetric.MetricData{Value: ioWait, Time: &now})
+		fakeFetcher.SetContainerMetric(podUID, containerName, consts.MetricCPUNrSleepingContainer, utilmetric.MetricData{Value: sleeping, Time: &now})
+	}
+
+	setPIDMetrics("pod-1", "main", 20, 10, 5, 5)
+	setPIDMetrics("pod-2", "main", 25, 10, 10, 15)
+	setPIDMetrics("pod-2", "sidecar", 10, 5, 5, 5)
+	setPIDMetrics("pod-3", "main", 35, 10, 5, 11)
+
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			MetricsFetcher: fakeFetcher,
+		},
+	}
+
+	newPlugin := func() *PIDOveruseEvictionPlugin {
+		conf := config.NewConfiguration()
+		conf.GetDynamicConfiguration().CPUPressureEvictionConfiguration.EnablePIDOveruseEviction = true
+		conf.GetDynamicConfiguration().CPUPressureEvictionConfiguration.PIDOveruseThreshold = 60
+		return NewPIDOveruseEvictionPlugin(nil, nil, metaServer, emitter, conf).(*PIDOveruseEvictionPlugin)
+	}
+
+	request := &pluginapi.GetEvictPodsRequest{
+		ActivePods: []*v1.Pod{
+			newPIDTestPodWithMetadata("pod-1", map[string]string{"tier": "gold"}, map[string]string{"salemode": "spot"}, "main"),
+			newPIDTestPodWithMetadata("pod-2", map[string]string{"tier": "gold"}, map[string]string{"salemode": "reserved"}, "main", "sidecar"),
+			newPIDTestPodWithMetadata("pod-3", map[string]string{"tier": "silver"}, map[string]string{"salemode": "reserved"}, "main"),
+		},
+	}
+
+	t.Run("label selector only", func(t *testing.T) {
+		t.Parallel()
+
+		plugin := newPlugin()
+		plugin.dynamicConfig.GetDynamicConfiguration().CPUPressureEvictionConfiguration.PIDOveruseCandidatePodLabelSelector = "tier=silver"
+
+		resp, err := plugin.GetEvictPods(context.Background(), request)
+		require.NoError(t, err)
+		require.Len(t, resp.EvictPods, 1)
+		require.Equal(t, "pod-3", string(resp.EvictPods[0].Pod.UID))
+	})
+
+	t.Run("annotation selector only", func(t *testing.T) {
+		t.Parallel()
+
+		plugin := newPlugin()
+		plugin.dynamicConfig.GetDynamicConfiguration().CPUPressureEvictionConfiguration.PIDOveruseCandidatePodAnnotationSelector = "salemode=reserved"
+
+		resp, err := plugin.GetEvictPods(context.Background(), request)
+		require.NoError(t, err)
+		require.Len(t, resp.EvictPods, 2)
+		require.Equal(t, "pod-2", string(resp.EvictPods[0].Pod.UID))
+		require.Equal(t, "pod-3", string(resp.EvictPods[1].Pod.UID))
+	})
+
+	t.Run("label and annotation selectors are combined with and", func(t *testing.T) {
+		t.Parallel()
+
+		plugin := newPlugin()
+		plugin.dynamicConfig.GetDynamicConfiguration().CPUPressureEvictionConfiguration.PIDOveruseCandidatePodLabelSelector = "tier=gold"
+		plugin.dynamicConfig.GetDynamicConfiguration().CPUPressureEvictionConfiguration.PIDOveruseCandidatePodAnnotationSelector = "salemode=reserved"
+
+		resp, err := plugin.GetEvictPods(context.Background(), request)
+		require.NoError(t, err)
+		require.Len(t, resp.EvictPods, 1)
+		require.Equal(t, "pod-2", string(resp.EvictPods[0].Pod.UID))
+	})
+
+	t.Run("invalid annotation selector returns error", func(t *testing.T) {
+		t.Parallel()
+
+		plugin := newPlugin()
+		plugin.dynamicConfig.GetDynamicConfiguration().CPUPressureEvictionConfiguration.PIDOveruseCandidatePodAnnotationSelector = "salemode in"
+
+		resp, err := plugin.GetEvictPods(context.Background(), request)
+		require.Error(t, err)
+		require.Nil(t, resp)
+	})
+}
+
 func newPIDTestPod(uid string, containerNames ...string) *v1.Pod {
+	return newPIDTestPodWithMetadata(uid, nil, nil, containerNames...)
+}
+
+func newPIDTestPodWithMetadata(uid string, labels, annotations map[string]string, containerNames ...string) *v1.Pod {
 	containers := make([]v1.Container, 0, len(containerNames))
 	for _, name := range containerNames {
 		containers = append(containers, v1.Container{Name: name})
@@ -91,8 +185,10 @@ func newPIDTestPod(uid string, containerNames ...string) *v1.Pod {
 
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			UID:  types.UID(uid),
-			Name: uid,
+			UID:         types.UID(uid),
+			Name:        uid,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: v1.PodSpec{
 			Containers: containers,

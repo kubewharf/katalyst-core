@@ -32,6 +32,8 @@ func TestCPUPressureEvictionConfigurationApplyPIDOveruseConfiguration(t *testing
 	enablePIDOveruseEviction := true
 	pidOveruseThreshold := int64(256)
 	gracePeriod := int64(9)
+	labelSelector := "tier=gold"
+	annotationSelector := "salemode=reserved"
 
 	conf := NewCPUPressureEvictionConfiguration()
 	conf.ApplyConfiguration(&crd.DynamicConfigCRD{
@@ -43,9 +45,11 @@ func TestCPUPressureEvictionConfigurationApplyPIDOveruseConfiguration(t *testing
 							LoadEvictionCoolDownTime: &metav1.Duration{},
 						},
 						PIDOveruseEvictionConfig: &configapi.PIDOveruseEvictionConfig{
-							EnablePIDOveruseEviction: &enablePIDOveruseEviction,
-							PIDOveruseThreshold:      &pidOveruseThreshold,
-							GracePeriod:              &gracePeriod,
+							EnablePIDOveruseEviction:       &enablePIDOveruseEviction,
+							PIDOveruseThreshold:            &pidOveruseThreshold,
+							CandidatePodLabelSelector:      &labelSelector,
+							CandidatePodAnnotationSelector: &annotationSelector,
+							GracePeriod:                    &gracePeriod,
 						},
 					},
 				},
@@ -56,4 +60,6 @@ func TestCPUPressureEvictionConfigurationApplyPIDOveruseConfiguration(t *testing
 	require.True(t, conf.EnablePIDOveruseEviction)
 	require.EqualValues(t, 256, conf.PIDOveruseThreshold)
 	require.EqualValues(t, 9, conf.PIDOveruseGracePeriod)
+	require.Equal(t, labelSelector, conf.PIDOveruseCandidatePodLabelSelector)
+	require.Equal(t, annotationSelector, conf.PIDOveruseCandidatePodAnnotationSelector)
 }

@@ -17,8 +17,10 @@ limitations under the License.
 package eviction
 
 import (
+	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
@@ -41,19 +43,21 @@ const (
 
 // CPUPressureEvictionOptions is the options of cpu pressure eviction
 type CPUPressureEvictionOptions struct {
-	EnableLoadEviction              bool
-	LoadUpperBoundRatio             float64
-	LoadLowerBoundRatio             float64
-	LoadThresholdMetPercentage      float64
-	LoadMetricRingSize              int
-	LoadEvictionCoolDownTime        time.Duration
-	EnableSuppressionEviction       bool
-	MaxSuppressionToleranceRate     float64
-	MinSuppressionToleranceDuration time.Duration
-	EnablePIDOveruseEviction        bool
-	PIDOveruseThreshold             int64
-	PIDOveruseGracePeriod           int64
-	GracePeriod                     int64
+	EnableLoadEviction                       bool
+	LoadUpperBoundRatio                      float64
+	LoadLowerBoundRatio                      float64
+	LoadThresholdMetPercentage               float64
+	LoadMetricRingSize                       int
+	LoadEvictionCoolDownTime                 time.Duration
+	EnableSuppressionEviction                bool
+	MaxSuppressionToleranceRate              float64
+	MinSuppressionToleranceDuration          time.Duration
+	EnablePIDOveruseEviction                 bool
+	PIDOveruseThreshold                      int64
+	PIDOveruseGracePeriod                    int64
+	PIDOveruseCandidatePodLabelSelector      string
+	PIDOveruseCandidatePodAnnotationSelector string
+	GracePeriod                              int64
 
 	NumaCPUPressureEvictionOptions    NumaCPUPressureEvictionOptions
 	NumaSysCPUPressureEvictionOptions NumaSysCPUPressureEvictionOptions
@@ -112,6 +116,10 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the pod-level pid threshold aggregated from pod spec containers")
 	fs.Int64Var(&o.PIDOveruseGracePeriod, "eviction-pid-overuse-grace-period", o.PIDOveruseGracePeriod,
 		"the grace period of pod-level pid overuse eviction")
+	fs.StringVar(&o.PIDOveruseCandidatePodLabelSelector, "eviction-pid-overuse-candidate-pod-label-selector", o.PIDOveruseCandidatePodLabelSelector,
+		"the label selector used to filter pid overuse candidate pods")
+	fs.StringVar(&o.PIDOveruseCandidatePodAnnotationSelector, "eviction-pid-overuse-candidate-pod-annotation-selector", o.PIDOveruseCandidatePodAnnotationSelector,
+		"the annotation selector used to filter pid overuse candidate pods")
 	fs.Int64Var(&o.GracePeriod, "eviction-cpu-grace-period", o.GracePeriod,
 		"the ratio between the times metric value over the bound value and the metric ring size is greater than this percentage "+
 			", the eviction or node taint will be triggered")
@@ -132,6 +140,18 @@ func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConf
 	c.EnablePIDOveruseEviction = o.EnablePIDOveruseEviction
 	c.PIDOveruseThreshold = o.PIDOveruseThreshold
 	c.PIDOveruseGracePeriod = o.PIDOveruseGracePeriod
+	if o.PIDOveruseCandidatePodLabelSelector != "" {
+		if _, err := labels.Parse(o.PIDOveruseCandidatePodLabelSelector); err != nil {
+			return fmt.Errorf("parse pid overuse candidate pod label selector %q failed: %w", o.PIDOveruseCandidatePodLabelSelector, err)
+		}
+	}
+	if o.PIDOveruseCandidatePodAnnotationSelector != "" {
+		if _, err := labels.Parse(o.PIDOveruseCandidatePodAnnotationSelector); err != nil {
+			return fmt.Errorf("parse pid overuse candidate pod annotation selector %q failed: %w", o.PIDOveruseCandidatePodAnnotationSelector, err)
+		}
+	}
+	c.PIDOveruseCandidatePodLabelSelector = o.PIDOveruseCandidatePodLabelSelector
+	c.PIDOveruseCandidatePodAnnotationSelector = o.PIDOveruseCandidatePodAnnotationSelector
 	c.GracePeriod = o.GracePeriod
 
 	if err := o.NumaCPUPressureEvictionOptions.ApplyTo(&c.NumaCPUPressureEvictionConfiguration); err != nil {

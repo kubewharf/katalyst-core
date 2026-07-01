@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/events"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -108,8 +109,13 @@ func (p *PIDOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	usageList := make(podPIDUsageList, 0, len(request.ActivePods))
-	for _, pod := range request.ActivePods {
+	candidatePods, err := p.filterCandidatePods(request.ActivePods, dynamicConfig.PIDOveruseCandidatePodLabelSelector, dynamicConfig.PIDOveruseCandidatePodAnnotationSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	usageList := make(podPIDUsageList, 0, len(candidatePods))
+	for _, pod := range candidatePods {
 		usage, err := p.getPodPIDUsage(pod)
 		if err != nil {
 			general.Warningf("failed to get pod pid usage for %s/%s: %v", pod.Namespace, pod.Name, err)
@@ -146,6 +152,47 @@ func (p *PIDOveruseEvictionPlugin) GetEvictPods(_ context.Context, request *plug
 	}
 
 	return &pluginapi.GetEvictPodsResponse{EvictPods: result}, nil
+}
+
+func (p *PIDOveruseEvictionPlugin) filterCandidatePods(activePods []*v1.Pod, labelSelectorRaw, annotationSelectorRaw string) ([]*v1.Pod, error) {
+	labelSelector, hasLabelSelector, err := parsePIDOveruseSelector(labelSelectorRaw, "label")
+	if err != nil {
+		return nil, err
+	}
+	annotationSelector, hasAnnotationSelector, err := parsePIDOveruseSelector(annotationSelectorRaw, "annotation")
+	if err != nil {
+		return nil, err
+	}
+	if !hasLabelSelector && !hasAnnotationSelector {
+		return activePods, nil
+	}
+
+	candidatePods := make([]*v1.Pod, 0, len(activePods))
+	for _, pod := range activePods {
+		if pod == nil {
+			continue
+		}
+		if hasLabelSelector && !labelSelector.Matches(labels.Set(pod.Labels)) {
+			continue
+		}
+		if hasAnnotationSelector && !annotationSelector.Matches(labels.Set(pod.Annotations)) {
+			continue
+		}
+		candidatePods = append(candidatePods, pod)
+	}
+	return candidatePods, nil
+}
+
+func parsePIDOveruseSelector(selectorRaw, selectorType string) (labels.Selector, bool, error) {
+	if selectorRaw == "" {
+		return nil, false, nil
+	}
+
+	selector, err := labels.Parse(selectorRaw)
+	if err != nil {
+		return nil, false, fmt.Errorf("parse pid overuse candidate pod %s selector %q failed: %w", selectorType, selectorRaw, err)
+	}
+	return selector, true, nil
 }
 
 func (p *PIDOveruseEvictionPlugin) getPodPIDUsage(pod *v1.Pod) (podPIDUsage, error) {
