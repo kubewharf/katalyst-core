@@ -9,7 +9,7 @@ English | [简体中文](./README.zh.md)
 Katalyst aims to provide a universal solution to improve resource utilization and reduce overall costs in the cloud. The main features include:
 - QoS-based Resource Model: Katalyst provides a pre-defined QoS model along with multiple enhancements to meet the QoS requirements of various workloads; 
 - Elastic Resource Management: Katalyst provides both horizontal and vertical scaling implementations, along with an extensible mechanism for out-of-tree algorithms;
-- Topology-aware Scheduling and Allocation: Katalyst extends the capabilities of the native scheduler and kubelet to be aware of the NUMA and device topology when scheduling Pods and allocating resources to them, thereby improving the performance of workloads;
+- Topology-aware Scheduling and Allocation: Katalyst extends the capabilities of the native scheduler and kubelet to be aware of the NUMA and device topology when scheduling Pods and allocating resources to them, thereby improving workload performance;
 - Fine-grained Resource Isolation: Katalyst provides real-time and fine-grained resource over-commitment, allocation and isolation strategies for each QoS through auto-tuned workload profiling.
 
 Katalyst contains three main projects:
