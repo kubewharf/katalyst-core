@@ -616,9 +616,6 @@ func (m *MalachiteMetricsProvisioner) shouldStoreNetworkMetricDevice(netns, devi
 	if netns == machine.DefaultNICNamespace {
 		return true
 	}
-	if !m.baseConf.NetMultipleNS {
-		return false
-	}
 	return general.IsNameEnabled(netns, nil, m.baseConf.NetAllocatableNS)
 }
 

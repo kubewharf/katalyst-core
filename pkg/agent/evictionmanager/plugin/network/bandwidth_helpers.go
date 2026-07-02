@@ -25,15 +25,17 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 const (
 	bandwidthScopePrefix            = "bandwidth"
 	bandwidthDirectionRX            = "rx"
 	bandwidthDirectionTX            = "tx"
-	bandwidthPressureStateRetention = time.Minute
+	bandwidthPressureStateRetention = 5 * time.Minute
 	bitsPerByte                     = 8
 	bpsPerMbps                      = 1000 * 1000
 )
@@ -56,9 +58,9 @@ type bandwidthPressureEvaluation struct {
 	currentHits     int
 }
 
-// bandwidthPressureState stores bandwidth samples for one (netns, nic, direction).
-// Threshold hits are calculated with the current dynamic threshold when evaluated.
-type bandwidthPressureState struct {
+// bandwidthState stores healthy NIC capacity and the sampled bandwidth history
+// for one (netns, nic, direction). Threshold hits are calculated when evaluated.
+type bandwidthState struct {
 	ring        []bandwidthSample
 	nextIndex   int
 	sampleCount int
@@ -67,47 +69,30 @@ type bandwidthPressureState struct {
 // BandwidthMetricQuerier isolates metric access from eviction decisions.
 // It returns runtime usage only; CNR remains the capacity source.
 type BandwidthMetricQuerier interface {
-	GetBandwidthMetric(scope bandwidthScope) (float64, bool)
+	GetBandwidthMetric(scope bandwidthScope) (utilmetric.MetricData, error)
 	GetPodDirectionUsage(pod *v1.Pod, direction string) (float64, bool)
 }
 
-// metaServerBandwidthMetricQuerier reads instantaneous usage only; NIC capacity
+// bandwidthMetricQuerier reads instantaneous usage only; NIC capacity
 // comes from CNR so bandwidth eviction shares the same source as allocation.
-type metaServerBandwidthMetricQuerier struct {
-	metaServer *metaserver.MetaServer
+type bandwidthMetricQuerier struct {
+	metrictypes.MetricsFetcher
 }
 
-func newMetaServerBandwidthMetricQuerier(metaServer *metaserver.MetaServer) BandwidthMetricQuerier {
-	if metaServer == nil || metaServer.MetricsFetcher == nil {
-		return nil
-	}
-
-	return &metaServerBandwidthMetricQuerier{metaServer: metaServer}
+func newBandwidthMetricQuerier(metaServer metrictypes.MetricsFetcher) BandwidthMetricQuerier {
+	return &bandwidthMetricQuerier{metaServer}
 }
 
-func (m *metaServerBandwidthMetricQuerier) GetBandwidthMetric(scope bandwidthScope) (float64, bool) {
-	if m == nil || m.metaServer == nil || m.metaServer.MetricsFetcher == nil {
-		return 0, false
-	}
-
+func (m *bandwidthMetricQuerier) GetBandwidthMetric(scope bandwidthScope) (utilmetric.MetricData, error) {
 	metricName := coreconsts.MetricNetReceiveBPS
 	if scope.direction == bandwidthDirectionTX {
 		metricName = coreconsts.MetricNetTransmitBPS
 	}
 
-	bps, err := m.metaServer.MetricsFetcher.GetNSNetworkMetric(scope.netns, scope.nic, metricName)
-	if err != nil {
-		return 0, false
-	}
-
-	return bps.Value, true
+	return m.GetNSNetworkMetric(scope.netns, scope.nic, metricName)
 }
 
-func (m *metaServerBandwidthMetricQuerier) GetPodDirectionUsage(pod *v1.Pod, direction string) (float64, bool) {
-	if m == nil || m.metaServer == nil || m.metaServer.MetricsFetcher == nil || pod == nil {
-		return 0, false
-	}
-
+func (m *bandwidthMetricQuerier) GetPodDirectionUsage(pod *v1.Pod, direction string) (float64, bool) {
 	metricName := coreconsts.MetricNetTcpRecvBPSContainer
 	if direction == bandwidthDirectionTX {
 		metricName = coreconsts.MetricNetTcpSendBPSContainer
@@ -116,8 +101,9 @@ func (m *metaServerBandwidthMetricQuerier) GetPodDirectionUsage(pod *v1.Pod, dir
 	total := 0.0
 	found := false
 	for _, container := range pod.Spec.Containers {
-		metric, err := m.metaServer.MetricsFetcher.GetContainerMetric(string(pod.UID), container.Name, metricName)
+		metric, err := m.MetricsFetcher.GetContainerMetric(string(pod.UID), container.Name, metricName)
 		if err != nil {
+			general.Errorf("failed to get container metric %s for pod %s: %v", metricName, pod.Name, err)
 			continue
 		}
 		total += metric.Value
@@ -170,15 +156,15 @@ func getPodBandwidthScope(pod *v1.Pod, target bandwidthScope) (bandwidthScope, b
 	return bandwidthScope{}, false
 }
 
-func (s *bandwidthPressureState) observe(bps, capacityMbps float64, now time.Time) {
-	if s == nil || len(s.ring) == 0 {
+func (s *bandwidthState) observe(sample *bandwidthSample) {
+	if sample == nil {
 		return
 	}
 
 	s.ring[s.nextIndex] = bandwidthSample{
-		bps:          bps,
-		capacityMbps: capacityMbps,
-		observedAt:   now,
+		bps:          sample.bps,
+		capacityMbps: sample.capacityMbps,
+		observedAt:   sample.observedAt,
 	}
 	s.nextIndex = (s.nextIndex + 1) % len(s.ring)
 	if s.sampleCount < len(s.ring) {
@@ -186,7 +172,7 @@ func (s *bandwidthPressureState) observe(bps, capacityMbps float64, now time.Tim
 	}
 }
 
-func (s *bandwidthPressureState) expired(now time.Time, retention time.Duration) bool {
+func (s *bandwidthState) expired(retention time.Duration) bool {
 	if s == nil {
 		return true
 	}
@@ -197,10 +183,10 @@ func (s *bandwidthPressureState) expired(now time.Time, retention time.Duration)
 	if !ok || latestSample.observedAt.IsZero() {
 		return true
 	}
-	return now.Sub(latestSample.observedAt) > retention
+	return time.Now().Sub(latestSample.observedAt) > retention
 }
 
-func (s *bandwidthPressureState) evaluate(threshold float64) bandwidthPressureEvaluation {
+func (s *bandwidthState) evaluate(threshold float64) bandwidthPressureEvaluation {
 	if s == nil || len(s.ring) == 0 || s.sampleCount == 0 {
 		return bandwidthPressureEvaluation{}
 	}
@@ -234,22 +220,23 @@ func (s *bandwidthPressureState) evaluate(threshold float64) bandwidthPressureEv
 	return evaluation
 }
 
-func (s *bandwidthPressureState) latestSample() (bandwidthSample, bool) {
+func (s *bandwidthState) met(utilizationThreshold float64, continuousThreshold, ringMetThreshold int) (bandwidthPressureEvaluation, bool) {
+	evaluation := s.evaluate(utilizationThreshold)
+	if continuousThreshold > 0 && evaluation.consecutiveHits >= continuousThreshold {
+		return evaluation, true
+	}
+	if ringMetThreshold > 0 && evaluation.currentHits >= ringMetThreshold {
+		return evaluation, true
+	}
+	return evaluation, false
+}
+
+func (s *bandwidthState) latestSample() (bandwidthSample, bool) {
 	if s == nil || len(s.ring) == 0 || s.sampleCount == 0 {
 		return bandwidthSample{}, false
 	}
 	index := (s.nextIndex - 1 + len(s.ring)) % len(s.ring)
 	return s.ring[index], true
-}
-
-func (e bandwidthPressureEvaluation) met(continuousThreshold, ringMetThreshold int) bool {
-	if continuousThreshold > 0 && e.consecutiveHits >= continuousThreshold {
-		return true
-	}
-	if ringMetThreshold > 0 && e.currentHits >= ringMetThreshold {
-		return true
-	}
-	return false
 }
 
 func isBandwidthPressureMoreSevere(scope bandwidthScope, evaluation bandwidthPressureEvaluation, bestScope bandwidthScope, bestEvaluation bandwidthPressureEvaluation) bool {

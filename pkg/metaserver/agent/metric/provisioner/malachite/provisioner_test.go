@@ -343,7 +343,6 @@ func Test_processSystemNetDataFiltersUnallocatableNamespaces(t *testing.T) {
 		metricStore: store,
 		baseConf: &global.BaseConfiguration{
 			MachineInfoConfiguration: &global.MachineInfoConfiguration{
-				NetMultipleNS:    true,
 				NetAllocatableNS: []string{"ns1"},
 			},
 		},
@@ -391,7 +390,6 @@ func Test_processSystemNetDataSkipsNodeTCPMetricsWithoutDefaultNamespace(t *test
 		metricStore: store,
 		baseConf: &global.BaseConfiguration{
 			MachineInfoConfiguration: &global.MachineInfoConfiguration{
-				NetMultipleNS:    true,
 				NetAllocatableNS: []string{"ns1"},
 			},
 		},

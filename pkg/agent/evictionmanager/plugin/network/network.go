@@ -64,16 +64,15 @@ type nicEvictionPlugin struct {
 	mutex sync.RWMutex
 	// unhealthyNICState is a map from NIC name to the state of the NIC
 	unhealthyNICState map[string]*unhealthyNICState
-	// healthyNICState caches CNR NIC bandwidth capacity by eviction scope.
-	healthyNICState map[bandwidthScope]float64
+	// healthyNICState caches healthy NIC capacity and sampled bandwidth history by formatted eviction scope.
+	healthyNICState map[string]*bandwidthState
 
 	emitter                  metrics.MetricEmitter
 	pluginName               string
 	metaServer               *metaserver.MetaServer
 	dynamicConfig            *dynamic.DynamicAgentConfiguration
 	podSaleModeAnnotationKey string
-	bandwidthPressureState   map[bandwidthScope]*bandwidthPressureState
-	metricQuerier            BandwidthMetricQuerier
+	bandwidthMetricQuerier   BandwidthMetricQuerier
 }
 
 func NewNICEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -82,14 +81,13 @@ func NewNICEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 	return &nicEvictionPlugin{
 		StopControl:              process.NewStopControl(time.Time{}),
 		unhealthyNICState:        make(map[string]*unhealthyNICState),
-		healthyNICState:          make(map[bandwidthScope]float64),
+		healthyNICState:          make(map[string]*bandwidthState),
 		emitter:                  emitter,
 		pluginName:               EvictionPluginNameNetwork,
 		metaServer:               metaServer,
 		dynamicConfig:            conf.DynamicAgentConfiguration,
 		podSaleModeAnnotationKey: conf.GenericConfiguration.PodSaleModeAnnotationKey,
-		bandwidthPressureState:   make(map[bandwidthScope]*bandwidthPressureState),
-		metricQuerier:            newMetaServerBandwidthMetricQuerier(metaServer),
+		bandwidthMetricQuerier:   newBandwidthMetricQuerier(metaServer.MetricsFetcher),
 	}
 }
 
@@ -129,77 +127,73 @@ func (n *nicEvictionPlugin) syncNICState(ctx context.Context) {
 	}
 
 	healthyNICZone, unhealthyNICZone := getNICZones(getCNR.Status.TopologyZone)
-	now := time.Now()
-
-	n.syncHealthyNICState(healthyNICZone, now)
-	n.syncUnHealthyNICState(unhealthyNICZone, now)
+	n.syncHealthyNICState(healthyNICZone)
+	n.syncUnHealthyNICState(unhealthyNICZone)
 }
 
-func (n *nicEvictionPlugin) syncHealthyNICState(healthyNICZone map[string]float64, now time.Time) {
-	healthyNICState := make(map[bandwidthScope]float64, len(healthyNICZone)*2)
+func (n *nicEvictionPlugin) syncHealthyNICState(healthyNICZone map[string]float64) {
+	if n == nil || n.dynamicConfig == nil {
+		return
+	}
+	conf := n.dynamicConfig.GetDynamicConfiguration()
+	if conf == nil || conf.NetworkEvictionConfiguration == nil {
+		return
+	}
+	evictionConfig := conf.NetworkEvictionConfiguration
+
+	activeBandwidthScopeSamples := make(map[string]*bandwidthSample, len(healthyNICZone)*2)
 	for identifier, capacity := range healthyNICZone {
 		netns, nic, ok := machine.ParseNICIdentifier(identifier)
 		if !ok {
 			continue
 		}
 		for _, direction := range []string{bandwidthDirectionRX, bandwidthDirectionTX} {
-			healthyNICState[bandwidthScope{
+			scope := bandwidthScope{
 				netns:     netns,
 				nic:       nic,
 				direction: direction,
-			}] = capacity
-		}
-	}
+			}
+			scopeKey := formatBandwidthScope(scope)
+			activeBandwidthScopeSamples[scopeKey] = nil
 
-	conf := (*eviction.NetworkEvictionConfiguration)(nil)
-	if n != nil && n.dynamicConfig != nil {
-		conf = n.dynamicConfig.GetDynamicConfiguration().NetworkEvictionConfiguration
-	}
-	if n != nil && n.metricQuerier == nil {
-		n.metricQuerier = newMetaServerBandwidthMetricQuerier(n.metaServer)
-	}
-
-	type bandwidthObservation struct {
-		scope        bandwidthScope
-		bps          float64
-		capacityMbps float64
-	}
-	observations := make([]bandwidthObservation, 0, len(healthyNICState))
-	if conf != nil && conf.EnableNICBandwidthEviction && n != nil && n.metricQuerier != nil {
-		for scope, capacity := range healthyNICState {
-			bps, ok := n.metricQuerier.GetBandwidthMetric(scope)
-			if !ok || capacity <= 0 {
+			metricData, err := n.bandwidthMetricQuerier.GetBandwidthMetric(scope)
+			if err != nil {
+				general.Errorf("failed to get bandwidth metric for scope %s: %v", scopeKey, err)
 				continue
 			}
-			observations = append(observations, bandwidthObservation{
-				scope:        scope,
-				bps:          bps,
+
+			if metricData.Time == nil || metricData.Value <= 0 {
+				general.Warningf("invalid bandwidth metric for scope %s: %v", scopeKey, metricData)
+				continue
+			}
+
+			activeBandwidthScopeSamples[scopeKey] = &bandwidthSample{
 				capacityMbps: capacity,
-			})
+				bps:          metricData.Value,
+				observedAt:   *metricData.Time,
+			}
 		}
 	}
 
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 
-	n.healthyNICState = healthyNICState
-	n.pruneStaleBandwidthStates(healthyNICState, now, bandwidthPressureStateRetention)
-	if conf == nil || !conf.EnableNICBandwidthEviction {
-		return
-	}
-	for _, observation := range observations {
-		state := n.getOrCreateBandwidthState(observation.scope, conf.NICBandwidthRingSize, now, bandwidthPressureStateRetention)
-		state.observe(observation.bps, observation.capacityMbps, now)
+	n.pruneStaleBandwidthStates(activeBandwidthScopeSamples, bandwidthPressureStateRetention)
+	ringSize := evictionConfig.NICBandwidthRingSize
+	for scope, sample := range activeBandwidthScopeSamples {
+		state := n.getOrCreateHealthyNICState(scope, ringSize)
+		state.observe(sample)
 	}
 }
 
-func (n *nicEvictionPlugin) syncUnHealthyNICState(unhealthyNICZone map[string]v1alpha1.TopologyZone, now time.Time) {
+func (n *nicEvictionPlugin) syncUnHealthyNICState(unhealthyNICZone map[string]v1alpha1.TopologyZone) {
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 
 	if n.unhealthyNICState == nil {
 		n.unhealthyNICState = make(map[string]*unhealthyNICState)
 	}
+	now := time.Now()
 	for nic := range unhealthyNICZone {
 		if _, ok := n.unhealthyNICState[nic]; !ok {
 			n.unhealthyNICState[nic] = &unhealthyNICState{
@@ -222,13 +216,20 @@ func (n *nicEvictionPlugin) syncUnHealthyNICState(unhealthyNICZone map[string]v1
 	}
 }
 
-func (n *nicEvictionPlugin) getHealthyNICState() map[bandwidthScope]float64 {
+func (n *nicEvictionPlugin) getHealthyNICState() map[string]*bandwidthState {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
 
-	result := make(map[bandwidthScope]float64, len(n.healthyNICState))
-	for scope, capacity := range n.healthyNICState {
-		result[scope] = capacity
+	result := make(map[string]*bandwidthState, len(n.healthyNICState))
+	for scopeKey, state := range n.healthyNICState {
+		if state == nil {
+			continue
+		}
+		cloned := *state
+		if state.ring != nil {
+			cloned.ring = append([]bandwidthSample(nil), state.ring...)
+		}
+		result[scopeKey] = &cloned
 	}
 	return result
 }
@@ -239,7 +240,13 @@ func (n *nicEvictionPlugin) getUnhealthyNICState() map[string]*unhealthyNICState
 
 	result := make(map[string]*unhealthyNICState, len(n.unhealthyNICState))
 	for nic, state := range n.unhealthyNICState {
-		result[nic] = state
+		if state == nil {
+			continue
+		}
+		result[nic] = &unhealthyNICState{
+			lastUnhealthyTime: state.lastUnhealthyTime,
+			nicZone:           *state.nicZone.DeepCopy(),
+		}
 	}
 	return result
 }
@@ -261,21 +268,23 @@ func (n *nicEvictionPlugin) ThresholdMet(_ context.Context, req *pluginapi.GetTh
 	var bestResp *pluginapi.ThresholdMetResponse
 	var bestScope bandwidthScope
 	var bestEvaluation bandwidthPressureEvaluation
-	now := time.Now()
 	bandwidthScopes := n.getHealthyNICState()
 
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
-	n.pruneStaleBandwidthStates(bandwidthScopes, now, bandwidthPressureStateRetention)
-
-	for scope := range bandwidthScopes {
-		state, ok := n.bandwidthPressureState[scope]
-		if !ok {
+	for scopeKey, state := range bandwidthScopes {
+		if state == nil {
 			continue
 		}
-		evaluation := state.evaluate(conf.NICBandwidthUtilizationThreshold)
-		if !evaluation.met(conf.NICBandwidthContinuousMetThreshold, conf.NICBandwidthRingMetThreshold) {
+		scope, err := parseBandwidthScope(scopeKey)
+		if err != nil {
+			general.Warningf("skip invalid healthy NIC scope key %q: %v", scopeKey, err)
+			continue
+		}
+		evaluation, met := state.met(
+			conf.NICBandwidthUtilizationThreshold,
+			conf.NICBandwidthContinuousMetThreshold,
+			conf.NICBandwidthRingMetThreshold,
+		)
+		if !met {
 			continue
 		}
 
@@ -287,6 +296,8 @@ func (n *nicEvictionPlugin) ThresholdMet(_ context.Context, req *pluginapi.GetTh
 			EvictionScope:     formatBandwidthScope(scope),
 		}
 		if bestResp == nil || isBandwidthPressureMoreSevere(scope, evaluation, bestScope, bestEvaluation) {
+			general.Infof("update best bandwidth eviction scope to %s with utilization %.4f, current hits %d, consecutive hits %d",
+				resp.EvictionScope, evaluation.lastUtilization, evaluation.currentHits, evaluation.consecutiveHits)
 			bestResp = resp
 			bestScope = scope
 			bestEvaluation = evaluation
@@ -317,14 +328,8 @@ func (n *nicEvictionPlugin) GetTopEvictionPods(_ context.Context, req *pluginapi
 	if conf == nil || !conf.EnableNICBandwidthEviction {
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
-	if n.metricQuerier == nil {
-		n.metricQuerier = newMetaServerBandwidthMetricQuerier(n.metaServer)
-	}
-	if n.metricQuerier == nil {
-		return &pluginapi.GetTopEvictionPodsResponse{}, nil
-	}
 
-	// Pod usage is currently TCP-only because UDP container BPS is not exposed yet.
+	// currently we only take TCP into account.
 	candidatePods := make([]*v1.Pod, 0, len(req.ActivePods))
 	usageSnapshot := make(map[string]float64, len(req.ActivePods))
 	for _, pod := range req.ActivePods {
@@ -336,7 +341,7 @@ func (n *nicEvictionPlugin) GetTopEvictionPods(_ context.Context, req *pluginapi
 		if !ok || podScope.netns != scope.netns || podScope.nic != scope.nic {
 			continue
 		}
-		usage, ok := n.metricQuerier.GetPodDirectionUsage(pod, scope.direction)
+		usage, ok := n.bandwidthMetricQuerier.GetPodDirectionUsage(pod, scope.direction)
 		if !ok {
 			continue
 		}
@@ -346,7 +351,7 @@ func (n *nicEvictionPlugin) GetTopEvictionPods(_ context.Context, req *pluginapi
 		usageSnapshot[podKey] = usage
 	}
 
-	if len(candidatePods) == 0 {
+	if len(candidatePods) <= 1 {
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
@@ -375,34 +380,41 @@ func (n *nicEvictionPlugin) GetTopEvictionPods(_ context.Context, req *pluginapi
 	return resp, nil
 }
 
-func (n *nicEvictionPlugin) pruneStaleBandwidthStates(activeScopes map[bandwidthScope]float64, now time.Time, retention time.Duration) {
-	if n == nil || n.bandwidthPressureState == nil {
+func (n *nicEvictionPlugin) pruneStaleBandwidthStates(activeScopes map[string]*bandwidthSample, retention time.Duration) {
+	if n == nil || n.healthyNICState == nil {
 		return
 	}
-	for scope, state := range n.bandwidthPressureState {
-		if _, ok := activeScopes[scope]; !ok {
-			delete(n.bandwidthPressureState, scope)
+	for scopeKey, state := range n.healthyNICState {
+		if _, ok := activeScopes[scopeKey]; !ok {
+			delete(n.healthyNICState, scopeKey)
 			continue
 		}
-		if !state.expired(now, retention) {
+		if !state.expired(retention) {
 			continue
 		}
-		delete(n.bandwidthPressureState, scope)
+		delete(n.healthyNICState, scopeKey)
 	}
 }
 
-func (n *nicEvictionPlugin) getOrCreateBandwidthState(scope bandwidthScope, ringSize int, now time.Time, retention time.Duration) *bandwidthPressureState {
+func (n *nicEvictionPlugin) getOrCreateHealthyNICState(scopeKey string, ringSize int) *bandwidthState {
 	if ringSize <= 0 {
 		ringSize = 1
 	}
-	if n.bandwidthPressureState == nil {
-		n.bandwidthPressureState = make(map[bandwidthScope]*bandwidthPressureState)
+	if n.healthyNICState == nil {
+		n.healthyNICState = make(map[string]*bandwidthState)
 	}
 
-	state, ok := n.bandwidthPressureState[scope]
-	if !ok || len(state.ring) != ringSize || state.expired(now, retention) {
-		state = &bandwidthPressureState{ring: make([]bandwidthSample, ringSize)}
-		n.bandwidthPressureState[scope] = state
+	state, ok := n.healthyNICState[scopeKey]
+	if !ok {
+		state = &bandwidthState{ring: make([]bandwidthSample, ringSize)}
+		n.healthyNICState[scopeKey] = state
+		return state
+	}
+
+	if len(state.ring) != ringSize {
+		state.ring = make([]bandwidthSample, ringSize)
+		state.nextIndex = 0
+		state.sampleCount = 0
 	}
 	return state
 }

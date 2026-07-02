@@ -17,6 +17,7 @@ limitations under the License.
 package eviction
 
 import (
+	"fmt"
 	"time"
 
 	cliflag "k8s.io/component-base/cli/flag"
@@ -66,8 +67,14 @@ func (o *NetworkEvictionOptions) ApplyTo(c *eviction.NetworkEvictionConfiguratio
 	c.GracePeriod = o.GracePeriod
 	c.EnableNICBandwidthEviction = o.EnableNICBandwidthEviction
 	c.NICBandwidthUtilizationThreshold = o.NICBandwidthUtilizationThreshold
+	if o.NICBandwidthContinuousMetThreshold <= 0 || o.NICBandwidthContinuousMetThreshold > o.NICBandwidthRingSize {
+		return fmt.Errorf("continuous met threshold must be greater than 0 and less than or equal to ring size")
+	}
 	c.NICBandwidthContinuousMetThreshold = o.NICBandwidthContinuousMetThreshold
 	c.NICBandwidthRingSize = o.NICBandwidthRingSize
+	if o.NICBandwidthRingMetThreshold <= 0 || o.NICBandwidthRingMetThreshold > o.NICBandwidthRingSize {
+		return fmt.Errorf("ring met threshold must be greater than 0 and less than or equal to ring size")
+	}
 	c.NICBandwidthRingMetThreshold = o.NICBandwidthRingMetThreshold
 	c.NICBandwidthGracePeriod = o.NICBandwidthGracePeriod
 

@@ -18,6 +18,7 @@ package network
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -55,7 +55,7 @@ func TestSyncNICState(t *testing.T) {
 	tests := []struct {
 		name              string
 		cnr               *v1alpha1.CustomNodeResource
-		expectedHealthy   map[bandwidthScope]float64
+		expectedHealthy   map[string]float64
 		expectedNICStates map[string]*unhealthyNICState
 	}{{
 		name: "sync healthy and unhealthy nics",
@@ -83,9 +83,9 @@ func TestSyncNICState(t *testing.T) {
 				}},
 			},
 		},
-		expectedHealthy: map[bandwidthScope]float64{
-			{netns: machine.DefaultNICNamespace, nic: "eth1", direction: bandwidthDirectionRX}: 100,
-			{netns: machine.DefaultNICNamespace, nic: "eth1", direction: bandwidthDirectionTX}: 100,
+		expectedHealthy: map[string]float64{
+			formatBandwidthScope(bandwidthScope{netns: machine.DefaultNICNamespace, nic: "eth1", direction: bandwidthDirectionRX}): 100,
+			formatBandwidthScope(bandwidthScope{netns: machine.DefaultNICNamespace, nic: "eth1", direction: bandwidthDirectionTX}): 100,
 		},
 		expectedNICStates: map[string]*unhealthyNICState{
 			"eth0": {nicZone: v1alpha1.TopologyZone{Name: "eth0"}},
@@ -97,7 +97,7 @@ func TestSyncNICState(t *testing.T) {
 				TopologyZone: []*v1alpha1.TopologyZone{},
 			},
 		},
-		expectedHealthy:   map[bandwidthScope]float64{},
+		expectedHealthy:   map[string]float64{},
 		expectedNICStates: map[string]*unhealthyNICState{},
 	}, {
 		name: "update nic zone allocation",
@@ -134,9 +134,25 @@ func TestSyncNICState(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			dynamicConfig := dynamic.NewDynamicAgentConfiguration()
+			dynamicConfig.GetDynamicConfiguration().NetworkEvictionConfiguration = &eviction.NetworkEvictionConfiguration{
+				EnableNICBandwidthEviction: true,
+				NICBandwidthRingSize:       1,
+			}
+			deviceMetrics := make(map[string]fakeNICMetric, len(tt.expectedHealthy))
+			for scope, expectedCapacity := range tt.expectedHealthy {
+				deviceMetrics[scope] = fakeNICMetric{
+					bps:   convertMbpsToBytesPerSecond(expectedCapacity),
+					speed: expectedCapacity,
+				}
+			}
 			plugin := &nicEvictionPlugin{
 				unhealthyNICState: make(map[string]*unhealthyNICState),
-				healthyNICState:   make(map[bandwidthScope]float64),
+				healthyNICState:   make(map[string]*bandwidthState),
+				dynamicConfig:     dynamicConfig,
+				bandwidthMetricQuerier: &fakeBandwidthMetricQuerier{
+					deviceMetrics: deviceMetrics,
+				},
 				metaServer: &metaserver.MetaServer{
 					MetaAgent: &agent.MetaAgent{
 						CNRFetcher: &cnr.CNRFetcherStub{CNR: tt.cnr},
@@ -149,9 +165,12 @@ func TestSyncNICState(t *testing.T) {
 
 			require.Len(t, plugin.healthyNICState, len(tt.expectedHealthy))
 			for scope, expectedCapacity := range tt.expectedHealthy {
-				actualCapacity, exists := plugin.healthyNICState[scope]
+				actualState, exists := plugin.healthyNICState[scope]
 				require.True(t, exists, "expected healthy NIC scope %v not found", scope)
-				require.Equal(t, expectedCapacity, actualCapacity)
+				require.NotNil(t, actualState)
+				latest, ok := actualState.latestSample()
+				require.True(t, ok)
+				require.Equal(t, expectedCapacity, latest.capacityMbps)
 			}
 
 			// Verify NIC states count
@@ -477,6 +496,26 @@ func TestNICBandwidthEvictionThresholdMetChoosesMoreSevereDirection(t *testing.T
 	require.Equal(t, "bandwidth/ns1/eth0/tx", resp.EvictionScope)
 }
 
+func TestBandwidthStateMet(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	state := &bandwidthState{
+		ring: []bandwidthSample{
+			{bps: bandwidthTestPressureBPS, capacityMbps: 100, observedAt: now.Add(-2 * time.Second)},
+			{bps: bandwidthTestPressureBPS, capacityMbps: 100, observedAt: now.Add(-1 * time.Second)},
+			{bps: bandwidthTestPressureBPS, capacityMbps: 100, observedAt: now},
+		},
+		nextIndex:   0,
+		sampleCount: 3,
+	}
+
+	evaluation, met := state.met(0.75, 3, 4)
+	require.True(t, met)
+	require.Equal(t, 3, evaluation.currentHits)
+	require.Equal(t, 3, evaluation.consecutiveHits)
+}
+
 func TestNICBandwidthEvictionThresholdMetIgnoresMissingSpeed(t *testing.T) {
 	t.Parallel()
 
@@ -798,7 +837,7 @@ func TestNICBandwidthEvictionThresholdMetKeepsHistoryWithoutActivePods(t *testin
 	})
 	require.NoError(t, err)
 	require.Equal(t, pluginapi.ThresholdMetType_HARD_MET, resp.MetType)
-	state := plugin.bandwidthPressureState[bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX}]
+	state := plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX})]
 	require.NotNil(t, state)
 	evaluation := state.evaluate(0.75)
 	require.Equal(t, 4, evaluation.consecutiveHits)
@@ -836,7 +875,7 @@ func TestNICBandwidthEvictionThresholdMetKeepsHistoryAfterPodSwitch(t *testing.T
 	})
 	require.NoError(t, err)
 	require.Equal(t, pluginapi.ThresholdMetType_HARD_MET, resp.MetType)
-	state := plugin.bandwidthPressureState[bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX}]
+	state := plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX})]
 	require.NotNil(t, state)
 	evaluation := state.evaluate(0.75)
 	require.Equal(t, 3, evaluation.consecutiveHits)
@@ -857,7 +896,7 @@ func TestNICBandwidthEvictionThresholdMetResetsExpiredState(t *testing.T) {
 		},
 	}, []machine.InterfaceInfo{newBandwidthTestNIC("ns1", "eth0")}, nil)
 	oldObservedAt := time.Now().Add(-10 * time.Minute)
-	plugin.bandwidthPressureState[bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX}] = &bandwidthPressureState{
+	plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX})] = &bandwidthState{
 		ring: []bandwidthSample{
 			{bps: bandwidthTestPressureBPS, capacityMbps: 100, observedAt: oldObservedAt},
 			{bps: bandwidthTestPressureBPS, capacityMbps: 100, observedAt: oldObservedAt},
@@ -876,11 +915,49 @@ func TestNICBandwidthEvictionThresholdMetResetsExpiredState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, pluginapi.ThresholdMetType_NOT_MET, resp.MetType)
-	state := plugin.bandwidthPressureState[bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX}]
+	state := plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX})]
 	require.NotNil(t, state)
 	evaluation := state.evaluate(0.75)
 	require.Equal(t, 1, evaluation.currentHits)
 	require.Equal(t, 1, evaluation.consecutiveHits)
+}
+
+func TestNICBandwidthEvictionThresholdMetKeepsHistoryWhenMetricTimeWithinRetention(t *testing.T) {
+	t.Parallel()
+
+	oldObservedAt := time.Now().Add(-4 * time.Minute)
+	currentMetricTime := time.Now().Add(-1 * time.Minute)
+	querier := &fakeBandwidthMetricQuerier{
+		deviceMetrics: map[string]fakeNICMetric{
+			"bandwidth/ns1/eth0/rx": {bps: bandwidthTestPressureBPS, speed: 100, observedAt: currentMetricTime},
+		},
+	}
+	plugin := newBandwidthTestPlugin(&eviction.NetworkEvictionConfiguration{
+		EnableNICBandwidthEviction:         true,
+		NICBandwidthUtilizationThreshold:   0.75,
+		NICBandwidthContinuousMetThreshold: 3,
+		NICBandwidthRingSize:               6,
+		NICBandwidthRingMetThreshold:       4,
+	}, querier, []machine.InterfaceInfo{newBandwidthTestNIC("ns1", "eth0")}, nil)
+	plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX})] = &bandwidthState{
+		ring: []bandwidthSample{
+			{bps: bandwidthTestPressureBPS, capacityMbps: 100, observedAt: oldObservedAt},
+			{},
+			{},
+			{},
+			{},
+			{},
+		},
+		nextIndex:   1,
+		sampleCount: 1,
+	}
+
+	plugin.syncNICState(context.Background())
+	state := plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX})]
+	require.NotNil(t, state)
+	evaluation := state.evaluate(0.75)
+	require.Equal(t, 2, evaluation.currentHits)
+	require.Equal(t, 2, evaluation.consecutiveHits)
 }
 
 func TestNICBandwidthEvictionThresholdMetPrunesStaleState(t *testing.T) {
@@ -897,11 +974,12 @@ func TestNICBandwidthEvictionThresholdMetPrunesStaleState(t *testing.T) {
 			"bandwidth/ns1/eth0/rx": {bps: bandwidthTestPressureBPS, speed: 100},
 		},
 	}, []machine.InterfaceInfo{newBandwidthTestNIC("ns1", "eth0")}, nil)
-	plugin.bandwidthPressureState[bandwidthScope{netns: "stale", nic: "eth0", direction: bandwidthDirectionRX}] = &bandwidthPressureState{
+	staleMetricTime := time.Now().Add(-10 * time.Minute)
+	plugin.healthyNICState[formatBandwidthScope(bandwidthScope{netns: "stale", nic: "eth0", direction: bandwidthDirectionRX})] = &bandwidthState{
 		ring: []bandwidthSample{{
 			bps:          bandwidthTestPressureBPS,
 			capacityMbps: 100,
-			observedAt:   time.Now().Add(-10 * time.Minute),
+			observedAt:   staleMetricTime,
 		}, {}, {}, {}, {}, {}},
 		sampleCount: 1,
 	}
@@ -912,7 +990,7 @@ func TestNICBandwidthEvictionThresholdMetPrunesStaleState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, pluginapi.ThresholdMetType_HARD_MET, resp.MetType)
-	require.NotContains(t, plugin.bandwidthPressureState, bandwidthScope{netns: "stale", nic: "eth0", direction: bandwidthDirectionRX})
+	require.NotContains(t, plugin.healthyNICState, formatBandwidthScope(bandwidthScope{netns: "stale", nic: "eth0", direction: bandwidthDirectionRX}))
 }
 
 func TestNICBandwidthEvictionThresholdMetUsesMetricsCollectedBySyncNICState(t *testing.T) {
@@ -933,15 +1011,18 @@ func TestNICBandwidthEvictionThresholdMetUsesMetricsCollectedBySyncNICState(t *t
 		NICBandwidthRingMetThreshold:       4,
 	}, querier, []machine.InterfaceInfo{newBandwidthTestNIC("ns1", "eth0")}, nil)
 	querier.bandwidthMetricCallCount = 0
-	plugin.bandwidthPressureState = map[bandwidthScope]*bandwidthPressureState{}
+	plugin.healthyNICState = map[string]*bandwidthState{}
 
 	plugin.syncNICState(context.Background())
 	require.Equal(t, 2, querier.bandwidthMetricCallCount)
 
 	scope := bandwidthScope{netns: "ns1", nic: "eth0", direction: bandwidthDirectionRX}
-	state := plugin.bandwidthPressureState[scope]
+	state := plugin.healthyNICState[formatBandwidthScope(scope)]
 	require.NotNil(t, state)
 	require.Equal(t, 1, state.sampleCount)
+	latest, ok := state.latestSample()
+	require.True(t, ok)
+	require.Equal(t, querier.deviceMetrics[formatBandwidthScope(scope)].observedAt, latest.observedAt)
 
 	querier.deviceMetrics["bandwidth/ns1/eth0/rx"] = fakeNICMetric{bps: 0, speed: 100}
 	beforeThresholdCall := querier.bandwidthMetricCallCount
@@ -957,6 +1038,8 @@ func TestNICHealthEvictionGetEvictPodsDoesNotTouchBandwidthMetrics(t *testing.T)
 
 	pod := newNetworkTestPod("default", "pod1", "uid1", "ns1-eth0")
 	pod.Spec.Containers = []v1.Container{{Name: "c1"}}
+	pod2 := newNetworkTestPod("default", "pod2", "uid2", "ns1-eth0")
+	pod2.Spec.Containers = []v1.Container{{Name: "c1"}}
 	querier := &fakeBandwidthMetricQuerier{
 		deviceMetrics: map[string]fakeNICMetric{
 			"bandwidth/ns1/eth0/rx": {bps: bandwidthTestPressureBPS, speed: 100},
@@ -964,6 +1047,9 @@ func TestNICHealthEvictionGetEvictPodsDoesNotTouchBandwidthMetrics(t *testing.T)
 		containerDirectionUsage: map[string]map[string]map[string]float64{
 			string(pod.UID): {
 				"c1": {bandwidthDirectionRX: 90},
+			},
+			string(pod2.UID): {
+				"c1": {bandwidthDirectionRX: 60},
 			},
 		},
 	}
@@ -992,6 +1078,8 @@ func TestNICBandwidthEvictionCoexistenceHealthMissBandwidthHit(t *testing.T) {
 
 	pod := newNetworkTestPod("default", "pod1", "uid1", "ns1-eth0")
 	pod.Spec.Containers = []v1.Container{{Name: "c1"}}
+	pod2 := newNetworkTestPod("default", "pod2", "uid2", "ns1-eth0")
+	pod2.Spec.Containers = []v1.Container{{Name: "c1"}}
 	querier := &fakeBandwidthMetricQuerier{
 		deviceMetrics: map[string]fakeNICMetric{
 			"bandwidth/ns1/eth0/rx": {bps: bandwidthTestPressureBPS, speed: 100},
@@ -999,6 +1087,9 @@ func TestNICBandwidthEvictionCoexistenceHealthMissBandwidthHit(t *testing.T) {
 		containerDirectionUsage: map[string]map[string]map[string]float64{
 			string(pod.UID): {
 				"c1": {bandwidthDirectionRX: 90},
+			},
+			string(pod2.UID): {
+				"c1": {bandwidthDirectionRX: 60},
 			},
 		},
 	}
@@ -1048,7 +1139,7 @@ func TestNICBandwidthEvictionCoexistenceHealthMissBandwidthHit(t *testing.T) {
 	require.Zero(t, thresholdResp.GracePeriodSeconds)
 
 	topResp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{pod},
+		ActivePods:    []*v1.Pod{pod, pod2},
 		TopN:          1,
 		EvictionScope: thresholdResp.EvictionScope,
 	})
@@ -1064,6 +1155,8 @@ func TestNICBandwidthEvictionCoexistenceDefaultNetNSScope(t *testing.T) {
 
 	pod := newNetworkTestPod("default", "pod1", "uid1", "eth0")
 	pod.Spec.Containers = []v1.Container{{Name: "c1"}}
+	pod2 := newNetworkTestPod("default", "pod2", "uid2", "")
+	pod2.Spec.Containers = []v1.Container{{Name: "c1"}}
 	querier := &fakeBandwidthMetricQuerier{
 		deviceMetrics: map[string]fakeNICMetric{
 			"bandwidth//eth0/rx": {bps: bandwidthTestPressureBPS, speed: 100},
@@ -1071,6 +1164,9 @@ func TestNICBandwidthEvictionCoexistenceDefaultNetNSScope(t *testing.T) {
 		containerDirectionUsage: map[string]map[string]map[string]float64{
 			string(pod.UID): {
 				"c1": {bandwidthDirectionRX: 90},
+			},
+			string(pod2.UID): {
+				"c1": {bandwidthDirectionRX: 40},
 			},
 		},
 	}
@@ -1093,7 +1189,7 @@ func TestNICBandwidthEvictionCoexistenceDefaultNetNSScope(t *testing.T) {
 	require.Equal(t, "bandwidth//eth0/rx", thresholdResp.EvictionScope)
 
 	topResp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{pod},
+		ActivePods:    []*v1.Pod{pod, pod2},
 		TopN:          1,
 		EvictionScope: thresholdResp.EvictionScope,
 	})
@@ -1150,8 +1246,12 @@ func TestNICBandwidthEvictionGetTopEvictionPodsAssignsPodWithoutAnnotationToDefa
 
 	defaultPod := newNetworkTestPod("default", "default-pod", "uid1", "")
 	defaultPod.Spec.Containers = []v1.Container{{Name: "c1"}}
+	defaultPod2 := newNetworkTestPod("default", "default-pod-2", "uid3", "")
+	defaultPod2.Spec.Containers = []v1.Container{{Name: "c1"}}
 	nsPod := newNetworkTestPod("default", "ns-pod", "uid2", "ns1-eth0")
 	nsPod.Spec.Containers = []v1.Container{{Name: "c1"}}
+	nsPod2 := newNetworkTestPod("default", "ns-pod-2", "uid4", "ns1-eth0")
+	nsPod2.Spec.Containers = []v1.Container{{Name: "c1"}}
 
 	plugin := newBandwidthTestPlugin(&eviction.NetworkEvictionConfiguration{
 		EnableNICBandwidthEviction: true,
@@ -1160,8 +1260,14 @@ func TestNICBandwidthEvictionGetTopEvictionPodsAssignsPodWithoutAnnotationToDefa
 			string(defaultPod.UID): {
 				"c1": {bandwidthDirectionRX: 120},
 			},
+			string(defaultPod2.UID): {
+				"c1": {bandwidthDirectionRX: 60},
+			},
 			string(nsPod.UID): {
 				"c1": {bandwidthDirectionRX: 200},
+			},
+			string(nsPod2.UID): {
+				"c1": {bandwidthDirectionRX: 80},
 			},
 		},
 	}, []machine.InterfaceInfo{
@@ -1170,22 +1276,24 @@ func TestNICBandwidthEvictionGetTopEvictionPodsAssignsPodWithoutAnnotationToDefa
 	}, nil)
 
 	defaultResp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{defaultPod, nsPod},
+		ActivePods:    []*v1.Pod{defaultPod, defaultPod2, nsPod, nsPod2},
 		TopN:          2,
 		EvictionScope: "bandwidth//eth0/rx",
 	})
 	require.NoError(t, err)
-	require.Len(t, defaultResp.TargetPods, 1)
+	require.Len(t, defaultResp.TargetPods, 2)
 	require.Equal(t, "default-pod", defaultResp.TargetPods[0].Name)
+	require.Equal(t, "default-pod-2", defaultResp.TargetPods[1].Name)
 
 	nsResp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{defaultPod, nsPod},
+		ActivePods:    []*v1.Pod{defaultPod, defaultPod2, nsPod, nsPod2},
 		TopN:          2,
 		EvictionScope: "bandwidth/ns1/eth0/rx",
 	})
 	require.NoError(t, err)
-	require.Len(t, nsResp.TargetPods, 1)
+	require.Len(t, nsResp.TargetPods, 2)
 	require.Equal(t, "ns-pod", nsResp.TargetPods[0].Name)
+	require.Equal(t, "ns-pod-2", nsResp.TargetPods[1].Name)
 }
 
 func TestNICBandwidthEvictionGetTopEvictionPodsSortsBySaleModeBeforeUsage(t *testing.T) {
@@ -1300,7 +1408,7 @@ func TestNICBandwidthEvictionGetTopEvictionPodsUsesConfigurableSaleModeAnnotatio
 
 	bytedPod := newNetworkTestPod("default", "byted-pod", "uid1", "ns1-eth0")
 	bytedPod.Spec.Containers = []v1.Container{{Name: "c1"}}
-	bytedPod.Annotations["bytedance.quota.salemode"] = apiconsts.PodSaleModeSpot
+	bytedPod.Annotations["salemode"] = apiconsts.PodSaleModeSpot
 	apiPod := newNetworkTestPod("default", "api-pod", "uid2", "ns1-eth0")
 	apiPod.Spec.Containers = []v1.Container{{Name: "c1"}}
 	apiPod.Annotations[apiconsts.PodAnnotationSaleModeKey] = apiconsts.PodSaleModeSpot
@@ -1317,7 +1425,7 @@ func TestNICBandwidthEvictionGetTopEvictionPodsUsesConfigurableSaleModeAnnotatio
 			},
 		},
 	}, []machine.InterfaceInfo{newBandwidthTestNIC("ns1", "eth0")}, nil)
-	plugin.podSaleModeAnnotationKey = "bytedance.quota.salemode"
+	plugin.podSaleModeAnnotationKey = "salemode"
 
 	resp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
 		ActivePods:    []*v1.Pod{apiPod, bytedPod},
@@ -1328,18 +1436,6 @@ func TestNICBandwidthEvictionGetTopEvictionPodsUsesConfigurableSaleModeAnnotatio
 	require.Len(t, resp.TargetPods, 2)
 	require.Equal(t, "byted-pod", resp.TargetPods[0].Name)
 	require.Equal(t, "api-pod", resp.TargetPods[1].Name)
-}
-
-func TestNewNICEvictionPluginUsesConfiguredSaleModeAnnotationKey(t *testing.T) {
-	t.Parallel()
-
-	conf := config.NewConfiguration()
-	conf.GenericConfiguration.PodSaleModeAnnotationKey = "bytedance.quota.salemode"
-
-	plugin := NewNICEvictionPlugin(nil, nil, nil, metrics.DummyMetrics{}, conf)
-	nicPlugin, ok := plugin.(*nicEvictionPlugin)
-	require.True(t, ok)
-	require.Equal(t, "bytedance.quota.salemode", nicPlugin.podSaleModeAnnotationKey)
 }
 
 func TestNICBandwidthEvictionGetTopEvictionPodsNilRequest(t *testing.T) {
@@ -1461,11 +1557,14 @@ func TestNICBandwidthEvictionGetTopEvictionPodsSkipsPodWhenUsageReadFails(t *tes
 	stablePod.Spec.Containers = []v1.Container{{Name: "c1"}}
 	flakyPod := newNetworkTestPod("default", "flaky-pod", "uid2", "ns1-eth0")
 	flakyPod.Spec.Containers = []v1.Container{{Name: "c1"}}
+	backupPod := newNetworkTestPod("default", "backup-pod", "uid3", "ns1-eth0")
+	backupPod.Spec.Containers = []v1.Container{{Name: "c1"}}
 
 	querier := &fakeBandwidthMetricQuerier{
 		containerDirectionUsage: map[string]map[string]map[string]float64{
 			string(stablePod.UID): {"c1": {bandwidthDirectionRX: 80}},
 			string(flakyPod.UID):  {"c1": {bandwidthDirectionRX: 120}},
+			string(backupPod.UID): {"c1": {bandwidthDirectionRX: 60}},
 		},
 		failDirectionUsageAfter: map[string]map[string]int{
 			string(flakyPod.UID): {bandwidthDirectionRX: 0},
@@ -1477,13 +1576,14 @@ func TestNICBandwidthEvictionGetTopEvictionPodsSkipsPodWhenUsageReadFails(t *tes
 	}, querier, []machine.InterfaceInfo{newBandwidthTestNIC("ns1", "eth0")}, nil)
 
 	resp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{stablePod, flakyPod},
+		ActivePods:    []*v1.Pod{stablePod, flakyPod, backupPod},
 		TopN:          2,
 		EvictionScope: "bandwidth/ns1/eth0/rx",
 	})
 	require.NoError(t, err)
-	require.Len(t, resp.TargetPods, 1)
+	require.Len(t, resp.TargetPods, 2)
 	require.Equal(t, "stable-pod", resp.TargetPods[0].Name)
+	require.Equal(t, "backup-pod", resp.TargetPods[1].Name)
 }
 
 func TestNICBandwidthEvictionGetTopEvictionPodsInvalidScope(t *testing.T) {
@@ -1508,6 +1608,8 @@ func TestNICBandwidthEvictionGetTopEvictionPodsBondPath(t *testing.T) {
 
 	bondPod := newNetworkTestPod("default", "bond-pod", "uid1", "ns1-bond0")
 	bondPod.Spec.Containers = []v1.Container{{Name: "c1"}, {Name: "c2"}}
+	bondPod2 := newNetworkTestPod("default", "bond-pod-2", "uid3", "ns1-bond0")
+	bondPod2.Spec.Containers = []v1.Container{{Name: "c1"}}
 	otherPod := newNetworkTestPod("default", "other-pod", "uid2", "ns1-eth0")
 	otherPod.Spec.Containers = []v1.Container{{Name: "c1"}}
 
@@ -1518,6 +1620,9 @@ func TestNICBandwidthEvictionGetTopEvictionPodsBondPath(t *testing.T) {
 			string(bondPod.UID): {
 				"c1": {bandwidthDirectionRX: 40},
 				"c2": {bandwidthDirectionRX: 50},
+			},
+			string(bondPod2.UID): {
+				"c1": {bandwidthDirectionRX: 30},
 			},
 			string(otherPod.UID): {
 				"c1": {bandwidthDirectionRX: 100},
@@ -1531,7 +1636,7 @@ func TestNICBandwidthEvictionGetTopEvictionPodsBondPath(t *testing.T) {
 	}))
 
 	resp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{bondPod, otherPod},
+		ActivePods:    []*v1.Pod{bondPod, bondPod2, otherPod},
 		TopN:          1,
 		EvictionScope: "bandwidth/ns1/bond0/rx",
 	})
@@ -1547,6 +1652,8 @@ func TestNICBandwidthEvictionGetTopEvictionPodsMultiNetNSIsolation(t *testing.T)
 	pod1.Spec.Containers = []v1.Container{{Name: "c1"}}
 	pod2 := newNetworkTestPod("default", "pod2", "uid2", "ns2-eth0")
 	pod2.Spec.Containers = []v1.Container{{Name: "c1"}}
+	pod3 := newNetworkTestPod("default", "pod3", "uid3", "ns2-eth0")
+	pod3.Spec.Containers = []v1.Container{{Name: "c1"}}
 
 	plugin := newBandwidthTestPlugin(&eviction.NetworkEvictionConfiguration{
 		EnableNICBandwidthEviction: true,
@@ -1558,6 +1665,9 @@ func TestNICBandwidthEvictionGetTopEvictionPodsMultiNetNSIsolation(t *testing.T)
 			string(pod2.UID): {
 				"c1": {bandwidthDirectionRX: 80},
 			},
+			string(pod3.UID): {
+				"c1": {bandwidthDirectionRX: 40},
+			},
 		},
 	}, []machine.InterfaceInfo{
 		newBandwidthTestNIC("ns1", "eth0"),
@@ -1565,7 +1675,7 @@ func TestNICBandwidthEvictionGetTopEvictionPodsMultiNetNSIsolation(t *testing.T)
 	}, nil)
 
 	resp, err := plugin.GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-		ActivePods:    []*v1.Pod{pod1, pod2},
+		ActivePods:    []*v1.Pod{pod1, pod2, pod3},
 		TopN:          1,
 		EvictionScope: "bandwidth/ns2/eth0/rx",
 	})
@@ -1593,8 +1703,9 @@ func TestNICBandwidthEvictionGetTopEvictionPodsEmptyCandidates(t *testing.T) {
 }
 
 type fakeNICMetric struct {
-	bps   float64
-	speed float64
+	bps        float64
+	speed      float64
+	observedAt time.Time
 }
 
 type fakeBandwidthMetricQuerier struct {
@@ -1605,18 +1716,22 @@ type fakeBandwidthMetricQuerier struct {
 	failDirectionUsageAfter  map[string]map[string]int
 }
 
-func (f *fakeBandwidthMetricQuerier) GetBandwidthMetric(scope bandwidthScope) (float64, bool) {
+func (f *fakeBandwidthMetricQuerier) GetBandwidthMetric(scope bandwidthScope) (utilmetric.MetricData, error) {
 	if f == nil {
-		return 0, false
+		return utilmetric.MetricData{}, fmt.Errorf("nil fakeBandwidthMetricQuerier")
 	}
 	f.bandwidthMetricCallCount++
 
 	metric, ok := f.deviceMetrics[formatBandwidthScope(scope)]
 	if !ok {
-		return 0, false
+		return utilmetric.MetricData{}, fmt.Errorf("bandwidth metric not found for scope %s", formatBandwidthScope(scope))
 	}
 
-	return metric.bps, true
+	if metric.observedAt.IsZero() {
+		metric.observedAt = time.Now()
+		f.deviceMetrics[formatBandwidthScope(scope)] = metric
+	}
+	return utilmetric.MetricData{Value: metric.bps, Time: &metric.observedAt}, nil
 }
 
 func (f *fakeBandwidthMetricQuerier) GetPodDirectionUsage(pod *v1.Pod, direction string) (float64, bool) {
@@ -1675,25 +1790,28 @@ func newBandwidthTestPluginWithMetaServer(conf *eviction.NetworkEvictionConfigur
 	if cnrObj == nil {
 		cnrObj = newBandwidthTestCNRFromInterfaces(interfaces, "100")
 	}
+	metaServer := &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{
+		MetricsFetcher: metricsFetcher,
+		KatalystMachineInfo: &machine.KatalystMachineInfo{
+			ExtraNetworkInfo: &machine.ExtraNetworkInfo{Interface: interfaces},
+		},
+		CNRFetcher: &cnr.CNRFetcherStub{CNR: cnrObj},
+	}}
+	if metricQuerier == nil {
+		metricQuerier = newBandwidthMetricQuerier(metricsFetcher)
+	}
 
 	plugin := &nicEvictionPlugin{
 		dynamicConfig:            dynamicConfig,
 		unhealthyNICState:        make(map[string]*unhealthyNICState),
-		healthyNICState:          make(map[bandwidthScope]float64),
+		healthyNICState:          make(map[string]*bandwidthState),
 		emitter:                  metrics.DummyMetrics{},
 		podSaleModeAnnotationKey: apiconsts.PodAnnotationSaleModeKey,
-		bandwidthPressureState:   map[bandwidthScope]*bandwidthPressureState{},
-		metricQuerier:            metricQuerier,
-		metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{
-			MetricsFetcher: metricsFetcher,
-			KatalystMachineInfo: &machine.KatalystMachineInfo{
-				ExtraNetworkInfo: &machine.ExtraNetworkInfo{Interface: interfaces},
-			},
-			CNRFetcher: &cnr.CNRFetcherStub{CNR: cnrObj},
-		}},
+		bandwidthMetricQuerier:   metricQuerier,
+		metaServer:               metaServer,
 	}
 	plugin.syncNICState(context.Background())
-	plugin.bandwidthPressureState = map[bandwidthScope]*bandwidthPressureState{}
+	plugin.healthyNICState = map[string]*bandwidthState{}
 	if fakeQuerier, ok := metricQuerier.(*fakeBandwidthMetricQuerier); ok {
 		fakeQuerier.bandwidthMetricCallCount = 0
 	}
