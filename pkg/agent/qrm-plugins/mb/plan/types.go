@@ -21,10 +21,12 @@ import (
 	"sort"
 	"strings"
 
+	mbconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/policy/consts"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
-const mbUnitAMD = 1_000 / 8 // AMD schemata value in unit of 1/8 GB
+// AMD schemata MB value in unit of 1/8 GiB (128 MiB)
+const mbUnitAMD = 1024 / 8
 
 // GroupCCDPlan is for single control group, with
 // key as CCD id, value as memory bandwidth quota in MegaBytes
@@ -83,6 +85,11 @@ func getSortedCCDs(c GroupCCDPlan) []int {
 	return keys
 }
 
+// mbToMiB converts MB (1000*1000 bytes) to MiB (1024*1024 bytes) for AMD schemata
+func mbToMiB(mb int) int {
+	return mb * mbconsts.BytesPerMB / mbconsts.BytesPerMiB
+}
+
 func (c GroupCCDPlan) ToSchemataInstruction() []byte {
 	// the result looks like  "MB:2=32;3=32;"
 	var sb strings.Builder
@@ -90,7 +97,8 @@ func (c GroupCCDPlan) ToSchemataInstruction() []byte {
 
 	for _, ccd := range getSortedCCDs(c) {
 		mb := c[ccd]
-		v := (mb + mbUnitAMD - 1) / mbUnitAMD
+		miB := mbToMiB(mb)
+		v := (miB + mbUnitAMD - 1) / mbUnitAMD
 		sb.WriteString(fmt.Sprintf("%d=%d;", ccd, v))
 	}
 

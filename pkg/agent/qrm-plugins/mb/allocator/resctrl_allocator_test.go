@@ -143,8 +143,8 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 			},
 			wantErr: false,
 			want: map[string]string{
-				"shared-50": "MB:0=32;2=36;\n",
-				"shared-30": "MB:1=48;2=24;\n",
+				"shared-50": "MB:0=30;2=34;\n",
+				"shared-30": "MB:1=45;2=23;\n",
 			},
 		},
 	}

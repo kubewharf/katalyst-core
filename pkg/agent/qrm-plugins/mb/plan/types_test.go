@@ -34,7 +34,7 @@ func TestCCDPlan_ToSchemataInstruction(t *testing.T) {
 			c: GroupCCDPlan{
 				0: 4_000, 2: 4_500,
 			},
-			want: []byte("MB:0=32;2=36;\n"),
+			want: []byte("MB:0=30;2=34;\n"),
 		},
 	}
 	for _, tt := range tests {

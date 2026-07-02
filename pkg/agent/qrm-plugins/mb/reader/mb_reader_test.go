@@ -147,16 +147,16 @@ func Test_metaServerMBReader_getMBData(t *testing.T) {
 				MBBody: monitor.GroupMBStats{
 					"/": {
 						1: {
-							LocalMB:  10,
+							LocalMB:  11,
 							RemoteMB: 0,
-							TotalMB:  10,
+							TotalMB:  11,
 						},
 					},
 					"shared-50": {
 						2: {
-							LocalMB:  10,
+							LocalMB:  11,
 							RemoteMB: 0,
-							TotalMB:  10,
+							TotalMB:  11,
 						},
 					},
 				},

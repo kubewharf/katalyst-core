@@ -22,6 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	mbconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/policy/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -46,8 +47,8 @@ func (a *uniqPriorityAdvisor) emitDomIncomingStatSummaryMetrics(domLimits map[in
 			"domain": fmt.Sprintf("%d", domID),
 			"state":  string(limit.ResourceState),
 		}
-		emitKV(a.emitter, nameMBMCapacity, limit.CapacityInMB, tags)
-		emitKV(a.emitter, nameMBMFree, limit.FreeInMB, tags)
+		emitKV(a.emitter, nameMBMCapacity, int64(limit.CapacityInMB*mbconsts.BytesPerMB), tags)
+		emitKV(a.emitter, nameMBMFree, int64(limit.FreeInMB*mbconsts.BytesPerMB), tags)
 	}
 }
 
@@ -74,7 +75,9 @@ func (a *uniqPriorityAdvisor) emitStat(stats map[int]monitor.DomainMonStat, metr
 					"group":  group,
 					"ccd":    fmt.Sprintf("%d", ccd),
 				}
-				emitKV(a.emitter, metricName, v.TotalMB, tags)
+				// MBInfo stores MB to avoid int32 overflow (60 GB = 60000 MB, within int range),
+				// but metrics are emitted in bytes for consistency with other systems.
+				emitKV(a.emitter, metricName, int64(v.TotalMB)*mbconsts.BytesPerMB, tags)
 			}
 		}
 	}
@@ -111,14 +114,14 @@ func (a *uniqPriorityAdvisor) emitPlanWithMetricName(plan *plan.MBPlan, metricNa
 				"group": group,
 				"ccd":   fmt.Sprintf("%d", ccd),
 			}
-			emitKV(a.emitter, metricName, v, tags)
+			emitKV(a.emitter, metricName, int64(v*mbconsts.BytesPerMB), tags)
 		}
 	}
 }
 
-func emitKV(emitter metrics.MetricEmitter, k string, v int, tags map[string]string) {
+func emitKV(emitter metrics.MetricEmitter, k string, v int64, tags map[string]string) {
 	_ = emitter.StoreInt64(k,
-		int64(v),
+		v,
 		metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(tags)...,
 	)
@@ -131,7 +134,7 @@ func emitNamedGroupTargets(emitter metrics.MetricEmitter, name string, groupedDo
 				"group":  group,
 				"domain": fmt.Sprintf("%d", domID),
 			}
-			emitKV(emitter, name, v, tags)
+			emitKV(emitter, name, int64(v*mbconsts.BytesPerMB), tags)
 		}
 	}
 }

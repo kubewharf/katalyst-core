@@ -82,7 +82,7 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.Float64Var(&o.CCDCapKp, "mb-ccd-cap-kp",
 		o.CCDCapKp, "proportional gain for ccd cap governance")
 	fs.StringToIntVar(&o.CCDCapGroups, "mb-ccd-cap-groups",
-		o.CCDCapGroups, "per-group target actual mb per ccd (e.g. dedicated=20000,shared-50=24000)")
+		o.CCDCapGroups, "per-group target actual MB(not MiB) per ccd (e.g. dedicated=20000,shared-50=24000)")
 	fs.IntVar(&o.MaxIncomingRemoteMB, "mb-remote-limit",
 		o.MaxIncomingRemoteMB, "max mb allowed from remote domains")
 	fs.IntVar(&o.MBCapLimitPercent, "mb-cap-limit-percent",

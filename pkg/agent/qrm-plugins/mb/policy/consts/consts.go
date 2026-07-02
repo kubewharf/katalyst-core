@@ -16,4 +16,12 @@ limitations under the License.
 
 package consts
 
-const MBPluginPolicyNameGeneric = "generic"
+const (
+	MBPluginPolicyNameGeneric = "generic"
+
+	// BytesPerMB is 1,000,000 for mem bandwidth usage calculation, not 1024*1024
+	BytesPerMB = 1000 * 1000
+
+	// BytesPerMiB is 2-based 1024*1024, for internal stats  and metrics reported
+	BytesPerMiB = 1024 * 1024
+)

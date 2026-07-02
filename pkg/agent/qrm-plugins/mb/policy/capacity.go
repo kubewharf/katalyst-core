@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/policy/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -60,7 +61,7 @@ func initGroupCapacities(metricFetcher metrictypes.MetricsFetcher,
 		break
 	}
 	// mb_plugin processes mem bandwidth in MB units
-	defaultMBDomainCapacity := int(mbAllocatable / 1024 / 1024)
+	defaultMBDomainCapacity := int(mbAllocatable / consts.BytesPerMB)
 	if defaultMBDomainCapacity < minMBCapacity {
 		return nil, 0, fmt.Errorf("invalid domain mb capacity %d as configured", defaultMBDomainCapacity)
 	}
