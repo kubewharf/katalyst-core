@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -53,8 +54,8 @@ type memoryGuard struct {
 	metaReader                         metacache.MetaReader
 	metaServer                         *metaserver.MetaServer
 	emitter                            metrics.MetricEmitter
-	reclaimRelativeRootCgroupPath      string
-	numaBindingRelativeRootCgroupPaths map[int]string
+	reclaimRelativeRootCgroupPaths     []string
+	numaBindingRelativeRootCgroupPaths map[int][]string
 	reclaimMemoryLimit                 *atomic.Int64
 	numaBindingReclaimMemoryLimit      *atomic.Value
 	reconcileStatus                    *atomic.String
@@ -63,13 +64,26 @@ type memoryGuard struct {
 }
 
 func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
+	entries := conf.ReclaimRelativeRootCgroupPaths
+	if len(entries) == 0 {
+		entries = []global.ReclaimRelativeRootCgroupPathEntry{{
+			Path:          conf.ReclaimRelativeRootCgroupPath,
+			NUMASeparator: "-",
+		}}
+	}
+
+	parentPaths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		parentPaths = append(parentPaths, e.Path)
+	}
+
 	return &memoryGuard{
-		metaReader:                    metaReader,
-		metaServer:                    metaServer,
-		emitter:                       emitter,
-		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
-		numaBindingRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		metaReader:                     metaReader,
+		metaServer:                     metaServer,
+		emitter:                        emitter,
+		reclaimRelativeRootCgroupPaths: parentPaths,
+		numaBindingRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPathsMulti(
+			entries, metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
 		reclaimMemoryLimit:            atomic.NewInt64(-1),
 		numaBindingReclaimMemoryLimit: &atomic.Value{},
 		reconcileStatus:               atomic.NewString(reconcileStatusFailed),
@@ -118,54 +132,65 @@ func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
 	if memoryMax == reclaimMemoryUnlimited {
 		memoryHigh = reclaimMemoryUnlimited
 	}
-	result := types.InternalMemoryCalculationResult{
-		ExtraEntries: []types.ExtraMemoryAdvices{
-			{
-				CgroupPath: mg.reclaimRelativeRootCgroupPath,
-				Values: map[string]string{
-					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(memoryMax, 10),
-					string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(memoryHigh, 10),
-				},
+	result := types.InternalMemoryCalculationResult{}
+	for _, cgroupPath := range mg.reclaimRelativeRootCgroupPaths {
+		result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
+			CgroupPath: cgroupPath,
+			Values: map[string]string{
+				string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(memoryMax, 10),
+				string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(memoryHigh, 10),
 			},
-		},
+		})
 	}
 
 	numaBindingReclaimMemoryLimitValue := mg.numaBindingReclaimMemoryLimit.Load()
 	if numaBindingReclaimMemoryLimitValue != nil {
-		numaBindingReclaimMemoryLimit := numaBindingReclaimMemoryLimitValue.(map[int]int64)
-		for numaID, cgroupPath := range mg.numaBindingRelativeRootCgroupPaths {
-			if _, ok := numaBindingReclaimMemoryLimit[numaID]; !ok {
+		perNUMA := numaBindingReclaimMemoryLimitValue.(map[int]map[string]int64)
+		for numaID, cgroupPaths := range mg.numaBindingRelativeRootCgroupPaths {
+			perPath, ok := perNUMA[numaID]
+			if !ok {
 				continue
 			}
-
-			numaMemoryMax := numaBindingReclaimMemoryLimit[numaID]
-			numaMemoryHigh := int64(float64(numaMemoryMax) * memoryHighScaleFactor)
-			if numaMemoryMax == reclaimMemoryUnlimited {
-				numaMemoryHigh = reclaimMemoryUnlimited
+			for _, cgroupPath := range cgroupPaths {
+				numaMemoryMax, ok := perPath[cgroupPath]
+				if !ok {
+					continue
+				}
+				numaMemoryHigh := int64(float64(numaMemoryMax) * memoryHighScaleFactor)
+				if numaMemoryMax == reclaimMemoryUnlimited {
+					numaMemoryHigh = reclaimMemoryUnlimited
+				}
+				result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
+					CgroupPath: cgroupPath,
+					Values: map[string]string{
+						string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(numaMemoryMax, 10),
+						string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(numaMemoryHigh, 10),
+					},
+				})
 			}
-			result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
-				CgroupPath: cgroupPath,
-				Values: map[string]string{
-					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(numaMemoryMax, 10),
-					string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(numaMemoryHigh, 10),
-				},
-			})
 		}
 	}
 
 	return result
 }
 
-func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgroupPath string, zoneInfos []machine.NormalZoneInfo) (float64, error) {
+func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgroupPaths []string, zoneInfos []machine.NormalZoneInfo) (float64, error) {
 	watermarkScaleFactor, err := mg.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
 		general.ErrorS(err, "Can not get system watermark scale factor")
 		return 0, err
 	}
 
-	reclaimedCoresUsed, err := mg.metaServer.GetCgroupNumaMetric(reclaimedCgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup)
-	if err != nil {
-		return 0, err
+	reclaimedCoresUsed := .0
+	for _, p := range reclaimedCgroupPaths {
+		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, p)) {
+			continue
+		}
+		m, err := mg.metaServer.GetCgroupNumaMetric(p, numaID, consts.MetricsMemTotalPerNumaCgroup)
+		if err != nil {
+			return 0, err
+		}
+		reclaimedCoresUsed += m.Value
 	}
 
 	tmp, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
@@ -193,14 +218,18 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 	}
 	if found {
 		numaFree = float64(zoneInfo.Free) * float64(mg.metaServer.KatalystMachineInfo.PageSize)
-		criticalWatermark = float64(zoneInfo.Low) * float64(mg.metaServer.KatalystMachineInfo.PageSize)
+		watermarkPages := zoneInfo.Low
+		if mg.conf.CriticalWatermarkSource == "high" {
+			watermarkPages = zoneInfo.High
+		}
+		criticalWatermark = float64(watermarkPages) * float64(mg.metaServer.KatalystMachineInfo.PageSize)
 	}
 
 	criticalWatermarkScaleFactor := mg.conf.GetDynamicConfiguration().CriticalWatermarkScaleFactor
 	criticalWatermark *= criticalWatermarkScaleFactor
 
 	criticalWatermark = math.Max(float64(mg.minCriticalWatermark), criticalWatermark)
-	reclaimMemoryLimit := reclaimedCoresUsed.Value +
+	reclaimMemoryLimit := reclaimedCoresUsed +
 		math.Max(numaFree-criticalWatermark, 0)
 
 	reclaimedMemoryMaxRatio := mg.conf.GetDynamicConfiguration().ReclaimedMemoryMaxRatio
@@ -210,7 +239,7 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 
 	general.InfoS("NUMA memory info", "numaID", numaID,
 		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
-		"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed.Value),
+		"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed),
 		"numaFree", general.FormatMemoryQuantity(numaFree),
 		"criticalWatermarkScaleFactor", criticalWatermarkScaleFactor,
 		"reclaimedMemoryMaxRatio", reclaimedMemoryMaxRatio,
@@ -231,8 +260,11 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(zoneInfos []
 		return err
 	}
 
+	// Charge the reclaimed_cores usage-baseline for every configured parent
+	// cgroup on this NUMA; the NUMA-level free-memory cushion is shared
+	// across parents and counted once per NUMA by the helper.
 	for _, numaID := range availNUMAs.Difference(actualNUMABindingNUMAs).ToSliceInt() {
-		limit, err := mg.calculateReclaimedMemoryLimitFor(numaID, mg.reclaimRelativeRootCgroupPath, zoneInfos)
+		limit, err := mg.calculateReclaimedMemoryLimitFor(numaID, mg.reclaimRelativeRootCgroupPaths, zoneInfos)
 		if err != nil {
 			return err
 		}
@@ -245,21 +277,27 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(zoneInfos []
 }
 
 func (mg *memoryGuard) updateActualNUMABindingReclaimMemoryLimit(zoneInfos []machine.NormalZoneInfo) error {
-	numaBindingReclaimMemoryLimitMap := make(map[int]int64, len(mg.metaServer.Topology))
+	limits := make(map[int]map[string]int64, len(mg.metaServer.Topology))
 
 	for _, numaID := range mg.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
-		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, mg.numaBindingRelativeRootCgroupPaths[numaID])) {
-			continue
-		}
+		perPath := make(map[string]int64, len(mg.numaBindingRelativeRootCgroupPaths[numaID]))
+		for _, cgroupPath := range mg.numaBindingRelativeRootCgroupPaths[numaID] {
+			if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, cgroupPath)) {
+				continue
+			}
 
-		limit, err := mg.calculateReclaimedMemoryLimitFor(numaID, mg.numaBindingRelativeRootCgroupPaths[numaID], zoneInfos)
-		if err != nil {
-			return err
-		}
+			limit, err := mg.calculateReclaimedMemoryLimitFor(numaID, []string{cgroupPath}, zoneInfos)
+			if err != nil {
+				return err
+			}
 
-		numaBindingReclaimMemoryLimitMap[numaID] = int64(limit)
+			perPath[cgroupPath] = int64(limit)
+		}
+		if len(perPath) > 0 {
+			limits[numaID] = perPath
+		}
 	}
 
-	mg.numaBindingReclaimMemoryLimit.Store(numaBindingReclaimMemoryLimitMap)
+	mg.numaBindingReclaimMemoryLimit.Store(limits)
 	return nil
 }

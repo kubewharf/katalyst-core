@@ -17,7 +17,9 @@ limitations under the License.
 package global
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -54,6 +56,7 @@ type BaseOptions struct {
 	AdditionalCgroupPaths []string
 
 	ReclaimRelativeRootCgroupPath  string
+	ReclaimRelativeRootCgroupPaths []string
 	GeneralRelativeCgroupPaths     []string
 	OptionalRelativeCgroupPaths    []string
 	DisableCGroupV2TaskLoadMetrics bool
@@ -127,6 +130,11 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath, "reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
+	fs.StringSliceVar(&o.ReclaimRelativeRootCgroupPaths, "reclaim-relative-root-cgroup-paths", o.ReclaimRelativeRootCgroupPaths,
+		"Additional reclaimed_cores parent cgroup paths for memoryGuard, as "+
+			"comma-separated '<path>:<separator>' tuples "+
+			"(separator '-' means sibling, '/' means nested). "+
+			"If empty, falls back to --reclaim-relative-root-cgroup-path with separator '-'.")
 	fs.StringSliceVar(&o.GeneralRelativeCgroupPaths, "malachite-general-relative-cgroup-paths", o.GeneralRelativeCgroupPaths,
 		"The cgroup paths of standalone services which not managed by kubernetes, errors will occur if these paths not existed")
 	fs.StringSliceVar(&o.OptionalRelativeCgroupPaths, "malachite-optional-relative-cgroup-paths", o.OptionalRelativeCgroupPaths,
@@ -179,6 +187,11 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.LockWaitingEnabled = o.LockWaitingEnabled
 
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
+	entries, err := parseReclaimRelativeRootCgroupPathEntries(o.ReclaimRelativeRootCgroupPaths, o.ReclaimRelativeRootCgroupPath)
+	if err != nil {
+		return err
+	}
+	c.ReclaimRelativeRootCgroupPaths = entries
 	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths
 	c.OptionalRelativeCgroupPaths = o.OptionalRelativeCgroupPaths
 	c.CgroupType = o.CgroupType
@@ -204,6 +217,27 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.RuntimeEndpoint = o.RuntimeEndpoint
 	return nil
+}
+
+func parseReclaimRelativeRootCgroupPathEntries(raw []string, fallback string) ([]global.ReclaimRelativeRootCgroupPathEntry, error) {
+	if len(raw) == 0 {
+		return []global.ReclaimRelativeRootCgroupPathEntry{{
+			Path:          fallback,
+			NUMASeparator: "-",
+		}}, nil
+	}
+	out := make([]global.ReclaimRelativeRootCgroupPathEntry, 0, len(raw))
+	for _, s := range raw {
+		idx := strings.LastIndex(s, ":")
+		if idx < 0 {
+			return nil, fmt.Errorf("invalid reclaim-relative-root-cgroup-paths entry %q, expected '<path>:<separator>'", s)
+		}
+		out = append(out, global.ReclaimRelativeRootCgroupPathEntry{
+			Path:          s[:idx],
+			NUMASeparator: s[idx+1:],
+		})
+	}
+	return out, nil
 }
 
 func mapStrToFloat64(input map[string]string) map[string]float64 {

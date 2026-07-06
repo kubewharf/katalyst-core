@@ -16,6 +16,18 @@ limitations under the License.
 
 package global
 
+// ReclaimRelativeRootCgroupPathEntry describes one reclaimed-cores parent
+// cgroup path and how per-NUMA child paths are formed from it.
+//
+// NUMASeparator is the string inserted between Path and the numeric NUMA ID
+// when computing per-NUMA cgroups. Two shapes are typical:
+//   - "-": sibling  ("/kubepods/besteffort" + "-" + "0" = "/kubepods/besteffort-0")
+//   - "/": nested   ("/parentPath/childPath" + "/" + "0" = "/parentPath/childPath/0")
+type ReclaimRelativeRootCgroupPathEntry struct {
+	Path          string
+	NUMASeparator string
+}
+
 type BaseConfiguration struct {
 	// Agents is the list of agent components to enable or disable
 	// '*' means "all enabled by default agents"
@@ -35,6 +47,11 @@ type BaseConfiguration struct {
 	// ReclaimRelativeRootCgroupPath is configurable since we may need to
 	// specify a customized path for reclaimed-cores to enrich qos-management ways
 	ReclaimRelativeRootCgroupPath string
+
+	// ReclaimRelativeRootCgroupPaths is a superset used only by memoryGuard
+	// for now. When empty, memoryGuard falls back to the singular
+	// ReclaimRelativeRootCgroupPath with separator "-".
+	ReclaimRelativeRootCgroupPaths []ReclaimRelativeRootCgroupPathEntry
 
 	*MachineInfoConfiguration
 	*KubeletConfiguration

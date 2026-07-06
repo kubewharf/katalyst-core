@@ -28,6 +28,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -277,6 +278,24 @@ func GetNUMABindingReclaimRelativeRootCgroupPaths(reclaimRelativeRootCgroupPath 
 		paths[numaID] = reclaimRelativeRootCgroupPath + numaBindingReclaimRelativeRootCgroupPathSeparator + strconv.Itoa(numaID)
 	}
 	return paths
+}
+
+// GetNUMABindingReclaimRelativeRootCgroupPathsMulti expands each (parent,
+// separator) entry against every NUMA node id and returns a map keyed by
+// NUMA id. Each inner slice preserves the order of entries so downstream
+// callers can rely on stable indexing.
+func GetNUMABindingReclaimRelativeRootCgroupPathsMulti(
+	entries []global.ReclaimRelativeRootCgroupPathEntry, numaNodes []int,
+) map[int][]string {
+	out := make(map[int][]string, len(numaNodes))
+	for _, numaID := range numaNodes {
+		paths := make([]string, 0, len(entries))
+		for _, e := range entries {
+			paths = append(paths, e.Path+e.NUMASeparator+strconv.Itoa(numaID))
+		}
+		out[numaID] = paths
+	}
+	return out
 }
 
 func GetReclaimRelativeRootCgroupPath(reclaimRelativeRootCgroupPath string, NUMANode int) string {
