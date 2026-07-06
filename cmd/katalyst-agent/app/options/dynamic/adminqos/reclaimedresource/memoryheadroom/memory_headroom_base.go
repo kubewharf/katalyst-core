@@ -17,19 +17,26 @@ limitations under the License.
 package memoryheadroom
 
 import (
+	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 )
 
+const (
+	defaultReclaimedMemoryMaxRatio = 0
+)
+
 type MemoryHeadroomOptions struct {
 	*UtilBasedOptions
+	ReclaimedMemoryMaxRatio float64
 }
 
 func NewMemoryHeadroomOptions() *MemoryHeadroomOptions {
 	return &MemoryHeadroomOptions{
-		UtilBasedOptions: NewUtilBasedOptions(),
+		UtilBasedOptions:        NewUtilBasedOptions(),
+		ReclaimedMemoryMaxRatio: defaultReclaimedMemoryMaxRatio,
 	}
 }
 
@@ -37,10 +44,17 @@ func (o *MemoryHeadroomOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("memory-headroom")
 
 	o.UtilBasedOptions.AddFlags(fs)
+	o.addFlags(fs)
+}
+
+func (o *MemoryHeadroomOptions) addFlags(fs *pflag.FlagSet) {
+	fs.Float64Var(&o.ReclaimedMemoryMaxRatio, "memory-headroom-reclaimed-memory-max-ratio", o.ReclaimedMemoryMaxRatio,
+		"the ratio of the maximum amount of memory that can be reclaimed per numa at any time, 0 means disable max ratio")
 }
 
 func (o *MemoryHeadroomOptions) ApplyTo(c *memoryheadroom.MemoryHeadroomConfiguration) error {
 	var errList []error
 	errList = append(errList, o.UtilBasedOptions.ApplyTo(c.MemoryUtilBasedConfiguration))
+	c.ReclaimedMemoryMaxRatio = o.ReclaimedMemoryMaxRatio
 	return errors.NewAggregate(errList)
 }

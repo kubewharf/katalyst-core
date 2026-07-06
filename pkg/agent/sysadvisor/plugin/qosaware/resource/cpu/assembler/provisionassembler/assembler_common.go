@@ -68,6 +68,30 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 	}
 }
 
+// cpuCountInNUMAs returns the total number of CPUs across the given NUMA IDs.
+func (pa *ProvisionAssemblerCommon) cpuCountInNUMAs(numas machine.CPUSet) int {
+	return pa.metaServer.CPUDetails.CPUsInNUMANodes(numas.ToSliceInt()...).Size()
+}
+
+// clampByReclaimedCPUMaxRatio returns size / limit clamped to
+// ReclaimedCPUMaxRatio * cpuCount when the ratio is set. cpuCount is the
+// scope-specific CPU count (e.g. CPUs on a region's binding NUMA, or CPUs
+// on a specific NUMA for the reclaim pool). If the ratio is <= 0 the
+// inputs are returned unchanged. A limit < 0 (used as a "no CFS quota"
+// sentinel) is also returned unchanged.
+func (pa *ProvisionAssemblerCommon) clampByReclaimedCPUMaxRatio(size int, limit float64, cpuCount int) (int, float64) {
+	ratio := pa.conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio
+	if ratio <= 0 {
+		return size, limit
+	}
+	capInt := int(ratio * float64(cpuCount))
+	size = general.Min(size, capInt)
+	if limit >= 0 {
+		limit = general.MinFloat64(limit, float64(capInt))
+	}
+	return size, limit
+}
+
 func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	controlKnob, err := r.GetProvision()
 	if err != nil {
@@ -106,6 +130,9 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		"reclaimedCoresLimit", reclaimedCoresLimit,
 		"available", available, "nonReclaimRequirement", nonReclaimRequirement,
 		"reservedForReclaim", reservedForReclaim, "controlKnob", controlKnob)
+
+	regionCPUCount := pa.cpuCountInNUMAs(r.GetBindingNumas())
+	reclaimedCoresSize, reclaimedCoresLimit = pa.clampByReclaimedCPUMaxRatio(reclaimedCoresSize, reclaimedCoresLimit, regionCPUCount)
 
 	// set pool overlap info for dedicated pool
 	for podUID, containerSet := range r.GetPods() {
@@ -426,6 +453,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		reservedForReclaim:                     reservedForReclaim,
 		nodeEnableReclaim:                      nodeEnableReclaim,
 		numaID:                                 numaID,
+		numaCPUCount:                           pa.cpuCountInNUMAs(numaSet),
 		totalUnusedNonReclaimablePinnedCPUSize: totalUnusedNonReclaimablePinnedCPUSize,
 	}
 
@@ -459,6 +487,7 @@ type reclaimPoolCalculationData struct {
 	reservedForReclaim                     int
 	nodeEnableReclaim                      bool
 	numaID                                 int
+	numaCPUCount                           int
 	totalUnusedNonReclaimablePinnedCPUSize int
 }
 
@@ -466,10 +495,24 @@ func (pa *ProvisionAssemblerCommon) calculateReclaimPool(
 	data *reclaimPoolCalculationData,
 	result *types.InternalCPUCalculationResult,
 ) (int, int, float64, error) {
+	var (
+		reclaimedCoresSize        int
+		overlapReclaimedCoresSize int
+		reclaimedCoresQuota       float64
+		err                       error
+	)
 	if *pa.allowSharedCoresOverlapReclaimedCores {
-		return pa.calculateOverlapReclaimPool(data, result)
+		reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err = pa.calculateOverlapReclaimPool(data, result)
+	} else {
+		reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err = pa.calculateNonOverlapReclaimPool(data, result)
 	}
-	return pa.calculateNonOverlapReclaimPool(data, result)
+	if err != nil {
+		return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err
+	}
+
+	reclaimedCoresSize, _ = pa.clampByReclaimedCPUMaxRatio(reclaimedCoresSize, -1, data.numaCPUCount)
+
+	return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, nil
 }
 
 func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
