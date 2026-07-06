@@ -130,6 +130,7 @@ type gpuReporterPlugin struct {
 	checkpointManager               checkpointmanager.CheckpointManager
 	kubeletDevicePluginPath         string
 	enableKubeletCheckpointFallback bool
+	requiredDeviceAffinity          bool
 }
 
 var (
@@ -159,6 +160,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		checkpointManager:               checkpointManager,
 		kubeletDevicePluginPath:         conf.KubeletDevicePluginPath,
 		enableKubeletCheckpointFallback: conf.EnableKubeletCheckpointFallback,
+		requiredDeviceAffinity:          conf.RequiredDeviceAffinity,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -394,7 +396,7 @@ func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology 
 
 // getGPUResourceProperty returns the different dimensions to differentiate affinity priority of gpu devices.
 func (p *gpuReporterPlugin) getGPUResourceProperty(deviceTopology *machine.DeviceTopology) []*nodev1alpha1.Property {
-	if deviceTopology == nil || len(deviceTopology.PriorityDimensions) == 0 {
+	if !p.requiredDeviceAffinity || deviceTopology == nil || len(deviceTopology.PriorityDimensions) == 0 {
 		return nil
 	}
 

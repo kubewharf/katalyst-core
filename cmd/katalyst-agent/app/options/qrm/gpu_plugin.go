@@ -57,7 +57,7 @@ func NewGPUOptions() *GPUOptions {
 		MilliGPUAllocatablePerGPU:                   "1000",
 		RDMADeviceNames:                             []string{},
 		GPUStrategyOptions:                          gpustrategy.NewGPUStrategyOptions(),
-		RequiredDeviceAffinity:                      true,
+		RequiredDeviceAffinity:                      false,
 		EnableKubeletCheckpointFallback:             true,
 		VirtualGPUPrefersSpreading:                  false,
 		VirtualGPUVisibleDevicesEnvNames:            []string{"NVIDIA_VISIBLE_DEVICES"},
