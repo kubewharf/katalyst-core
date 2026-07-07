@@ -4463,11 +4463,10 @@ func TestUpdate(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			mockmu.Lock()
+			defer mockmu.Unlock()
 
 			if len(tt.zoneInfos) > 0 {
-				mockmu.Lock()
-				defer mockmu.Unlock()
-
 				defer mockey.UnPatchAll()
 				mockey.Mock(machine.GetNormalZoneInfo).To(func(s string) []machine.NormalZoneInfo {
 					return tt.zoneInfos
