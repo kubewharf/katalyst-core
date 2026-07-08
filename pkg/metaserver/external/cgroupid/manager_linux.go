@@ -53,6 +53,7 @@ type (
 
 type cgroupIDManagerImpl struct {
 	sync.RWMutex
+	start bool
 	pod.PodFetcher
 
 	reconcilePeriod  time.Duration
@@ -76,7 +77,33 @@ func NewCgroupIDManager(podFetcher pod.PodFetcher) CgroupIDManager {
 
 // Run starts a cgroupIDManagerImpl
 func (m *cgroupIDManagerImpl) Run(ctx context.Context) {
+	m.Lock()
+	if m.start {
+		m.Unlock()
+		return
+	}
+	m.start = true
+	m.Unlock()
+
 	wait.UntilWithContext(ctx, m.reconcileCgroupIDMap, m.reconcilePeriod)
+}
+
+func (m *cgroupIDManagerImpl) SetPodFetcher(podFetcher pod.PodFetcher) {
+	m.setComponentImplementation(func() {
+		m.PodFetcher = podFetcher
+	})
+}
+
+func (m *cgroupIDManagerImpl) setComponentImplementation(setter func()) {
+	m.Lock()
+	defer m.Unlock()
+
+	if m.start {
+		klog.Warningf("cgroup id manager has already started, not allowed to set implementations")
+		return
+	}
+
+	setter()
 }
 
 // GetCgroupIDForContainer returns the cgroup id of a given container.
