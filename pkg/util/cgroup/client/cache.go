@@ -31,7 +31,6 @@ type cachedCgroupClient struct {
 
 	mu    sync.Mutex
 	cache map[cacheKey]cacheEntry
-	now   func() time.Time
 }
 
 type cacheKey struct {
@@ -40,10 +39,9 @@ type cacheKey struct {
 }
 
 type cacheEntry struct {
-	value     string
-	mtime     time.Time
-	size      int64
-	writtenAt time.Time
+	value string
+	mtime time.Time
+	size  int64
 }
 
 // NewCachedCgroupClient decorates inner with write-if-change caching.
@@ -54,7 +52,6 @@ func NewCachedCgroupClient(inner CgroupClient) CgroupClient {
 	return &cachedCgroupClient{
 		inner: inner,
 		cache: map[cacheKey]cacheEntry{},
-		now:   time.Now,
 	}
 }
 
@@ -98,39 +95,45 @@ func (c *cachedCgroupClient) ApplyCPUSet(ctx context.Context, rel string, data *
 	if data == nil {
 		return c.inner.ApplyCPUSet(ctx, rel, data)
 	}
-	skipCPUs := data.CPUs == "" || c.shouldSkip(ctx, rel, "cpuset.cpus", data.CPUs)
-	skipMems := data.Mems == "" || c.shouldSkip(ctx, rel, "cpuset.mems", data.Mems)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	skipCPUs := data.CPUs == "" || c.shouldSkipLocked(ctx, rel, "cpuset.cpus", data.CPUs)
+	skipMems := data.Mems == "" || c.shouldSkipLocked(ctx, rel, "cpuset.mems", data.Mems)
 	if skipCPUs && skipMems {
 		return nil
 	}
 	if err := c.inner.ApplyCPUSet(ctx, rel, data); err != nil {
 		if data.CPUs != "" {
-			c.invalidate(rel, "cpuset.cpus")
+			c.invalidateLocked(rel, "cpuset.cpus")
 		}
 		if data.Mems != "" {
-			c.invalidate(rel, "cpuset.mems")
+			c.invalidateLocked(rel, "cpuset.mems")
 		}
 		return err
 	}
 	if data.CPUs != "" {
-		c.recordWrite(ctx, rel, "cpuset.cpus", data.CPUs)
+		c.recordWriteLocked(ctx, rel, "cpuset.cpus", data.CPUs)
 	}
 	if data.Mems != "" {
-		c.recordWrite(ctx, rel, "cpuset.mems", data.Mems)
+		c.recordWriteLocked(ctx, rel, "cpuset.mems", data.Mems)
 	}
 	return nil
 }
 
 func (c *cachedCgroupClient) ApplyCPUSetPartition(ctx context.Context, rel string, flag cgcommon.CPUSetPartitionFlag) error {
 	value := string(flag)
-	if c.shouldSkip(ctx, rel, "cpuset.cpus.partition", value) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.shouldSkipLocked(ctx, rel, "cpuset.cpus.partition", value) {
 		return nil
 	}
 	if err := c.inner.ApplyCPUSetPartition(ctx, rel, flag); err != nil {
-		c.invalidate(rel, "cpuset.cpus.partition")
+		c.invalidateLocked(rel, "cpuset.cpus.partition")
 		return err
 	}
-	c.recordWrite(ctx, rel, "cpuset.cpus.partition", value)
+	c.recordWriteLocked(ctx, rel, "cpuset.cpus.partition", value)
 	return nil
 }
 
@@ -138,10 +141,13 @@ func (c *cachedCgroupClient) ApplyCPU(ctx context.Context, rel string, data *cgc
 	if data == nil {
 		return c.inner.ApplyCPU(ctx, rel, data)
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	fields := cpuDataFields(data)
 	allSkip := true
 	for _, f := range fields {
-		if !c.shouldSkip(ctx, rel, f.file, f.value) {
+		if !c.shouldSkipLocked(ctx, rel, f.file, f.value) {
 			allSkip = false
 			break
 		}
@@ -151,12 +157,12 @@ func (c *cachedCgroupClient) ApplyCPU(ctx context.Context, rel string, data *cgc
 	}
 	if err := c.inner.ApplyCPU(ctx, rel, data); err != nil {
 		for _, f := range fields {
-			c.invalidate(rel, f.file)
+			c.invalidateLocked(rel, f.file)
 		}
 		return err
 	}
 	for _, f := range fields {
-		c.recordWrite(ctx, rel, f.file, f.value)
+		c.recordWriteLocked(ctx, rel, f.file, f.value)
 	}
 	return nil
 }
@@ -166,21 +172,22 @@ func (c *cachedCgroupClient) ApplySchedLoadBalance(ctx context.Context, rel stri
 	if enabled {
 		value = "1"
 	}
-	if c.shouldSkip(ctx, rel, "cpuset.sched_load_balance", value) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.shouldSkipLocked(ctx, rel, "cpuset.sched_load_balance", value) {
 		return nil
 	}
 	if err := c.inner.ApplySchedLoadBalance(ctx, rel, enabled); err != nil {
-		c.invalidate(rel, "cpuset.sched_load_balance")
+		c.invalidateLocked(rel, "cpuset.sched_load_balance")
 		return err
 	}
-	c.recordWrite(ctx, rel, "cpuset.sched_load_balance", value)
+	c.recordWriteLocked(ctx, rel, "cpuset.sched_load_balance", value)
 	return nil
 }
 
-func (c *cachedCgroupClient) shouldSkip(ctx context.Context, rel, file, want string) bool {
-	c.mu.Lock()
+func (c *cachedCgroupClient) shouldSkipLocked(ctx context.Context, rel, file, want string) bool {
 	entry, ok := c.cache[cacheKey{rel: rel, file: file}]
-	c.mu.Unlock()
 	if !ok {
 		return false
 	}
@@ -189,32 +196,27 @@ func (c *cachedCgroupClient) shouldSkip(ctx context.Context, rel, file, want str
 	}
 	mtime, size, err := c.statFile(ctx, rel, file)
 	if err != nil {
-		c.invalidate(rel, file)
+		c.invalidateLocked(rel, file)
 		return false
 	}
 	return mtime.Equal(entry.mtime) && size == entry.size
 }
 
-func (c *cachedCgroupClient) recordWrite(ctx context.Context, rel, file, value string) {
+func (c *cachedCgroupClient) recordWriteLocked(ctx context.Context, rel, file, value string) {
 	mtime, size, err := c.statFile(ctx, rel, file)
 	if err != nil {
-		c.invalidate(rel, file)
+		c.invalidateLocked(rel, file)
 		return
 	}
-	c.mu.Lock()
 	c.cache[cacheKey{rel: rel, file: file}] = cacheEntry{
-		value:     value,
-		mtime:     mtime,
-		size:      size,
-		writtenAt: c.now(),
+		value: value,
+		mtime: mtime,
+		size:  size,
 	}
-	c.mu.Unlock()
 }
 
-func (c *cachedCgroupClient) invalidate(rel, file string) {
-	c.mu.Lock()
+func (c *cachedCgroupClient) invalidateLocked(rel, file string) {
 	delete(c.cache, cacheKey{rel: rel, file: file})
-	c.mu.Unlock()
 }
 
 func (c *cachedCgroupClient) Prune(activeRels map[string]struct{}) {

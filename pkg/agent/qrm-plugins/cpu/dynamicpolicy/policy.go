@@ -1593,10 +1593,9 @@ func clearCPUSetInAllocation(alloc *pluginapi.ResourceAllocation) {
 	if alloc == nil {
 		return
 	}
-	for _, info := range alloc.ResourceAllocation {
-		if info != nil {
-			info.AllocationResult = ""
-		}
+	info := alloc.ResourceAllocation[string(v1.ResourceCPU)]
+	if info != nil {
+		info.AllocationResult = ""
 	}
 }
 

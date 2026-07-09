@@ -265,6 +265,81 @@ func TestCachedCgroupClient_StatFailureInvalidates(t *testing.T) {
 	}
 }
 
+type overlappingApplyFake struct {
+	fakeCgroupClient
+
+	calls    int64
+	inFlight int64
+	entered  chan struct{}
+	release  chan struct{}
+	overlap  chan struct{}
+	mtime    int64
+}
+
+func newOverlappingApplyFake() *overlappingApplyFake {
+	return &overlappingApplyFake{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+		overlap: make(chan struct{}),
+		mtime:   1,
+	}
+}
+
+func (f *overlappingApplyFake) StatDir(context.Context, string) (time.Time, error) {
+	return time.Unix(0, atomic.LoadInt64(&f.mtime)), nil
+}
+
+func (f *overlappingApplyFake) ApplyCPU(context.Context, string, *cgcommon.CPUData) error {
+	call := atomic.AddInt64(&f.calls, 1)
+	if atomic.AddInt64(&f.inFlight, 1) > 1 {
+		select {
+		case <-f.overlap:
+		default:
+			close(f.overlap)
+		}
+	}
+	if call == 1 {
+		close(f.entered)
+		<-f.release
+	}
+	atomic.AddInt64(&f.inFlight, -1)
+	return nil
+}
+
+func TestCachedCgroupClient_ApplyCPU_SerializesSameKeyCheckWriteRecord(t *testing.T) {
+	inner := newOverlappingApplyFake()
+	c := NewCachedCgroupClient(inner)
+	ctx := context.Background()
+	idleOn := true
+	idleOff := false
+
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- c.ApplyCPU(ctx, "kubepods", &cgcommon.CPUData{CpuIdlePtr: &idleOn})
+	}()
+	<-inner.entered
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- c.ApplyCPU(ctx, "kubepods", &cgcommon.CPUData{CpuIdlePtr: &idleOff})
+	}()
+
+	select {
+	case <-inner.overlap:
+		close(inner.release)
+		t.Fatalf("same-key ApplyCPU entered inner apply concurrently")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(inner.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first ApplyCPU: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second ApplyCPU: %v", err)
+	}
+}
+
 func TestCachedCgroupClient_AttachPIDNeverCaches(t *testing.T) {
 	t.Parallel()
 

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -122,6 +123,19 @@ func TestApplyCPUSetBypass(t *testing.T) {
 		assert.Equal(t, map[string]string{"foo": "bar"}, info.Annotations, "Annotations preserved")
 	})
 
+	t.Run("bypass on + shared preserves non-CPU allocation results", func(t *testing.T) {
+		t.Parallel()
+		p := newPolicyForBypassTest(true)
+		resp := buildResp()
+		resp.AllocationResult.ResourceAllocation["example.com/device"] = &pluginapi.ResourceAllocationInfo{
+			AllocationResult: "device-0",
+		}
+		got := p.applyCPUSetBypass(resp, consts.PodAnnotationQoSLevelSharedCores)
+
+		assert.Equal(t, "", got.AllocationResult.ResourceAllocation[string(v1.ResourceCPU)].AllocationResult)
+		assert.Equal(t, "device-0", got.AllocationResult.ResourceAllocation["example.com/device"].AllocationResult)
+	})
+
 	t.Run("bypass on + dedicated keeps cpuset", func(t *testing.T) {
 		t.Parallel()
 		p := newPolicyForBypassTest(true)
@@ -152,7 +166,7 @@ func TestApplyCPUSetBypass(t *testing.T) {
 		assert.NotPanics(t, func() {
 			p.applyCPUSetBypass(resp, consts.PodAnnotationQoSLevelSharedCores)
 		})
-		assert.Equal(t, "", resp.AllocationResult.ResourceAllocation["cpu2"].AllocationResult)
+		assert.Equal(t, "10-11", resp.AllocationResult.ResourceAllocation["cpu2"].AllocationResult)
 	})
 }
 
