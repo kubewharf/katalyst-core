@@ -113,6 +113,15 @@ func ApplyCPUSetPartitionWithAbsolutePath(absCgroupPath string, partitionFlag co
 	return GetManager().ApplyCPUSetPartition(absCgroupPath, partitionFlag)
 }
 
+func ApplySchedLoadBalanceWithRelativePath(relCgroupPath string, enabled bool) error {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysCPUSet, relCgroupPath)
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	return ApplyUnifiedDataWithAbsolutePath(absCgroupPath, "cpuset.sched_load_balance", value)
+}
+
 func ApplyCPUSetForContainer(podUID, containerId string, data *common.CPUSetData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUSetForContainer with nil cgroup data")
