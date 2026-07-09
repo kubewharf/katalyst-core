@@ -113,6 +113,21 @@ func ApplyCPUSetPartitionWithAbsolutePath(absCgroupPath string, partitionFlag co
 	return GetManager().ApplyCPUSetPartition(absCgroupPath, partitionFlag)
 }
 
+// ApplySchedLoadBalanceWithRelativePath writes cpuset.sched_load_balance for
+// the cgroup at relCgroupPath. It is only meaningful on cgroup v1; on v2 the
+// underlying manager returns common.ErrNotSupported and callers should decide
+// whether to short-circuit or surface the error.
+func ApplySchedLoadBalanceWithRelativePath(relCgroupPath string, enabled bool) error {
+	absCgroupPath := common.GetAbsCgroupPath("cpuset", relCgroupPath)
+	return GetManager().ApplySchedLoadBalance(absCgroupPath, enabled)
+}
+
+// ApplySchedLoadBalanceWithAbsolutePath mirrors ApplySchedLoadBalanceWithRelativePath
+// for callers that already resolved the absolute cgroup path.
+func ApplySchedLoadBalanceWithAbsolutePath(absCgroupPath string, enabled bool) error {
+	return GetManager().ApplySchedLoadBalance(absCgroupPath, enabled)
+}
+
 func ApplyCPUSetForContainer(podUID, containerId string, data *common.CPUSetData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUSetForContainer with nil cgroup data")
