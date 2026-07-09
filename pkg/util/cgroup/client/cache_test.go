@@ -307,6 +307,8 @@ func (f *overlappingApplyFake) ApplyCPU(context.Context, string, *cgcommon.CPUDa
 }
 
 func TestCachedCgroupClient_ApplyCPU_SerializesSameKeyCheckWriteRecord(t *testing.T) {
+	t.Parallel()
+
 	inner := newOverlappingApplyFake()
 	c := NewCachedCgroupClient(inner)
 	ctx := context.Background()
