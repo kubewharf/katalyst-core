@@ -149,6 +149,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 							target: 24000,
 						},
 						ccdCapMB: 45000, // current dedicated group ccd cap
+						recover:  &nilCapRecover{},
 					},
 				},
 			},
@@ -181,6 +182,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 							target: 24000,
 						},
 						ccdCapMB: 15000,
+						recover:  &nilCapRecover{},
 					},
 				},
 			},
@@ -230,6 +232,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 							target: 24000,
 						},
 						ccdCapMB: 21312,
+						recover:  &nilCapRecover{},
 					},
 				},
 			},

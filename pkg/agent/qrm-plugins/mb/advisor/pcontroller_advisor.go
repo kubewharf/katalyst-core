@@ -39,11 +39,6 @@ type pControllerAdvisor struct {
 	mu                  sync.RWMutex
 }
 
-type groupPCtrlState struct {
-	pCtrl    pController
-	ccdCapMB int
-}
-
 func (p *pControllerAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
 	result, err := p.inner.GetPlan(ctx, domainsMon)
 	if err != nil {
@@ -99,7 +94,12 @@ func (p *pControllerAdvisor) restrictGroupCCDCap(group string, groupState *group
 	domainsMon *monitor.DomainStats, plan *plan.MBPlan,
 ) {
 	maxObservedMB := p.maxObservedCCDMBForGroup(domainsMon.Outgoings, group)
-	groupState.ccdCapMB = p.getGroupCapUpdate(groupState, maxObservedMB)
+	groupState.updateCCDCap(p.getGroupCapUpdate(groupState, maxObservedMB))
+
+	if klog.V(6).Enabled() {
+		general.Infof("[mbm] [pController] group=%s maxObserved=%d target=%d cap=%d",
+			group, maxObservedMB, groupState.pCtrl.target, groupState.ccdCapMB)
+	}
 
 	ccdMBs, ok := plan.MBGroups[group]
 	if !ok {
@@ -107,11 +107,6 @@ func (p *pControllerAdvisor) restrictGroupCCDCap(group string, groupState *group
 		return
 	}
 	applyGroupCCDBoundsChecks(ccdMBs, p.ccdMinMB, groupState.ccdCapMB)
-
-	if klog.V(6).Enabled() {
-		general.Infof("[mbm] [pController] group=%s maxObserved=%d target=%d cap=%d",
-			group, maxObservedMB, groupState.pCtrl.target, groupState.ccdCapMB)
-	}
 }
 
 func (p *pControllerAdvisor) getGroupCapUpdate(state *groupPCtrlState, maxObservedMB int) int {
@@ -189,13 +184,7 @@ func NewPControllerAdvisor(Kp float64,
 ) Advisor {
 	groupStates := make(map[string]*groupPCtrlState, len(groupTargets))
 	for group, target := range groupTargets {
-		groupStates[group] = &groupPCtrlState{
-			pCtrl: pController{
-				kp:     Kp,
-				target: target,
-			},
-			ccdCapMB: maxValue,
-		}
+		groupStates[group] = newGroupPCtrlState(Kp, target, maxValue)
 	}
 
 	return &pControllerAdvisor{
