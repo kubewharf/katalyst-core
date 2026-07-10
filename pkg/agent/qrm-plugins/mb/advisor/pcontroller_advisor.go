@@ -56,6 +56,7 @@ func (p *pControllerAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Do
 	return result, nil
 }
 
+// fetchLastSuppressedCCDs returns the accumulated suppression snapshot and clears it for the next collection.
 func (p *pControllerAdvisor) fetchLastSuppressedCCDs() map[int]map[string]map[int]string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -65,6 +66,7 @@ func (p *pControllerAdvisor) fetchLastSuppressedCCDs() map[int]map[string]map[in
 	return lastSuppression
 }
 
+// GetSuppressedCCDs returns CCDs suppressed by the P-controller limit together with inner advisor suppressions.
 func (p *pControllerAdvisor) GetSuppressedCCDs() []SuppressedCCD {
 	innerSuppressed := p.inner.GetSuppressedCCDs()
 	lastSuppression := p.fetchLastSuppressedCCDs()
@@ -77,6 +79,7 @@ func (p *pControllerAdvisor) GetSuppressedCCDs() []SuppressedCCD {
 	return result
 }
 
+// accumulateCCDLimitSuppression merges the latest CCD limit suppressions into the advisor state.
 func (p *pControllerAdvisor) accumulateCCDLimitSuppression(suppression map[int]map[string]map[int]string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -90,6 +93,7 @@ func (p *pControllerAdvisor) accumulateCCDLimitSuppression(suppression map[int]m
 	}
 }
 
+// restrictGroupCCDCap updates a group's CCD cap from observed traffic and applies it to the generated plan.
 func (p *pControllerAdvisor) restrictGroupCCDCap(group string, groupState *groupPCtrlState,
 	domainsMon *monitor.DomainStats, plan *plan.MBPlan,
 ) {
@@ -109,6 +113,7 @@ func (p *pControllerAdvisor) restrictGroupCCDCap(group string, groupState *group
 	applyGroupCCDBoundsChecks(ccdMBs, p.ccdMinMB, groupState.ccdCapMB)
 }
 
+// getGroupCapUpdate calculates the next CCD cap for a group using its controller output and global bounds.
 func (p *pControllerAdvisor) getGroupCapUpdate(state *groupPCtrlState, maxObservedMB int) int {
 	if maxObservedMB == 0 {
 		return state.ccdCapMB
@@ -135,6 +140,7 @@ func (p *pControllerAdvisor) maxObservedCCDMBForGroup(outgoings map[int]monitor.
 	return max
 }
 
+// computeCCDLimitSuppression records CCDs whose usage remains above target while their cap is constrained.
 func computeCCDLimitSuppression(domainsMon *monitor.DomainStats, groupStates map[string]*groupPCtrlState, ccdMaxMB int) map[int]map[string]map[int]string {
 	var result map[int]map[string]map[int]string
 
@@ -160,12 +166,14 @@ func computeCCDLimitSuppression(domainsMon *monitor.DomainStats, groupStates map
 	return result
 }
 
+// applyGroupCCDBoundsChecks clamps every CCD MB value in a group plan to the provided bounds.
 func applyGroupCCDBoundsChecks(ccdMBs plan.GroupCCDPlan, lower, upper int) {
 	for ccd, mb := range ccdMBs {
 		ccdMBs[ccd] = clampMB(mb, lower, upper)
 	}
 }
 
+// clampMB restricts an MB value to the configured lower and upper bounds when they are enabled.
 func clampMB(value, min, max int) int {
 	// caller ensures min <= max
 	if min > 0 && value < min {
@@ -177,6 +185,7 @@ func clampMB(value, min, max int) int {
 	return value
 }
 
+// NewPControllerAdvisor creates an advisor that bounds selected groups using proportional control feedback.
 func NewPControllerAdvisor(Kp float64,
 	minValue, maxValue int,
 	groupTargets map[string]int,
@@ -200,6 +209,7 @@ type pController struct {
 	target int
 }
 
+// update returns the proportional control delta for the given measurement.
 func (p *pController) update(measurement int) int {
 	gap := float64(p.target - measurement)
 	return int(p.kp * gap)

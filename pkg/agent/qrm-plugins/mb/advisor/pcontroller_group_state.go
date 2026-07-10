@@ -22,6 +22,7 @@ type capRecoveryModerator interface {
 
 type nilCapRecover struct{}
 
+// Moderate returns the suggested cap unchanged when no recovery moderation is configured.
 func (n nilCapRecover) Moderate(suggestedCap int) int {
 	return suggestedCap
 }
@@ -33,11 +34,13 @@ type groupPCtrlState struct {
 	recover capRecoveryModerator
 }
 
+// updateCCDCap applies recovery moderation before storing the next CCD cap.
 func (g *groupPCtrlState) updateCCDCap(suggestedCap int) {
 	moderatedCap := g.recover.Moderate(suggestedCap)
 	g.ccdCapMB = moderatedCap
 }
 
+// newGroupPCtrlState initializes P-controller state with the maximum CCD cap as the starting value.
 func newGroupPCtrlState(Kp float64, target, maxValue int) *groupPCtrlState {
 	return &groupPCtrlState{
 		pCtrl: pController{
