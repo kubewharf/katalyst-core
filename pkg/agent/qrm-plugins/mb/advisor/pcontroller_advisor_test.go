@@ -335,7 +335,7 @@ func TestPControllerAdvisor_GetSuppressedCCDs(t *testing.T) {
 
 	pCtrl := &pControllerAdvisor{
 		inner: mockInner,
-		lastCCDLimitSuppression: map[int]map[string]map[int]string{
+		ccdLimitSuppression: map[int]map[string]map[int]string{
 			0: {"dedicated": {4: "ccd_limit"}},
 		},
 	}
