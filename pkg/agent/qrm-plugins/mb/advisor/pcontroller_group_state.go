@@ -17,14 +17,71 @@ limitations under the License.
 package advisor
 
 type capRecoveryModerator interface {
-	Moderate(suggestedCap int) int
+	Moderate(raises int) (int, bool)
 }
 
-type nilCapRecover struct{}
+type fullCapRecover struct{}
 
 // Moderate returns the suggested cap unchanged when no recovery moderation is configured.
-func (n nilCapRecover) Moderate(suggestedCap int) int {
-	return suggestedCap
+func (n fullCapRecover) Moderate(raises int) (int, bool) {
+	return raises, true
+}
+
+// coolDownRecover withholds before cool-down is done
+type coolDownRecover struct {
+	coolCount         int
+	coolDownThreshold int
+}
+
+func (c *coolDownRecover) Moderate(raises int) (int, bool) {
+	c.coolCount++
+	if c.coolCount < c.coolDownThreshold {
+		return 0, false
+	}
+
+	return raises, true
+}
+
+type reducedRecover struct {
+	reducerPCT int
+}
+
+func (r *reducedRecover) Moderate(raises int) (int, bool) {
+	return raises * r.reducerPCT / 100, true
+}
+
+type pipelineRecover struct {
+	recovers []capRecoveryModerator
+}
+
+func (p *pipelineRecover) Moderate(raises int) (int, bool) {
+	for _, r := range p.recovers {
+		moderated, ok := r.Moderate(raises)
+		if !ok {
+			return moderated, false
+		}
+		raises = moderated
+	}
+
+	return raises, true
+}
+
+const (
+	defaultCoolDowns  = 30
+	defaultReducerPCT = 2
+)
+
+func newRecoverModerator(mode string) capRecoveryModerator {
+	if mode == "slow" {
+		return &pipelineRecover{
+			recovers: []capRecoveryModerator{
+				&coolDownRecover{coolDownThreshold: defaultCoolDowns},
+				&reducedRecover{reducerPCT: defaultReducerPCT},
+			},
+		}
+	}
+
+	return fullCapRecover{}
 }
 
 type groupPCtrlState struct {
@@ -34,20 +91,29 @@ type groupPCtrlState struct {
 	recover capRecoveryModerator
 }
 
-// updateCCDCap applies recovery moderation before storing the next CCD cap.
+// updateCCDCap applies recovery moderation if applicable
 func (g *groupPCtrlState) updateCCDCap(suggestedCap int) {
-	moderatedCap := g.recover.Moderate(suggestedCap)
-	g.ccdCapMB = moderatedCap
+	if suggestedCap <= g.ccdCapMB {
+		g.ccdCapMB = suggestedCap
+		return
+	}
+
+	// raising up is under moderation
+	if suggestedCap > g.ccdCapMB {
+		if moderatedCap, ok := g.recover.Moderate(suggestedCap - g.ccdCapMB); ok {
+			g.ccdCapMB += moderatedCap
+		}
+	}
 }
 
 // newGroupPCtrlState initializes P-controller state with the maximum CCD cap as the starting value.
-func newGroupPCtrlState(Kp float64, target, maxValue int) *groupPCtrlState {
+func newGroupPCtrlState(Kp float64, target, maxValue int, recoverMode string) *groupPCtrlState {
 	return &groupPCtrlState{
 		pCtrl: pController{
 			kp:     Kp,
 			target: target,
 		},
 		ccdCapMB: maxValue,
-		recover:  &nilCapRecover{},
+		recover:  newRecoverModerator(recoverMode),
 	}
 }

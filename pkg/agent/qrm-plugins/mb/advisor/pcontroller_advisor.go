@@ -193,7 +193,7 @@ func NewPControllerAdvisor(Kp float64,
 ) Advisor {
 	groupStates := make(map[string]*groupPCtrlState, len(groupTargets))
 	for group, target := range groupTargets {
-		groupStates[group] = newGroupPCtrlState(Kp, target, maxValue)
+		groupStates[group] = newGroupPCtrlState(Kp, target, maxValue, "default")
 	}
 
 	return &pControllerAdvisor{
