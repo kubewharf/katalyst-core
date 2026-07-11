@@ -98,7 +98,8 @@ func (p *pControllerAdvisor) restrictGroupCCDCap(group string, groupState *group
 	domainsMon *monitor.DomainStats, plan *plan.MBPlan,
 ) {
 	maxObservedMB := p.maxObservedCCDMBForGroup(domainsMon.Outgoings, group)
-	groupState.updateCCDCap(p.getGroupCapUpdate(groupState, maxObservedMB))
+	capProposed := p.getGroupCapUpdate(groupState, maxObservedMB)
+	groupState.updateCCDCap(capProposed, maxObservedMB)
 
 	if klog.V(6).Enabled() {
 		general.Infof("[mbm] [pController] group=%s maxObserved=%d target=%d cap=%d",
@@ -190,10 +191,11 @@ func NewPControllerAdvisor(Kp float64,
 	minValue, maxValue int,
 	groupTargets map[string]int,
 	inner Advisor,
+	recoveryMode string,
 ) Advisor {
 	groupStates := make(map[string]*groupPCtrlState, len(groupTargets))
 	for group, target := range groupTargets {
-		groupStates[group] = newGroupPCtrlState(Kp, target, maxValue, "default")
+		groupStates[group] = newGroupPCtrlState(Kp, target, maxValue, recoveryMode)
 	}
 
 	return &pControllerAdvisor{
