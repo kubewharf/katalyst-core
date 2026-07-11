@@ -125,9 +125,17 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, commonstate.FakedContainerName)
 
 			if poolAllocationInfo == nil {
+				if p.isSharedCoresRampUpDisabled() {
+					return nil, fmt.Errorf("shared cores ramp up is disabled but target pool %s is not ready", targetPoolName)
+				}
 				general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
 					req.PodNamespace, req.PodName, req.ContainerName)
 				allocationInfo.RampUp = true
+			} else if p.isSharedCoresRampUpDisabled() {
+				allocationInfo.AllocationResult = poolAllocationInfo.AllocationResult.Clone()
+				allocationInfo.OriginalAllocationResult = poolAllocationInfo.OriginalAllocationResult.Clone()
+				allocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolAllocationInfo.TopologyAwareAssignments)
+				allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolAllocationInfo.OriginalTopologyAwareAssignments)
 			} else {
 				if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 					return nil, err
@@ -205,7 +213,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelSharedCores), nil
+	return resp, nil
 }
 
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
@@ -337,7 +345,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
 
-	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelReclaimedCores), nil
+	return resp, nil
 }
 
 // updateReclaimAllocationResultByPoolEntry updates non-actual numa binding reclaimed allocation result by pool entry
@@ -513,7 +521,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
 
-	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelDedicatedCores), nil
+	return resp, nil
 }
 
 // allocationSidecarHandler currently we set cpuset of sidecar to the cpuset of its main container
@@ -571,7 +579,7 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	return p.applyCPUSetBypass(resp, qosLevel), nil
+	return resp, nil
 }
 
 func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.Context,
@@ -612,7 +620,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
 
-	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelSharedCores), nil
+	return resp, nil
 }
 
 // allocateNumaBindingCPUs allocates CPUs for NUMA binding containers.
@@ -2010,6 +2018,11 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 }
 
 func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
+	if p.isSharedCoresRampUpDisabled() {
+		general.Infof("shared cores ramp up is disabled by dynamic config, podUID: %s", podUID)
+		return false
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	pod, err := p.metaServer.GetPod(ctx, podUID)
@@ -2027,6 +2040,14 @@ func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
 		general.Infof("pod: %s/%s isn't active, try to ramp up it", pod.Namespace, pod.Name)
 		return true
 	}
+}
+
+func (p *DynamicPolicy) isSharedCoresRampUpDisabled() bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	return dyn != nil && dyn.DisableSharedCoresRampUp
 }
 
 func (p *DynamicPolicy) doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo *state.AllocationInfo, incrByReq, podInplaceUpdateResizing, persistCheckpoint bool) (*state.AllocationInfo, error) {
@@ -2192,7 +2213,7 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelSystemCores), nil
+	return resp, nil
 }
 
 // getSystemPoolCPUSetAndNumaAwareAssignments gets the system pool cpuset and topologyAwareAssignments for the allocationInfo.

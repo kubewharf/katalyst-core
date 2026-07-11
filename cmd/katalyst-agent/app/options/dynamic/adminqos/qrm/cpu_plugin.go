@@ -25,6 +25,7 @@ import (
 type CPUPluginOptions struct {
 	PreferUseExistNUMAHintResult bool
 	EnableBypassCPUSetAdjustment bool
+	DisableSharedCoresRampUp     bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
@@ -36,14 +37,16 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.PreferUseExistNUMAHintResult, "prefer-use-exist-numa-hint-result", o.PreferUseExistNUMAHintResult,
 		"prefer to use existing numa hint results")
 	fs.BoolVar(&o.EnableBypassCPUSetAdjustment, "enable-bypass-cpuset-adjustment", o.EnableBypassCPUSetAdjustment,
-		"if true, QRM CPU plugin clears the cpuset string in PackAllocationResponse "+
-			"for shared_cores/reclaimed_cores/system_cores; cpuset adjustment is delegated "+
-			"to the reconcile plugin. Dedicated pools are unaffected.")
+		"if true, GetResourcesAllocation clears CPU AllocationResult for all QoS classes; "+
+			"allocation responses returned by Allocate/AllocateForPod keep their cpuset unchanged.")
+	fs.BoolVar(&o.DisableSharedCoresRampUp, "disable-shared-cores-ramp-up", o.DisableSharedCoresRampUp,
+		"if true, shared_cores pods skip initial RampUp full-pool cpuset binding and are allocated from their target pool directly.")
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.PreferUseExistNUMAHintResult = o.PreferUseExistNUMAHintResult
 	c.EnableBypassCPUSetAdjustment = o.EnableBypassCPUSetAdjustment
+	c.DisableSharedCoresRampUp = o.DisableSharedCoresRampUp
 
 	return nil
 }

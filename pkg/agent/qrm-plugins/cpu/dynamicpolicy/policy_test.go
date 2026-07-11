@@ -34,7 +34,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -5941,6 +5943,162 @@ func TestGetResourcesAllocation(t *testing.T) {
 	reclaimEntry := dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, "")
 	as.NotNil(reclaimEntry)
 	as.Equal(6, reclaimEntry.AllocationResult.Size()) // ceil("14 * (4 / 10)") == 6
+}
+
+func TestShouldSharedCoresRampUpDisabledByDynamicConfig(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	pendingPodUID := "pending-pod"
+	activePodUID := "active-pod"
+
+	t.Run("default config keeps pending pod ramp up", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(pendingPodUID), Namespace: "default", Name: "pending-pod"},
+				Status:     v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+		assert.True(t, policy.shouldSharedCoresRampUp(pendingPodUID))
+	})
+
+	t.Run("default config skips active pod ramp up", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(activePodUID), Namespace: "default", Name: "active-pod"},
+				Status:     v1.PodStatus{Phase: v1.PodRunning},
+			},
+		}}
+		assert.False(t, policy.shouldSharedCoresRampUp(activePodUID))
+	})
+
+	t.Run("disabled config skips pending pod ramp up", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(pendingPodUID), Namespace: "default", Name: "pending-pod"},
+				Status:     v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+		assert.False(t, policy.shouldSharedCoresRampUp(pendingPodUID))
+	})
+
+	t.Run("disabled config skips ramp up before pod fetch", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		assert.False(t, policy.shouldSharedCoresRampUp("missing-pod"))
+	})
+}
+
+func TestSharedCoresRampUpDisabledAllocation(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	newSharedCoresReq := func(podUID string) *pluginapi.ResourceRequest {
+		return &pluginapi.ResourceRequest{
+			PodUid:         podUID,
+			PodNamespace:   "default",
+			PodName:        podUID,
+			ContainerName:  "main",
+			ContainerType:  pluginapi.ContainerType_MAIN,
+			ContainerIndex: 0,
+			ResourceName:   string(v1.ResourceCPU),
+			ResourceRequests: map[string]float64{
+				string(v1.ResourceCPU): 2,
+			},
+			Labels: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+		}
+	}
+
+	t.Run("uses target pool instead of pooled cpus", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID("shared-no-ramp-up"), Namespace: "default", Name: "shared-no-ramp-up"},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "main",
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceCPU: resource.MustParse("2"),
+								},
+							},
+						},
+					},
+				},
+				Status: v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+
+		targetPoolCPUs := machine.NewCPUSet(2, 3, 4, 5)
+		policy.state.SetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+			AllocationResult:         targetPoolCPUs,
+			OriginalAllocationResult: targetPoolCPUs.Clone(),
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: targetPoolCPUs,
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: targetPoolCPUs.Clone(),
+			},
+		}, false)
+
+		req := newSharedCoresReq("shared-no-ramp-up")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.NotEqual(t, cpuTopology.CPUDetails.CPUs().Difference(policy.reservedCPUs).String(), allocationInfo.AllocationResult.String())
+		assert.True(t, allocationInfo.AllocationResult.IsSubsetOf(targetPoolCPUs))
+	})
+
+	t.Run("returns error when target pool is missing", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req := newSharedCoresReq("shared-missing-pool")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Error(err)
+		assert.Contains(t, err.Error(), "shared cores ramp up is disabled")
+		assert.Nil(t, policy.state.GetAllocationInfo(req.PodUid, req.ContainerName))
+	})
 }
 
 func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {

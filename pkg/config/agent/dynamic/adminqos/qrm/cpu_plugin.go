@@ -22,11 +22,13 @@ import (
 
 type CPUPluginConfiguration struct {
 	PreferUseExistNUMAHintResult bool
-	// EnableBypassCPUSetAdjustment controls whether QRM's PackAllocationResponse
-	// clears the cpuset string for shared_cores / reclaimed_cores / system_cores
-	// pools. When enabled, cpuset adjustment is delegated to the reconcile plugin
-	// and dedicated_cores are unaffected.
-	EnableBypassCPUSetAdjustment   bool
+	// EnableBypassCPUSetAdjustment controls whether GetResourcesAllocation clears
+	// CPU AllocationResult for all QoS classes. Allocation responses returned by
+	// Allocate/AllocateForPod keep their cpuset unchanged.
+	EnableBypassCPUSetAdjustment bool
+	// DisableSharedCoresRampUp disables initial full-pool cpuset binding for newly
+	// scheduled shared_cores pods.
+	DisableSharedCoresRampUp       bool
 	SystemExclusivePool            map[string]int
 	SystemExclusivePoolShrinkRatio *float64
 	SystemExclusivePoolShrinkMin   *int64
@@ -46,6 +48,9 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		}
 		if config.EnableBypassCPUSetAdjustment != nil {
 			c.EnableBypassCPUSetAdjustment = *config.EnableBypassCPUSetAdjustment
+		}
+		if config.DisableSharedCoresRampUp != nil {
+			c.DisableSharedCoresRampUp = *config.DisableSharedCoresRampUp
 		}
 		c.SystemExclusivePool = config.SystemExclusivePool
 		c.SystemExclusivePoolShrinkRatio = config.SystemExclusivePoolShrinkRatio
