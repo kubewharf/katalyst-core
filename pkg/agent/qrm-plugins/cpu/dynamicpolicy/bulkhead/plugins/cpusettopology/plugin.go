@@ -342,6 +342,10 @@ func enableBulkheadCpusetTopology(conf *dynamicconfig.Configuration) bool {
 	if conf == nil || conf.AdminQoSConfiguration == nil || conf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
 		return false
 	}
+	if conf.AdminQoSConfiguration.CPUProvisionConfiguration != nil &&
+		conf.AdminQoSConfiguration.CPUProvisionConfiguration.AllowSharedCoresOverlapReclaimedCores {
+		return false
+	}
 	return conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology
 }
 

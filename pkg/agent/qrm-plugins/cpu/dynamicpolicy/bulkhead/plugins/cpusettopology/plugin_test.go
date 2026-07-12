@@ -513,9 +513,54 @@ func TestCPUSetTopologyPluginPeriodicalHandlerAppliesPartitionRootWhenEnabledV2(
 	}
 }
 
+func TestEnableBulkheadCpusetTopologyRequiresNonOverlapReclaimedCores(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                                  string
+		enableBulkheadCpusetTopology          bool
+		allowSharedCoresOverlapReclaimedCores bool
+		want                                  bool
+	}{
+		{
+			name:                         "enabled and non overlap",
+			enableBulkheadCpusetTopology: true,
+			want:                         true,
+		},
+		{
+			name:                                  "enabled but overlap",
+			enableBulkheadCpusetTopology:          true,
+			allowSharedCoresOverlapReclaimedCores: true,
+		},
+		{
+			name: "disabled and non overlap",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := bulkheadCpusetTopologyDynamicConf(
+				tt.enableBulkheadCpusetTopology,
+				tt.allowSharedCoresOverlapReclaimedCores,
+			)
+			if got := enableBulkheadCpusetTopology(conf); got != tt.want {
+				t.Fatalf("enableBulkheadCpusetTopology() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func enabledBulkheadCpusetTopologyDynamicConf() *dynamicconfig.Configuration {
+	return bulkheadCpusetTopologyDynamicConf(true, false)
+}
+
+func bulkheadCpusetTopologyDynamicConf(enableBulkheadCpusetTopology, allowSharedCoresOverlapReclaimedCores bool) *dynamicconfig.Configuration {
 	conf := dynamicconfig.NewConfiguration()
-	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = true
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = enableBulkheadCpusetTopology
+	conf.AdminQoSConfiguration.CPUProvisionConfiguration.AllowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
 	return conf
 }
 
