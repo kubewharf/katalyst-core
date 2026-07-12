@@ -197,28 +197,36 @@ func TestClearCPUSetInAllocation(t *testing.T) {
 	})
 }
 
-func TestRunBulkheadCPUSetAdjustmentHandlersLazyInitAndDisabledTransition(t *testing.T) {
+func TestDynamicPolicyInitializesBulkheadManager(t *testing.T) {
 	t.Parallel()
 
-	p := &DynamicPolicy{}
-	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}))
-	assert.Nil(t, p.bulkheadManager)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+	require.NoError(t, err)
+	require.NotNil(t, p.bulkheadManager)
+}
+
+func TestRunBulkheadCPUSetAdjustmentHandlersUsesInitializedManager(t *testing.T) {
+	t.Parallel()
 
 	dyn := dynamicconfig.NewDynamicAgentConfiguration()
 	conf := dyn.GetDynamicConfiguration()
 	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = true
+
+	p := &DynamicPolicy{}
+	manager, err := bulkhead.NewManager(p.conf)
+	require.NoError(t, err)
+	p.bulkheadManager = manager
+
 	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
 		DynamicConf: conf,
 	}))
-	require.NotNil(t, p.bulkheadManager)
 
-	manager := p.bulkheadManager
 	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = false
 	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
 		DynamicConf: conf,
 	}))
 	assert.Same(t, manager, p.bulkheadManager)
-
-	p.bulkheadManager = &bulkhead.Manager{}
-	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}))
 }

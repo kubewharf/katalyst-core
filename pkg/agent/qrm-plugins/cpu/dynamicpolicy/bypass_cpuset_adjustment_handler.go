@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -52,35 +51,10 @@ func (p *DynamicPolicy) RegisterBypassCPUSetAdjustmentHandler(name string, handl
 }
 
 func (p *DynamicPolicy) runBulkheadCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil.BypassCPUSetAdjustmentHandlerCtx) error {
-	if !bulkheadEnabled(in.DynamicConf) {
-		p.bulkheadManagerMu.Lock()
-		manager := p.bulkheadManager
-		p.bulkheadManagerMu.Unlock()
-		if manager != nil {
-			return manager.RunCPUSetAdjustmentHandlers(ctx, in)
-		}
+	if p.bulkheadManager == nil {
 		return nil
 	}
-	manager, err := p.ensureBulkheadManager()
-	if err != nil {
-		return err
-	}
-	return manager.RunCPUSetAdjustmentHandlers(ctx, in)
-}
-
-func (p *DynamicPolicy) ensureBulkheadManager() (*bulkhead.Manager, error) {
-	p.bulkheadManagerMu.Lock()
-	defer p.bulkheadManagerMu.Unlock()
-
-	if p.bulkheadManager != nil {
-		return p.bulkheadManager, nil
-	}
-	manager, err := bulkhead.NewManager(p.conf)
-	if err != nil {
-		return nil, fmt.Errorf("init bulkhead manager: %w", err)
-	}
-	p.bulkheadManager = manager
-	return manager, nil
+	return p.bulkheadManager.RunCPUSetAdjustmentHandlers(ctx, in)
 }
 
 func bulkheadEnabled(conf *dynamicconfig.Configuration) bool {
@@ -106,13 +80,13 @@ func (p *DynamicPolicy) runBulkheadPeriodicalHandlers(
 		_ = general.UpdateHealthzStateByError(consts.SyncBulkhead, nil)
 		return
 	}
-	manager, err := p.ensureBulkheadManager()
-	if err != nil {
+	if p.bulkheadManager == nil {
+		err := fmt.Errorf("bulkhead manager is nil")
 		_ = general.UpdateHealthzStateByError(consts.SyncBulkhead, err)
-		general.ErrorS(err, "init bulkhead manager failed")
+		general.ErrorS(err, "run bulkhead periodical handlers failed")
 		return
 	}
-	manager.RunPeriodicalHandlers(coreConf, extraConf, dynamicConf, emitter, metaServer)
+	p.bulkheadManager.RunPeriodicalHandlers(coreConf, extraConf, dynamicConf, emitter, metaServer)
 }
 
 func (p *DynamicPolicy) runBypassCPUSetAdjustmentHandlers(ctx context.Context) error {

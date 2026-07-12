@@ -129,9 +129,8 @@ type DynamicPolicy struct {
 
 	resourcePackageManager *resourcepackage.CachedResourcePackageManager
 
-	irqTuner          irqtuner.Tuner
-	bulkheadManagerMu sync.Mutex
-	bulkheadManager   *bulkhead.Manager
+	irqTuner        irqtuner.Tuner
+	bulkheadManager *bulkhead.Manager
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
@@ -203,6 +202,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 			return false, agent.ComponentStub{}, err
 		}
 	}
+	bulkheadManager, err := bulkhead.NewManager(conf)
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy init bulkhead manager failed with error: %v", err)
+	}
 
 	// since the reservedCPUs won't influence stateImpl directly.
 	// so we don't modify stateImpl with reservedCPUs here.
@@ -225,6 +228,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		featureGateManager: featuregatenegotiation.NewFeatureGateManager(conf),
 
 		cpuPressureEviction: cpuPressureEviction,
+		bulkheadManager:     bulkheadManager,
 
 		conf:                          conf,
 		qosConfig:                     conf.QoSConfiguration,

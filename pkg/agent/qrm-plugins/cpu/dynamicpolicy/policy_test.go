@@ -50,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
@@ -154,6 +155,10 @@ func getTestDynamicPolicyWithoutInitialization(
 	if err != nil {
 		return nil, err
 	}
+	bulkheadManager, err := bulkhead.NewManager(conf)
+	if err != nil {
+		return nil, err
+	}
 
 	policyImplement := &DynamicPolicy{
 		conf:                      conf,
@@ -171,6 +176,7 @@ func getTestDynamicPolicyWithoutInitialization(
 		numaNumberAnnotationKey:   consts.PodAnnotationCPUEnhancementNumaNumber,
 		numaIDsAnnotationKey:      consts.PodAnnotationCPUEnhancementNumaIDs,
 		resourcePackageManager:    resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(&npd.DummyNPDFetcher{NPD: &nodev1alpha1.NodeProfileDescriptor{}})),
+		bulkheadManager:           bulkheadManager,
 
 		topologyAllocationAnnotationKey: coreconsts.QRMPodAnnotationTopologyAllocationKey,
 	}
