@@ -17,6 +17,7 @@ limitations under the License.
 package workqueue
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -84,7 +85,8 @@ func TestWorkqueuePluginResetsMasksWhenReclaimBecomesEmpty(t *testing.T) {
 		t.Fatalf("convert fallback mask: %v", err)
 	}
 
-	if err := p.CPUSetAdjustmentHandler(nil, bulkheadapi.HandlerContext{
+	ctx := context.Background()
+	if err := p.CPUSetAdjustmentHandler(ctx, bulkheadapi.HandlerContext{
 		View: &bulkheadutils.CPUSetPartitionView{
 			ReclaimEffective: machine.NewCPUSet(0, 1),
 		},
@@ -95,7 +97,7 @@ func TestWorkqueuePluginResetsMasksWhenReclaimBecomesEmpty(t *testing.T) {
 		t.Fatalf("global reclaim mask = %q, want %q", got, reclaimMask)
 	}
 
-	if err := p.CPUSetAdjustmentHandler(nil, bulkheadapi.HandlerContext{
+	if err := p.CPUSetAdjustmentHandler(ctx, bulkheadapi.HandlerContext{
 		View: &bulkheadutils.CPUSetPartitionView{ReclaimEffective: machine.NewCPUSet()},
 	}); err != nil {
 		t.Fatalf("empty reclaim handler without topology: %v", err)
@@ -104,7 +106,7 @@ func TestWorkqueuePluginResetsMasksWhenReclaimBecomesEmpty(t *testing.T) {
 	in := bulkheadapi.HandlerContext{}
 	in.Topology = topology
 	in.View = &bulkheadutils.CPUSetPartitionView{ReclaimEffective: machine.NewCPUSet()}
-	if err := p.CPUSetAdjustmentHandler(nil, in); err != nil {
+	if err := p.CPUSetAdjustmentHandler(ctx, in); err != nil {
 		t.Fatalf("empty reclaim reset handler: %v", err)
 	}
 	if got := string(f.files[filepath.Join(sysfs, "cpumask")]); got != fallbackMask {
@@ -138,7 +140,7 @@ func TestWorkqueuePluginDisabledTransitionResetsMasks(t *testing.T) {
 
 	in := bulkheadapi.HandlerContext{}
 	in.Topology = topology
-	if err := p.CPUSetAdjustmentDisabledHandler(nil, in); err != nil {
+	if err := p.CPUSetAdjustmentDisabledHandler(context.Background(), in); err != nil {
 		t.Fatalf("disabled transition handler: %v", err)
 	}
 	if got := string(f.files[filepath.Join(sysfs, "cpumask")]); got != fallbackMask {
