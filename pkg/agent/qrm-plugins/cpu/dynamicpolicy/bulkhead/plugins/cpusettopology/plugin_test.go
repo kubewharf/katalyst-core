@@ -222,3 +222,37 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingContainer(t *testing.T
 		t.Fatalf("expected nil map for missing container, got %#v", expected)
 	}
 }
+
+func TestCPUSetTopologyPluginSkipsExpectedCPUSetForUnresolvedContainerRel(t *testing.T) {
+	t.Parallel()
+
+	p := &CPUSetTopologyPlugin{}
+	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+			MetaServer: &metaserver.MetaServer{
+				MetaAgent: &agent.MetaAgent{
+					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-1")},
+						Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+							Name:        "main",
+							ContainerID: "invalid-container-id",
+						}}},
+					}}},
+				},
+			},
+		},
+		View: &bulkheadutils.CPUSetPartitionView{
+			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+				"pod-1": {
+					"main": machine.NewCPUSet(0, 1),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unresolved container rel should be skipped, got error: %v", err)
+	}
+	if expected != nil {
+		t.Fatalf("expected nil map for unresolved container rel, got %#v", expected)
+	}
+}

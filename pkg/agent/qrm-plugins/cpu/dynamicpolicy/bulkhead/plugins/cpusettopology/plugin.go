@@ -162,7 +162,9 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 			}
 			rel, err := cgcommon.GetContainerRelativeCgroupPath(podUID, containerID)
 			if err != nil {
-				return nil, fmt.Errorf("resolve container rel pod=%q container=%q: %w", podUID, containerName, err)
+				general.InfofV(5, "bulkhead: resolve container rel failed, skipping expected cpuset enforce, pod=%q container=%q err=%v",
+					podUID, containerName, err)
+				continue
 			}
 			if rel == "" {
 				continue
