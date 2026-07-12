@@ -741,12 +741,9 @@ func (nm NUMANodeMap) String() string {
 }
 
 // cpuPluginStateData is a lock-free plain-field container that holds the
-// non-topology portion of the cpu-plugin state. It is shared between the
-// in-memory cpuPluginState (which wraps it with an RWMutex and clones on
-// every getter) and ReadonlyStateSnapshot (which pre-clones once and then
-// exposes the fields directly). Grouping the fields into a single value
-// makes it trivial to deep-copy the whole set in one place (see Clone) and
-// to satisfy the reader interface via struct embedding.
+// non-topology portion of the cpu-plugin state. The in-memory cpuPluginState
+// wraps it with an RWMutex and clones on every getter. Grouping the fields into
+// a single value makes it trivial to deep-copy the whole set in one place.
 type cpuPluginStateData struct {
 	podEntries                            PodEntries
 	machineState                          NUMANodeMap
@@ -846,64 +843,6 @@ type State interface {
 // ReadonlyState interface only provides methods for tracking pod assignments
 type ReadonlyState interface {
 	reader
-	// Snapshot returns a lock-free point-in-time view of the reader's data so
-	// downstream consumers (e.g. periodical handlers that fan out across
-	// multiple goroutines within a single tick) can iterate over stable values
-	// without contending for the underlying lock. Snapshot construction clones
-	// live state once, and snapshot getters return owned copies to preserve the
-	// same mutation-safety contract as live-state getters.
-	Snapshot() ReadonlyState
-}
-
-// ReadonlyStateSnapshot is a deep-copied, lock-free view of the cpu-plugin
-// state at a single point in time. It implements the reader interface so it
-// can be passed through the same channels as a live ReadonlyState while
-// guaranteeing that every read observes the same stable value.
-//
-// The struct is intentionally not thread-safe for writes: build it once via
-// Snapshot() at the top of a tick and treat every field as immutable
-// afterwards. Getter methods still return owned copies to preserve ReadonlyState
-// ownership semantics for callers.
-//
-// The embedded cpuPluginStateData stores a pre-cloned data set. Getters clone
-// from that data so consumers cannot mutate the tick-scoped snapshot.
-type ReadonlyStateSnapshot struct {
-	cpuPluginStateData
-}
-
-func (s *ReadonlyStateSnapshot) GetMachineState() NUMANodeMap {
-	if s == nil {
-		return nil
-	}
-	return s.cpuPluginStateData.GetMachineState().Clone()
-}
-
-func (s *ReadonlyStateSnapshot) GetNUMAHeadroom() map[int]float64 {
-	if s == nil {
-		return nil
-	}
-	return general.DeepCopyIntToFloat64Map(s.cpuPluginStateData.GetNUMAHeadroom())
-}
-
-func (s *ReadonlyStateSnapshot) GetPodEntries() PodEntries {
-	if s == nil {
-		return nil
-	}
-	return s.cpuPluginStateData.GetPodEntries().Clone()
-}
-
-func (s *ReadonlyStateSnapshot) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
-	if s == nil {
-		return nil
-	}
-	return s.cpuPluginStateData.GetAllocationInfo(podUID, containerName).Clone()
-}
-
-// Snapshot is idempotent on a snapshot: returning the receiver keeps the
-// reader interface satisfiable and lets tick-scoped code pass the snapshot
-// through helpers that expect any reader without extra copies.
-func (s *ReadonlyStateSnapshot) Snapshot() ReadonlyState {
-	return s
 }
 
 type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error)
@@ -923,20 +862,6 @@ func GetReadonlyState() (ReadonlyState, error) {
 		return nil, fmt.Errorf("readonlyState isn't set")
 	}
 	return readonlyState, nil
-}
-
-// GetReadonlyStateSnapshot is a convenience wrapper that fetches the current
-// process-wide ReadonlyState and immediately materializes a deep-copied,
-// lock-free snapshot from it. Tick-scoped consumers (e.g. periodical handlers
-// that fan out multiple concurrent reads within a single tick) should prefer
-// this helper over calling GetReadonlyState().Snapshot() manually so that
-// snapshot semantics stay centralized.
-func GetReadonlyStateSnapshot() (ReadonlyState, error) {
-	s, err := GetReadonlyState()
-	if err != nil {
-		return nil, err
-	}
-	return s.Snapshot(), nil
 }
 
 // SetReadonlyState updates the readonlyState in a thread-safe manner.
