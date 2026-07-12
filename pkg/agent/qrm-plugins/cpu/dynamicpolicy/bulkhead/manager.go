@@ -66,7 +66,7 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil
 	if in.State != nil {
 		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology)
 	}
-	currentEnabled := m.buildPluginEnabledState(handlerCtx.DynamicConf)
+	currentEnabled := m.buildPluginEnabledState(handlerCtx)
 	if m.lastCPUSetAdjustmentEnabled != nil &&
 		equalPluginEnabledState(m.lastCPUSetAdjustmentEnabled, currentEnabled) &&
 		bulkheadutils.EqualCPUSetPartitionView(m.lastCPUSetAdjustmentView, handlerCtx.View) {
@@ -105,10 +105,10 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil
 	return nil
 }
 
-func (m *Manager) buildPluginEnabledState(dynamicConf *dynamicconfig.Configuration) map[string]bool {
+func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[string]bool {
 	out := make(map[string]bool, len(m.plugins))
 	for _, p := range m.plugins {
-		out[p.Name()] = p.Enable(dynamicConf)
+		out[p.Name()] = p.Enable(in)
 	}
 	return out
 }

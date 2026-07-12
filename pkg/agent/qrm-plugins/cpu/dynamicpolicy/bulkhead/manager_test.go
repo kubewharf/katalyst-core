@@ -25,8 +25,8 @@ import (
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
+	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
-	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
 type fakePlugin struct {
@@ -34,6 +34,7 @@ type fakePlugin struct {
 	adjustViews   []*bulkheadutils.CPUSetPartitionView
 	periodicCalls int
 	disabledCalls int
+	enableStates  []interface{}
 	enabled       bool
 	adjustErr     error
 	periodicErr   error
@@ -42,7 +43,10 @@ type fakePlugin struct {
 
 func (p *fakePlugin) Name() string { return p.name }
 
-func (p *fakePlugin) Enable(_ *dynamicconfig.Configuration) bool { return p.enabled }
+func (p *fakePlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	p.enableStates = append(p.enableStates, in.State)
+	return p.enabled
+}
 
 func (p *fakePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.HandlerContext) error {
 	p.adjustViews = append(p.adjustViews, in.View)
@@ -76,6 +80,26 @@ func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
 	}
 	if got := len(plugin.adjustViews); got != 1 {
 		t.Fatalf("expected unchanged view to skip plugin, got %d calls", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+	in := bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		State: cpustate.NewCPUPluginState(nil),
+	}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), in); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(plugin.enableStates) != 1 {
+		t.Fatalf("Enable calls = %d, want 1", len(plugin.enableStates))
+	}
+	if plugin.enableStates[0] != in.State {
+		t.Fatalf("Enable did not receive handler context state")
 	}
 }
 

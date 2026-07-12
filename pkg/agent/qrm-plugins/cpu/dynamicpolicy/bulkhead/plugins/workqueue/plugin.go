@@ -52,8 +52,8 @@ func NewWorkqueuePlugin(conf *config.Configuration) bulkheadapi.Plugin {
 
 func (p *WorkqueuePlugin) Name() string { return WorkqueuePluginName }
 
-func (p *WorkqueuePlugin) Enable(conf *dynamicconfig.Configuration) bool {
-	return enableBulkheadWorkqueue(conf)
+func (p *WorkqueuePlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	return enableBulkheadWorkqueue(in.DynamicConf)
 }
 
 func (p *WorkqueuePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.HandlerContext) error {

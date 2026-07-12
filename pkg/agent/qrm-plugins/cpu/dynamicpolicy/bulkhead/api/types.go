@@ -42,7 +42,7 @@ type PeriodicalHandlerContext struct {
 
 type Plugin interface {
 	Name() string
-	Enable(conf *dynamicconfig.Configuration) bool
+	Enable(HandlerContext) bool
 	CPUSetAdjustmentHandler(context.Context, HandlerContext) error
 	PeriodicalHandler(context.Context, PeriodicalHandlerContext) error
 }

@@ -63,8 +63,8 @@ func NewCPUSetTopologyPlugin(conf *config.Configuration) bulkheadapi.Plugin {
 
 func (p *CPUSetTopologyPlugin) Name() string { return CPUSetTopologyPluginName }
 
-func (p *CPUSetTopologyPlugin) Enable(conf *dynamicconfig.Configuration) bool {
-	return enableBulkheadCpusetTopology(conf)
+func (p *CPUSetTopologyPlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	return enableBulkheadCpusetTopology(in)
 }
 
 func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in bulkheadapi.HandlerContext) error {
@@ -199,7 +199,7 @@ func (p *CPUSetTopologyPlugin) PeriodicalHandler(
 	ctx context.Context,
 	in bulkheadapi.PeriodicalHandlerContext,
 ) error {
-	enabled := enableBulkheadCpusetTopology(in.DynamicConf)
+	enabled := enableBulkheadCpusetTopologyByDynamicConf(in.DynamicConf)
 	if p.cgroup.Version(ctx) == cgroupclient.CgroupVersionV1 {
 		schedLoadBalance := !enabled
 		if err := p.cgroup.ApplySchedLoadBalance(ctx, "", schedLoadBalance); err != nil {
@@ -338,12 +338,15 @@ func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Conte
 	return out, nil
 }
 
-func enableBulkheadCpusetTopology(conf *dynamicconfig.Configuration) bool {
-	if conf == nil || conf.AdminQoSConfiguration == nil || conf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
+func enableBulkheadCpusetTopology(in bulkheadapi.HandlerContext) bool {
+	if in.State != nil && in.State.GetAllowSharedCoresOverlapReclaimedCores() {
 		return false
 	}
-	if conf.AdminQoSConfiguration.CPUProvisionConfiguration != nil &&
-		conf.AdminQoSConfiguration.CPUProvisionConfiguration.AllowSharedCoresOverlapReclaimedCores {
+	return enableBulkheadCpusetTopologyByDynamicConf(in.DynamicConf)
+}
+
+func enableBulkheadCpusetTopologyByDynamicConf(conf *dynamicconfig.Configuration) bool {
+	if conf == nil || conf.AdminQoSConfiguration == nil || conf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
 		return false
 	}
 	return conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology

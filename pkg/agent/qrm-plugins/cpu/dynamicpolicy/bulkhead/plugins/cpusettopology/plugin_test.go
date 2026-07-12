@@ -28,6 +28,7 @@ import (
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
+	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
@@ -517,10 +518,11 @@ func TestEnableBulkheadCpusetTopologyRequiresNonOverlapReclaimedCores(t *testing
 	t.Parallel()
 
 	tests := []struct {
-		name                                  string
-		enableBulkheadCpusetTopology          bool
-		allowSharedCoresOverlapReclaimedCores bool
-		want                                  bool
+		name                                       string
+		enableBulkheadCpusetTopology               bool
+		stateAllowSharedCoresOverlapReclaimedCores bool
+		confAllowSharedCoresOverlapReclaimedCores  bool
+		want                                       bool
 	}{
 		{
 			name:                         "enabled and non overlap",
@@ -528,12 +530,18 @@ func TestEnableBulkheadCpusetTopologyRequiresNonOverlapReclaimedCores(t *testing
 			want:                         true,
 		},
 		{
-			name:                                  "enabled but overlap",
-			enableBulkheadCpusetTopology:          true,
-			allowSharedCoresOverlapReclaimedCores: true,
+			name:                         "enabled but overlap",
+			enableBulkheadCpusetTopology: true,
+			stateAllowSharedCoresOverlapReclaimedCores: true,
 		},
 		{
 			name: "disabled and non overlap",
+		},
+		{
+			name:                         "uses state overlap instead of dynamic config overlap",
+			enableBulkheadCpusetTopology: true,
+			confAllowSharedCoresOverlapReclaimedCores: true,
+			want: true,
 		},
 	}
 
@@ -544,9 +552,16 @@ func TestEnableBulkheadCpusetTopologyRequiresNonOverlapReclaimedCores(t *testing
 
 			conf := bulkheadCpusetTopologyDynamicConf(
 				tt.enableBulkheadCpusetTopology,
-				tt.allowSharedCoresOverlapReclaimedCores,
+				tt.confAllowSharedCoresOverlapReclaimedCores,
 			)
-			if got := enableBulkheadCpusetTopology(conf); got != tt.want {
+			state := cpustate.NewCPUPluginState(nil)
+			state.SetAllowSharedCoresOverlapReclaimedCores(tt.stateAllowSharedCoresOverlapReclaimedCores)
+			if got := enableBulkheadCpusetTopology(bulkheadapi.HandlerContext{
+				BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+					DynamicConf: conf,
+					State:       state,
+				},
+			}); got != tt.want {
 				t.Fatalf("enableBulkheadCpusetTopology() = %t, want %t", got, tt.want)
 			}
 		})
