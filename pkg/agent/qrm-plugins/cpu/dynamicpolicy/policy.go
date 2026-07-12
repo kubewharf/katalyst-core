@@ -129,8 +129,9 @@ type DynamicPolicy struct {
 
 	resourcePackageManager *resourcepackage.CachedResourcePackageManager
 
-	irqTuner        irqtuner.Tuner
-	bulkheadManager *bulkhead.Manager
+	irqTuner          irqtuner.Tuner
+	bulkheadManagerMu sync.Mutex
+	bulkheadManager   *bulkhead.Manager
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
@@ -299,11 +300,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
-	policyImplement.bulkheadManager, err = bulkhead.NewManager(conf)
-	if err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy init bulkhead manager failed with error: %v", err)
-	}
-	if err := policyImplement.RegisterBypassCPUSetAdjustmentHandler("bulkhead", policyImplement.bulkheadManager.RunCPUSetAdjustmentHandlers); err != nil {
+	if err := policyImplement.RegisterBypassCPUSetAdjustmentHandler("bulkhead", policyImplement.runBulkheadCPUSetAdjustmentHandlers); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy register bulkhead bypass cpuset adjustment handler failed with error: %v", err)
 	}
 
@@ -421,7 +418,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncBulkhead, general.HealthzCheckStateNotReady,
-		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.bulkheadManager.RunPeriodicalHandlers, syncBulkheadPeriod, healthCheckTolerationTimes)
+		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.runBulkheadPeriodicalHandlers, syncBulkheadPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.SyncBulkhead, err)
 	}
