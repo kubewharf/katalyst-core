@@ -77,6 +77,17 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil
 
 	for _, p := range m.plugins {
 		if !currentEnabled[p.Name()] {
+			if m.lastCPUSetAdjustmentEnabled[p.Name()] {
+				disabledHandler, ok := p.(bulkheadapi.DisabledTransitionHandler)
+				if !ok {
+					continue
+				}
+				if err := disabledHandler.CPUSetAdjustmentDisabledHandler(ctx, handlerCtx); err != nil {
+					emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
+					return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
+				}
+				emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "success", "")
+			}
 			continue
 		}
 		if err := p.CPUSetAdjustmentHandler(ctx, handlerCtx); err != nil {

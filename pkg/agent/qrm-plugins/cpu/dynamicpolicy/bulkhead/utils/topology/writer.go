@@ -64,7 +64,7 @@ type nodeDiff struct {
 	grow   bool
 	shrink bool
 	target machine.CPUSet
-	inter  machine.CPUSet
+	bridge machine.CPUSet
 }
 
 func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClient, mems string, skipRead bool, expected map[string]machine.CPUSet, res *DAGApplyResult) error {
@@ -89,7 +89,7 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 			res.Skipped++
 			continue
 		}
-		d := nodeDiff{target: target, inter: observed.Intersection(target)}
+		d := nodeDiff{target: target}
 		if skipRead || !observedKnown || observed.IsEmpty() {
 			d.grow = true
 		} else {
@@ -99,39 +99,26 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 			if !observed.IsSubsetOf(target) {
 				d.shrink = true
 			}
+			if d.grow && d.shrink {
+				d.bridge = observed.Union(target)
+			}
 		}
 		diffs[n.Rel] = d
 	}
 
 	version := cg.Version(ctx)
 	var firstErr error
-	_ = dag.ForEachShrink(func(n *TopoNode) error {
-		d, ok := diffs[n.Rel]
-		if !ok || !d.shrink || d.inter.IsEmpty() {
-			return nil
-		}
-		res.Attempted++
-		if err := applyCPUSet(ctx, cg, n.Rel, d.inter, memsForNode(n, mems)); err == nil {
-			res.Applied++
-			return nil
-		}
-		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.inter, memsForNode(n, mems), expected, version, res, 0); err != nil {
-			res.Failed++
-			if firstErr == nil {
-				firstErr = err
-			}
-			return nil
-		}
-		res.Applied++
-		return nil
-	})
 	_ = dag.ForEachExpand(func(n *TopoNode) error {
 		if d, ok := diffs[n.Rel]; ok && d.grow {
+			target := d.target
+			if !d.bridge.IsEmpty() {
+				target = d.bridge
+			}
 			res.Attempted++
-			if err := applyCPUSet(ctx, cg, n.Rel, d.target, memsForNode(n, mems)); err != nil {
+			if err := applyCPUSet(ctx, cg, n.Rel, target, memsForNode(n, mems)); err != nil {
 				res.Failed++
 				if firstErr == nil {
-					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", d.target.String(), n.Rel, err)
+					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", target.String(), n.Rel, err)
 				}
 			} else {
 				res.Applied++
@@ -140,6 +127,26 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 		if !n.CPUs.IsEmpty() {
 			expandDescendants(ctx, cg, n.Rel, n.CPUs, false, controlledRels, expected, version, res, &firstErr, 0)
 		}
+		return nil
+	})
+	_ = dag.ForEachShrink(func(n *TopoNode) error {
+		d, ok := diffs[n.Rel]
+		if !ok || !d.shrink {
+			return nil
+		}
+		res.Attempted++
+		if err := applyCPUSet(ctx, cg, n.Rel, d.target, memsForNode(n, mems)); err == nil {
+			res.Applied++
+			return nil
+		}
+		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.target, memsForNode(n, mems), expected, version, res, 0); err != nil {
+			res.Failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			return nil
+		}
+		res.Applied++
 		return nil
 	})
 	return firstErr

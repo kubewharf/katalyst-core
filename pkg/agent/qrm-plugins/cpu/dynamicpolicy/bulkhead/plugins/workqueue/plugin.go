@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	utilfs "github.com/kubewharf/katalyst-core/pkg/util/fs"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const WorkqueuePluginName = "workqueue"
@@ -57,9 +58,13 @@ func (p *WorkqueuePlugin) Enable(conf *dynamicconfig.Configuration) bool {
 
 func (p *WorkqueuePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.HandlerContext) error {
 	if in.View == nil {
-		return nil
+		return p.resetWorkqueue(in)
 	}
 	return p.reconcileWorkqueue(in)
+}
+
+func (p *WorkqueuePlugin) CPUSetAdjustmentDisabledHandler(_ context.Context, in bulkheadapi.HandlerContext) error {
+	return p.resetWorkqueue(in)
 }
 
 func (p *WorkqueuePlugin) PeriodicalHandler(
@@ -72,11 +77,25 @@ func (p *WorkqueuePlugin) PeriodicalHandler(
 func (p *WorkqueuePlugin) reconcileWorkqueue(in bulkheadapi.HandlerContext) error {
 	reclaim := in.View.ReclaimEffective
 	if reclaim.IsEmpty() {
+		return p.resetWorkqueue(in)
+	}
+	return p.writeWorkqueueMask(in, reclaim, "reclaim")
+}
+
+func (p *WorkqueuePlugin) resetWorkqueue(in bulkheadapi.HandlerContext) error {
+	if in.Topology == nil {
 		return nil
 	}
-	mask, err := general.ConvertIntSliceToBitmapString(reclaim.ToSliceInt64())
+	return p.writeWorkqueueMask(in, in.Topology.CPUDetails.CPUs(), "fallback")
+}
+
+func (p *WorkqueuePlugin) writeWorkqueueMask(in bulkheadapi.HandlerContext, cpus machine.CPUSet, reason string) error {
+	if cpus.IsEmpty() {
+		return nil
+	}
+	mask, err := general.ConvertIntSliceToBitmapString(cpus.ToSliceInt64())
 	if err != nil {
-		return fmt.Errorf("convert reclaim cpuset %s to workqueue mask: %w", reclaim.String(), err)
+		return fmt.Errorf("convert %s cpuset %s to workqueue mask: %w", reason, cpus.String(), err)
 	}
 
 	global := filepath.Join(p.cfg.BulkheadWorkqueueSysfsDir, "cpumask")

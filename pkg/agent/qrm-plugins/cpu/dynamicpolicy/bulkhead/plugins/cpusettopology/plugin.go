@@ -68,16 +68,15 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 	if in.View == nil {
 		return nil
 	}
-	if in.View.ReclaimEffective.IsEmpty() {
-		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "empty_reclaim")
-		return nil
-	}
-
 	relExists := func(rel string) error {
 		_, err := p.cgroup.StatDir(ctx, rel)
 		return err
 	}
-	siblings := p.discoverBulkheadReclaimSiblings(ctx, in.View)
+	siblings, err := p.discoverBulkheadReclaimSiblings(ctx, in.View)
+	if err != nil {
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "discover_error")
+		return fmt.Errorf("discover bulkhead reclaim siblings: %w", err)
+	}
 	specs := bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, in.View, siblings, relExists)
 	dag, err := topology.BuildDAG(specs)
 	if err != nil {
@@ -85,7 +84,11 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		return fmt.Errorf("build bulkhead topology dag: %w", err)
 	}
 
-	expected := p.buildExpectedCPUSetByRel(in)
+	expected, err := p.buildExpectedCPUSetByRel(in)
+	if err != nil {
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
+		return fmt.Errorf("build expected container cpuset by rel: %w", err)
+	}
 	_, err = topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
 		DAG:                 dag,
 		Cgroup:              p.cgroup,
@@ -138,18 +141,16 @@ func (p *CPUSetTopologyPlugin) PeriodicalHandler(
 	return apierrors.NewAggregate(errs)
 }
 
-func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(in bulkheadapi.HandlerContext) map[string]machine.CPUSet {
+func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(in bulkheadapi.HandlerContext) (map[string]machine.CPUSet, error) {
 	if in.MetaServer == nil || in.View == nil || len(in.View.ContainerCPUSetByPod) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := map[string]machine.CPUSet{}
 	for podUID, containers := range in.View.ContainerCPUSetByPod {
 		for containerName, cpus := range containers {
 			rel, err := bulkheadutils.ResolveContainerRelPath(in.MetaServer, podUID, containerName)
 			if err != nil {
-				general.InfofV(5, "bulkhead: resolve container rel failed, skipping enforce, pod=%q container=%q err=%v",
-					podUID, containerName, err)
-				continue
+				return nil, fmt.Errorf("resolve container rel pod=%q container=%q: %w", podUID, containerName, err)
 			}
 			if rel == "" {
 				continue
@@ -158,14 +159,14 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(in bulkheadapi.HandlerCo
 		}
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, nil
 	}
-	return out
+	return out, nil
 }
 
-func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Context, view *bulkheadutils.CPUSetPartitionView) []string {
+func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Context, view *bulkheadutils.CPUSetPartitionView) ([]string, error) {
 	if !p.cfg.EnableBulkheadReclaimSiblings || p.cgroup.Version(ctx) != cgroupclient.CgroupVersionV1 {
-		return nil
+		return nil, nil
 	}
 
 	excluded := map[string]struct{}{}
@@ -200,8 +201,7 @@ func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Conte
 		}
 		children, err := p.cgroup.ListChildren(ctx, parentRel)
 		if err != nil {
-			general.ErrorS(err, "bulkhead: list reclaim sibling parent failed", "parentRel", parentRel)
-			continue
+			return nil, fmt.Errorf("list reclaim sibling parent %q: %w", parentRel, err)
 		}
 		for _, child := range children {
 			rel := strings.Trim(path.Join(parentRel, child), "/")
@@ -222,7 +222,7 @@ func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Conte
 		}
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 func enableBulkheadCpusetTopology(conf *dynamicconfig.Configuration) bool {

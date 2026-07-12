@@ -846,11 +846,12 @@ type State interface {
 // ReadonlyState interface only provides methods for tracking pod assignments
 type ReadonlyState interface {
 	reader
-	// Snapshot returns a deep-copied, lock-free view of the reader's data so
+	// Snapshot returns a lock-free point-in-time view of the reader's data so
 	// downstream consumers (e.g. periodical handlers that fan out across
-	// multiple goroutines within a single tick) can iterate over a stable
-	// snapshot without contending for the underlying lock or paying repeated
-	// clone costs. Every read on the returned snapshot is a plain field access.
+	// multiple goroutines within a single tick) can iterate over stable values
+	// without contending for the underlying lock. Snapshot construction clones
+	// live state once, and snapshot getters return owned copies to preserve the
+	// same mutation-safety contract as live-state getters.
 	Snapshot() ReadonlyState
 }
 
@@ -864,8 +865,8 @@ type ReadonlyState interface {
 // afterwards. Getter methods still return owned copies to preserve ReadonlyState
 // ownership semantics for callers.
 //
-// The embedded cpuPluginStateData stores a pre-cloned data set; snapshot getters
-// clone from it so consumers cannot mutate the tick-scoped snapshot.
+// The embedded cpuPluginStateData stores a pre-cloned data set. Getters clone
+// from that data so consumers cannot mutate the tick-scoped snapshot.
 type ReadonlyStateSnapshot struct {
 	cpuPluginStateData
 }

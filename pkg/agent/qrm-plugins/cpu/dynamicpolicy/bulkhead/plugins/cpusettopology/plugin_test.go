@@ -17,9 +17,17 @@ limitations under the License.
 package cpusettopology
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
+	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
+	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
+	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
+	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestCPUSetTopologyPluginIsConfiguredReclaimNUMARel(t *testing.T) {
@@ -51,5 +59,100 @@ func TestCPUSetTopologyPluginIsConfiguredReclaimNUMARel(t *testing.T) {
 		if p.isConfiguredReclaimNUMARel(rel) {
 			t.Fatalf("expected %q not to be recognized as reclaim NUMA rel", rel)
 		}
+	}
+}
+
+type fakeCgroupClient struct {
+	cgroupclient.FakeCgroupClient
+
+	existing map[string]bool
+	writes   map[string]string
+	pruned   map[string]struct{}
+	listErr  error
+}
+
+func (f *fakeCgroupClient) StatDir(_ context.Context, rel string) (time.Time, error) {
+	if f.existing[rel] {
+		return time.Time{}, nil
+	}
+	return time.Time{}, errors.New("missing")
+}
+
+func (f *fakeCgroupClient) Version(context.Context) cgroupclient.CgroupVersion {
+	return cgroupclient.CgroupVersionV1
+}
+
+func (f *fakeCgroupClient) ApplyCPUSet(_ context.Context, rel string, data *cgcommon.CPUSetData) error {
+	if f.writes == nil {
+		f.writes = map[string]string{}
+	}
+	f.writes[rel] = data.CPUs
+	return nil
+}
+
+func (f *fakeCgroupClient) Prune(active map[string]struct{}) {
+	f.pruned = active
+}
+
+func (f *fakeCgroupClient) ListChildren(context.Context, string) ([]string, error) {
+	return nil, f.listErr
+}
+
+func TestCPUSetTopologyPluginReconcilesPrimaryWhenReclaimEmpty(t *testing.T) {
+	t.Parallel()
+
+	cg := &fakeCgroupClient{existing: map[string]bool{
+		"primary": true,
+		"reclaim": true,
+	}}
+	p := &CPUSetTopologyPlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadPrimaryRelPath:  "primary",
+			BulkheadReclaimRelPaths: []string{"reclaim"},
+		},
+		cgroup: cg,
+	}
+
+	err := p.CPUSetAdjustmentHandler(context.Background(), bulkheadapi.HandlerContext{
+		View: &bulkheadutils.CPUSetPartitionView{
+			NonReclaimPool:   machine.NewCPUSet(0, 1, 2, 3),
+			ReclaimEffective: machine.NewCPUSet(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CPUSetAdjustmentHandler: %v", err)
+	}
+	if got := cg.writes["primary"]; got != "0-3" {
+		t.Fatalf("primary cpuset = %q, want 0-3; writes=%v", got, cg.writes)
+	}
+	if _, ok := cg.pruned["primary"]; !ok {
+		t.Fatalf("primary rel not pruned as active: %#v", cg.pruned)
+	}
+}
+
+func TestCPUSetTopologyPluginReturnsSiblingDiscoveryError(t *testing.T) {
+	t.Parallel()
+
+	cg := &fakeCgroupClient{
+		existing: map[string]bool{"primary": true, "reclaim": true},
+		listErr:  errors.New("list failed"),
+	}
+	p := &CPUSetTopologyPlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadPrimaryRelPath:        "primary",
+			BulkheadReclaimRelPaths:       []string{"reclaim"},
+			EnableBulkheadReclaimSiblings: true,
+		},
+		cgroup: cg,
+	}
+
+	err := p.CPUSetAdjustmentHandler(context.Background(), bulkheadapi.HandlerContext{
+		View: &bulkheadutils.CPUSetPartitionView{
+			NonReclaimPool:   machine.NewCPUSet(0, 1),
+			ReclaimEffective: machine.NewCPUSet(2, 3),
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected sibling discovery error")
 	}
 }

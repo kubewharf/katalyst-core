@@ -6083,7 +6083,7 @@ func TestSharedCoresRampUpDisabledAllocation(t *testing.T) {
 		as.NotNil(allocationInfo)
 		assert.False(t, allocationInfo.RampUp)
 		assert.NotEqual(t, cpuTopology.CPUDetails.CPUs().Difference(policy.reservedCPUs).String(), allocationInfo.AllocationResult.String())
-		assert.True(t, allocationInfo.AllocationResult.IsSubsetOf(targetPoolCPUs))
+		assert.Equal(t, targetPoolCPUs.String(), allocationInfo.AllocationResult.String())
 	})
 
 	t.Run("returns error when target pool is missing", func(t *testing.T) {
