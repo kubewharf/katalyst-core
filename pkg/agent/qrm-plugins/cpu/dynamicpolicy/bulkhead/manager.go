@@ -107,10 +107,18 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil
 
 func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[string]bool {
 	out := make(map[string]bool, len(m.plugins))
+	enabled := bulkheadEnabled(in.DynamicConf)
 	for _, p := range m.plugins {
-		out[p.Name()] = p.Enable(in)
+		out[p.Name()] = enabled && p.Enable(in)
 	}
 	return out
+}
+
+func bulkheadEnabled(conf *dynamicconfig.Configuration) bool {
+	if conf == nil || conf.AdminQoSConfiguration == nil || conf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
+		return false
+	}
+	return conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable
 }
 
 func equalPluginEnabledState(a, b map[string]bool) bool {
@@ -147,6 +155,9 @@ func (m *Manager) RunPeriodicalHandlers(
 	var conf *dynamicconfig.Configuration
 	if dynamicConf != nil {
 		conf = dynamicConf.GetDynamicConfiguration()
+	}
+	if !bulkheadEnabled(conf) {
+		return
 	}
 	handlerCtx := bulkheadapi.PeriodicalHandlerContext{
 		CoreConf:    coreConf,

@@ -27,6 +27,7 @@ import (
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
 type fakePlugin struct {
@@ -72,10 +73,10 @@ func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("first run failed: %v", err)
 	}
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
 	if got := len(plugin.adjustViews); got != 1 {
@@ -89,7 +90,8 @@ func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 	in := bypassutil.BypassCPUSetAdjustmentHandlerCtx{
-		State: cpustate.NewCPUPluginState(nil),
+		DynamicConf: dynamicBulkheadConf(true),
+		State:       cpustate.NewCPUPluginState(nil),
 	}
 
 	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), in); err != nil {
@@ -103,17 +105,77 @@ func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
 	}
 }
 
+func TestRunCPUSetAdjustmentHandlersGatesPluginsByBulkheadEnable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		bulkheadEnabled    bool
+		pluginEnabled      bool
+		preRunEnabledState bool
+		wantAdjustCalls    int
+		wantDisabledCalls  int
+	}{
+		{
+			name:          "bulkhead disabled plugin enabled",
+			pluginEnabled: true,
+		},
+		{
+			name:            "bulkhead enabled plugin enabled",
+			bulkheadEnabled: true,
+			pluginEnabled:   true,
+			wantAdjustCalls: 1,
+		},
+		{
+			name:            "bulkhead enabled plugin disabled",
+			bulkheadEnabled: true,
+		},
+		{
+			name:               "bulkhead disabled after previous enabled",
+			pluginEnabled:      true,
+			preRunEnabledState: true,
+			wantDisabledCalls:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			plugin := &fakePlugin{name: "fake", enabled: tt.pluginEnabled}
+			m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+			if tt.preRunEnabledState {
+				m.lastCPUSetAdjustmentEnabled = map[string]bool{plugin.Name(): true}
+			}
+
+			err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+				DynamicConf: dynamicBulkheadConf(tt.bulkheadEnabled),
+			})
+			if err != nil {
+				t.Fatalf("RunCPUSetAdjustmentHandlers failed: %v", err)
+			}
+			if got := len(plugin.adjustViews); got != tt.wantAdjustCalls {
+				t.Fatalf("adjust calls = %d, want %d", got, tt.wantAdjustCalls)
+			}
+			if plugin.disabledCalls != tt.wantDisabledCalls {
+				t.Fatalf("disabled calls = %d, want %d", plugin.disabledCalls, tt.wantDisabledCalls)
+			}
+		})
+	}
+}
+
 func TestRunCPUSetAdjustmentHandlersDoesNotCacheFailedView(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: true, adjustErr: errors.New("boom")}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err == nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err == nil {
 		t.Fatal("expected first run to fail")
 	}
 	plugin.adjustErr = nil
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
 	if got := len(plugin.adjustViews); got != 2 {
@@ -127,17 +189,17 @@ func TestRunCPUSetAdjustmentHandlersDisabledTransitionInvalidatesCache(t *testin
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("first enabled run failed: %v", err)
 	}
 
 	plugin.enabled = false
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("disabled transition failed: %v", err)
 	}
 
 	plugin.enabled = true
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("second enabled run failed: %v", err)
 	}
 
@@ -152,15 +214,15 @@ func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionOnce(t *testing.T) {
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("enabled run failed: %v", err)
 	}
 
 	plugin.enabled = false
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("disabled transition failed: %v", err)
 	}
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("stable disabled run failed: %v", err)
 	}
 
@@ -175,13 +237,13 @@ func TestRunCPUSetAdjustmentHandlersReturnsDisabledTransitionError(t *testing.T)
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
-	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("enabled run failed: %v", err)
 	}
 
 	plugin.enabled = false
 	plugin.disabledErr = errors.New("disabled failed")
-	err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{})
+	err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx())
 	if err == nil {
 		t.Fatalf("expected disabled transition error")
 	}
@@ -197,10 +259,64 @@ func TestRunPeriodicalHandlersContinuesAfterErrors(t *testing.T) {
 	pluginB := &fakePlugin{name: "b"}
 	m := &Manager{plugins: []bulkheadapi.Plugin{pluginA, pluginB}}
 
-	m.RunPeriodicalHandlers(nil, nil, nil, nil, nil)
+	m.RunPeriodicalHandlers(nil, nil, enabledDynamicAgentConf(), nil, nil)
 	if pluginA.periodicCalls != 1 || pluginB.periodicCalls != 1 {
 		t.Fatalf("expected both plugins to run, got a=%d b=%d", pluginA.periodicCalls, pluginB.periodicCalls)
 	}
+}
+
+func TestRunPeriodicalHandlersSkipsPluginsWhenBulkheadDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		bulkheadEnabled bool
+		wantCalls       int
+	}{
+		{
+			name: "bulkhead disabled",
+		},
+		{
+			name:            "bulkhead enabled",
+			bulkheadEnabled: true,
+			wantCalls:       1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			plugin := &fakePlugin{name: "fake"}
+			m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+			dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
+			dynamicConf.SetDynamicConfiguration(dynamicBulkheadConf(tt.bulkheadEnabled))
+
+			m.RunPeriodicalHandlers(nil, nil, dynamicConf, nil, nil)
+			if plugin.periodicCalls != tt.wantCalls {
+				t.Fatalf("periodic calls = %d, want %d", plugin.periodicCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func dynamicBulkheadConf(enabled bool) *dynamicconfig.Configuration {
+	conf := dynamicconfig.NewConfiguration()
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable = enabled
+	return conf
+}
+
+func enabledCPUSetAdjustmentCtx() bypassutil.BypassCPUSetAdjustmentHandlerCtx {
+	return bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(true),
+	}
+}
+
+func enabledDynamicAgentConf() *dynamicconfig.DynamicAgentConfiguration {
+	conf := dynamicconfig.NewDynamicAgentConfiguration()
+	conf.SetDynamicConfiguration(dynamicBulkheadConf(true))
+	return conf
 }
 
 func TestNewManagerRegistersDefaultPluginsInOrder(t *testing.T) {
