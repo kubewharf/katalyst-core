@@ -89,6 +89,31 @@ func TestRunCPUSetAdjustmentHandlersDoesNotCacheFailedView(t *testing.T) {
 	}
 }
 
+func TestRunCPUSetAdjustmentHandlersDisabledTransitionInvalidatesCache(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("first enabled run failed: %v", err)
+	}
+
+	plugin.enabled = false
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("disabled transition failed: %v", err)
+	}
+
+	plugin.enabled = true
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("second enabled run failed: %v", err)
+	}
+
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("expected second enabled run not to be skipped after disabled transition, got %d calls", got)
+	}
+}
+
 func TestRunPeriodicalHandlersContinuesAfterErrors(t *testing.T) {
 	t.Parallel()
 

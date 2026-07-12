@@ -27,7 +27,9 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -193,4 +195,30 @@ func TestClearCPUSetInAllocation(t *testing.T) {
 		assert.Equal(t, uint64(4), info.TopologyAssignments[0])
 		assert.Equal(t, "v", info.Annotations["k"])
 	})
+}
+
+func TestRunBulkheadCPUSetAdjustmentHandlersLazyInitAndDisabledTransition(t *testing.T) {
+	t.Parallel()
+
+	p := &DynamicPolicy{}
+	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}))
+	assert.Nil(t, p.bulkheadManager)
+
+	dyn := dynamicconfig.NewDynamicAgentConfiguration()
+	conf := dyn.GetDynamicConfiguration()
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = true
+	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		DynamicConf: conf,
+	}))
+	require.NotNil(t, p.bulkheadManager)
+
+	manager := p.bulkheadManager
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = false
+	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		DynamicConf: conf,
+	}))
+	assert.Same(t, manager, p.bulkheadManager)
+
+	p.bulkheadManager = &bulkhead.Manager{}
+	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}))
 }

@@ -19,6 +19,7 @@ package client
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,6 +68,10 @@ func (fakeCgroupClient) StatCgroupFile(context.Context, string, string) (time.Ti
 	return time.Time{}, 0, nil
 }
 
+func (fakeCgroupClient) ReadCgroupFile(context.Context, string, string) ([]byte, error) {
+	return nil, nil
+}
+
 func (fakeCgroupClient) ReadCPUSetPartition(context.Context, string) (cgcommon.CPUSetPartitionFlag, error) {
 	return cgcommon.CPUSetPartitionFlagMember, nil
 }
@@ -96,10 +101,16 @@ type countingFake struct {
 	statErr               error
 	mtime                 int64
 	size                  int64
+	version               CgroupVersion
+	contentMu             sync.Mutex
+	content               map[cacheKey]string
 }
 
 func newCountingFake() *countingFake {
-	f := &countingFake{}
+	f := &countingFake{
+		version: CgroupVersionV2,
+		content: map[cacheKey]string{},
+	}
 	atomic.StoreInt64(&f.mtime, 1)
 	atomic.StoreInt64(&f.size, 4)
 	return f
@@ -129,26 +140,63 @@ func (f *countingFake) StatDir(context.Context, string) (time.Time, error) {
 	return t, err
 }
 
-func (f *countingFake) ApplyCPUSet(context.Context, string, *cgcommon.CPUSetData) error {
+func (f *countingFake) Version(context.Context) CgroupVersion {
+	return f.version
+}
+
+func (f *countingFake) readContent(rel, file string) string {
+	f.contentMu.Lock()
+	defer f.contentMu.Unlock()
+	return f.content[cacheKey{rel: rel, file: file}]
+}
+
+func (f *countingFake) writeContent(rel, file, value string) {
+	f.contentMu.Lock()
+	defer f.contentMu.Unlock()
+	f.content[cacheKey{rel: rel, file: file}] = value
+}
+
+func (f *countingFake) ReadCgroupFile(_ context.Context, rel, file string) ([]byte, error) {
+	return []byte(f.readContent(rel, file)), nil
+}
+
+func (f *countingFake) ApplyCPUSet(_ context.Context, rel string, data *cgcommon.CPUSetData) error {
 	atomic.AddInt64(&f.applyCPUSetN, 1)
+	if data != nil {
+		if data.CPUs != "" {
+			f.writeContent(rel, "cpuset.cpus", data.CPUs)
+		}
+		if data.Mems != "" {
+			f.writeContent(rel, "cpuset.mems", data.Mems)
+		}
+	}
 	f.bumpMTime()
 	return nil
 }
 
-func (f *countingFake) ApplyCPUSetPartition(context.Context, string, cgcommon.CPUSetPartitionFlag) error {
+func (f *countingFake) ApplyCPUSetPartition(_ context.Context, rel string, flag cgcommon.CPUSetPartitionFlag) error {
 	atomic.AddInt64(&f.applyCPUSetPartitionN, 1)
+	f.writeContent(rel, "cpuset.cpus.partition", string(flag))
 	f.bumpMTime()
 	return nil
 }
 
-func (f *countingFake) ApplyCPU(context.Context, string, *cgcommon.CPUData) error {
+func (f *countingFake) ApplyCPU(_ context.Context, rel string, data *cgcommon.CPUData) error {
 	atomic.AddInt64(&f.applyCPUN, 1)
+	for _, field := range cpuDataFields(data) {
+		f.writeContent(rel, field.file, field.value)
+	}
 	f.bumpMTime()
 	return nil
 }
 
-func (f *countingFake) ApplySchedLoadBalance(context.Context, string, bool) error {
+func (f *countingFake) ApplySchedLoadBalance(_ context.Context, rel string, enabled bool) error {
 	atomic.AddInt64(&f.applySchedLBN, 1)
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	f.writeContent(rel, "cpuset.sched_load_balance", value)
 	f.bumpMTime()
 	return nil
 }
@@ -193,6 +241,26 @@ func TestCachedCgroupClient_ApplyCPU_ShortCircuitsAndInvalidates(t *testing.T) {
 	}
 }
 
+func TestCachedCgroupClient_ApplyCPUBypassesCacheOnV1(t *testing.T) {
+	t.Parallel()
+
+	inner := newCountingFake()
+	inner.version = CgroupVersionV1
+	c := NewCachedCgroupClient(inner)
+	ctx := context.Background()
+	idleOn := true
+
+	if err := c.ApplyCPU(ctx, "kubepods", &cgcommon.CPUData{CpuIdlePtr: &idleOn}); err != nil {
+		t.Fatalf("first ApplyCPU: %v", err)
+	}
+	if err := c.ApplyCPU(ctx, "kubepods", &cgcommon.CPUData{CpuIdlePtr: &idleOn}); err != nil {
+		t.Fatalf("second ApplyCPU: %v", err)
+	}
+	if got := atomic.LoadInt64(&inner.applyCPUN); got != 2 {
+		t.Fatalf("inner ApplyCPU calls on v1 = %d, want 2", got)
+	}
+}
+
 func TestCachedCgroupClient_ApplyCPUSet_PerFileCache(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +282,25 @@ func TestCachedCgroupClient_ApplyCPUSet_PerFileCache(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&inner.applyCPUSetN); got != 2 {
 		t.Fatalf("inner ApplyCPUSet calls after mems change = %d, want 2", got)
+	}
+}
+
+func TestCachedCgroupClient_ApplyCPUSet_DoesNotSkipWhenContentDiffers(t *testing.T) {
+	t.Parallel()
+
+	inner := newCountingFake()
+	c := NewCachedCgroupClient(inner)
+	ctx := context.Background()
+
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{CPUs: "0-1"}); err != nil {
+		t.Fatalf("first ApplyCPUSet: %v", err)
+	}
+	inner.writeContent("kubepods", "cpuset.cpus", "2-3")
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{CPUs: "0-1"}); err != nil {
+		t.Fatalf("second ApplyCPUSet: %v", err)
+	}
+	if got := atomic.LoadInt64(&inner.applyCPUSetN); got != 2 {
+		t.Fatalf("inner ApplyCPUSet calls after content drift = %d, want 2", got)
 	}
 }
 

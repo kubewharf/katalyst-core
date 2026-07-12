@@ -90,7 +90,7 @@ func (p *osProcReader) ReadProc(pid int) (ProcInfo, error) {
 
 	return ProcInfo{
 		PID:       pid,
-		Comm:      strings.TrimSpace(string(comm)),
+		Comm:      strings.TrimRight(string(comm), "\r\n"),
 		PPID:      ppid,
 		IsKThread: pid == 2 || ppid == 2,
 	}, nil

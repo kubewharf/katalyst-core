@@ -29,6 +29,9 @@ func schedSetaffinity(pid int, cpus []int) error {
 	var set unix.CPUSet
 	set.Zero()
 	for _, c := range cpus {
+		// unix.CPUSet is a fixed 1024-bit mask in golang.org/x/sys/unix.
+		// Reject unsupported CPU IDs before calling SchedSetaffinity so the
+		// error clearly documents this implementation limit.
 		if c < 0 || c >= 1024 {
 			return fmt.Errorf("sched_setaffinity: cpu index %d out of range [0,1024)", c)
 		}

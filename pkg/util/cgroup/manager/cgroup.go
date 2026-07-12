@@ -118,7 +118,7 @@ func ApplyCPUSetPartitionWithAbsolutePath(absCgroupPath string, partitionFlag co
 // underlying manager returns common.ErrNotSupported and callers should decide
 // whether to short-circuit or surface the error.
 func ApplySchedLoadBalanceWithRelativePath(relCgroupPath string, enabled bool) error {
-	absCgroupPath := common.GetAbsCgroupPath("cpuset", relCgroupPath)
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysCPUSet, relCgroupPath)
 	return GetManager().ApplySchedLoadBalance(absCgroupPath, enabled)
 }
 

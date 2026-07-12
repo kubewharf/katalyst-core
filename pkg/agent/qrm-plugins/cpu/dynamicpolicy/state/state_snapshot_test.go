@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -122,6 +123,40 @@ func TestReadonlyStateSnapshot_ImplementsReadonlyState(t *testing.T) {
 	snap := s.Snapshot()
 	require.NotNil(t, snap)
 	assert.Same(t, snap, snap.Snapshot(), "Snapshot on a snapshot must return the receiver")
+}
+
+func TestReadonlyStateSnapshot_GettersReturnOwnedCopies(t *testing.T) {
+	t.Parallel()
+
+	podEntries, machineState, numaHeadroom := newSnapshotFixture()
+	snap := &ReadonlyStateSnapshot{
+		cpuPluginStateData: cpuPluginStateData{
+			podEntries:                            podEntries.Clone(),
+			machineState:                          machineState.Clone(),
+			numaHeadroom:                          general.DeepCopyIntToFloat64Map(numaHeadroom),
+			allowSharedCoresOverlapReclaimedCores: true,
+		},
+	}
+
+	gotMachineState := snap.GetMachineState()
+	gotMachineState[0].AllocatedCPUSet = machine.MustParse("0")
+
+	gotNUMAHeadroom := snap.GetNUMAHeadroom()
+	gotNUMAHeadroom[0] = 99
+
+	gotPodEntries := snap.GetPodEntries()
+	gotPodEntries["pod-new"] = ContainerEntries{}
+
+	gotAllocation := snap.GetAllocationInfo("pod-1", "container-1")
+	require.NotNil(t, gotAllocation)
+	gotAllocation.AllocationResult = machine.MustParse("6-7")
+
+	assert.True(t, snap.GetMachineState()[0].AllocatedCPUSet.IsEmpty())
+	assert.InDelta(t, 4.5, snap.GetNUMAHeadroom()[0], 1e-9)
+	_, hasNewPod := snap.GetPodEntries()["pod-new"]
+	assert.False(t, hasNewPod)
+	assert.Equal(t, machine.MustParse("0-1").String(),
+		snap.GetAllocationInfo("pod-1", "container-1").AllocationResult.String())
 }
 
 func TestCpuPluginState_Snapshot_IsStableUnderConcurrentWrites(t *testing.T) {

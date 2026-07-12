@@ -53,6 +53,12 @@ func (p *DynamicPolicy) RegisterBypassCPUSetAdjustmentHandler(name string, handl
 
 func (p *DynamicPolicy) runBulkheadCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil.BypassCPUSetAdjustmentHandlerCtx) error {
 	if !bulkheadEnabled(in.DynamicConf) {
+		p.bulkheadManagerMu.Lock()
+		manager := p.bulkheadManager
+		p.bulkheadManagerMu.Unlock()
+		if manager != nil {
+			return manager.RunCPUSetAdjustmentHandlers(ctx, in)
+		}
 		return nil
 	}
 	manager, err := p.ensureBulkheadManager()
@@ -118,9 +124,13 @@ func (p *DynamicPolicy) runBypassCPUSetAdjustmentHandlers(ctx context.Context) e
 	if p.machineInfo != nil {
 		topology = p.machineInfo.CPUTopology
 	}
+	var dynamicConf *dynamicconfig.Configuration
+	if p.dynamicConfig != nil {
+		dynamicConf = p.dynamicConfig.GetDynamicConfiguration()
+	}
 	handlerCtx := bypassutil.BypassCPUSetAdjustmentHandlerCtx{
 		CoreConf:    p.conf,
-		DynamicConf: p.dynamicConfig.GetDynamicConfiguration(),
+		DynamicConf: dynamicConf,
 		Emitter:     p.emitter,
 		MetaServer:  p.metaServer,
 		State:       p.state,

@@ -133,10 +133,14 @@ func (m *Manager) RunPeriodicalHandlers(
 	}()
 
 	ctx := context.Background()
+	var conf *dynamicconfig.Configuration
+	if dynamicConf != nil {
+		conf = dynamicConf.GetDynamicConfiguration()
+	}
 	handlerCtx := bulkheadapi.PeriodicalHandlerContext{
 		CoreConf:    coreConf,
 		ExtraConf:   extraConf,
-		DynamicConf: dynamicConf.GetDynamicConfiguration(),
+		DynamicConf: conf,
 		Emitter:     emitter,
 		MetaServer:  metaServer,
 	}

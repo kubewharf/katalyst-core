@@ -62,6 +62,8 @@ type CgroupClient interface {
 	StatCPUSet(ctx context.Context, rel string) (mtime time.Time, size int64, err error)
 	// StatCgroupFile returns metadata for file under rel's cpuset cgroup directory.
 	StatCgroupFile(ctx context.Context, rel, file string) (mtime time.Time, size int64, err error)
+	// ReadCgroupFile returns raw content for file under rel's cgroup directory.
+	ReadCgroupFile(ctx context.Context, rel, file string) ([]byte, error)
 	// ReadCPUSetPartition reads cpuset.cpus.partition at rel.
 	ReadCPUSetPartition(ctx context.Context, rel string) (cgcommon.CPUSetPartitionFlag, error)
 	// ListRootChildren returns direct child directory names under the cpuset cgroup root.
@@ -155,12 +157,28 @@ func (coreCgroupClient) StatCPUSet(_ context.Context, rel string) (time.Time, in
 }
 
 func (coreCgroupClient) StatCgroupFile(_ context.Context, rel, file string) (time.Time, int64, error) {
-	abs := cgcommon.GetKubernetesAbsCgroupPath(cgcommon.CgroupSubsysCPUSet, rel)
+	abs := cgcommon.GetKubernetesAbsCgroupPath(cgroupSubsysForFile(file), rel)
 	info, err := os.Stat(filepath.Join(abs, file))
 	if err != nil {
 		return time.Time{}, 0, err
 	}
 	return info.ModTime(), info.Size(), nil
+}
+
+func (coreCgroupClient) ReadCgroupFile(_ context.Context, rel, file string) ([]byte, error) {
+	abs := cgcommon.GetKubernetesAbsCgroupPath(cgroupSubsysForFile(file), rel)
+	raw, err := os.ReadFile(filepath.Join(abs, file))
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func cgroupSubsysForFile(file string) string {
+	if strings.HasPrefix(file, "cpu.") {
+		return cgcommon.CgroupSubsysCPU
+	}
+	return cgcommon.CgroupSubsysCPUSet
 }
 
 func (coreCgroupClient) ReadCPUSetPartition(_ context.Context, rel string) (cgcommon.CPUSetPartitionFlag, error) {

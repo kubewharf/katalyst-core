@@ -85,6 +85,10 @@ func (FakeCgroupClient) StatCgroupFile(context.Context, string, string) (time.Ti
 	return time.Time{}, 0, nil
 }
 
+func (FakeCgroupClient) ReadCgroupFile(context.Context, string, string) ([]byte, error) {
+	return nil, nil
+}
+
 func (FakeCgroupClient) ReadCPUSetPartition(context.Context, string) (cgcommon.CPUSetPartitionFlag, error) {
 	return cgcommon.CPUSetPartitionFlagMember, nil
 }

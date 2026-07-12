@@ -18,6 +18,7 @@ limitations under the License.
 package fs
 
 import (
+	"errors"
 	"fmt"
 	iofs "io/fs"
 	"os"
@@ -71,6 +72,8 @@ func WriteStringIfChanged(f FS, path string, s string, mode os.FileMode) (bool, 
 		if strings.TrimRight(string(cur), "\n") == strings.TrimRight(s, "\n") {
 			return false, nil
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("read %s: %w", path, err)
 	}
 	if err := f.WriteFile(path, []byte(s), mode); err != nil {
 		return false, fmt.Errorf("write %s: %w", path, err)

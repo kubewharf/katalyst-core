@@ -19,6 +19,7 @@ package client
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,6 +70,10 @@ func (c *cachedCgroupClient) StatCPUSet(ctx context.Context, rel string) (time.T
 
 func (c *cachedCgroupClient) StatCgroupFile(ctx context.Context, rel, file string) (time.Time, int64, error) {
 	return c.inner.StatCgroupFile(ctx, rel, file)
+}
+
+func (c *cachedCgroupClient) ReadCgroupFile(ctx context.Context, rel, file string) ([]byte, error) {
+	return c.inner.ReadCgroupFile(ctx, rel, file)
 }
 
 func (c *cachedCgroupClient) ReadCPUSetPartition(ctx context.Context, rel string) (cgcommon.CPUSetPartitionFlag, error) {
@@ -141,6 +146,9 @@ func (c *cachedCgroupClient) ApplyCPU(ctx context.Context, rel string, data *cgc
 	if data == nil {
 		return c.inner.ApplyCPU(ctx, rel, data)
 	}
+	if c.Version(ctx) == CgroupVersionV1 {
+		return c.inner.ApplyCPU(ctx, rel, data)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -199,7 +207,15 @@ func (c *cachedCgroupClient) shouldSkipLocked(ctx context.Context, rel, file, wa
 		c.invalidateLocked(rel, file)
 		return false
 	}
-	return mtime.Equal(entry.mtime) && size == entry.size
+	if !mtime.Equal(entry.mtime) || size != entry.size {
+		return false
+	}
+	raw, err := c.inner.ReadCgroupFile(ctx, rel, file)
+	if err != nil {
+		c.invalidateLocked(rel, file)
+		return false
+	}
+	return strings.TrimRight(string(raw), "\n") == strings.TrimRight(want, "\n")
 }
 
 func (c *cachedCgroupClient) recordWriteLocked(ctx context.Context, rel, file, value string) {

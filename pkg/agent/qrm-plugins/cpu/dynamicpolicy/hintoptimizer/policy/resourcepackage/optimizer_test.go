@@ -57,8 +57,10 @@ func (m *MockState) GetPodEntries() state.PodEntries  { return nil }
 func (m *MockState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	return nil
 }
-func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool               { return false }
-func (m *MockState) Snapshot() state.ReadonlyState                                { return &state.ReadonlyStateSnapshot{} }
+func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool { return false }
+func (m *MockState) Snapshot() state.ReadonlyState {
+	return &mockReadonlyStateSnapshot{machineState: m.GetMachineState().Clone()}
+}
 func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool)  {}
 func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)   {}
 func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) {}
@@ -70,6 +72,28 @@ func (m *MockState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOve
 func (m *MockState) Delete(podUID string, containerName string, persist bool) {}
 func (m *MockState) ClearState()                                              {}
 func (m *MockState) StoreState() error                                        { return nil }
+
+type mockReadonlyStateSnapshot struct {
+	machineState state.NUMANodeMap
+}
+
+func (s *mockReadonlyStateSnapshot) GetMachineState() state.NUMANodeMap {
+	return s.machineState.Clone()
+}
+
+func (s *mockReadonlyStateSnapshot) GetNUMAHeadroom() map[int]float64 { return nil }
+
+func (s *mockReadonlyStateSnapshot) GetPodEntries() state.PodEntries { return nil }
+
+func (s *mockReadonlyStateSnapshot) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
+	return nil
+}
+
+func (s *mockReadonlyStateSnapshot) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	return false
+}
+
+func (s *mockReadonlyStateSnapshot) Snapshot() state.ReadonlyState { return s }
 
 type resourcePackageManagerStub struct {
 	nodeResourcePackagesMap pkgutil.NUMAResourcePackageItems

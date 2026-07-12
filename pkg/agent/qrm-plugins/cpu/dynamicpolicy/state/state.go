@@ -861,14 +861,41 @@ type ReadonlyState interface {
 //
 // The struct is intentionally not thread-safe for writes: build it once via
 // Snapshot() at the top of a tick and treat every field as immutable
-// afterwards. Consumers that need a modified view should call Clone() on the
-// individual sub-fields they care about.
+// afterwards. Getter methods still return owned copies to preserve ReadonlyState
+// ownership semantics for callers.
 //
-// The embedded cpuPluginStateData provides the reader-interface methods
-// (GetMachineState / GetPodEntries / ...) as plain-field accessors, so no
-// per-call locking or cloning happens on a snapshot.
+// The embedded cpuPluginStateData stores a pre-cloned data set; snapshot getters
+// clone from it so consumers cannot mutate the tick-scoped snapshot.
 type ReadonlyStateSnapshot struct {
 	cpuPluginStateData
+}
+
+func (s *ReadonlyStateSnapshot) GetMachineState() NUMANodeMap {
+	if s == nil {
+		return nil
+	}
+	return s.cpuPluginStateData.GetMachineState().Clone()
+}
+
+func (s *ReadonlyStateSnapshot) GetNUMAHeadroom() map[int]float64 {
+	if s == nil {
+		return nil
+	}
+	return general.DeepCopyIntToFloat64Map(s.cpuPluginStateData.GetNUMAHeadroom())
+}
+
+func (s *ReadonlyStateSnapshot) GetPodEntries() PodEntries {
+	if s == nil {
+		return nil
+	}
+	return s.cpuPluginStateData.GetPodEntries().Clone()
+}
+
+func (s *ReadonlyStateSnapshot) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
+	if s == nil {
+		return nil
+	}
+	return s.cpuPluginStateData.GetAllocationInfo(podUID, containerName).Clone()
 }
 
 // Snapshot is idempotent on a snapshot: returning the receiver keeps the

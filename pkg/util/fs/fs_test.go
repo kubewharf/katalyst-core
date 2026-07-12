@@ -109,11 +109,19 @@ func TestWriteStringIfChanged_Table(t *testing.T) {
 			wantWrites: 1,
 		},
 		{
-			name:       "read error still writes",
+			name:       "missing file writes",
 			readErr:    os.ErrNotExist,
 			want:       "created",
 			wantChange: true,
 			wantWrites: 1,
+		},
+		{
+			name:       "read error returns context without write",
+			readErr:    errors.New("permission denied"),
+			want:       "created",
+			wantChange: false,
+			wantErr:    true,
+			wantWrites: 0,
 		},
 		{
 			name:       "write error returns context",

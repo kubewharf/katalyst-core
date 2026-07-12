@@ -213,6 +213,22 @@ func TestOSProcReader_ReadProc_ClassifiesKernelThread(t *testing.T) {
 	}
 }
 
+func TestOSProcReader_ReadProc_PreservesCommWhitespace(t *testing.T) {
+	t.Parallel()
+
+	f := newProcfsFakeFS()
+	f.files["/proc/43/comm"] = []byte(" worker \n")
+	f.files["/proc/43/stat"] = []byte("43 ( worker ) S 1 43 43 0 -1 4194560 0")
+
+	info, err := NewProcReader(f, "/proc").ReadProc(43)
+	if err != nil {
+		t.Fatalf("ReadProc: %v", err)
+	}
+	if info.Comm != " worker " {
+		t.Fatalf("Comm = %q, want %q", info.Comm, " worker ")
+	}
+}
+
 func TestOSProcReader_ReadProc_ClassifiesKthreaddItself(t *testing.T) {
 	t.Parallel()
 

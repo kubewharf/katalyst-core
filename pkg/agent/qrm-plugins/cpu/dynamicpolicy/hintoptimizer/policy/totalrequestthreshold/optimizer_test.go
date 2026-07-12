@@ -67,7 +67,21 @@ func (f *fakeState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 }
 
 func (f *fakeState) Snapshot() state.ReadonlyState {
-	return f
+	snap := &fakeReadonlyStateSnapshot{
+		machineState: f.machineState.Clone(),
+		podEntries:   f.podEntries.Clone(),
+		allowOverlap: f.allowOverlap,
+	}
+	if f.allocations != nil {
+		snap.allocations = make(map[string]map[string]*state.AllocationInfo, len(f.allocations))
+		for podUID, containers := range f.allocations {
+			snap.allocations[podUID] = make(map[string]*state.AllocationInfo, len(containers))
+			for containerName, allocationInfo := range containers {
+				snap.allocations[podUID][containerName] = allocationInfo.Clone()
+			}
+		}
+	}
+	return snap
 }
 
 func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) {
@@ -108,6 +122,40 @@ func (f *fakeState) ClearState() {
 
 func (f *fakeState) StoreState() error {
 	return nil
+}
+
+type fakeReadonlyStateSnapshot struct {
+	machineState state.NUMANodeMap
+	podEntries   state.PodEntries
+	allocations  map[string]map[string]*state.AllocationInfo
+	allowOverlap bool
+}
+
+func (s *fakeReadonlyStateSnapshot) GetMachineState() state.NUMANodeMap {
+	return s.machineState.Clone()
+}
+
+func (s *fakeReadonlyStateSnapshot) GetNUMAHeadroom() map[int]float64 {
+	return nil
+}
+
+func (s *fakeReadonlyStateSnapshot) GetPodEntries() state.PodEntries {
+	return s.podEntries.Clone()
+}
+
+func (s *fakeReadonlyStateSnapshot) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
+	if s.allocations == nil {
+		return nil
+	}
+	return s.allocations[podUID][containerName].Clone()
+}
+
+func (s *fakeReadonlyStateSnapshot) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	return s.allowOverlap
+}
+
+func (s *fakeReadonlyStateSnapshot) Snapshot() state.ReadonlyState {
+	return s
 }
 
 func newTestOptimizer(ratio float64, machineState state.NUMANodeMap) *cpuTotalRequestThresholdHintOptimizer {
