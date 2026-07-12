@@ -41,9 +41,11 @@ type DAGApplyResult struct {
 }
 
 type DAGApplyInputs struct {
-	DAG                 *TopoDAG
-	Cgroup              cgroupclient.CgroupClient
-	Mems                string
+	DAG    *TopoDAG
+	Cgroup cgroupclient.CgroupClient
+	Mems   string
+	// SkipObservedRead treats all non-empty target nodes as expand-only writes.
+	// Callers should only use it when the input is already known to be monotonic.
 	SkipObservedRead    bool
 	ExpectedCPUSetByRel map[string]machine.CPUSet
 }
@@ -64,7 +66,6 @@ type nodeDiff struct {
 	grow   bool
 	shrink bool
 	target machine.CPUSet
-	bridge machine.CPUSet
 }
 
 func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClient, mems string, skipRead bool, expected map[string]machine.CPUSet, res *DAGApplyResult) error {
@@ -100,7 +101,7 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 				d.shrink = true
 			}
 			if d.grow && d.shrink {
-				d.bridge = observed.Union(target)
+				return fmt.Errorf("ApplyDAGDiff: non-monotonic cpuset change @ %s observed=%s target=%s", n.Rel, observed.String(), target.String())
 			}
 		}
 		diffs[n.Rel] = d
@@ -108,27 +109,10 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 
 	version := cg.Version(ctx)
 	var firstErr error
-	_ = dag.ForEachExpand(func(n *TopoNode) error {
-		if d, ok := diffs[n.Rel]; ok && d.grow {
-			target := d.target
-			if !d.bridge.IsEmpty() {
-				target = d.bridge
-			}
-			res.Attempted++
-			if err := applyCPUSet(ctx, cg, n.Rel, target, memsForNode(n, mems)); err != nil {
-				res.Failed++
-				if firstErr == nil {
-					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", target.String(), n.Rel, err)
-				}
-			} else {
-				res.Applied++
-			}
-		}
-		if !n.CPUs.IsEmpty() {
-			expandDescendants(ctx, cg, n.Rel, n.CPUs, false, controlledRels, expected, version, res, &firstErr, 0)
-		}
-		return nil
-	})
+	// sched_load_balance disabled cpuset domains must not overlap transiently.
+	// Apply monotonic changes in two phases: shrink in post-order first, then
+	// expand in pre-order. Non-monotonic "jump" replacements are rejected above
+	// and must be split by callers into multiple ticks.
 	_ = dag.ForEachShrink(func(n *TopoNode) error {
 		d, ok := diffs[n.Rel]
 		if !ok || !d.shrink {
@@ -147,6 +131,23 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 			return nil
 		}
 		res.Applied++
+		return nil
+	})
+	_ = dag.ForEachExpand(func(n *TopoNode) error {
+		if d, ok := diffs[n.Rel]; ok && d.grow {
+			res.Attempted++
+			if err := applyCPUSet(ctx, cg, n.Rel, d.target, memsForNode(n, mems)); err != nil {
+				res.Failed++
+				if firstErr == nil {
+					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", d.target.String(), n.Rel, err)
+				}
+			} else {
+				res.Applied++
+			}
+		}
+		if !n.CPUs.IsEmpty() {
+			expandDescendants(ctx, cg, n.Rel, n.CPUs, false, controlledRels, expected, version, res, &firstErr, 0)
+		}
 		return nil
 	})
 	return firstErr

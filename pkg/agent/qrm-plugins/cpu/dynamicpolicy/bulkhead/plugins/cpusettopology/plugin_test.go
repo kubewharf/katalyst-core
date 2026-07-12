@@ -22,9 +22,17 @@ import (
 	"testing"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
+	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -154,5 +162,63 @@ func TestCPUSetTopologyPluginReturnsSiblingDiscoveryError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected sibling discovery error")
+	}
+}
+
+func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingPod(t *testing.T) {
+	t.Parallel()
+
+	p := &CPUSetTopologyPlugin{}
+	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+			MetaServer: &metaserver.MetaServer{
+				MetaAgent: &agent.MetaAgent{
+					PodFetcher: &metapod.PodFetcherStub{},
+				},
+			},
+		},
+		View: &bulkheadutils.CPUSetPartitionView{
+			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+				"missing-pod": {
+					"main": machine.NewCPUSet(0, 1),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("missing pod should be skipped, got error: %v", err)
+	}
+	if expected != nil {
+		t.Fatalf("expected nil map for missing pod, got %#v", expected)
+	}
+}
+
+func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingContainer(t *testing.T) {
+	t.Parallel()
+
+	p := &CPUSetTopologyPlugin{}
+	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+			MetaServer: &metaserver.MetaServer{
+				MetaAgent: &agent.MetaAgent{
+					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-1")},
+					}}},
+				},
+			},
+		},
+		View: &bulkheadutils.CPUSetPartitionView{
+			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+				"pod-1": {
+					"missing-container": machine.NewCPUSet(0, 1),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("missing container should be skipped, got error: %v", err)
+	}
+	if expected != nil {
+		t.Fatalf("expected nil map for missing container, got %#v", expected)
 	}
 }

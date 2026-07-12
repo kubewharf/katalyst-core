@@ -38,6 +38,7 @@ import (
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const CPUSetTopologyPluginName = "cpuset_topology"
@@ -84,7 +85,7 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		return fmt.Errorf("build bulkhead topology dag: %w", err)
 	}
 
-	expected, err := p.buildExpectedCPUSetByRel(in)
+	expected, err := p.buildExpectedCPUSetByRel(ctx, in)
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
 		return fmt.Errorf("build expected container cpuset by rel: %w", err)
@@ -141,14 +142,25 @@ func (p *CPUSetTopologyPlugin) PeriodicalHandler(
 	return apierrors.NewAggregate(errs)
 }
 
-func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(in bulkheadapi.HandlerContext) (map[string]machine.CPUSet, error) {
+func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in bulkheadapi.HandlerContext) (map[string]machine.CPUSet, error) {
 	if in.MetaServer == nil || in.View == nil || len(in.View.ContainerCPUSetByPod) == 0 {
 		return nil, nil
 	}
 	out := map[string]machine.CPUSet{}
 	for podUID, containers := range in.View.ContainerCPUSetByPod {
+		pod, err := in.MetaServer.GetPod(ctx, podUID)
+		if err != nil {
+			general.InfofV(5, "bulkhead: pod does not exist, skipping expected cpuset enforce, pod=%q err=%v", podUID, err)
+			continue
+		}
 		for containerName, cpus := range containers {
-			rel, err := bulkheadutils.ResolveContainerRelPath(in.MetaServer, podUID, containerName)
+			containerID, err := native.GetContainerID(pod, containerName)
+			if err != nil {
+				general.InfofV(5, "bulkhead: container does not exist, skipping expected cpuset enforce, pod=%q container=%q err=%v",
+					podUID, containerName, err)
+				continue
+			}
+			rel, err := cgcommon.GetContainerRelativeCgroupPath(podUID, containerID)
 			if err != nil {
 				return nil, fmt.Errorf("resolve container rel pod=%q container=%q: %w", podUID, containerName, err)
 			}

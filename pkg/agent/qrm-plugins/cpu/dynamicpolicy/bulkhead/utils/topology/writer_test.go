@@ -87,7 +87,7 @@ func (f *topologyFakeCgroup) ListChildren(_ context.Context, rel string) ([]stri
 	return children, nil
 }
 
-func TestApplyDAGDiffHandlesDisjointReplacementWithBridge(t *testing.T) {
+func TestApplyDAGDiffRejectsDisjointReplacement(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{
@@ -110,24 +110,41 @@ func TestApplyDAGDiffHandlesDisjointReplacementWithBridge(t *testing.T) {
 			"primary/pod": machine.NewCPUSet(2, 3),
 		},
 	})
+	if err == nil {
+		t.Fatalf("expected disjoint replacement validation error, got result=%+v writes=%#v", res, cg.writes)
+	}
+	if len(cg.writes) != 0 {
+		t.Fatalf("disjoint validation should fail before writes, got %#v", cg.writes)
+	}
+}
+
+func TestApplyDAGDiffShrinksBeforeExpands(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "domain-a", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0)},
+		{Rel: "domain-b", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(2, 3)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["domain-a"] = machine.NewCPUSet(0, 1)
+	cg.cpus["domain-b"] = machine.NewCPUSet(2)
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:    dag,
+		Cgroup: cg,
+	})
 	if err != nil {
 		t.Fatalf("ApplyDAGDiff: %v", err)
 	}
-	if res.Failed != 0 {
-		t.Fatalf("unexpected failures: %+v", res)
+	want := []cpusetWrite{
+		{rel: "domain-a", cpus: "0"},
+		{rel: "domain-b", cpus: "2-3"},
 	}
-	gotWrites := []cpusetWrite{
-		cg.writes[0],
-		cg.writes[len(cg.writes)-2],
-		cg.writes[len(cg.writes)-1],
-	}
-	wantWrites := []cpusetWrite{
-		{rel: "primary", cpus: "0-3", mems: "0"},
-		{rel: "primary/pod", cpus: "2-3", mems: "0"},
-		{rel: "primary", cpus: "2-3", mems: "0"},
-	}
-	if !reflect.DeepEqual(gotWrites, wantWrites) {
-		t.Fatalf("bridge writes = %#v, want %#v; all writes=%#v", gotWrites, wantWrites, cg.writes)
+	if !reflect.DeepEqual(cg.writes[:2], want) {
+		t.Fatalf("writes = %#v, want prefix %#v", cg.writes, want)
 	}
 }
 
