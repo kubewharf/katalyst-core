@@ -544,6 +544,10 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores, true)
 	}
 
+	if err := p.runBypassCPUSetAdjustmentHandlers(context.Background()); err != nil {
+		return fmt.Errorf("runBypassCPUSetAdjustmentHandlers failed with error: %v", err)
+	}
+
 	return nil
 }
 

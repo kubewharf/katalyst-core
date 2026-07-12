@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
@@ -49,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	irqtuingcontroller "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -81,6 +83,7 @@ const (
 	syncCPUBurstPeriod            = 10 * time.Second
 	syncSystemExclusivePoolPeriod = 10 * time.Second
 	syncCPUWeightPeriod           = 10 * time.Second
+	syncBulkheadPeriod            = 30 * time.Second
 
 	healthCheckTolerationTimes = 3
 )
@@ -114,18 +117,20 @@ type DynamicPolicy struct {
 	advisorMonitor     *timemonitor.TimeMonitor
 	featureGateManager featuregatenegotiation.FeatureGateManager
 
-	state              state.State
-	residualHitMap     map[string]int64
-	allocationHandlers map[string]util.AllocationHandler
-	hintHandlers       map[string]util.HintHandler
-	allocationHooks    []AllocationHook
+	state                          state.State
+	residualHitMap                 map[string]int64
+	allocationHandlers             map[string]util.AllocationHandler
+	hintHandlers                   map[string]util.HintHandler
+	allocationHooks                []AllocationHook
+	bypassCPUSetAdjustmentHandlers map[string]bypassutil.BypassCPUSetAdjustmentHandler
 
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
 
 	resourcePackageManager *resourcepackage.CachedResourcePackageManager
 
-	irqTuner irqtuner.Tuner
+	irqTuner        irqtuner.Tuner
+	bulkheadManager *bulkhead.Manager
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
@@ -294,6 +299,14 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
+	policyImplement.bulkheadManager, err = bulkhead.NewManager(conf)
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy init bulkhead manager failed with error: %v", err)
+	}
+	if err := policyImplement.RegisterBypassCPUSetAdjustmentHandler("bulkhead", policyImplement.bulkheadManager.RunCPUSetAdjustmentHandlers); err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy register bulkhead bypass cpuset adjustment handler failed with error: %v", err)
+	}
+
 	if conf.EnableIRQTuner {
 		if err := policyImplement.initInterruptPool(); err != nil {
 			return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initInterruptPool failed with error: %v", err)
@@ -405,6 +418,12 @@ func (p *DynamicPolicy) Start() (err error) {
 		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncSystemExclusivePool, syncSystemExclusivePoolPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.SyncSystemExclusivePool, err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncBulkhead, general.HealthzCheckStateNotReady,
+		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.bulkheadManager.RunPeriodicalHandlers, syncBulkheadPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed,err:%v", cpuconsts.SyncBulkhead, err)
 	}
 
 	// start cpu-idle syncing if needed

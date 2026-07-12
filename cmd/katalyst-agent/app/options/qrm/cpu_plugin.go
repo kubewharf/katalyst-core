@@ -23,6 +23,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -59,6 +60,7 @@ type CPUDynamicPolicyOptions struct {
 	IRQForbiddenPinnedResourcePackageAttributeSelector string
 	EnableSystemExclusivePool                          bool
 	EnableCPUWeight                                    bool
+	bulkhead.BulkheadOptions
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -93,6 +95,7 @@ func NewCPUOptions() *CPUOptions {
 			HintOptimizerOptions:           hintoptimizer.NewHintOptimizerOptions(),
 			IRQTunerOptions:                irqtuner.NewIRQTunerOptions(),
 			EnableSystemExclusivePool:      false,
+			BulkheadOptions:                bulkhead.NewBulkheadOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -156,6 +159,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSystemExclusivePool, "if set true, it will enable exclusive cpu binding for pool of system cores")
 	fs.BoolVar(&o.EnableCPUWeight, "enable-cpu-weight", o.EnableCPUWeight,
 		"This is a flag that enables the cpu weight handler to sync periodically.")
+	o.BulkheadOptions.AddFlags(fss)
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -192,6 +196,9 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 		return err
 	}
 	if err := o.IRQTunerOptions.ApplyTo(conf.IRQTunerConfiguration); err != nil {
+		return err
+	}
+	if err := o.BulkheadOptions.ApplyTo(conf.BulkheadConfiguration); err != nil {
 		return err
 	}
 	return nil

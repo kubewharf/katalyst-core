@@ -26,6 +26,7 @@ type CPUPluginConfiguration struct {
 	// CPU AllocationResult for all QoS classes. Allocation responses returned by
 	// Allocate/AllocateForPod keep their cpuset unchanged.
 	EnableBypassCPUSetAdjustment bool
+	BulkheadConfig               DynamicBulkheadConfiguration
 	// DisableSharedCoresRampUp disables initial full-pool cpuset binding for newly
 	// scheduled shared_cores pods.
 	DisableSharedCoresRampUp       bool
@@ -33,6 +34,11 @@ type CPUPluginConfiguration struct {
 	SystemExclusivePoolShrinkRatio *float64
 	SystemExclusivePoolShrinkMin   *int64
 	SystemExclusivePoolShrinkMax   *int64
+}
+
+type DynamicBulkheadConfiguration struct {
+	EnableBulkheadCpusetTopology bool
+	EnableBulkheadWorkqueue      bool
 }
 
 func NewCPUPluginConfiguration() *CPUPluginConfiguration {
@@ -48,6 +54,14 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		}
 		if config.EnableBypassCPUSetAdjustment != nil {
 			c.EnableBypassCPUSetAdjustment = *config.EnableBypassCPUSetAdjustment
+		}
+		if config.BulkheadConfig != nil {
+			if config.BulkheadConfig.EnableBulkheadCpusetTopology != nil {
+				c.BulkheadConfig.EnableBulkheadCpusetTopology = *config.BulkheadConfig.EnableBulkheadCpusetTopology
+			}
+			if config.BulkheadConfig.EnableBulkheadWorkqueue != nil {
+				c.BulkheadConfig.EnableBulkheadWorkqueue = *config.BulkheadConfig.EnableBulkheadWorkqueue
+			}
 		}
 		if config.DisableSharedCoresRampUp != nil {
 			c.DisableSharedCoresRampUp = *config.DisableSharedCoresRampUp
