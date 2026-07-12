@@ -27,9 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -206,27 +204,4 @@ func TestDynamicPolicyInitializesBulkheadManager(t *testing.T) {
 	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
 	require.NoError(t, err)
 	require.NotNil(t, p.bulkheadManager)
-}
-
-func TestRunBulkheadCPUSetAdjustmentHandlersUsesInitializedManager(t *testing.T) {
-	t.Parallel()
-
-	dyn := dynamicconfig.NewDynamicAgentConfiguration()
-	conf := dyn.GetDynamicConfiguration()
-	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = true
-
-	p := &DynamicPolicy{}
-	manager, err := bulkhead.NewManager(p.conf)
-	require.NoError(t, err)
-	p.bulkheadManager = manager
-
-	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
-		DynamicConf: conf,
-	}))
-
-	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology = false
-	require.NoError(t, p.runBulkheadCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
-		DynamicConf: conf,
-	}))
-	assert.Same(t, manager, p.bulkheadManager)
 }

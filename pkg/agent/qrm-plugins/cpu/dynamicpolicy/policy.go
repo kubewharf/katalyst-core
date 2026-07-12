@@ -304,7 +304,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
-	if err := policyImplement.RegisterBypassCPUSetAdjustmentHandler("bulkhead", policyImplement.runBulkheadCPUSetAdjustmentHandlers); err != nil {
+	if err := policyImplement.RegisterBypassCPUSetAdjustmentHandler("bulkhead", policyImplement.bulkheadManager.RunCPUSetAdjustmentHandlers); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy register bulkhead bypass cpuset adjustment handler failed with error: %v", err)
 	}
 
@@ -422,7 +422,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncBulkhead, general.HealthzCheckStateNotReady,
-		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.runBulkheadPeriodicalHandlers, syncBulkheadPeriod, healthCheckTolerationTimes)
+		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.bulkheadManager.RunPeriodicalHandlers, syncBulkheadPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.SyncBulkhead, err)
 	}
