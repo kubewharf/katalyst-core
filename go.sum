@@ -585,10 +585,6 @@ github.com/lightstep/lightstep-tracer-go v0.18.1/go.mod h1:jlF1pusYV4pidLvZ+XD0U
 github.com/lithammer/dedent v1.1.0/go.mod h1:jrXYCQtgg0nJiN+StA2KgR7w6CiQNv9Fd/Z9BP0jIOc=
 github.com/logrusorgru/aurora v0.0.0-20181002194514-a7b3b318ed4e/go.mod h1:7rIyQOR62GCctdiQpZ/zOJlFyk6y+94wXzv6RNZgaR4=
 github.com/lpabon/godbc v0.1.1/go.mod h1:Jo9QV0cf3U6jZABgiJ2skINAXb9j8m51r07g4KI92ZA=
-github.com/luomingmeng/katalyst-api v0.0.0-20260702071937-dc80502b4439 h1:eBKIJkzz56pL27seLJ0oqMGCvUBLBnWwhBeQGTFI+uE=
-github.com/luomingmeng/katalyst-api v0.0.0-20260702071937-dc80502b4439/go.mod h1:BZMVGVl3EP0eCn5xsDgV41/gjYkoh43abIYxrB10e3k=
-github.com/luomingmeng/katalyst-api v0.0.0-20260711032434-cfd2ee7e5c03 h1:v9jzlDb2a+AUgglj6ZXK2Xixg7rCW8ctZjdX7MNyEFs=
-github.com/luomingmeng/katalyst-api v0.0.0-20260711032434-cfd2ee7e5c03/go.mod h1:BZMVGVl3EP0eCn5xsDgV41/gjYkoh43abIYxrB10e3k=
 github.com/luomingmeng/katalyst-api v0.0.0-20260712043054-9a25b232739a h1:ezD87Q5V5Rv1UiGAdGls6mBk8tw7WiqEMP6M2B4/hWc=
 github.com/luomingmeng/katalyst-api v0.0.0-20260712043054-9a25b232739a/go.mod h1:BZMVGVl3EP0eCn5xsDgV41/gjYkoh43abIYxrB10e3k=
 github.com/lyft/protoc-gen-validate v0.0.13/go.mod h1:XbGvPuh87YZc5TdIa2/I4pLk0QoUACkjt2znoq26NVQ=
