@@ -27,6 +27,7 @@ type CPUSetPartitionView struct {
 	Dedicated               machine.CPUSet
 	ReclaimRaw              machine.CPUSet
 	SharePool               machine.CPUSet
+	SharePoolMap            map[string]machine.CPUSet
 	Isolation               machine.CPUSet
 	NonReclaimPool          machine.CPUSet
 	ReclaimEffective        machine.CPUSet
@@ -40,6 +41,7 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 		Dedicated:               machine.NewCPUSet(),
 		ReclaimRaw:              machine.NewCPUSet(),
 		SharePool:               machine.NewCPUSet(),
+		SharePoolMap:            map[string]machine.CPUSet{},
 		Isolation:               machine.NewCPUSet(),
 		NonReclaimPool:          machine.NewCPUSet(),
 		ReclaimEffective:        machine.NewCPUSet(),
@@ -86,6 +88,7 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 			view.Reserve = view.Reserve.Union(entry.AllocationResult)
 		case commonstate.PoolNameShare:
 			view.SharePool = view.SharePool.Union(entry.AllocationResult)
+			view.SharePoolMap[poolName] = entry.AllocationResult.Clone()
 		case commonstate.PoolNamePrefixIsolation:
 			view.Isolation = view.Isolation.Union(entry.AllocationResult)
 		}
@@ -109,6 +112,9 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 	}
 	if allowOverlap && !view.ReclaimRaw.IsEmpty() {
 		view.SharePool = view.SharePool.Difference(view.ReclaimRaw)
+		for poolName, cpus := range view.SharePoolMap {
+			view.SharePoolMap[poolName] = cpus.Difference(view.ReclaimRaw)
+		}
 	}
 	view.NonReclaimPool = view.SharePool.Union(view.Dedicated).Union(view.Isolation)
 	if allowOverlap {
@@ -134,6 +140,7 @@ func (v *CPUSetPartitionView) DeepCopy() *CPUSetPartitionView {
 		Dedicated:               v.Dedicated.Clone(),
 		ReclaimRaw:              v.ReclaimRaw.Clone(),
 		SharePool:               v.SharePool.Clone(),
+		SharePoolMap:            map[string]machine.CPUSet{},
 		Isolation:               v.Isolation.Clone(),
 		NonReclaimPool:          v.NonReclaimPool.Clone(),
 		ReclaimEffective:        v.ReclaimEffective.Clone(),
@@ -142,6 +149,9 @@ func (v *CPUSetPartitionView) DeepCopy() *CPUSetPartitionView {
 	}
 	for numaID, cpus := range v.ReclaimEffectivePerNUMA {
 		out.ReclaimEffectivePerNUMA[numaID] = cpus.Clone()
+	}
+	for poolName, cpus := range v.SharePoolMap {
+		out.SharePoolMap[poolName] = cpus.Clone()
 	}
 	for podUID, containers := range v.ContainerCPUSetByPod {
 		out.ContainerCPUSetByPod[podUID] = map[string]machine.CPUSet{}
@@ -158,13 +168,11 @@ func EqualCPUSetPartitionView(a, b *CPUSetPartitionView) bool {
 	}
 	return a.Reserve.Equals(b.Reserve) &&
 		a.Dedicated.Equals(b.Dedicated) &&
-		a.ReclaimRaw.Equals(b.ReclaimRaw) &&
 		a.SharePool.Equals(b.SharePool) &&
-		a.Isolation.Equals(b.Isolation) &&
+		equalStringCPUSetMap(a.SharePoolMap, b.SharePoolMap) &&
 		a.NonReclaimPool.Equals(b.NonReclaimPool) &&
 		a.ReclaimEffective.Equals(b.ReclaimEffective) &&
-		equalCPUSetMap(a.ReclaimEffectivePerNUMA, b.ReclaimEffectivePerNUMA) &&
-		equalNestedCPUSetMap(a.ContainerCPUSetByPod, b.ContainerCPUSetByPod)
+		equalCPUSetMap(a.ReclaimEffectivePerNUMA, b.ReclaimEffectivePerNUMA)
 }
 
 func equalCPUSetMap(a, b map[int]machine.CPUSet) bool {
@@ -180,20 +188,14 @@ func equalCPUSetMap(a, b map[int]machine.CPUSet) bool {
 	return true
 }
 
-func equalNestedCPUSetMap(a, b map[string]map[string]machine.CPUSet) bool {
+func equalStringCPUSetMap(a, b map[string]machine.CPUSet) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for podUID, aContainers := range a {
-		bContainers, ok := b[podUID]
-		if !ok || len(aContainers) != len(bContainers) {
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || !av.Equals(bv) {
 			return false
-		}
-		for containerName, av := range aContainers {
-			bv, ok := bContainers[containerName]
-			if !ok || !av.Equals(bv) {
-				return false
-			}
 		}
 	}
 	return true

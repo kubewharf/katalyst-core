@@ -38,6 +38,10 @@ func TestBuildCPUSetPartitionViewAndDeepCopy(t *testing.T) {
 		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
 		AllocationResult: machine.NewCPUSet(1, 2, 3),
 	})
+	state.SetAllocationInfo("share-NUMA0", commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta("share-NUMA0"),
+		AllocationResult: machine.NewCPUSet(6),
+	})
 	state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
 		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 		AllocationResult: machine.NewCPUSet(2, 3),
@@ -61,10 +65,12 @@ func TestBuildCPUSetPartitionViewAndDeepCopy(t *testing.T) {
 	}})
 
 	assertCPUSet(t, "reserve", view.Reserve, "0")
-	assertCPUSet(t, "share", view.SharePool, "1")
+	assertCPUSet(t, "share", view.SharePool, "1,6")
+	assertCPUSet(t, "share map default", view.SharePoolMap[commonstate.PoolNameShare], "1")
+	assertCPUSet(t, "share map numa", view.SharePoolMap["share-NUMA0"], "6")
 	assertCPUSet(t, "reclaim raw", view.ReclaimRaw, "2-3")
 	assertCPUSet(t, "dedicated", view.Dedicated, "5")
-	assertCPUSet(t, "non reclaim", view.NonReclaimPool, "1,4-5")
+	assertCPUSet(t, "non reclaim", view.NonReclaimPool, "1,4-6")
 	assertCPUSet(t, "reclaim effective", view.ReclaimEffective, "2-3")
 	assertCPUSet(t, "reclaim numa 1", view.ReclaimEffectivePerNUMA[1], "2-3")
 	assertCPUSet(t, "container", view.ContainerCPUSetByPod["pod-1"]["main"], "5")
@@ -74,10 +80,15 @@ func TestBuildCPUSetPartitionViewAndDeepCopy(t *testing.T) {
 		t.Fatalf("deep copy should equal original")
 	}
 	copied.ContainerCPUSetByPod["pod-1"]["main"] = machine.NewCPUSet(6)
-	if EqualCPUSetPartitionView(view, copied) {
-		t.Fatalf("mutated copy should not equal original")
+	if !EqualCPUSetPartitionView(view, copied) {
+		t.Fatalf("container cpuset difference should not affect equality")
 	}
 	assertCPUSet(t, "original container unchanged", view.ContainerCPUSetByPod["pod-1"]["main"], "5")
+	copied.SharePoolMap["share-NUMA0"] = machine.NewCPUSet(7)
+	if EqualCPUSetPartitionView(view, copied) {
+		t.Fatalf("share pool map difference should affect equality")
+	}
+	assertCPUSet(t, "original share pool map unchanged", view.SharePoolMap["share-NUMA0"], "6")
 	if EqualCPUSetPartitionView(nil, view) {
 		t.Fatalf("nil and non-nil views must not be equal")
 	}
