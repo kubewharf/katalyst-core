@@ -63,9 +63,10 @@ func ApplyDAGDiff(ctx context.Context, in DAGApplyInputs) (DAGApplyResult, error
 }
 
 type nodeDiff struct {
-	grow   bool
-	shrink bool
-	target machine.CPUSet
+	grow         bool
+	shrink       bool
+	target       machine.CPUSet
+	shrinkTarget machine.CPUSet
 }
 
 func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClient, mems string, skipRead bool, expected map[string]machine.CPUSet, res *DAGApplyResult) error {
@@ -99,9 +100,14 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 			}
 			if !observed.IsSubsetOf(target) {
 				d.shrink = true
+				d.shrinkTarget = target
 			}
 			if d.grow && d.shrink {
-				return fmt.Errorf("ApplyDAGDiff: non-monotonic cpuset change @ %s observed=%s target=%s", n.Rel, observed.String(), target.String())
+				intersection := observed.Intersection(target)
+				if intersection.IsEmpty() {
+					return fmt.Errorf("ApplyDAGDiff: disjoint cpuset change @ %s observed=%s target=%s", n.Rel, observed.String(), target.String())
+				}
+				d.shrinkTarget = intersection
 			}
 		}
 		diffs[n.Rel] = d
@@ -110,20 +116,20 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 	version := cg.Version(ctx)
 	var firstErr error
 	// sched_load_balance disabled cpuset domains must not overlap transiently.
-	// Apply monotonic changes in two phases: shrink in post-order first, then
-	// expand in pre-order. Non-monotonic "jump" replacements are rejected above
-	// and must be split by callers into multiple ticks.
+	// Apply changes in two phases: shrink in post-order first, then expand in
+	// pre-order. Overlap replacements are decomposed as observed->intersection
+	// then intersection->target; disjoint jumps are rejected above.
 	_ = dag.ForEachShrink(func(n *TopoNode) error {
 		d, ok := diffs[n.Rel]
 		if !ok || !d.shrink {
 			return nil
 		}
 		res.Attempted++
-		if err := applyCPUSet(ctx, cg, n.Rel, d.target, memsForNode(n, mems)); err == nil {
+		if err := applyCPUSet(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, mems)); err == nil {
 			res.Applied++
 			return nil
 		}
-		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.target, memsForNode(n, mems), expected, version, res, 0); err != nil {
+		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, mems), expected, version, res, 0); err != nil {
 			res.Failed++
 			if firstErr == nil {
 				firstErr = err

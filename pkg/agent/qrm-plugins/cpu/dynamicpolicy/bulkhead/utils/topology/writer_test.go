@@ -118,6 +118,35 @@ func TestApplyDAGDiffRejectsDisjointReplacement(t *testing.T) {
 	}
 }
 
+func TestApplyDAGDiffShrinksIntersectionBeforeExpandingOverlapReplacement(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1, 2, 3), Mems: "0"},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet(0, 1, 2)
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:    dag,
+		Cgroup: cg,
+		Mems:   "0",
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v", err)
+	}
+	want := []cpusetWrite{
+		{rel: "primary", cpus: "1-2", mems: "0"},
+		{rel: "primary", cpus: "1-3", mems: "0"},
+	}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, want)
+	}
+}
+
 func TestApplyDAGDiffShrinksBeforeExpands(t *testing.T) {
 	t.Parallel()
 
