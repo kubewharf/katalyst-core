@@ -37,6 +37,7 @@ type CPUPluginConfiguration struct {
 }
 
 type DynamicBulkheadConfiguration struct {
+	Enable                       bool
 	EnableBulkheadCpusetTopology bool
 	EnableBulkheadWorkqueue      bool
 }
@@ -56,6 +57,9 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			c.EnableBypassCPUSetAdjustment = *config.EnableBypassCPUSetAdjustment
 		}
 		if config.BulkheadConfig != nil {
+			if config.BulkheadConfig.Enable != nil {
+				c.BulkheadConfig.Enable = *config.BulkheadConfig.Enable
+			}
 			if config.BulkheadConfig.EnableBulkheadCpusetTopology != nil {
 				c.BulkheadConfig.EnableBulkheadCpusetTopology = *config.BulkheadConfig.EnableBulkheadCpusetTopology
 			}
