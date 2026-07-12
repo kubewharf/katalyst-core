@@ -55,6 +55,8 @@ func (p *fakePlugin) PeriodicalHandler(
 }
 
 func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
+	t.Parallel()
+
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
@@ -70,6 +72,8 @@ func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
 }
 
 func TestRunCPUSetAdjustmentHandlersDoesNotCacheFailedView(t *testing.T) {
+	t.Parallel()
+
 	plugin := &fakePlugin{name: "fake", enabled: true, adjustErr: errors.New("boom")}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
 
@@ -86,6 +90,8 @@ func TestRunCPUSetAdjustmentHandlersDoesNotCacheFailedView(t *testing.T) {
 }
 
 func TestRunPeriodicalHandlersContinuesAfterErrors(t *testing.T) {
+	t.Parallel()
+
 	pluginA := &fakePlugin{name: "a", periodicErr: errors.New("a failed")}
 	pluginB := &fakePlugin{name: "b"}
 	m := &Manager{plugins: []bulkheadapi.Plugin{pluginA, pluginB}}

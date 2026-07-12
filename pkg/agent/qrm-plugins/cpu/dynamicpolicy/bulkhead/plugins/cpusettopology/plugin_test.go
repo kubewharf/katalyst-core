@@ -23,6 +23,8 @@ import (
 )
 
 func TestCPUSetTopologyPluginIsConfiguredReclaimNUMARel(t *testing.T) {
+	t.Parallel()
+
 	p := &CPUSetTopologyPlugin{
 		cfg: bulkheadconfig.BulkheadConfiguration{
 			BulkheadReclaimNumaPrefixes: []string{"reclaimed/reclaimed-", "/foo/bar-"},

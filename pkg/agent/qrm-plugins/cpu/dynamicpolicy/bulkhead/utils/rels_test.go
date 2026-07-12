@@ -24,6 +24,8 @@ import (
 )
 
 func TestCollectActiveRelsIncludesRootPartitionsSiblingsAndPerNUMA(t *testing.T) {
+	t.Parallel()
+
 	cfg := bulkheadconfig.BulkheadConfiguration{
 		BulkheadPrimaryRelPath:      "kubepods",
 		BulkheadReclaimRelPaths:     []string{"reclaimed"},
@@ -45,6 +47,8 @@ func TestCollectActiveRelsIncludesRootPartitionsSiblingsAndPerNUMA(t *testing.T)
 }
 
 func TestBuildTopologyNodeSpecsFromViewUsesBulkheadConfig(t *testing.T) {
+	t.Parallel()
+
 	cfg := bulkheadconfig.BulkheadConfiguration{
 		BulkheadPrimaryRelPath:      "kubepods",
 		BulkheadReclaimRelPaths:     []string{"reclaimed"},
