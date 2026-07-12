@@ -70,12 +70,14 @@ type nodeDiff struct {
 }
 
 func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClient, mems string, skipRead bool, expected map[string]machine.CPUSet, res *DAGApplyResult) error {
+	version := cg.Version(ctx)
+	allowEmptyTarget := version == cgroupclient.CgroupVersionV2
 	diffs := map[string]nodeDiff{}
 	controlledRels := map[string]struct{}{}
 	for _, n := range dag.Nodes() {
 		controlledRels[n.Rel] = struct{}{}
 		target := n.CPUs
-		if target.IsEmpty() {
+		if target.IsEmpty() && !allowEmptyTarget {
 			res.Skipped++
 			continue
 		}
@@ -113,7 +115,6 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 		diffs[n.Rel] = d
 	}
 
-	version := cg.Version(ctx)
 	var firstErr error
 	// sched_load_balance disabled cpuset domains must not overlap transiently.
 	// Apply changes in two phases: shrink in post-order first, then expand in
@@ -151,8 +152,8 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 				res.Applied++
 			}
 		}
-		if !n.CPUs.IsEmpty() {
-			expandDescendants(ctx, cg, n.Rel, n.CPUs, false, controlledRels, expected, version, res, &firstErr, 0)
+		if !n.CPUs.IsEmpty() || allowEmptyTarget {
+			expandDescendants(ctx, cg, n.Rel, n.CPUs, false, controlledRels, expected, allowEmptyTarget, res, &firstErr, 0)
 		}
 		return nil
 	})
@@ -239,8 +240,8 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 	}
 }
 
-func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, version cgroupclient.CgroupVersion, res *DAGApplyResult, firstErr *error, depth int) {
-	if depth >= maxEnforceDepth || parentTarget.IsEmpty() {
+func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult, firstErr *error, depth int) {
+	if depth >= maxEnforceDepth || (parentTarget.IsEmpty() && !allowEmptyTarget) {
 		return
 	}
 	children, err := cg.ListChildren(ctx, parentRel)
@@ -258,7 +259,7 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 		} else {
 			res.Applied++
 		}
-		expandDescendants(ctx, cg, childRel, cpus, childInExpected, controlledRels, expected, version, res, firstErr, depth+1)
+		expandDescendants(ctx, cg, childRel, cpus, childInExpected, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1)
 	}
 	for _, name := range children {
 		childRel := filepath.Join(parentRel, name)
@@ -273,13 +274,13 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 		}
 		if parentInExpected {
 			cur, _ := cg.ReadCPUSet(ctx, childRel)
-			if version == cgroupclient.CgroupVersionV2 && cur.IsEmpty() {
-				expandDescendants(ctx, cg, childRel, parentTarget, true, controlledRels, expected, version, res, firstErr, depth+1)
+			if allowEmptyTarget && cur.IsEmpty() {
+				expandDescendants(ctx, cg, childRel, parentTarget, true, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1)
 				continue
 			}
 			if cur.IsSubsetOf(parentTarget) {
 				if !cur.IsEmpty() {
-					expandDescendants(ctx, cg, childRel, cur, true, controlledRels, expected, version, res, firstErr, depth+1)
+					expandDescendants(ctx, cg, childRel, cur, true, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1)
 				}
 				continue
 			}
@@ -291,9 +292,9 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 			writeAndDescend(childRel, clamped, true)
 			continue
 		}
-		if version == cgroupclient.CgroupVersionV2 {
+		if allowEmptyTarget {
 			if obs, obsErr := cg.ReadCPUSet(ctx, childRel); obsErr == nil && obs.IsEmpty() {
-				expandDescendants(ctx, cg, childRel, parentTarget, false, controlledRels, expected, version, res, firstErr, depth+1)
+				expandDescendants(ctx, cg, childRel, parentTarget, false, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1)
 				continue
 			}
 		}

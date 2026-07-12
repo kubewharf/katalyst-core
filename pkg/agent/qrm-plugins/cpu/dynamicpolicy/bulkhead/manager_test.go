@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
@@ -32,9 +33,11 @@ type fakePlugin struct {
 	name          string
 	adjustViews   []*bulkheadutils.CPUSetPartitionView
 	periodicCalls int
+	disabledCalls int
 	enabled       bool
 	adjustErr     error
 	periodicErr   error
+	disabledErr   error
 }
 
 func (p *fakePlugin) Name() string { return p.name }
@@ -52,6 +55,11 @@ func (p *fakePlugin) PeriodicalHandler(
 ) error {
 	p.periodicCalls++
 	return p.periodicErr
+}
+
+func (p *fakePlugin) CPUSetAdjustmentDisabledHandler(_ context.Context, _ bulkheadapi.HandlerContext) error {
+	p.disabledCalls++
+	return p.disabledErr
 }
 
 func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
@@ -111,6 +119,50 @@ func TestRunCPUSetAdjustmentHandlersDisabledTransitionInvalidatesCache(t *testin
 
 	if got := len(plugin.adjustViews); got != 2 {
 		t.Fatalf("expected second enabled run not to be skipped after disabled transition, got %d calls", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionOnce(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("enabled run failed: %v", err)
+	}
+
+	plugin.enabled = false
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("disabled transition failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("stable disabled run failed: %v", err)
+	}
+
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("disabled transition calls = %d, want 1", plugin.disabledCalls)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersReturnsDisabledTransitionError(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{}); err != nil {
+		t.Fatalf("enabled run failed: %v", err)
+	}
+
+	plugin.enabled = false
+	plugin.disabledErr = errors.New("disabled failed")
+	err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{})
+	if err == nil {
+		t.Fatalf("expected disabled transition error")
+	}
+	if got := err.Error(); !strings.Contains(got, "disabled transition failed") {
+		t.Fatalf("error = %q, want disabled transition failed", got)
 	}
 }
 

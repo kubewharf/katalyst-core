@@ -70,10 +70,12 @@ func (f *topologyFakeCgroup) ApplyCPUSet(_ context.Context, rel string, data *cg
 	if f.failRel[rel] {
 		return fmt.Errorf("forced failure @ %s", rel)
 	}
-	for _, child := range f.children[rel] {
-		childRel := filepath.Join(rel, child)
-		if childCPUs := f.cpus[childRel]; !childCPUs.IsEmpty() && !childCPUs.IsSubsetOf(target) {
-			return fmt.Errorf("child %s cpuset %s is outside parent target %s", childRel, childCPUs.String(), target.String())
+	if f.version != cgroupclient.CgroupVersionV2 || !target.IsEmpty() {
+		for _, child := range f.children[rel] {
+			childRel := filepath.Join(rel, child)
+			if childCPUs := f.cpus[childRel]; !childCPUs.IsEmpty() && !childCPUs.IsSubsetOf(target) {
+				return fmt.Errorf("child %s cpuset %s is outside parent target %s", childRel, childCPUs.String(), target.String())
+			}
 		}
 	}
 	f.cpus[rel] = target.Clone()
@@ -230,5 +232,74 @@ func TestApplyDAGDiffExpandsUnmanagedDescendants(t *testing.T) {
 	}
 	if got := cg.cpus["primary/burstable/pod"].String(); got != "0-1" {
 		t.Fatalf("leaf cpuset = %s, want 0-1; writes=%#v", got, cg.writes)
+	}
+}
+
+func TestApplyDAGDiffExpandsEmptyTargetsToUnmanagedDescendantsV2(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet()}})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.version = cgroupclient.CgroupVersionV2
+	cg.cpus["primary"] = machine.NewCPUSet(0, 1)
+	cg.cpus["primary/burstable"] = machine.NewCPUSet(0, 1)
+	cg.cpus["primary/burstable/pod-a"] = machine.NewCPUSet(0, 1)
+	cg.cpus["primary/burstable/pod-a/container-a"] = machine.NewCPUSet(0)
+	cg.children["primary"] = []string{"burstable"}
+	cg.children["primary/burstable"] = []string{"pod-a"}
+	cg.children["primary/burstable/pod-a"] = []string{"container-a"}
+
+	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:              dag,
+		Cgroup:           cg,
+		SkipObservedRead: true,
+		ExpectedCPUSetByRel: map[string]machine.CPUSet{
+			"primary/burstable/pod-a/container-a": machine.NewCPUSet(0),
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v", err)
+	}
+	if res.Applied == 0 {
+		t.Fatalf("expected empty target writes, got %+v", res)
+	}
+
+	wantCPUSetByRel := map[string]string{
+		"primary":                             "",
+		"primary/burstable":                   "",
+		"primary/burstable/pod-a":             "",
+		"primary/burstable/pod-a/container-a": "0",
+	}
+	for rel, want := range wantCPUSetByRel {
+		if got := cg.cpus[rel].String(); got != want {
+			t.Fatalf("cpuset @ %s = %q, want %q; writes=%#v", rel, got, want, cg.writes)
+		}
+	}
+}
+
+func TestApplyDAGDiffSkipsEmptyTargetsV1(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet()}})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+
+	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:    dag,
+		Cgroup: cg,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v", err)
+	}
+	if len(cg.writes) != 0 {
+		t.Fatalf("empty v1 target should not be written, got %#v", cg.writes)
+	}
+	if res.Skipped == 0 {
+		t.Fatalf("expected skipped count, got %+v", res)
 	}
 }

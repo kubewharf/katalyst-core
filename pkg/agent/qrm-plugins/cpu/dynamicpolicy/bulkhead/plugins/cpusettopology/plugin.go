@@ -43,6 +43,8 @@ import (
 
 const CPUSetTopologyPluginName = "cpuset_topology"
 
+var _ bulkheadapi.DisabledTransitionHandler = (*CPUSetTopologyPlugin)(nil)
+
 type CPUSetTopologyPlugin struct {
 	cfg    bulkheadconfig.BulkheadConfiguration
 	cgroup cgroupclient.CgroupClient
@@ -106,20 +108,114 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 	return nil
 }
 
+func (p *CPUSetTopologyPlugin) CPUSetAdjustmentDisabledHandler(ctx context.Context, in bulkheadapi.HandlerContext) error {
+	return p.resetCPUSetTopology(ctx, in)
+}
+
+func (p *CPUSetTopologyPlugin) disabledResetCPUSet(ctx context.Context, in bulkheadapi.HandlerContext) (machine.CPUSet, error) {
+	if p.cgroup.Version(ctx) == cgroupclient.CgroupVersionV2 {
+		return machine.NewCPUSet(), nil
+	}
+	if in.Topology == nil {
+		return machine.CPUSet{}, fmt.Errorf("nil topology for v1 disabled cpuset reset")
+	}
+	target := in.Topology.CPUDetails.CPUs()
+	if target.IsEmpty() {
+		return machine.CPUSet{}, fmt.Errorf("empty machine cpuset for v1 disabled cpuset reset")
+	}
+	return target, nil
+}
+
+func (p *CPUSetTopologyPlugin) buildDisabledResetDAG(
+	ctx context.Context,
+	in bulkheadapi.HandlerContext,
+	target machine.CPUSet,
+) (*topology.TopoDAG, error) {
+	relExists := func(rel string) error {
+		_, err := p.cgroup.StatDir(ctx, rel)
+		return err
+	}
+
+	siblings, err := p.discoverBulkheadReclaimSiblings(ctx, in.View)
+	if err != nil {
+		return nil, fmt.Errorf("discover bulkhead reclaim siblings: %w", err)
+	}
+
+	specs := bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, in.View, siblings, relExists)
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	for i := range specs {
+		specs[i].CPUs = target
+		specs[i].Mems = ""
+	}
+
+	dag, err := topology.BuildDAG(specs)
+	if err != nil {
+		return nil, fmt.Errorf("build disabled reset topology dag: %w", err)
+	}
+	return dag, nil
+}
+
+func (p *CPUSetTopologyPlugin) resetCPUSetTopology(ctx context.Context, in bulkheadapi.HandlerContext) error {
+	target, err := p.disabledResetCPUSet(ctx, in)
+	if err != nil {
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "reset_target_error")
+		return err
+	}
+
+	expected, err := p.buildExpectedCPUSetByRel(ctx, in)
+	if err != nil {
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
+		return fmt.Errorf("build disabled reset expected rels: %w", err)
+	}
+
+	dag, err := p.buildDisabledResetDAG(ctx, in, target)
+	if err != nil {
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")
+		return err
+	}
+	if dag == nil {
+		emitBulkheadPruneResult(in.Emitter, "success", 0, "")
+		return nil
+	}
+
+	res, err := topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
+		DAG:                 dag,
+		Cgroup:              p.cgroup,
+		SkipObservedRead:    true,
+		ExpectedCPUSetByRel: expected,
+	})
+	if err != nil {
+		emitBulkheadPruneResult(in.Emitter, "skipped", res.Applied, "dag_error")
+		return fmt.Errorf("apply disabled reset topology dag: %w", err)
+	}
+
+	emitBulkheadPruneResult(in.Emitter, "success", res.Applied, "")
+	return nil
+}
+
 func (p *CPUSetTopologyPlugin) PeriodicalHandler(
 	ctx context.Context,
 	in bulkheadapi.PeriodicalHandlerContext,
 ) error {
-	if in.DynamicConf == nil || !enableBulkheadCpusetTopology(in.DynamicConf) {
-		return nil
-	}
+	enabled := enableBulkheadCpusetTopology(in.DynamicConf)
 	if p.cgroup.Version(ctx) == cgroupclient.CgroupVersionV1 {
-		if err := p.cgroup.ApplySchedLoadBalance(ctx, "", false); err != nil {
-			return fmt.Errorf("apply root cpuset.sched_load_balance=0: %w", err)
+		schedLoadBalance := !enabled
+		if err := p.cgroup.ApplySchedLoadBalance(ctx, "", schedLoadBalance); err != nil {
+			return fmt.Errorf("apply root cpuset.sched_load_balance=%t: %w", schedLoadBalance, err)
 		}
 		return nil
 	}
 
+	flag := cgcommon.CPUSetPartitionFlagMember
+	if enabled {
+		flag = cgcommon.CPUSetPartitionFlagRoot
+	}
+	return p.applyBulkheadPartitionFlag(ctx, flag)
+}
+
+func (p *CPUSetTopologyPlugin) applyBulkheadPartitionFlag(ctx context.Context, flag cgcommon.CPUSetPartitionFlag) error {
 	var errs []error
 	for _, rel := range p.cfg.BulkheadPartitionRelPaths {
 		rel = strings.Trim(rel, "/")
@@ -130,12 +226,12 @@ func (p *CPUSetTopologyPlugin) PeriodicalHandler(
 			general.InfofV(4, "bulkhead: partition rel path does not exist, skipping, rel=%q err=%v", rel, err)
 			continue
 		}
-		if err := p.cgroup.ApplyCPUSetPartition(ctx, rel, cgcommon.CPUSetPartitionFlagRoot); err != nil {
+		if err := p.cgroup.ApplyCPUSetPartition(ctx, rel, flag); err != nil {
 			if errors.Is(err, cgcommon.ErrNotSupported) {
 				general.InfofV(4, "bulkhead: cpuset partition not supported, skipping, rel=%q", rel)
 				continue
 			}
-			errs = append(errs, fmt.Errorf("apply cpuset.cpus.partition=root @ %s: %w", rel, err))
+			errs = append(errs, fmt.Errorf("apply cpuset.cpus.partition=%s @ %s: %w", flag, rel, err))
 			continue
 		}
 	}
@@ -192,6 +288,9 @@ func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Conte
 	}
 	addExcluded(p.cfg.BulkheadPrimaryRelPath)
 	for _, rel := range p.cfg.BulkheadReclaimRelPaths {
+		addExcluded(rel)
+	}
+	for _, rel := range p.cfg.BulkheadPartitionRelPaths {
 		addExcluded(rel)
 	}
 	if view != nil {
