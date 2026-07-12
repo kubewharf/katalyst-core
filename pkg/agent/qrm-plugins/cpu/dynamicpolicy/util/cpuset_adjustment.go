@@ -27,9 +27,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type BypassCPUSetAdjustmentHandler func(context.Context, BypassCPUSetAdjustmentHandlerCtx) error
+type CPUSetAdjustmentHandler func(context.Context, CPUSetAdjustmentHandlerCtx) error
 
-type BypassCPUSetAdjustmentHandlerCtx struct {
+type CPUSetAdjustmentHandlerCtx struct {
 	CoreConf    *config.Configuration
 	DynamicConf *dynamicconfig.Configuration
 	Emitter     metrics.MetricEmitter

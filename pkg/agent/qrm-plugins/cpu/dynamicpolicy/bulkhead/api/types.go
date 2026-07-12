@@ -20,7 +20,7 @@ import (
 	"context"
 
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -28,7 +28,7 @@ import (
 )
 
 type HandlerContext struct {
-	bypassutil.BypassCPUSetAdjustmentHandlerCtx
+	cpusetutil.CPUSetAdjustmentHandlerCtx
 	View *bulkheadutils.CPUSetPartitionView
 }
 

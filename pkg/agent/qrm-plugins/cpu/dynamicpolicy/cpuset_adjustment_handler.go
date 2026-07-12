@@ -22,31 +22,31 @@ import (
 	"sort"
 	"strings"
 
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func (p *DynamicPolicy) RegisterBypassCPUSetAdjustmentHandler(name string, handler bypassutil.BypassCPUSetAdjustmentHandler) error {
+func (p *DynamicPolicy) RegisterCPUSetAdjustmentHandler(name string, handler cpusetutil.CPUSetAdjustmentHandler) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return fmt.Errorf("bypass cpuset adjustment handler name is empty")
+		return fmt.Errorf("cpuset adjustment handler name is empty")
 	}
 	if handler == nil {
-		return fmt.Errorf("bypass cpuset adjustment handler %q is nil", name)
+		return fmt.Errorf("cpuset adjustment handler %q is nil", name)
 	}
-	if p.bypassCPUSetAdjustmentHandlers == nil {
-		p.bypassCPUSetAdjustmentHandlers = map[string]bypassutil.BypassCPUSetAdjustmentHandler{}
+	if p.cpuSetAdjustmentHandlers == nil {
+		p.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{}
 	}
-	if _, ok := p.bypassCPUSetAdjustmentHandlers[name]; ok {
-		return fmt.Errorf("bypass cpuset adjustment handler %q already registered", name)
+	if _, ok := p.cpuSetAdjustmentHandlers[name]; ok {
+		return fmt.Errorf("cpuset adjustment handler %q already registered", name)
 	}
-	p.bypassCPUSetAdjustmentHandlers[name] = handler
+	p.cpuSetAdjustmentHandlers[name] = handler
 	return nil
 }
 
-func (p *DynamicPolicy) runBypassCPUSetAdjustmentHandlers(ctx context.Context) error {
-	if len(p.bypassCPUSetAdjustmentHandlers) == 0 {
+func (p *DynamicPolicy) runCPUSetAdjustmentHandlers(ctx context.Context) error {
+	if len(p.cpuSetAdjustmentHandlers) == 0 {
 		return nil
 	}
 
@@ -58,7 +58,7 @@ func (p *DynamicPolicy) runBypassCPUSetAdjustmentHandlers(ctx context.Context) e
 	if p.dynamicConfig != nil {
 		dynamicConf = p.dynamicConfig.GetDynamicConfiguration()
 	}
-	handlerCtx := bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+	handlerCtx := cpusetutil.CPUSetAdjustmentHandlerCtx{
 		CoreConf:    p.conf,
 		DynamicConf: dynamicConf,
 		Emitter:     p.emitter,
@@ -67,15 +67,15 @@ func (p *DynamicPolicy) runBypassCPUSetAdjustmentHandlers(ctx context.Context) e
 		Topology:    topology,
 	}
 
-	names := make([]string, 0, len(p.bypassCPUSetAdjustmentHandlers))
-	for name := range p.bypassCPUSetAdjustmentHandlers {
+	names := make([]string, 0, len(p.cpuSetAdjustmentHandlers))
+	for name := range p.cpuSetAdjustmentHandlers {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		handler := p.bypassCPUSetAdjustmentHandlers[name]
+		handler := p.cpuSetAdjustmentHandlers[name]
 		if err := handler(ctx, handlerCtx); err != nil {
-			return fmt.Errorf("run bypass cpuset adjustment handler %q: %w", name, err)
+			return fmt.Errorf("run cpuset adjustment handler %q: %w", name, err)
 		}
 	}
 	return nil

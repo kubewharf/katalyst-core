@@ -28,7 +28,7 @@ import (
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/registry"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -58,11 +58,11 @@ func NewManager(conf *config.Configuration) (*Manager, error) {
 	}, nil
 }
 
-func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in bypassutil.BypassCPUSetAdjustmentHandlerCtx) error {
+func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	handlerCtx := bulkheadapi.HandlerContext{BypassCPUSetAdjustmentHandlerCtx: in}
+	handlerCtx := bulkheadapi.HandlerContext{CPUSetAdjustmentHandlerCtx: in}
 	if in.State != nil {
 		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology)
 	}

@@ -50,7 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	irqtuingcontroller "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -117,12 +117,12 @@ type DynamicPolicy struct {
 	advisorMonitor     *timemonitor.TimeMonitor
 	featureGateManager featuregatenegotiation.FeatureGateManager
 
-	state                          state.State
-	residualHitMap                 map[string]int64
-	allocationHandlers             map[string]util.AllocationHandler
-	hintHandlers                   map[string]util.HintHandler
-	allocationHooks                []AllocationHook
-	bypassCPUSetAdjustmentHandlers map[string]bypassutil.BypassCPUSetAdjustmentHandler
+	state                    state.State
+	residualHitMap           map[string]int64
+	allocationHandlers       map[string]util.AllocationHandler
+	hintHandlers             map[string]util.HintHandler
+	allocationHooks          []AllocationHook
+	cpuSetAdjustmentHandlers map[string]cpusetutil.CPUSetAdjustmentHandler
 
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
@@ -304,8 +304,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
-	if err := policyImplement.RegisterBypassCPUSetAdjustmentHandler("bulkhead", policyImplement.bulkheadManager.RunCPUSetAdjustmentHandlers); err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy register bulkhead bypass cpuset adjustment handler failed with error: %v", err)
+	if err := policyImplement.RegisterCPUSetAdjustmentHandler("bulkhead", policyImplement.bulkheadManager.RunCPUSetAdjustmentHandlers); err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy register bulkhead cpuset adjustment handler failed with error: %v", err)
 	}
 
 	if conf.EnableIRQTuner {

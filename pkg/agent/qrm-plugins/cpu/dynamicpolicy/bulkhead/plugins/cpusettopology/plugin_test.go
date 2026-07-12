@@ -29,7 +29,7 @@ import (
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -397,7 +397,7 @@ func newDisabledTransitionTestPlugin(
 		cgroup: cg,
 	}
 	in := bulkheadapi.HandlerContext{
-		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
 			MetaServer: &metaserver.MetaServer{
 				MetaAgent: &agent.MetaAgent{
 					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
@@ -557,7 +557,7 @@ func TestEnableBulkheadCpusetTopologyRequiresNonOverlapReclaimedCores(t *testing
 			state := cpustate.NewCPUPluginState(nil)
 			state.SetAllowSharedCoresOverlapReclaimedCores(tt.stateAllowSharedCoresOverlapReclaimedCores)
 			if got := enableBulkheadCpusetTopology(bulkheadapi.HandlerContext{
-				BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+				CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
 					DynamicConf: conf,
 					State:       state,
 				},
@@ -584,7 +584,7 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingPod(t *testing.T) {
 
 	p := &CPUSetTopologyPlugin{}
 	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
-		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
 			MetaServer: &metaserver.MetaServer{
 				MetaAgent: &agent.MetaAgent{
 					PodFetcher: &metapod.PodFetcherStub{},
@@ -612,7 +612,7 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingContainer(t *testing.T
 
 	p := &CPUSetTopologyPlugin{}
 	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
-		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
 			MetaServer: &metaserver.MetaServer{
 				MetaAgent: &agent.MetaAgent{
 					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
@@ -642,7 +642,7 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForUnresolvedContainerRel(t *tes
 
 	p := &CPUSetTopologyPlugin{}
 	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
-		BypassCPUSetAdjustmentHandlerCtx: bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
 			MetaServer: &metaserver.MetaServer{
 				MetaAgent: &agent.MetaAgent{
 					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{

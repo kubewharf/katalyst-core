@@ -26,7 +26,7 @@ import (
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	bypassutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
@@ -89,7 +89,7 @@ func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
 
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
-	in := bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+	in := cpusetutil.CPUSetAdjustmentHandlerCtx{
 		DynamicConf: dynamicBulkheadConf(true),
 		State:       cpustate.NewCPUPluginState(nil),
 	}
@@ -149,7 +149,7 @@ func TestRunCPUSetAdjustmentHandlersGatesPluginsByBulkheadEnable(t *testing.T) {
 				m.lastCPUSetAdjustmentEnabled = map[string]bool{plugin.Name(): true}
 			}
 
-			err := m.RunCPUSetAdjustmentHandlers(context.Background(), bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+			err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
 				DynamicConf: dynamicBulkheadConf(tt.bulkheadEnabled),
 			})
 			if err != nil {
@@ -307,8 +307,8 @@ func dynamicBulkheadConf(enabled bool) *dynamicconfig.Configuration {
 	return conf
 }
 
-func enabledCPUSetAdjustmentCtx() bypassutil.BypassCPUSetAdjustmentHandlerCtx {
-	return bypassutil.BypassCPUSetAdjustmentHandlerCtx{
+func enabledCPUSetAdjustmentCtx() cpusetutil.CPUSetAdjustmentHandlerCtx {
+	return cpusetutil.CPUSetAdjustmentHandlerCtx{
 		DynamicConf: dynamicBulkheadConf(true),
 	}
 }
