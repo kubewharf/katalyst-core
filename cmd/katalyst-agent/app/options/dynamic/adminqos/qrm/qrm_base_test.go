@@ -46,6 +46,14 @@ func TestQRMPluginOptions_AddFlags(t *testing.T) {
 	if cpuPluginFlagSet == nil {
 		t.Errorf("qrm-cpu-plugin flag set not found")
 	}
+	for _, name := range []string{
+		"enable-bulkhead-cpuset-topology",
+		"enable-bulkhead-workqueue",
+	} {
+		if cpuPluginFlagSet.Lookup(name) == nil {
+			t.Errorf("qrm-cpu-plugin flag %q not found", name)
+		}
+	}
 }
 
 func TestQRMPluginOptions_ApplyTo(t *testing.T) {
@@ -62,5 +70,25 @@ func TestQRMPluginOptions_ApplyTo(t *testing.T) {
 	// Verify that config is updated
 	if config.CPUPluginConfiguration == nil {
 		t.Errorf("CPUPluginConfiguration is nil after ApplyTo")
+	}
+}
+
+func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
+	t.Parallel()
+
+	options := NewQRMPluginOptions()
+	options.EnableBulkheadCpusetTopology = true
+	options.EnableBulkheadWorkqueue = true
+	config := qrm.NewQRMPluginConfiguration()
+
+	err := options.ApplyTo(config)
+	if err != nil {
+		t.Errorf("ApplyTo failed: %v", err)
+	}
+	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology {
+		t.Errorf("EnableBulkheadCpusetTopology = false, want true")
+	}
+	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadWorkqueue {
+		t.Errorf("EnableBulkheadWorkqueue = false, want true")
 	}
 }

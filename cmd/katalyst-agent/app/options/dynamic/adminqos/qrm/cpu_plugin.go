@@ -26,6 +26,8 @@ type CPUPluginOptions struct {
 	PreferUseExistNUMAHintResult bool
 	EnableBypassCPUSetAdjustment bool
 	DisableSharedCoresRampUp     bool
+	EnableBulkheadCpusetTopology bool
+	EnableBulkheadWorkqueue      bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
@@ -41,12 +43,18 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 			"allocation responses returned by Allocate/AllocateForPod keep their cpuset unchanged.")
 	fs.BoolVar(&o.DisableSharedCoresRampUp, "disable-shared-cores-ramp-up", o.DisableSharedCoresRampUp,
 		"if true, shared_cores pods skip initial RampUp full-pool cpuset binding and are allocated from their target pool directly.")
+	fs.BoolVar(&o.EnableBulkheadCpusetTopology, "enable-bulkhead-cpuset-topology", o.EnableBulkheadCpusetTopology,
+		"if true, enable bulkhead cpuset topology plugin.")
+	fs.BoolVar(&o.EnableBulkheadWorkqueue, "enable-bulkhead-workqueue", o.EnableBulkheadWorkqueue,
+		"if true, enable bulkhead workqueue plugin.")
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.PreferUseExistNUMAHintResult = o.PreferUseExistNUMAHintResult
 	c.EnableBypassCPUSetAdjustment = o.EnableBypassCPUSetAdjustment
 	c.DisableSharedCoresRampUp = o.DisableSharedCoresRampUp
+	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
+	c.BulkheadConfig.EnableBulkheadWorkqueue = o.EnableBulkheadWorkqueue
 
 	return nil
 }
