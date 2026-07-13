@@ -38,7 +38,6 @@ import (
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const CPUSetTopologyPluginName = "cpuset_topology"
@@ -244,19 +243,18 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 	}
 	out := map[string]machine.CPUSet{}
 	for podUID, containers := range in.View.ContainerCPUSetByPod {
-		pod, err := in.MetaServer.GetPod(ctx, podUID)
-		if err != nil {
-			general.InfofV(5, "bulkhead: pod does not exist, skipping expected cpuset enforce, pod=%q err=%v", podUID, err)
-			continue
-		}
 		for containerName, cpus := range containers {
-			containerID, err := native.GetContainerID(pod, containerName)
-			if err != nil {
-				general.InfofV(5, "bulkhead: container does not exist, skipping expected cpuset enforce, pod=%q container=%q err=%v",
-					podUID, containerName, err)
-				continue
-			}
-			rel, err := cgcommon.GetContainerRelativeCgroupPath(podUID, containerID)
+			// Reuse ResolveContainerRelPath so that the rel-key format stays in sync
+			// with everywhere else in bulkhead (BulkheadPrimaryRelPath,
+			// BulkheadReclaimRelPaths, CollectActiveRels, controlledRels, and the
+			// childRel constructed by writer.ApplyDAGDiff via filepath.Join(parent, name)).
+			// ResolveContainerRelPath does the GetContainerID + GetContainerRelativeCgroupPath
+			// lookup and, crucially, trims the leading "/" that
+			// GetKubernetesAnyExistRelativeCgroupPath prepends. Without this trim, the
+			// expected map key would never match the childRel that expandDescendants
+			// produces during recursion, causing per-container cpuset enforcement to
+			// silently degrade to inheriting the parent pool target.
+			rel, err := bulkheadutils.ResolveContainerRelPath(in.MetaServer, podUID, containerName)
 			if err != nil {
 				general.InfofV(5, "bulkhead: resolve container rel failed, skipping expected cpuset enforce, pod=%q container=%q err=%v",
 					podUID, containerName, err)
