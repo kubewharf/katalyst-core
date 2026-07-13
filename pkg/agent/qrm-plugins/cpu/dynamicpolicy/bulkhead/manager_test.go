@@ -183,7 +183,8 @@ func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionWhenPluginDisabled(t 
 			wantAdjustCalls: 1,
 		},
 		{
-			name: "plugin disabled without previous enabled state",
+			name:              "plugin disabled without previous enabled state",
+			wantDisabledCalls: 1,
 		},
 		{
 			name:               "bulkhead disabled after previous enabled",
@@ -219,7 +220,7 @@ func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionWhenPluginDisabled(t 
 	}
 }
 
-func TestRunCPUSetAdjustmentHandlersUsesCurrentEnableAsBaselineWhenLastEnabledNil(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersResetsDisabledPluginWhenLastEnabledNil(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: false}
@@ -228,8 +229,14 @@ func TestRunCPUSetAdjustmentHandlersUsesCurrentEnableAsBaselineWhenLastEnabledNi
 	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("first disabled run failed: %v", err)
 	}
-	if plugin.disabledCalls != 0 {
-		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("disabled calls = %d, want 1", plugin.disabledCalls)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("stable disabled run failed: %v", err)
+	}
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("stable disabled calls = %d, want 1", plugin.disabledCalls)
 	}
 	if len(plugin.adjustViews) != 0 {
 		t.Fatalf("adjust calls = %d, want 0", len(plugin.adjustViews))

@@ -81,12 +81,10 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	emitBulkheadViewChanged(handlerCtx.Emitter, true)
 
 	lastEnabled := m.lastCPUSetAdjustmentEnabled
-	if lastEnabled == nil {
-		lastEnabled = currentEnabled
-	}
+	lastEnabledMissing := lastEnabled == nil
 	for _, p := range m.plugins {
 		if !currentEnabled[p.Name()] {
-			if lastEnabled[p.Name()] {
+			if lastEnabledMissing || lastEnabled[p.Name()] {
 				if err := p.CPUSetAdjustmentDisabledHandler(ctx, handlerCtx); err != nil {
 					emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
 					return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
