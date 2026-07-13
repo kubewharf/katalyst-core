@@ -670,3 +670,77 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForUnresolvedContainerRel(t *tes
 		t.Fatalf("expected nil map for unresolved container rel, got %#v", expected)
 	}
 }
+
+// TestCPUSetTopologyPluginBuildExpectedCPUSetByRelTrimsLeadingSlash is a
+// regression guard: buildExpectedCPUSetByRel must produce map keys WITHOUT a
+// leading "/", so they match the childRel format that
+// utils/topology/writer.expandDescendants constructs via filepath.Join. If the
+// key kept the leading "/" that GetKubernetesAnyExistRelativeCgroupPath
+// prepends, per-container cpuset enforcement would silently degrade to
+// inheriting the parent pool target inside ApplyDAGDiff.
+func TestCPUSetTopologyPluginBuildExpectedCPUSetByRelTrimsLeadingSlash(t *testing.T) {
+	t.Parallel()
+
+	const (
+		podUID      = "pod-build-expected-trim"
+		containerID = "container-build-expected-trim"
+		prefixedRel = "/kubepods/burstable/pod-a/container-a"
+		expectedRel = "kubepods/burstable/pod-a/container-a"
+		containerNm = "main"
+	)
+
+	cgcommon.RegisterRelativeCgroupPathHandler(cgcommon.RelativeCgroupPathHandler{
+		Name: "bulkhead-build-expected-trim-" + podUID,
+		Handler: func(gotPodUID, gotContainerID string) (string, error) {
+			if gotPodUID == podUID && gotContainerID == containerID {
+				return prefixedRel, nil
+			}
+			return "", errors.New("not a build-expected-trim test container")
+		},
+	})
+
+	p := &CPUSetTopologyPlugin{}
+	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
+			MetaServer: &metaserver.MetaServer{
+				MetaAgent: &agent.MetaAgent{
+					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{UID: types.UID(podUID)},
+						Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+							Name:        containerNm,
+							ContainerID: "containerd://" + containerID,
+						}}},
+					}}},
+				},
+			},
+		},
+		View: &bulkheadutils.CPUSetPartitionView{
+			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+				podUID: {
+					containerNm: machine.NewCPUSet(0, 1),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildExpectedCPUSetByRel: %v", err)
+	}
+	if _, ok := expected[prefixedRel]; ok {
+		t.Fatalf("map key still has leading '/': %q; keys=%v", prefixedRel, keysOf(expected))
+	}
+	cpus, ok := expected[expectedRel]
+	if !ok {
+		t.Fatalf("expected key %q not found; keys=%v", expectedRel, keysOf(expected))
+	}
+	if got := cpus.String(); got != "0-1" {
+		t.Fatalf("cpuset @ %s = %q, want 0-1", expectedRel, got)
+	}
+}
+
+func keysOf(m map[string]machine.CPUSet) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
