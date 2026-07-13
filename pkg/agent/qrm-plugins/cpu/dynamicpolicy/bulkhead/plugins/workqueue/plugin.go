@@ -34,6 +34,8 @@ import (
 
 const WorkqueuePluginName = "workqueue"
 
+var _ bulkheadapi.Plugin = (*WorkqueuePlugin)(nil)
+
 type WorkqueuePlugin struct {
 	cfg bulkheadconfig.BulkheadConfiguration
 	fs  utilfs.FS

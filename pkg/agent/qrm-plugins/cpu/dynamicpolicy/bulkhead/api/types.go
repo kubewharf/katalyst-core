@@ -44,11 +44,8 @@ type Plugin interface {
 	Name() string
 	Enable(HandlerContext) bool
 	CPUSetAdjustmentHandler(context.Context, HandlerContext) error
-	PeriodicalHandler(context.Context, PeriodicalHandlerContext) error
-}
-
-type DisabledTransitionHandler interface {
 	CPUSetAdjustmentDisabledHandler(context.Context, HandlerContext) error
+	PeriodicalHandler(context.Context, PeriodicalHandlerContext) error
 }
 
 type PluginFactory func(conf *config.Configuration) Plugin

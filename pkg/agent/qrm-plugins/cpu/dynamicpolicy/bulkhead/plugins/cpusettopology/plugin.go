@@ -43,7 +43,7 @@ import (
 
 const CPUSetTopologyPluginName = "cpuset_topology"
 
-var _ bulkheadapi.DisabledTransitionHandler = (*CPUSetTopologyPlugin)(nil)
+var _ bulkheadapi.Plugin = (*CPUSetTopologyPlugin)(nil)
 
 type CPUSetTopologyPlugin struct {
 	cfg    bulkheadconfig.BulkheadConfiguration

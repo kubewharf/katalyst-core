@@ -63,6 +63,11 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	defer m.mu.Unlock()
 
 	handlerCtx := bulkheadapi.HandlerContext{CPUSetAdjustmentHandlerCtx: in}
+	if !bulkheadEnabled(in.DynamicConf) {
+		m.resetCPUSetAdjustmentCache()
+		emitBulkheadViewChanged(handlerCtx.Emitter, false)
+		return nil
+	}
 	if in.State != nil {
 		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology)
 	}
@@ -78,11 +83,7 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	for _, p := range m.plugins {
 		if !currentEnabled[p.Name()] {
 			if m.lastCPUSetAdjustmentEnabled[p.Name()] {
-				disabledHandler, ok := p.(bulkheadapi.DisabledTransitionHandler)
-				if !ok {
-					continue
-				}
-				if err := disabledHandler.CPUSetAdjustmentDisabledHandler(ctx, handlerCtx); err != nil {
+				if err := p.CPUSetAdjustmentDisabledHandler(ctx, handlerCtx); err != nil {
 					emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
 					return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
 				}
@@ -107,11 +108,15 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 
 func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[string]bool {
 	out := make(map[string]bool, len(m.plugins))
-	enabled := bulkheadEnabled(in.DynamicConf)
 	for _, p := range m.plugins {
-		out[p.Name()] = enabled && p.Enable(in)
+		out[p.Name()] = p.Enable(in)
 	}
 	return out
+}
+
+func (m *Manager) resetCPUSetAdjustmentCache() {
+	m.lastCPUSetAdjustmentView = nil
+	m.lastCPUSetAdjustmentEnabled = nil
 }
 
 func bulkheadEnabled(conf *dynamicconfig.Configuration) bool {

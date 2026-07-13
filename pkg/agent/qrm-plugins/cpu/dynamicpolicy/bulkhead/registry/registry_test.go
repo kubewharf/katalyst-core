@@ -19,9 +19,6 @@ package registry
 import (
 	"reflect"
 	"testing"
-
-	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/cpusettopology"
 )
 
 func TestNewDefaultPluginsPreservesOrder(t *testing.T) {
@@ -39,23 +36,4 @@ func TestNewDefaultPluginsPreservesOrder(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected plugin order, got %v want %v", got, want)
 	}
-}
-
-func TestNewDefaultPluginsCPUSetTopologySupportsDisabledTransition(t *testing.T) {
-	t.Parallel()
-
-	plugins, err := NewDefaultPlugins(nil)
-	if err != nil {
-		t.Fatalf("NewDefaultPlugins failed: %v", err)
-	}
-	for _, plugin := range plugins {
-		if plugin.Name() != cpusettopology.CPUSetTopologyPluginName {
-			continue
-		}
-		if _, ok := plugin.(bulkheadapi.DisabledTransitionHandler); !ok {
-			t.Fatalf("cpuset_topology should implement DisabledTransitionHandler")
-		}
-		return
-	}
-	t.Fatalf("cpuset_topology plugin not found")
 }

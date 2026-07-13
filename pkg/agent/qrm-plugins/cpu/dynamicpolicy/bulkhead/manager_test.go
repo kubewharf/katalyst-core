@@ -105,34 +105,88 @@ func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
 	}
 }
 
-func TestRunCPUSetAdjustmentHandlersGatesPluginsByBulkheadEnable(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersReturnsEarlyWhenBulkheadDisabled(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{
+		plugins:                     []bulkheadapi.Plugin{plugin},
+		lastCPUSetAdjustmentView:    &bulkheadutils.CPUSetPartitionView{},
+		lastCPUSetAdjustmentEnabled: map[string]bool{plugin.Name(): true},
+	}
+
+	err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(false),
+		State:       cpustate.NewCPUPluginState(nil),
+	})
+	if err != nil {
+		t.Fatalf("RunCPUSetAdjustmentHandlers failed: %v", err)
+	}
+	if len(plugin.enableStates) != 0 {
+		t.Fatalf("plugin Enable calls = %d, want 0", len(plugin.enableStates))
+	}
+	if len(plugin.adjustViews) != 0 {
+		t.Fatalf("adjust calls = %d, want 0", len(plugin.adjustViews))
+	}
+	if plugin.disabledCalls != 0 {
+		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	}
+	if m.lastCPUSetAdjustmentView != nil {
+		t.Fatalf("lastCPUSetAdjustmentView should be cleared")
+	}
+	if m.lastCPUSetAdjustmentEnabled != nil {
+		t.Fatalf("lastCPUSetAdjustmentEnabled should be cleared")
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersReconcilesAfterBulkheadReenabledWithSameView(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("first enabled run failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(false),
+	}); err != nil {
+		t.Fatalf("disabled bulkhead run failed: %v", err)
+	}
+	if plugin.disabledCalls != 0 {
+		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	}
+	if len(plugin.enableStates) != 1 {
+		t.Fatalf("plugin Enable calls = %d, want 1", len(plugin.enableStates))
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("second enabled run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("adjust calls = %d, want 2", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionWhenPluginDisabled(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name               string
-		bulkheadEnabled    bool
 		pluginEnabled      bool
 		preRunEnabledState bool
 		wantAdjustCalls    int
 		wantDisabledCalls  int
 	}{
 		{
-			name:          "bulkhead disabled plugin enabled",
-			pluginEnabled: true,
-		},
-		{
-			name:            "bulkhead enabled plugin enabled",
-			bulkheadEnabled: true,
+			name:            "plugin enabled",
 			pluginEnabled:   true,
 			wantAdjustCalls: 1,
 		},
 		{
-			name:            "bulkhead enabled plugin disabled",
-			bulkheadEnabled: true,
+			name: "plugin disabled without previous enabled state",
 		},
 		{
 			name:               "bulkhead disabled after previous enabled",
-			pluginEnabled:      true,
 			preRunEnabledState: true,
 			wantDisabledCalls:  1,
 		},
@@ -150,7 +204,7 @@ func TestRunCPUSetAdjustmentHandlersGatesPluginsByBulkheadEnable(t *testing.T) {
 			}
 
 			err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
-				DynamicConf: dynamicBulkheadConf(tt.bulkheadEnabled),
+				DynamicConf: dynamicBulkheadConf(true),
 			})
 			if err != nil {
 				t.Fatalf("RunCPUSetAdjustmentHandlers failed: %v", err)
@@ -208,7 +262,7 @@ func TestRunCPUSetAdjustmentHandlersDisabledTransitionInvalidatesCache(t *testin
 	}
 }
 
-func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionOnce(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionOnceForPluginDisable(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: true}
@@ -231,7 +285,7 @@ func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionOnce(t *testing.T) {
 	}
 }
 
-func TestRunCPUSetAdjustmentHandlersReturnsDisabledTransitionError(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersReturnsDisabledHandlerError(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: true}
