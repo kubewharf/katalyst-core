@@ -80,17 +80,16 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	}
 	emitBulkheadViewChanged(handlerCtx.Emitter, true)
 
-	lastEnabled := m.lastCPUSetAdjustmentEnabled
-	lastEnabledMissing := lastEnabled == nil
 	for _, p := range m.plugins {
 		if !currentEnabled[p.Name()] {
-			if lastEnabledMissing || lastEnabled[p.Name()] {
-				if err := p.CPUSetAdjustmentDisabledHandler(ctx, handlerCtx); err != nil {
-					emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
-					return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
-				}
-				emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "success", "")
+			if !m.needsDisabledReset(p.Name()) {
+				continue
 			}
+			if err := p.CPUSetAdjustmentDisabledHandler(ctx, handlerCtx); err != nil {
+				emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
+				return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
+			}
+			emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "success", "")
 			continue
 		}
 		if err := p.CPUSetAdjustmentHandler(ctx, handlerCtx); err != nil {
@@ -114,6 +113,13 @@ func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[str
 		out[p.Name()] = p.Enable(in)
 	}
 	return out
+}
+
+// needsDisabledReset reports whether a currently-disabled plugin should run its
+// disabled reset handler. A nil lastCPUSetAdjustmentEnabled means we have no
+// prior state (e.g. after restart) and must reset once to converge.
+func (m *Manager) needsDisabledReset(name string) bool {
+	return m.lastCPUSetAdjustmentEnabled == nil || m.lastCPUSetAdjustmentEnabled[name]
 }
 
 func (m *Manager) resetCPUSetAdjustmentCache() {
