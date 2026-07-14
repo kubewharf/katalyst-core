@@ -35,6 +35,12 @@ limitations under the License.
 //     comm appears in BulkheadSystemdCommBlacklist. Latency-critical daemons
 //     (systemd, kubelet, containerd, ...) should be listed there.
 //
+// When the plugin's dynamic switch transitions from enabled to disabled
+// (or the first PeriodicalHandler tick after restart observes disabled),
+// a one-shot inverse migration reads targetRel/cgroup.procs and reattaches
+// every PID into the cpuset root, so state converges without operator
+// intervention. Subsequent ticks while disabled are no-ops.
+//
 // Every migration is logged at V(2) so operators can audit.
 package systemservice
 
@@ -81,6 +87,14 @@ type SystemServicePlugin struct {
 	// kthreads we may steer). Reading this one file is far cheaper and far
 	// more precise than walking every PID in /proc.
 	rootCgroupProcsPath string
+
+	// lastPeriodicalEnabled tracks the enable state observed by the previous
+	// PeriodicalHandler tick. A nil value means "no prior tick observed"
+	// (fresh process); when the first tick observes disabled we must run the
+	// one-shot reset to converge state after a restart. Read/written only
+	// from PeriodicalHandler, which the bulkhead Manager invokes under
+	// Manager.mu — no plugin-local lock is required.
+	lastPeriodicalEnabled *bool
 }
 
 func NewSystemServicePlugin(conf *config.Configuration) bulkheadapi.Plugin {
@@ -131,20 +145,45 @@ func (p *SystemServicePlugin) CPUSetAdjustmentDisabledHandler(context.Context, b
 }
 
 // PeriodicalHandler migrates every eligible root-cgroup PID into the target
-// cgroup via CgroupClient.AttachPID:
-//   - kernel threads whose comm matches BulkheadSystemKThreadCommSubstrs
-//     (whitelist);
-//   - userspace processes whose comm is NOT in BulkheadSystemdCommBlacklist.
-//
-// Ineligible / racing PIDs are logged at V(4) and skipped without aborting
-// the sweep.
+// cgroup via CgroupClient.AttachPID when the plugin's dynamic switch is
+// enabled. When the switch transitions from enabled to disabled (or the
+// first tick after restart observes disabled), it runs a one-shot reset
+// that reattaches every PID under targetRel back into the cpuset root.
+// Subsequent ticks while disabled are no-ops.
 func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
-	// RunPeriodicalHandlers is only gated by the top-level bulkhead switch, so
-	// re-check this plugin's own dynamic switch here.
-	if !enableBulkheadSystemService(in.DynamicConf) {
-		return nil
+	enabled := enableBulkheadSystemService(in.DynamicConf)
+
+	if !enabled {
+		// Trigger a reset on enabled → disabled transition, or on the first
+		// tick after restart if that first observation is disabled. Steady
+		// disabled state is a no-op.
+		needsReset := p.lastPeriodicalEnabled == nil || *p.lastPeriodicalEnabled
+		if !needsReset {
+			return nil
+		}
+		err := p.resetTargetToRoot(ctx, in)
+		// Always mark tracker as disabled, even on reset error, to prevent a
+		// storm of retries. A subsequent enabled tick will overwrite the
+		// tracker and let the next disable transition trigger reset again.
+		f := false
+		p.lastPeriodicalEnabled = &f
+		return err
 	}
 
+	err := p.runMigrate(ctx, in)
+	// Any observed enabled tick — including early returns from missing target
+	// or listing errors — updates the tracker to true so a subsequent real
+	// disable transition triggers reset.
+	t := true
+	p.lastPeriodicalEnabled = &t
+	return err
+}
+
+// runMigrate performs the enabled-path migration: read root cgroup PIDs,
+// classify each via ReadProc, and AttachPID into targetRel for the eligible
+// subset. Ineligible / racing PIDs are logged at V(4) and skipped without
+// aborting the sweep.
+func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
 	// Target cgroup not created yet — bail early, cpuset_topology owns
 	// creation. Next tick will retry.
 	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
@@ -190,6 +229,44 @@ func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkhead
 	return nil
 }
 
+// resetTargetToRoot performs the one-shot inverse migration when the plugin's
+// dynamic switch transitions from enabled to disabled (or the first tick
+// after restart observes disabled). It reads every PID currently in
+// targetRel/cgroup.procs and re-attaches it into the cpuset root (rel="")
+// via CgroupClient.AttachPID. Per-PID AttachPID failures are logged at V(4)
+// and tolerated; only listing / ctx failures propagate.
+func (p *SystemServicePlugin) resetTargetToRoot(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
+	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
+		general.InfofV(4, "system_service: reset skipped, target missing, rel=%q err=%v",
+			p.targetRel, err)
+		emitBulkheadSystemServiceResult(in.Emitter, "reset", "skipped", "target_cgroup_missing")
+		return nil
+	}
+
+	pids, err := p.listTargetCgroupPIDs(ctx)
+	if err != nil {
+		emitBulkheadSystemServiceResult(in.Emitter, "reset", "skipped", "list_target_cgroup_pids")
+		return fmt.Errorf("list target cgroup pids: %w", err)
+	}
+
+	moved := 0
+	for _, pid := range pids {
+		if ctx.Err() != nil {
+			emitBulkheadSystemServiceResult(in.Emitter, "reset", "failed", "context_canceled")
+			return fmt.Errorf("context canceled: %w", ctx.Err())
+		}
+		if err := p.cgroup.AttachPID(ctx, "", pid); err != nil {
+			general.InfofV(4, "system_service: reset attach failed, pid=%d err=%v", pid, err)
+			continue
+		}
+		general.InfofV(2, "system_service: reset migrated pid=%d back to root cgroup", pid)
+		moved++
+	}
+	emitBulkheadSystemServiceResult(in.Emitter, "reset", "success", "")
+	general.InfofV(4, "system_service: reset complete, scanned=%d moved=%d", len(pids), moved)
+	return nil
+}
+
 // shouldMigrate returns true if the process described by info is eligible for
 // migration. The decision is defensive by design:
 //   - Kernel threads: only migrate when comm contains one of the configured
@@ -227,6 +304,23 @@ func (p *SystemServicePlugin) listRootCgroupPIDs() ([]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", p.rootCgroupProcsPath, err)
 	}
+	return parsePIDList(data), nil
+}
+
+// listTargetCgroupPIDs reads targetRel's cgroup.procs via CgroupClient and
+// returns the PID list. Malformed / non-numeric tokens are skipped
+// defensively; read errors are surfaced to the caller.
+func (p *SystemServicePlugin) listTargetCgroupPIDs(ctx context.Context) ([]int, error) {
+	data, err := p.cgroup.ReadCgroupFile(ctx, p.targetRel, "cgroup.procs")
+	if err != nil {
+		return nil, fmt.Errorf("read target cgroup.procs @ %s: %w", p.targetRel, err)
+	}
+	return parsePIDList(data), nil
+}
+
+// parsePIDList parses a whitespace-separated cgroup.procs payload into a PID
+// slice, skipping malformed / non-positive tokens defensively.
+func parsePIDList(data []byte) []int {
 	lines := strings.Fields(string(data))
 	out := make([]int, 0, len(lines))
 	for _, line := range lines {
@@ -236,7 +330,7 @@ func (p *SystemServicePlugin) listRootCgroupPIDs() ([]int, error) {
 		}
 		out = append(out, pid)
 	}
-	return out, nil
+	return out
 }
 
 func enableBulkheadSystemService(conf *dynamicconfig.Configuration) bool {

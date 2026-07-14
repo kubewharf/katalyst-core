@@ -75,6 +75,12 @@ type fakeCgroup struct {
 	existingDirs map[string]bool // rel -> whether StatDir succeeds
 	attaches     []attachCall
 	attachErr    error
+
+	// cgroupFiles simulates reading files like cgroup.procs under a given
+	// rel. Keys: rel -> file basename -> file bytes. The reset path uses
+	// this to enumerate PIDs currently in targetRel/cgroup.procs.
+	cgroupFiles   map[string]map[string][]byte
+	cgroupFileErr error
 }
 
 type attachCall struct {
@@ -101,6 +107,18 @@ func (f *fakeCgroup) AttachPID(_ context.Context, rel string, pid int) error {
 	return nil
 }
 
+func (f *fakeCgroup) ReadCgroupFile(_ context.Context, rel, file string) ([]byte, error) {
+	if f.cgroupFileErr != nil {
+		return nil, f.cgroupFileErr
+	}
+	if m, ok := f.cgroupFiles[rel]; ok {
+		if data, ok := m[file]; ok {
+			return data, nil
+		}
+	}
+	return nil, os.ErrNotExist
+}
+
 // rootProcsPath is the cpuset controller root cgroup.procs path the test
 // plugin is wired to; tests seed fakeFS.reads[rootProcsPath] with the
 // whitespace-separated PID list the plugin should classify.
@@ -113,6 +131,24 @@ func seedRootPIDs(fFS *fakeFS, pids ...int) {
 		b.WriteByte('\n')
 	}
 	fFS.reads[rootProcsPath] = b.String()
+}
+
+// seedTargetPIDs writes a synthetic cgroup.procs into the fake CgroupClient
+// under the given targetRel. Used by disable-reset tests to represent
+// "these PIDs currently live under the system cgroup".
+func seedTargetPIDs(fCg *fakeCgroup, targetRel string, pids ...int) {
+	if fCg.cgroupFiles == nil {
+		fCg.cgroupFiles = map[string]map[string][]byte{}
+	}
+	if fCg.cgroupFiles[targetRel] == nil {
+		fCg.cgroupFiles[targetRel] = map[string][]byte{}
+	}
+	var b strings.Builder
+	for _, pid := range pids {
+		b.WriteString(strconv.Itoa(pid))
+		b.WriteByte('\n')
+	}
+	fCg.cgroupFiles[targetRel]["cgroup.procs"] = []byte(b.String())
 }
 
 // ---------------------------------------------------------------------------
@@ -361,14 +397,19 @@ func TestPeriodicalHandler_DisabledByConfig(t *testing.T) {
 	fFS := newFakeFS()
 	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{100: {PID: 100, Comm: "crond"}}}
 	seedRootPIDs(fFS, 100)
+	// existingDirs intentionally empty: the first tick observes disabled,
+	// triggers reset, and reset early-exits via target_cgroup_missing. No
+	// AttachPID calls are expected either way.
 	fCg := newFakeCgroup()
-	fCg.existingDirs["system"] = true
 	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
 		t.Fatalf("PeriodicalHandler: %v", err)
 	}
 	if len(fCg.attaches) != 0 {
 		t.Fatalf("disabled plugin must produce zero AttachPID calls, got %d", len(fCg.attaches))
+	}
+	if p.lastPeriodicalEnabled == nil || *p.lastPeriodicalEnabled {
+		t.Fatalf("tracker must be &false after disabled tick, got %v", p.lastPeriodicalEnabled)
 	}
 }
 
@@ -392,13 +433,13 @@ func TestPeriodicalHandler_MigratesKThreadAndUserspaceViaAttachPID(t *testing.T)
 	t.Parallel()
 	fFS := newFakeFS()
 	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
-		100: {PID: 100, Comm: "crond"},                             // userspace, not blacklisted → migrate
-		101: {PID: 101, Comm: "rsyslogd"},                          // userspace, not blacklisted → migrate
-		200: {PID: 200, Comm: "systemd"},                           // userspace, blacklisted → skip
-		201: {PID: 201, Comm: "kubelet"},                           // userspace, blacklisted → skip
-		400: {PID: 400, Comm: "kswapd0", IsKThread: true, PPID: 2}, // kthread on whitelist → migrate
-		401: {PID: 401, Comm: "kcompactd1", IsKThread: true, PPID: 2}, // kthread on whitelist → migrate
-		500: {PID: 500, Comm: "kworker/0", IsKThread: true, PPID: 2}, // kthread NOT on whitelist → skip
+		100: {PID: 100, Comm: "crond"},                                 // userspace, not blacklisted → migrate
+		101: {PID: 101, Comm: "rsyslogd"},                              // userspace, not blacklisted → migrate
+		200: {PID: 200, Comm: "systemd"},                               // userspace, blacklisted → skip
+		201: {PID: 201, Comm: "kubelet"},                               // userspace, blacklisted → skip
+		400: {PID: 400, Comm: "kswapd0", IsKThread: true, PPID: 2},     // kthread on whitelist → migrate
+		401: {PID: 401, Comm: "kcompactd1", IsKThread: true, PPID: 2},  // kthread on whitelist → migrate
+		500: {PID: 500, Comm: "kworker/0", IsKThread: true, PPID: 2},   // kthread NOT on whitelist → skip
 		501: {PID: 501, Comm: "migration/1", IsKThread: true, PPID: 2}, // kthread NOT on whitelist → skip
 	}}
 	seedRootPIDs(fFS, 100, 101, 200, 201, 400, 401, 500, 501)
@@ -510,5 +551,250 @@ func TestPeriodicalHandler_ContextCancelation(t *testing.T) {
 	cancel() // pre-cancel
 	if err := p.PeriodicalHandler(ctx, periodCtx(true)); err == nil {
 		t.Fatalf("PeriodicalHandler must report error on canceled ctx")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PeriodicalHandler — disable reset path
+// ---------------------------------------------------------------------------
+
+// helper to fetch tracker as concrete bool for assertions.
+func trackerVal(t *testing.T, p *SystemServicePlugin) bool {
+	t.Helper()
+	if p.lastPeriodicalEnabled == nil {
+		t.Fatalf("tracker must not be nil after PeriodicalHandler call")
+	}
+	return *p.lastPeriodicalEnabled
+}
+
+// TestPeriodicalHandler_EnableToDisableTransitionResets exercises the core
+// transition: tick1 enabled runs migration; tick2 disabled runs the one-shot
+// reset that reattaches every PID currently under targetRel back into the
+// cpuset root (rel="").
+func TestPeriodicalHandler_EnableToDisableTransitionResets(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
+		100: {PID: 100, Comm: "crond"},
+		400: {PID: 400, Comm: "kswapd0", IsKThread: true, PPID: 2},
+	}}
+	seedRootPIDs(fFS, 100, 400)
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
+		BulkheadSystemKThreadCommSubstrs: []string{"kswapd"},
+	})
+
+	// tick1: enabled → migrate into "system".
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
+		t.Fatalf("tick1 enabled: %v", err)
+	}
+	if trackerVal(t, p) != true {
+		t.Fatalf("tick1 tracker must be &true, got &false")
+	}
+	migrateCount := len(fCg.attaches)
+	if migrateCount == 0 {
+		t.Fatalf("tick1 must produce AttachPID calls, got 0")
+	}
+	// PIDs 100 and 400 should now be inside targetRel per production semantics;
+	// seed the fake cgroup.procs to reflect that.
+	seedTargetPIDs(fCg, "system", 100, 400)
+
+	// tick2: disabled → reset every target PID back to rel="".
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("tick2 disabled: %v", err)
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tick2 tracker must be &false, got &true")
+	}
+	// Two new AttachPID calls to rel="" must have been recorded.
+	resetCalls := fCg.attaches[migrateCount:]
+	if len(resetCalls) != 2 {
+		t.Fatalf("reset must produce exactly 2 AttachPID calls, got %d (all=%+v)", len(resetCalls), fCg.attaches)
+	}
+	gotPids := map[int]bool{}
+	for _, a := range resetCalls {
+		if a.rel != "" {
+			t.Fatalf("reset AttachPID must target rel=\"\" (cpuset root), got rel=%q pid=%d", a.rel, a.pid)
+		}
+		gotPids[a.pid] = true
+	}
+	if !gotPids[100] || !gotPids[400] {
+		t.Fatalf("reset must reattach PIDs 100 and 400 to root, got %+v", gotPids)
+	}
+}
+
+// TestPeriodicalHandler_DisabledStableIsNoOp asserts that once the tracker
+// has already observed a disabled state, subsequent disabled ticks are pure
+// no-ops even if targetRel still has PIDs (which would indicate a partial
+// reset from a prior tick).
+func TestPeriodicalHandler_DisabledStableIsNoOp(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{}
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	seedTargetPIDs(fCg, "system", 100, 400)
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+	f := false
+	p.lastPeriodicalEnabled = &f
+
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("PeriodicalHandler: %v", err)
+	}
+	if len(fCg.attaches) != 0 {
+		t.Fatalf("stable disabled tick must be a no-op, got attaches=%+v", fCg.attaches)
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tracker must stay &false, got &true")
+	}
+}
+
+// TestPeriodicalHandler_FirstTickDisabledTriggersReset covers the
+// "restart while disabled" convergence path: with a nil tracker and disabled
+// context, the first tick must still run the reset.
+func TestPeriodicalHandler_FirstTickDisabledTriggersReset(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{}
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	seedTargetPIDs(fCg, "system", 100, 400)
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("PeriodicalHandler: %v", err)
+	}
+	if len(fCg.attaches) != 2 {
+		t.Fatalf("first-tick disabled reset must produce 2 AttachPID calls, got %+v", fCg.attaches)
+	}
+	for _, a := range fCg.attaches {
+		if a.rel != "" {
+			t.Fatalf("reset AttachPID must target rel=\"\", got rel=%q pid=%d", a.rel, a.pid)
+		}
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tracker must be &false after first-tick disabled, got &true")
+	}
+}
+
+// TestPeriodicalHandler_DisableThenEnableResumesAndResetsTracker asserts that
+// after a disable→reset cycle, a subsequent enable resumes normal migration
+// and updates the tracker to &true so the next disable transition can
+// trigger reset again.
+func TestPeriodicalHandler_DisableThenEnableResumesAndResetsTracker(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
+		100: {PID: 100, Comm: "crond"},
+	}}
+	seedRootPIDs(fFS, 100)
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	seedTargetPIDs(fCg, "system", 500)
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+
+	// tick1 disabled → reset PID 500 to root.
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("tick1: %v", err)
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tick1 tracker must be &false")
+	}
+	resetLen := len(fCg.attaches)
+	if resetLen != 1 || fCg.attaches[0].rel != "" || fCg.attaches[0].pid != 500 {
+		t.Fatalf("tick1 must reset PID 500 to rel=\"\", got %+v", fCg.attaches)
+	}
+
+	// tick2 enabled → normal migrate resumes; tracker flips to &true.
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
+		t.Fatalf("tick2: %v", err)
+	}
+	if trackerVal(t, p) != true {
+		t.Fatalf("tick2 tracker must be &true")
+	}
+	migrateNew := fCg.attaches[resetLen:]
+	if len(migrateNew) != 1 || migrateNew[0].rel != "system" || migrateNew[0].pid != 100 {
+		t.Fatalf("tick2 must migrate PID 100 to rel=\"system\", got %+v", migrateNew)
+	}
+
+	// tick3 disabled → tracker was &true, so reset must fire again.
+	seedTargetPIDs(fCg, "system", 100)
+	tick2End := len(fCg.attaches)
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("tick3: %v", err)
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tick3 tracker must be &false")
+	}
+	tick3Calls := fCg.attaches[tick2End:]
+	if len(tick3Calls) != 1 || tick3Calls[0].rel != "" || tick3Calls[0].pid != 100 {
+		t.Fatalf("tick3 must reset PID 100 to rel=\"\", got %+v", tick3Calls)
+	}
+}
+
+// TestPeriodicalHandler_ResetSkippedWhenTargetMissing asserts reset silently
+// bails when targetRel does not exist. Tracker is still advanced to &false.
+func TestPeriodicalHandler_ResetSkippedWhenTargetMissing(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{}
+	fCg := newFakeCgroup() // no existingDirs → StatDir fails
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+	tr := true
+	p.lastPeriodicalEnabled = &tr
+
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("PeriodicalHandler: %v", err)
+	}
+	if len(fCg.attaches) != 0 {
+		t.Fatalf("reset with missing target must produce zero AttachPID calls, got %+v", fCg.attaches)
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tracker must be &false after skipped reset, got &true")
+	}
+}
+
+// TestPeriodicalHandler_ResetToleratesAttachPIDErrors asserts per-PID
+// AttachPID failures during reset are swallowed and the handler returns nil.
+func TestPeriodicalHandler_ResetToleratesAttachPIDErrors(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{}
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	seedTargetPIDs(fCg, "system", 100, 200)
+	fCg.attachErr = errors.New("EBUSY")
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+	tr := true
+	p.lastPeriodicalEnabled = &tr
+
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
+		t.Fatalf("PeriodicalHandler must swallow per-PID reset attach errors: %v", err)
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tracker must be &false after tolerated reset failures, got &true")
+	}
+}
+
+// TestPeriodicalHandler_ResetListError asserts that when reading targetRel's
+// cgroup.procs fails, PeriodicalHandler surfaces the error but the tracker
+// still advances to &false to prevent a retry storm.
+func TestPeriodicalHandler_ResetListError(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{}
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	fCg.cgroupFileErr = errors.New("boom")
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+	tr := true
+	p.lastPeriodicalEnabled = &tr
+
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err == nil {
+		t.Fatalf("PeriodicalHandler must surface listTargetCgroupPIDs error")
+	}
+	if trackerVal(t, p) != false {
+		t.Fatalf("tracker must be &false even after reset listing error, got &true")
 	}
 }
