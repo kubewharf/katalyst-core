@@ -105,7 +105,7 @@ func NewSystemServicePlugin(conf *config.Configuration) bulkheadapi.Plugin {
 
 	// The factory signature cannot return an error, so a missing procfs path
 	// falls back to a safe default instead of failing construction. Runtime
-	// behaviour is still gated by Enable / the dynamic switch.
+	// behavior is still gated by Enable / the dynamic switch.
 	procfsPath := cfg.BulkheadSystemServiceProcfsPath
 	if procfsPath == "" {
 		procfsPath = defaultProcfsPath
