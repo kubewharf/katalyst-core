@@ -25,6 +25,12 @@ import (
 	utilfs "github.com/kubewharf/katalyst-core/pkg/util/fs"
 )
 
+// PF_KTHREAD mirrors the Linux task_struct PF_KTHREAD flag (bit 21 of the task
+// flags field exposed as the 9th column of /proc/<pid>/stat). A task with this
+// bit set is a kernel thread. See include/linux/sched.h and
+// https://stackoverflow.com/questions/61935596.
+const PF_KTHREAD = 0x00200000
+
 // ProcInfo is a coarse snapshot of one PID's classification.
 type ProcInfo struct {
 	PID       int
@@ -83,7 +89,7 @@ func (p *osProcReader) ReadProc(pid int) (ProcInfo, error) {
 	if err != nil {
 		return ProcInfo{}, fmt.Errorf("read stat: %w", err)
 	}
-	ppid, err := parsePPIDFromStat(stat)
+	ppid, flags, err := parseStatFields(stat)
 	if err != nil {
 		return ProcInfo{}, fmt.Errorf("parse stat for pid %d: %w", pid, err)
 	}
@@ -92,7 +98,7 @@ func (p *osProcReader) ReadProc(pid int) (ProcInfo, error) {
 		PID:       pid,
 		Comm:      strings.TrimRight(string(comm), "\r\n"),
 		PPID:      ppid,
-		IsKThread: pid == 2 || ppid == 2,
+		IsKThread: flags&PF_KTHREAD != 0,
 	}, nil
 }
 
@@ -106,19 +112,29 @@ func (p *osProcReader) SchedSetaffinity(pid int, cpus []int) error {
 	return schedSetaffinity(pid, cpus)
 }
 
-func parsePPIDFromStat(stat []byte) (int, error) {
+func parseStatFields(stat []byte) (ppid int, flags uint64, err error) {
 	s := string(stat)
+	// comm (field 2) is wrapped in parentheses and may itself contain
+	// spaces or parens; split by locating the LAST ')' so the remaining
+	// fields align with proc(5) starting at state (field 3).
 	rp := strings.LastIndexByte(s, ')')
 	if rp < 0 || rp+2 >= len(s) {
-		return 0, fmt.Errorf("invalid stat: missing closing paren or truncated tail")
+		return 0, 0, fmt.Errorf("invalid stat: missing closing paren or truncated tail")
 	}
+	// After the last ')', fields are: state, ppid, pgrp, session,
+	// tty_nr, tpgid, flags, ... (indices 0..6 respectively). We need
+	// at least 7 fields to read the task flags column.
 	rest := strings.Fields(s[rp+2:])
-	if len(rest) < 2 {
-		return 0, fmt.Errorf("invalid stat: only %d fields after paren, want >=2", len(rest))
+	if len(rest) < 7 {
+		return 0, 0, fmt.Errorf("invalid stat: only %d fields after paren, want >=7", len(rest))
 	}
-	ppid, err := strconv.Atoi(rest[1])
+	ppid, err = strconv.Atoi(rest[1])
 	if err != nil {
-		return 0, fmt.Errorf("invalid stat ppid %q: %w", rest[1], err)
+		return 0, 0, fmt.Errorf("invalid stat ppid %q: %w", rest[1], err)
 	}
-	return ppid, nil
+	flags, err = strconv.ParseUint(rest[6], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid stat flags %q: %w", rest[6], err)
+	}
+	return ppid, flags, nil
 }

@@ -85,29 +85,33 @@ func (e fakeDirEntry) IsDir() bool                  { return e.dir }
 func (e fakeDirEntry) Type() iofs.FileMode          { return 0 }
 func (e fakeDirEntry) Info() (iofs.FileInfo, error) { return nil, errors.New("unsupported") }
 
-func TestParsePPIDFromStat_Table(t *testing.T) {
+func TestParseStatFields_Table(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		stat    string
-		want    int
-		wantErr bool
+		name      string
+		stat      string
+		wantPPID  int
+		wantFlags uint64
+		wantErr   bool
 	}{
 		{
-			name: "normal init line",
-			stat: "1 (systemd) S 0 1 1 0 -1 4194560 12345",
-			want: 0,
+			name:      "normal init line",
+			stat:      "1 (systemd) S 0 1 1 0 -1 4194560 12345",
+			wantPPID:  0,
+			wantFlags: 4194560,
 		},
 		{
-			name: "kthreadd child",
-			stat: "42 (kworker/u8:1) I 2 0 0 0 -1 69238880 0",
-			want: 2,
+			name:      "kernel thread with PF_KTHREAD",
+			stat:      "42 (kworker/u8:1) I 2 0 0 0 -1 69238880 0",
+			wantPPID:  2,
+			wantFlags: 69238880,
 		},
 		{
-			name: "comm with spaces and parens",
-			stat: "17 (weird ) name)) S 1 17 17 0 -1 4194304 0",
-			want: 1,
+			name:      "comm with spaces and parens",
+			stat:      "17 (weird ) name)) S 1 17 17 0 -1 4194304 0",
+			wantPPID:  1,
+			wantFlags: 4194304,
 		},
 		{
 			name:    "missing closing paren",
@@ -121,12 +125,17 @@ func TestParsePPIDFromStat_Table(t *testing.T) {
 		},
 		{
 			name:    "too few fields",
-			stat:    "17 (systemd) S",
+			stat:    "17 (systemd) S 1 17 17 0",
 			wantErr: true,
 		},
 		{
 			name:    "ppid not numeric",
-			stat:    "17 (systemd) S bogus 17 17",
+			stat:    "17 (systemd) S bogus 17 17 0 -1 4194560 0",
+			wantErr: true,
+		},
+		{
+			name:    "flags not numeric",
+			stat:    "17 (systemd) S 1 17 17 0 -1 notanum 0",
 			wantErr: true,
 		},
 	}
@@ -136,18 +145,21 @@ func TestParsePPIDFromStat_Table(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parsePPIDFromStat([]byte(tt.stat))
+			ppid, flags, err := parseStatFields([]byte(tt.stat))
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("parsePPIDFromStat(%q) = (%d,nil), want error", tt.stat, got)
+					t.Fatalf("parseStatFields(%q) = (%d,%d,nil), want error", tt.stat, ppid, flags)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parsePPIDFromStat(%q): %v", tt.stat, err)
+				t.Fatalf("parseStatFields(%q): %v", tt.stat, err)
 			}
-			if got != tt.want {
-				t.Fatalf("parsePPIDFromStat(%q) = %d, want %d", tt.stat, got, tt.want)
+			if ppid != tt.wantPPID {
+				t.Fatalf("parseStatFields(%q) ppid = %d, want %d", tt.stat, ppid, tt.wantPPID)
+			}
+			if flags != tt.wantFlags {
+				t.Fatalf("parseStatFields(%q) flags = %d, want %d", tt.stat, flags, tt.wantFlags)
 			}
 		})
 	}
@@ -234,7 +246,7 @@ func TestOSProcReader_ReadProc_ClassifiesKthreaddItself(t *testing.T) {
 
 	f := newProcfsFakeFS()
 	f.files["/proc/2/comm"] = []byte("kthreadd\n")
-	f.files["/proc/2/stat"] = []byte("2 (kthreadd) S 0 0 0 0 -1 4194560 0")
+	f.files["/proc/2/stat"] = []byte("2 (kthreadd) S 0 0 0 0 -1 2097152 0")
 
 	info, err := NewProcReader(f, "/proc").ReadProc(2)
 	if err != nil {
