@@ -126,11 +126,40 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 
 			if poolAllocationInfo == nil {
 				if p.isSharedCoresRampUpDisabled() {
-					return nil, fmt.Errorf("shared cores ramp up is disabled but target pool %s is not ready", targetPoolName)
+					// cold-start bootstrap: the target pool entry is not ready yet, but
+					// DisableSharedCoresRampUp=true forbids binding this pod to the broad
+					// pooledCPUs. Delegate to the assembler pipeline (adjustPoolsAndIsolatedEntries
+					// -> generatePoolsAndIsolation -> reviseReclaimPool) to seed the pool entry
+					// together with this pod's allocation atomically, honoring overlap/pkg/numa
+					// semantics without duplicating the logic here.
+					general.Infof("pod: %s/%s, container: %s cold-start seeding target pool %s under DisableSharedCoresRampUp",
+						req.PodNamespace, req.PodName, req.ContainerName, targetPoolName)
+
+					if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+						return nil, err
+					}
+					checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true, persistCheckpoint)
+					if err != nil {
+						// roll back the freshly-inserted allocation to keep pod entries clean
+						p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, nil, persistCheckpoint)
+						general.Errorf("pod: %s/%s, container: %s cold-start seed pool %s failed: %v",
+							req.PodNamespace, req.PodName, req.ContainerName, targetPoolName, err)
+						return nil, fmt.Errorf("cold-start seed pool %s failed: %v", targetPoolName, err)
+					}
+
+					_ = p.emitter.StoreInt64(util.MetricNameSharedCoresRampUpDisabledSeeded, 1,
+						metrics.MetricTypeNameCount,
+						metrics.MetricTag{Key: "poolName", Val: targetPoolName},
+						metrics.MetricTag{Key: "overlap", Val: strconv.FormatBool(p.state.GetAllowSharedCoresOverlapReclaimedCores())},
+					)
+
+					allocationInfo = checkedAllocationInfo
+					needSet = false
+				} else {
+					general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
+						req.PodNamespace, req.PodName, req.ContainerName)
+					allocationInfo.RampUp = true
 				}
-				general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
-					req.PodNamespace, req.PodName, req.ContainerName)
-				allocationInfo.RampUp = true
 			} else if p.isSharedCoresRampUpDisabled() {
 				allocationInfo.AllocationResult = poolAllocationInfo.AllocationResult.Clone()
 				allocationInfo.OriginalAllocationResult = poolAllocationInfo.OriginalAllocationResult.Clone()

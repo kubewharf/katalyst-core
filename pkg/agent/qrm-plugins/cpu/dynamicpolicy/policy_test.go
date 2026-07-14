@@ -6100,10 +6100,179 @@ func TestSharedCoresRampUpDisabledAllocation(t *testing.T) {
 		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
 
 		req := newSharedCoresReq("shared-missing-pool")
+		// cold-start seed path: with DisableSharedCoresRampUp=true and no pre-existing
+		// target pool entry, we now seed the pool via the assembler pipeline instead of
+		// returning admit failure. Verify admit succeeds, RampUp=false, and the target
+		// pool entry has been persisted.
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+
+		// target pool should now be present in state
+		poolInfo := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+		as.NotNil(poolInfo)
+		assert.Equal(t, allocationInfo.AllocationResult.String(), poolInfo.AllocationResult.String())
+	})
+
+	t.Run("cold-start seed overlap-false excludes reclaim pool", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.state.SetAllowSharedCoresOverlapReclaimedCores(false, false)
+
+		reclaimCPUs := machine.NewCPUSet(10, 11, 12, 13, 14, 15)
+		policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:                 reclaimCPUs,
+			OriginalAllocationResult:         reclaimCPUs.Clone(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{0: reclaimCPUs},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: reclaimCPUs.Clone()},
+		}, false)
+
+		req := newSharedCoresReq("shared-cold-start-overlap-false")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		// After assembler, the reclaim pool may be reshaped; the overlap=false
+		// invariant is that the pod's cpuset does not intersect the FINAL reclaim pool.
+		finalReclaim := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+		as.NotNil(finalReclaim)
+		assert.True(t, allocationInfo.AllocationResult.Intersection(finalReclaim.AllocationResult).IsEmpty(),
+			"cold-start seed cpuset should not overlap final reclaim pool when overlap=false; pod=%s reclaim=%s",
+			allocationInfo.AllocationResult.String(), finalReclaim.AllocationResult.String())
+	})
+
+	t.Run("cold-start seed overlap-true allows reclaim intersection", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.state.SetAllowSharedCoresOverlapReclaimedCores(true, false)
+
+		reclaimCPUs := machine.NewCPUSet(10, 11, 12, 13, 14, 15)
+		policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:                 reclaimCPUs,
+			OriginalAllocationResult:         reclaimCPUs.Clone(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{0: reclaimCPUs},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: reclaimCPUs.Clone()},
+		}, false)
+
+		req := newSharedCoresReq("shared-cold-start-overlap-true")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+	})
+
+	t.Run("cold-start seed without reclaim pool falls back to pooled cpus", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req := newSharedCoresReq("shared-cold-start-no-reclaim")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+	})
+
+	t.Run("cold-start seed persists checkpoint pool entry", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req := newSharedCoresReq("shared-cold-start-persist")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, true)
+		as.Nil(err)
+
+		podEntries := policy.state.GetPodEntries()
+		as.NotNil(podEntries)
+		poolEntry := podEntries[commonstate.PoolNameShare]
+		as.NotNil(poolEntry, "share pool entry should exist after cold-start seed")
+		assert.NotNil(t, poolEntry[commonstate.FakedContainerName])
+	})
+
+	t.Run("cold-start seed re-entry takes clone branch on second admit", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req1 := newSharedCoresReq("shared-cold-start-first")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req1, false)
+		as.Nil(err)
+		firstAllocation := policy.state.GetAllocationInfo(req1.PodUid, req1.ContainerName)
+		as.NotNil(firstAllocation)
+
+		poolAfterFirst := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+		as.NotNil(poolAfterFirst)
+		poolCPUsBefore := poolAfterFirst.AllocationResult.String()
+
+		// second pod admits with pool already present - should clone pool, not re-seed
+		req2 := newSharedCoresReq("shared-cold-start-second")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req2, false)
+		as.Nil(err)
+		secondAllocation := policy.state.GetAllocationInfo(req2.PodUid, req2.ContainerName)
+		as.NotNil(secondAllocation)
+		assert.False(t, secondAllocation.RampUp)
+
+		poolAfterSecond := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+		as.NotNil(poolAfterSecond)
+		// pool cpuset should remain stable across re-admits (may expand slightly if
+		// assembler recomputes on second admit, but must not shrink to empty)
+		assert.False(t, poolAfterSecond.AllocationResult.IsEmpty(),
+			"pool should still be present after second admit; before=%s after=%s",
+			poolCPUsBefore, poolAfterSecond.AllocationResult.String())
+	})
+
+	t.Run("disable=false cold-start keeps RampUp behavior", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = false
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID("ramp-up-pending"), Namespace: "default", Name: "ramp-up-pending"},
+				Status:     v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+
+		req := newSharedCoresReq("ramp-up-pending")
 		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
-		as.Error(err)
-		assert.Contains(t, err.Error(), "shared cores ramp up is disabled")
-		assert.Nil(t, policy.state.GetAllocationInfo(req.PodUid, req.ContainerName))
+		as.Nil(err)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		// disable=false + pending pod + no existing pool → RampUp=true broad path,
+		// no cold-start seed
+		assert.True(t, allocationInfo.RampUp)
 	})
 }
 
