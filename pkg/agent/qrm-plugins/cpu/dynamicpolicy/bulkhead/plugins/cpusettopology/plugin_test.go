@@ -583,27 +583,37 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingPod(t *testing.T) {
 	t.Parallel()
 
 	p := &CPUSetTopologyPlugin{}
-	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
-		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
-			MetaServer: &metaserver.MetaServer{
-				MetaAgent: &agent.MetaAgent{
-					PodFetcher: &metapod.PodFetcherStub{},
-				},
+	view := &bulkheadutils.CPUSetPartitionView{
+		ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+			"missing-pod": {
+				"main": machine.NewCPUSet(0, 1),
 			},
 		},
-		View: &bulkheadutils.CPUSetPartitionView{
-			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
-				"missing-pod": {
-					"main": machine.NewCPUSet(0, 1),
-				},
-			},
+	}
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &metapod.PodFetcherStub{},
 		},
+	}
+
+	// A missing pod fails at the container-id stage, which is the admit-safe
+	// pending case: no error, no expected leaf, but the allocation is recorded
+	// as protected-pending so the writer keeps the parent a superset.
+	res, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{MetaServer: metaServer},
+		View:                       view,
 	})
 	if err != nil {
-		t.Fatalf("missing pod should be skipped, got error: %v", err)
+		t.Fatalf("missing pod must not error (admit-safe pending), got %v", err)
 	}
-	if expected != nil {
-		t.Fatalf("expected nil map for missing pod, got %#v", expected)
+	if len(res.ExpectedByRel) != 0 {
+		t.Fatalf("expected no resolved leaves, got %#v", res.ExpectedByRel)
+	}
+	if len(res.PendingByPod) != 1 {
+		t.Fatalf("expected one protected-pending entry, got %#v", res.PendingByPod)
+	}
+	if got := res.PendingCPUSetUnion().String(); got != "0-1" {
+		t.Fatalf("pending union = %s, want 0-1", got)
 	}
 }
 
@@ -611,63 +621,70 @@ func TestCPUSetTopologyPluginSkipsExpectedCPUSetForMissingContainer(t *testing.T
 	t.Parallel()
 
 	p := &CPUSetTopologyPlugin{}
-	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
-		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
-			MetaServer: &metaserver.MetaServer{
-				MetaAgent: &agent.MetaAgent{
-					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
-						ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-1")},
-					}}},
-				},
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-1")},
+			}}},
+		},
+	}
+	view := &bulkheadutils.CPUSetPartitionView{
+		ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+			"pod-1": {
+				"missing-container": machine.NewCPUSet(0, 1),
 			},
 		},
-		View: &bulkheadutils.CPUSetPartitionView{
-			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
-				"pod-1": {
-					"missing-container": machine.NewCPUSet(0, 1),
-				},
-			},
-		},
+	}
+
+	// A container with no status yet also fails at the container-id stage:
+	// admit-safe pending, not an error.
+	res, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{MetaServer: metaServer},
+		View:                       view,
 	})
 	if err != nil {
-		t.Fatalf("missing container should be skipped, got error: %v", err)
+		t.Fatalf("missing container must not error (admit-safe pending), got %v", err)
 	}
-	if expected != nil {
-		t.Fatalf("expected nil map for missing container, got %#v", expected)
+	if len(res.ExpectedByRel) != 0 {
+		t.Fatalf("expected no resolved leaves, got %#v", res.ExpectedByRel)
+	}
+	if len(res.PendingByPod) != 1 {
+		t.Fatalf("expected one protected-pending entry, got %#v", res.PendingByPod)
 	}
 }
 
-func TestCPUSetTopologyPluginSkipsExpectedCPUSetForUnresolvedContainerRel(t *testing.T) {
+func TestCPUSetTopologyPluginFailsExpectedCPUSetForUnresolvedContainerRel(t *testing.T) {
 	t.Parallel()
 
 	p := &CPUSetTopologyPlugin{}
-	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
-		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
-			MetaServer: &metaserver.MetaServer{
-				MetaAgent: &agent.MetaAgent{
-					PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
-						ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-1")},
-						Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
-							Name:        "main",
-							ContainerID: "invalid-container-id",
-						}}},
-					}}},
-				},
-			},
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &metapod.PodFetcherStub{PodList: []*v1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-1")},
+				Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+					Name:        "main",
+					ContainerID: "invalid-container-id",
+				}}},
+			}}},
 		},
-		View: &bulkheadutils.CPUSetPartitionView{
-			ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
-				"pod-1": {
-					"main": machine.NewCPUSet(0, 1),
-				},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("unresolved container rel should be skipped, got error: %v", err)
 	}
-	if expected != nil {
-		t.Fatalf("expected nil map for unresolved container rel, got %#v", expected)
+	view := &bulkheadutils.CPUSetPartitionView{
+		ContainerCPUSetByPod: map[string]map[string]machine.CPUSet{
+			"pod-1": {
+				"main": machine.NewCPUSet(0, 1),
+			},
+		},
+	}
+
+	// The container id resolves, but the relative cgroup path cannot be resolved
+	// (no handler / broken layout). This is a real error, NOT the admit window,
+	// so the round must fail-closed rather than apply a partial topology.
+	res, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{MetaServer: metaServer},
+		View:                       view,
+	})
+	if err == nil {
+		t.Fatalf("unresolved container rel (id known) must fail-closed, got res=%#v", res)
 	}
 }
 
@@ -700,7 +717,7 @@ func TestCPUSetTopologyPluginBuildExpectedCPUSetByRelTrimsLeadingSlash(t *testin
 	})
 
 	p := &CPUSetTopologyPlugin{}
-	expected, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
+	res, err := p.buildExpectedCPUSetByRel(context.Background(), bulkheadapi.HandlerContext{
 		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
 			MetaServer: &metaserver.MetaServer{
 				MetaAgent: &agent.MetaAgent{
@@ -725,6 +742,7 @@ func TestCPUSetTopologyPluginBuildExpectedCPUSetByRelTrimsLeadingSlash(t *testin
 	if err != nil {
 		t.Fatalf("buildExpectedCPUSetByRel: %v", err)
 	}
+	expected := res.ExpectedByRel
 	if _, ok := expected[prefixedRel]; ok {
 		t.Fatalf("map key still has leading '/': %q; keys=%v", prefixedRel, keysOf(expected))
 	}

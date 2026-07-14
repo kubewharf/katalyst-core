@@ -86,15 +86,22 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		return fmt.Errorf("build bulkhead topology dag: %w", err)
 	}
 
-	expected, err := p.buildExpectedCPUSetByRel(ctx, in)
+	expectedRes, err := p.buildExpectedCPUSetByRel(ctx, in)
 	if err != nil {
+		// Only non-pending resolve failures (illegal rel, cgroup/metaserver
+		// internal error) reach here. Pending containers (admit window, no
+		// container id yet) are classified as protected-pending and do NOT
+		// produce an error, so a normal new-pod admit is never rejected.
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
-		return fmt.Errorf("build expected container cpuset by rel: %w", err)
+		return fmt.Errorf("build expected container cpuset: %w", err)
 	}
 	_, err = topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
-		DAG:                 dag,
-		Cgroup:              p.cgroup,
-		ExpectedCPUSetByRel: expected,
+		DAG:                         dag,
+		Cgroup:                      p.cgroup,
+		ExpectedCPUSetByRel:         expectedRes.ExpectedByRel,
+		ProtectUnmanagedKubePodLeaf: true,
+		KubeManagedRelPrefix:        p.cfg.BulkheadPrimaryRelPath,
+		ProtectedPendingCPUSet:      expectedRes.PendingCPUSetUnion(),
 	})
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")
@@ -163,10 +170,17 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(ctx context.Context, in bulkh
 		return err
 	}
 
-	expected, err := p.buildExpectedCPUSetByRel(ctx, in)
-	if err != nil {
-		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
-		return fmt.Errorf("build disabled reset expected rels: %w", err)
+	// Reset (disabled transition) widens leaves back towards the machine/root
+	// cpuset. It must stay fail-open: if a live container rel cannot be resolved
+	// we still want to relax the (possibly polluted) leaf, otherwise a leaf stuck
+	// on a stale transient-pool cpuset can never recover. For the same reason we
+	// do NOT protect kube pod leaves here - widening a leaf is always safe.
+	// Any classification error is intentionally ignored: reset must never be
+	// blocked by a transient resolve failure.
+	expectedRes, _ := p.buildExpectedCPUSetByRel(ctx, in)
+	var expected map[string]machine.CPUSet
+	if expectedRes != nil {
+		expected = expectedRes.ExpectedByRel
 	}
 
 	dag, err := p.buildDisabledResetDAG(ctx, in, target)
@@ -237,13 +251,71 @@ func (p *CPUSetTopologyPlugin) applyBulkheadPartitionFlag(ctx context.Context, f
 	return apierrors.NewAggregate(errs)
 }
 
-func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in bulkheadapi.HandlerContext) (map[string]machine.CPUSet, error) {
-	if in.MetaServer == nil || in.View == nil || len(in.View.ContainerCPUSetByPod) == 0 {
-		return nil, nil
+// pendingContainerCPUSet records a container whose allocation already exists in
+// QRM state but whose cgroup rel cannot be resolved yet (typically the pod
+// admit window before kubelet/containerd creates the container). Its cpuset
+// must still be treated as a protected descendant so the parent effective
+// target never shrinks below it, but its leaf must NOT be written.
+type pendingContainerCPUSet struct {
+	PodUID        string
+	ContainerName string
+	CPUs          machine.CPUSet
+	Reason        string
+}
+
+// expectedCPUSetBuildResult separates resolvable container leaves (ExpectedByRel,
+// written precisely) from admit-pending containers (PendingByPod, protected but
+// not written).
+type expectedCPUSetBuildResult struct {
+	ExpectedByRel map[string]machine.CPUSet
+	PendingByPod  []pendingContainerCPUSet
+}
+
+// PendingCPUSetUnion returns the union of all pending container allocations. The
+// writer folds this into the primary effective target so the parent cgroup never
+// shrinks below an allocation whose leaf has not been created yet.
+func (r *expectedCPUSetBuildResult) PendingCPUSetUnion() machine.CPUSet {
+	out := machine.NewCPUSet()
+	if r == nil {
+		return out
 	}
-	out := map[string]machine.CPUSet{}
+	for _, p := range r.PendingByPod {
+		out = out.Union(p.CPUs)
+	}
+	return out
+}
+
+// isContainerNotCreatedErr reports whether a ResolveContainerRelPath error means
+// the container simply has not been created yet (admit-safe pending), as opposed
+// to a real internal error. A failure while resolving the container ID means
+// kubelet/containerd has not created the container yet - the normal pod admit
+// window - so it must NOT fail the round. A failure after the ID is known (for
+// example resolving the relative cgroup path) is a real problem and is surfaced.
+func isContainerNotCreatedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var resolveErr *bulkheadutils.ContainerRelPathResolveError
+	if errors.As(err, &resolveErr) {
+		return resolveErr.Stage == bulkheadutils.ContainerRelPathResolveStageContainerID
+	}
+	// Backward-compatible fallback for callers/tests that may still wrap errors
+	// with the old text-only context. Keep this intentionally narrow: a generic
+	// "not found" from cgroup path resolution must stay fail-closed.
+	return strings.Contains(err.Error(), "resolve container id:")
+}
+
+func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(_ context.Context, in bulkheadapi.HandlerContext) (*expectedCPUSetBuildResult, error) {
+	if in.MetaServer == nil || in.View == nil || len(in.View.ContainerCPUSetByPod) == 0 {
+		return &expectedCPUSetBuildResult{}, nil
+	}
+	out := &expectedCPUSetBuildResult{ExpectedByRel: map[string]machine.CPUSet{}}
+	var errs []error
 	for podUID, containers := range in.View.ContainerCPUSetByPod {
 		for containerName, cpus := range containers {
+			if cpus.IsEmpty() {
+				continue
+			}
 			// Reuse ResolveContainerRelPath so that the rel-key format stays in sync
 			// with everywhere else in bulkhead (BulkheadPrimaryRelPath,
 			// BulkheadReclaimRelPaths, CollectActiveRels, controlledRels, and the
@@ -256,18 +328,33 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 			// silently degrade to inheriting the parent pool target.
 			rel, err := bulkheadutils.ResolveContainerRelPath(in.MetaServer, podUID, containerName)
 			if err != nil {
-				general.InfofV(5, "bulkhead: resolve container rel failed, skipping expected cpuset enforce, pod=%q container=%q err=%v",
-					podUID, containerName, err)
+				if isContainerNotCreatedErr(err) {
+					// admit-safe pending: state has the allocation but the container
+					// cgroup does not exist yet. Do NOT fail (that would reject pod
+					// admit); record it so the writer keeps the parent a superset.
+					general.InfofV(5, "bulkhead: container rel pending, protecting allocation, pod=%q container=%q cpuset=%s err=%v",
+						podUID, containerName, cpus.String(), err)
+					out.PendingByPod = append(out.PendingByPod, pendingContainerCPUSet{
+						PodUID: podUID, ContainerName: containerName, CPUs: cpus, Reason: err.Error(),
+					})
+					continue
+				}
+				// A real internal error (illegal rel, cgroup/metaserver failure):
+				// block this round rather than apply a partial/wrong topology.
+				errs = append(errs, fmt.Errorf("pod=%s container=%s cpuset=%s: %w",
+					podUID, containerName, cpus.String(), err))
 				continue
 			}
 			if rel == "" {
+				errs = append(errs, fmt.Errorf("pod=%s container=%s cpuset=%s: empty relative cgroup path",
+					podUID, containerName, cpus.String()))
 				continue
 			}
-			out[rel] = cpus
+			out.ExpectedByRel[rel] = cpus
 		}
 	}
-	if len(out) == 0 {
-		return nil, nil
+	if len(errs) > 0 {
+		return nil, apierrors.NewAggregate(errs)
 	}
 	return out, nil
 }

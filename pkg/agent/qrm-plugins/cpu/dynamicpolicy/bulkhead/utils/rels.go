@@ -26,17 +26,43 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+type ContainerRelPathResolveStage string
+
+const (
+	ContainerRelPathResolveStageContainerID ContainerRelPathResolveStage = "container_id"
+	ContainerRelPathResolveStageCgroupPath  ContainerRelPathResolveStage = "cgroup_path"
+)
+
+type ContainerRelPathResolveError struct {
+	Stage ContainerRelPathResolveStage
+	Err   error
+}
+
+func (e *ContainerRelPathResolveError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("resolve container rel path stage=%s: %v", e.Stage, e.Err)
+}
+
+func (e *ContainerRelPathResolveError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 func ResolveContainerRelPath(metaServer *metaserver.MetaServer, podUID, containerName string) (string, error) {
 	if metaServer == nil {
 		return "", fmt.Errorf("nil metaServer")
 	}
 	containerID, err := metaServer.GetContainerID(podUID, containerName)
 	if err != nil {
-		return "", fmt.Errorf("resolve container id: %w", err)
+		return "", &ContainerRelPathResolveError{Stage: ContainerRelPathResolveStageContainerID, Err: err}
 	}
 	rel, err := cgcommon.GetContainerRelativeCgroupPath(podUID, containerID)
 	if err != nil {
-		return "", fmt.Errorf("resolve container relative cgroup path: %w", err)
+		return "", &ContainerRelPathResolveError{Stage: ContainerRelPathResolveStageCgroupPath, Err: err}
 	}
 	return strings.Trim(rel, "/"), nil
 }
