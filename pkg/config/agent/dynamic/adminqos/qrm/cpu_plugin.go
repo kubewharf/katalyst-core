@@ -40,6 +40,7 @@ type DynamicBulkheadConfiguration struct {
 	Enable                       bool
 	EnableBulkheadCpusetTopology bool
 	EnableBulkheadWorkqueue      bool
+	EnableBulkheadSystemService  bool
 }
 
 func NewCPUPluginConfiguration() *CPUPluginConfiguration {
@@ -65,6 +66,9 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			}
 			if config.BulkheadConfig.EnableBulkheadWorkqueue != nil {
 				c.BulkheadConfig.EnableBulkheadWorkqueue = *config.BulkheadConfig.EnableBulkheadWorkqueue
+			}
+			if config.BulkheadConfig.EnableBulkheadSystemService != nil {
+				c.BulkheadConfig.EnableBulkheadSystemService = *config.BulkheadConfig.EnableBulkheadSystemService
 			}
 		}
 		if config.DisableSharedCoresRampUp != nil {

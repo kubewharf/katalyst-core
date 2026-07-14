@@ -32,7 +32,7 @@ func TestNewDefaultPluginsPreservesOrder(t *testing.T) {
 	for _, plugin := range plugins {
 		got = append(got, plugin.Name())
 	}
-	want := []string{"cpuset_topology", "workqueue"}
+	want := []string{"cpuset_topology", "workqueue", "system_service"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected plugin order, got %v want %v", got, want)
 	}

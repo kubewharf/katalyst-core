@@ -34,16 +34,23 @@ type BulkheadOptions struct {
 
 	BulkheadWorkqueueSysfsDir string
 	BulkheadWorkqueueNames    []string
+
+	BulkheadSystemRelPath            string
+	BulkheadSystemServiceProcfsPath  string
+	BulkheadSystemdCommWhitelist     []string
+	BulkheadSystemKThreadCommSubstrs []string
 }
 
 func NewBulkheadOptions() BulkheadOptions {
 	return BulkheadOptions{
-		BulkheadPrimaryRelPath:        "kubepods",
-		BulkheadReclaimRelPaths:       []string{"reclaimed"},
-		BulkheadReclaimNumaPrefixes:   []string{"reclaimed/reclaimed-"},
-		BulkheadPartitionRelPaths:     []string{"kubepods"},
-		EnableBulkheadReclaimSiblings: true,
-		BulkheadWorkqueueSysfsDir:     "/sys/devices/virtual/workqueue",
+		BulkheadPrimaryRelPath:          "kubepods",
+		BulkheadReclaimRelPaths:         []string{"reclaimed"},
+		BulkheadReclaimNumaPrefixes:     []string{"reclaimed/reclaimed-"},
+		BulkheadPartitionRelPaths:       []string{"kubepods"},
+		EnableBulkheadReclaimSiblings:   true,
+		BulkheadWorkqueueSysfsDir:       "/sys/devices/virtual/workqueue",
+		BulkheadSystemRelPath:           "system",
+		BulkheadSystemServiceProcfsPath: "/proc",
 	}
 }
 
@@ -63,6 +70,14 @@ func (o *BulkheadOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.BulkheadWorkqueueSysfsDir, "The workqueue sysfs directory for cpu bulkhead.")
 	fs.StringSliceVar(&o.BulkheadWorkqueueNames, "qrm-cpu-bulkhead-workqueue-names",
 		o.BulkheadWorkqueueNames, "The per-workqueue names whose cpumask should be adjusted by cpu bulkhead.")
+	fs.StringVar(&o.BulkheadSystemRelPath, "qrm-cpu-bulkhead-system-rel-path",
+		o.BulkheadSystemRelPath, "The target cgroup relative path that cpu bulkhead system_service migrates matching processes into.")
+	fs.StringVar(&o.BulkheadSystemServiceProcfsPath, "qrm-cpu-bulkhead-system-service-procfs-path",
+		o.BulkheadSystemServiceProcfsPath, "The procfs mount root used by cpu bulkhead system_service.")
+	fs.StringSliceVar(&o.BulkheadSystemdCommWhitelist, "qrm-cpu-bulkhead-systemd-comm-whitelist",
+		o.BulkheadSystemdCommWhitelist, "The userspace process comm exact-match whitelist migrated by cpu bulkhead system_service.")
+	fs.StringSliceVar(&o.BulkheadSystemKThreadCommSubstrs, "qrm-cpu-bulkhead-system-kthread-comm-substrs",
+		o.BulkheadSystemKThreadCommSubstrs, "The kernel-thread comm substring match list pinned by cpu bulkhead system_service.")
 }
 
 func (o *BulkheadOptions) ApplyTo(conf *bulkheadconfig.BulkheadConfiguration) error {
@@ -76,6 +91,10 @@ func (o *BulkheadOptions) ApplyTo(conf *bulkheadconfig.BulkheadConfiguration) er
 	conf.EnableBulkheadReclaimSiblings = o.EnableBulkheadReclaimSiblings
 	conf.BulkheadWorkqueueSysfsDir = strings.TrimSpace(o.BulkheadWorkqueueSysfsDir)
 	conf.BulkheadWorkqueueNames = trimStringSlice(o.BulkheadWorkqueueNames)
+	conf.BulkheadSystemRelPath = normalizeRel(o.BulkheadSystemRelPath)
+	conf.BulkheadSystemServiceProcfsPath = strings.TrimSpace(o.BulkheadSystemServiceProcfsPath)
+	conf.BulkheadSystemdCommWhitelist = trimStringSlice(o.BulkheadSystemdCommWhitelist)
+	conf.BulkheadSystemKThreadCommSubstrs = trimStringSlice(o.BulkheadSystemKThreadCommSubstrs)
 	if len(conf.BulkheadReclaimNumaPrefixes) > len(conf.BulkheadReclaimRelPaths) {
 		return fmt.Errorf("qrm cpu bulkhead reclaim numa prefixes count %d exceeds reclaim rel paths count %d",
 			len(conf.BulkheadReclaimNumaPrefixes), len(conf.BulkheadReclaimRelPaths))

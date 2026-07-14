@@ -29,6 +29,7 @@ type CPUPluginOptions struct {
 	EnableBulkhead               bool
 	EnableBulkheadCpusetTopology bool
 	EnableBulkheadWorkqueue      bool
+	EnableBulkheadSystemService  bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
@@ -50,6 +51,8 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if true, enable bulkhead cpuset topology plugin.")
 	fs.BoolVar(&o.EnableBulkheadWorkqueue, "enable-bulkhead-workqueue", o.EnableBulkheadWorkqueue,
 		"if true, enable bulkhead workqueue plugin.")
+	fs.BoolVar(&o.EnableBulkheadSystemService, "enable-bulkhead-system-service", o.EnableBulkheadSystemService,
+		"if true, enable bulkhead system_service plugin.")
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
@@ -59,6 +62,7 @@ func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.BulkheadConfig.Enable = o.EnableBulkhead
 	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
 	c.BulkheadConfig.EnableBulkheadWorkqueue = o.EnableBulkheadWorkqueue
+	c.BulkheadConfig.EnableBulkheadSystemService = o.EnableBulkheadSystemService
 
 	return nil
 }

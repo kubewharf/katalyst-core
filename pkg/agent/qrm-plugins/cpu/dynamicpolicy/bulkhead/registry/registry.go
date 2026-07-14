@@ -21,6 +21,7 @@ import (
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/cpusettopology"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/systemservice"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/workqueue"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
@@ -28,6 +29,7 @@ import (
 var defaultPluginFactories = []bulkheadapi.PluginFactory{
 	cpusettopology.NewCPUSetTopologyPlugin,
 	workqueue.NewWorkqueuePlugin,
+	systemservice.NewSystemServicePlugin,
 }
 
 func NewDefaultPlugins(conf *config.Configuration) ([]bulkheadapi.Plugin, error) {

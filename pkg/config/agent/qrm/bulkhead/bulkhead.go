@@ -30,6 +30,12 @@ type BulkheadConfiguration struct {
 
 	BulkheadWorkqueueSysfsDir string
 	BulkheadWorkqueueNames    []string
+
+	// system_service plugin
+	BulkheadSystemRelPath            string
+	BulkheadSystemServiceProcfsPath  string
+	BulkheadSystemdCommWhitelist     []string
+	BulkheadSystemKThreadCommSubstrs []string
 }
 
 func NewBulkheadConfiguration() *BulkheadConfiguration {
