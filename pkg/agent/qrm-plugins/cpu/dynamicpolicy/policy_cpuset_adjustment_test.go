@@ -40,7 +40,7 @@ func newPolicyForBypassTest(enabled bool) *DynamicPolicy {
 	return &DynamicPolicy{dynamicConfig: dyn}
 }
 
-func TestShouldBypassGetResourcesAllocationCPUSet(t *testing.T) {
+func TestShouldBypassCPUSetAdjustment(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -57,18 +57,54 @@ func TestShouldBypassGetResourcesAllocationCPUSet(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := newPolicyForBypassTest(tc.enabled)
-			assert.Equal(t, tc.want, p.shouldBypassGetResourcesAllocationCPUSet())
+			assert.Equal(t, tc.want, p.shouldBypassCPUSetAdjustment())
 		})
 	}
 
 	t.Run("nil dynamicConfig", func(t *testing.T) {
 		t.Parallel()
 		p := &DynamicPolicy{dynamicConfig: nil}
-		assert.False(t, p.shouldBypassGetResourcesAllocationCPUSet())
+		assert.False(t, p.shouldBypassCPUSetAdjustment())
 	})
 }
 
-func TestGetResourcesAllocationBypassClearsAllQoS(t *testing.T) {
+func TestShouldBypassCPUSetAdjustmentForAllocation(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		qos  string
+		want bool
+	}{
+		{"dedicated keeps cpuset", consts.PodAnnotationQoSLevelDedicatedCores, false},
+		{"shared bypasses cpuset", consts.PodAnnotationQoSLevelSharedCores, true},
+		{"reclaimed bypasses cpuset", consts.PodAnnotationQoSLevelReclaimedCores, true},
+		{"system bypasses cpuset", consts.PodAnnotationQoSLevelSystemCores, true},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPolicyForBypassTest(true)
+			req := &pluginapi.ResourceRequest{
+				PodUid:        tc.name,
+				PodNamespace:  "default",
+				PodName:       tc.name,
+				ContainerName: "main",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: tc.qos,
+				},
+			}
+			allocationInfo := &state.AllocationInfo{
+				AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.EmptyOwnerPoolName, tc.qos),
+			}
+			assert.Equal(t, tc.want, p.shouldBypassCPUSetAdjustmentForAllocation(allocationInfo))
+		})
+	}
+}
+
+func TestGetResourcesAllocationBypassClearsNonDedicatedQoS(t *testing.T) {
 	t.Parallel()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -120,14 +156,18 @@ func TestGetResourcesAllocationBypassClearsAllQoS(t *testing.T) {
 
 	for _, tc := range testCases {
 		cpuInfo := resp.PodResources[tc.podUID].ContainerResources["main"].ResourceAllocation[string(v1.ResourceCPU)]
-		assert.Equal(t, "", cpuInfo.AllocationResult)
+		if tc.qos == consts.PodAnnotationQoSLevelDedicatedCores {
+			assert.Equal(t, tc.cpus.String(), cpuInfo.AllocationResult)
+		} else {
+			assert.Equal(t, "", cpuInfo.AllocationResult)
+		}
 		assert.Greater(t, cpuInfo.AllocatedQuantity, float64(0))
 		assert.NotEmpty(t, cpuInfo.TopologyAssignments)
 		assert.Equal(t, tc.qos, cpuInfo.Annotations["test-key"])
 	}
 }
 
-func TestAllocateResponseKeepsCPUSetWhenBypassEnabled(t *testing.T) {
+func TestAllocateResponseClearsSharedCPUSetWhenBypassEnabled(t *testing.T) {
 	t.Parallel()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -163,7 +203,7 @@ func TestAllocateResponseKeepsCPUSetWhenBypassEnabled(t *testing.T) {
 
 	cpuInfo := resp.AllocationResult.ResourceAllocation[string(v1.ResourceCPU)]
 	require.NotNil(t, cpuInfo)
-	assert.NotEmpty(t, cpuInfo.AllocationResult)
+	assert.Empty(t, cpuInfo.AllocationResult)
 }
 
 func TestClearCPUSetInAllocation(t *testing.T) {

@@ -242,6 +242,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 	return resp, nil
 }
 
@@ -373,6 +374,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 	return resp, nil
 }
@@ -549,6 +551,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 	return resp, nil
 }
@@ -608,6 +611,7 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 	return resp, nil
 }
 
@@ -648,6 +652,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 	return resp, nil
 }
@@ -2246,6 +2251,7 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 	return resp, nil
 }
 

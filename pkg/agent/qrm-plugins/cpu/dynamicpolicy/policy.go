@@ -742,7 +742,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					},
 				},
 			}
-			if p.shouldBypassGetResourcesAllocationCPUSet() {
+			if p.shouldBypassCPUSetAdjustmentForAllocation(allocationInfo) {
 				clearCPUSetInAllocation(podResources[podUID].ContainerResources[containerName])
 			}
 		}
@@ -1101,6 +1101,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 		}
+		p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 		return resp, nil
 	}
@@ -1583,14 +1584,20 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 	return nil
 }
 
-// shouldBypassGetResourcesAllocationCPUSet reports whether GetResourcesAllocation
-// should clear CPU AllocationResult for all QoS classes.
-func (p *DynamicPolicy) shouldBypassGetResourcesAllocationCPUSet() bool {
+// shouldBypassCPUSetAdjustment reports whether response cpuset backfill should
+// be skipped for shared_cores, reclaimed_cores and system_cores pods.
+func (p *DynamicPolicy) shouldBypassCPUSetAdjustment() bool {
 	if p.dynamicConfig == nil {
 		return false
 	}
 	dyn := p.dynamicConfig.GetDynamicConfiguration()
 	return dyn != nil && dyn.EnableBypassCPUSetAdjustment
+}
+
+func (p *DynamicPolicy) shouldBypassCPUSetAdjustmentForAllocation(allocationInfo *state.AllocationInfo) bool {
+	return p.shouldBypassCPUSetAdjustment() &&
+		allocationInfo != nil &&
+		(allocationInfo.CheckShared() || allocationInfo.CheckReclaimed() || allocationInfo.CheckSystem())
 }
 
 // clearCPUSetInAllocation clears the cpuset string on every entry of a
@@ -1605,4 +1612,11 @@ func clearCPUSetInAllocation(alloc *pluginapi.ResourceAllocation) {
 	if info != nil {
 		info.AllocationResult = ""
 	}
+}
+
+func (p *DynamicPolicy) clearCPUSetInAllocationResponseIfNeeded(resp *pluginapi.ResourceAllocationResponse, allocationInfo *state.AllocationInfo) {
+	if resp == nil || !p.shouldBypassCPUSetAdjustmentForAllocation(allocationInfo) {
+		return
+	}
+	clearCPUSetInAllocation(resp.AllocationResult)
 }

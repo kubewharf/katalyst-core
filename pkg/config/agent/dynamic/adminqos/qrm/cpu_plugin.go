@@ -22,9 +22,9 @@ import (
 
 type CPUPluginConfiguration struct {
 	PreferUseExistNUMAHintResult bool
-	// EnableBypassCPUSetAdjustment controls whether GetResourcesAllocation clears
-	// CPU AllocationResult for all QoS classes. Allocation responses returned by
-	// Allocate/AllocateForPod keep their cpuset unchanged.
+	// EnableBypassCPUSetAdjustment bypasses cpuset backfill in QRM CPU plugin
+	// responses for shared_cores, reclaimed_cores and system_cores pods.
+	// Dedicated pools are unaffected.
 	EnableBypassCPUSetAdjustment bool
 	BulkheadConfig               DynamicBulkheadConfiguration
 	// DisableSharedCoresRampUp disables initial full-pool cpuset binding for newly
