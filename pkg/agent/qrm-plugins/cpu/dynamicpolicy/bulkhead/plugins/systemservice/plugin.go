@@ -17,26 +17,25 @@ limitations under the License.
 // Package systemservice migrates non-critical systemd services, matching
 // daemonset-pod PIDs, and (optionally) certain movable kernel threads out
 // of the latency-critical cgroup and into a dedicated "system" cpuset. The
-// intent is to keep the latency-critical partition free of surprise CPU contention
-// while leaving safety-critical services (kworker, migration, ksoftirqd,
-// audit, systemd itself) untouched.
+// intent is to keep the latency-critical partition free of surprise CPU
+// contention while leaving safety-critical services (kworker, migration,
+// ksoftirqd, audit, systemd itself) untouched.
 //
-// All movement goes through an explicit whitelist / substring filter, and we
-// log every migration at V(2) so operators can audit.
+// Migration strategy:
+//   - Everything goes through a single unified path: PID lookup from the
+//     cgroup ROOT's cgroup.procs, per-PID classification via /proc/<pid>/stat
+//     (see procfscommon.ProcInfo.IsKThread which reads PF_KTHREAD), and
+//     CgroupClient.AttachPID into the target "system" cgroup.
+//   - Kernel threads (info.IsKThread == true) are migrated only when their
+//     comm contains one of the whitelisted substrings
+//     (BulkheadSystemKThreadCommSubstrs). This is a positive-list to guard
+//     against touching scheduler-critical kthreads (per-CPU migration/N,
+//     ksoftirqd/N, kworker/N — none of which are safely movable).
+//   - Userspace daemons (info.IsKThread == false) are migrated UNLESS their
+//     comm appears in BulkheadSystemdCommBlacklist. Latency-critical daemons
+//     (systemd, kubelet, containerd, ...) should be listed there.
 //
-// Migration strategy (split across the two core bulkhead handler paths):
-//   - Kernel threads CANNOT be moved via cgroup.procs — the kernel
-//     rejects the write with EPERM/EINVAL because kthreads live outside
-//     the normal cgroup hierarchy. Instead we bound them via the
-//     sched_setaffinity(2) syscall, pinning them to the tick-scoped
-//     reclaim CPU set (View.ReclaimEffective). Because that set is only
-//     available on the CPUSetAdjustment path (which carries View), kthread
-//     pinning runs in CPUSetAdjustmentHandler.
-//   - Userspace daemons (systemd services, daemonset PIDs) are moved by
-//     writing the decimal PID into the target cgroup's cgroup.procs via
-//     CgroupClient.AttachPID. Their target cgroup is filesystem-resident and
-//     does not depend on View, so userspace migration runs in
-//     PeriodicalHandler.
+// Every migration is logged at V(2) so operators can audit.
 package systemservice
 
 import (
@@ -71,8 +70,8 @@ type SystemServicePlugin struct {
 
 	// targetRel is the cgroup-relative path of the system-reclaim target
 	// (e.g. "system"). We use the CgroupClient AttachPID interface to migrate
-	// userspace processes rather than writing cgroup.procs directly, so only
-	// the rel path is needed.
+	// processes rather than writing cgroup.procs directly, so only the rel
+	// path is needed.
 	targetRel string
 
 	// rootCgroupProcsPath is the cgroup ROOT's cgroup.procs file. We only
@@ -119,64 +118,26 @@ func (p *SystemServicePlugin) Enable(in bulkheadapi.HandlerContext) bool {
 	return enableBulkheadSystemService(in.DynamicConf)
 }
 
-// CPUSetAdjustmentHandler pins matching kernel threads to the tick-scoped
-// reclaim CPU set. Kthreads cannot be migrated via cgroup.procs, so
-// sched_setaffinity(2) is used. This path carries View, which is the only
-// source of the current reclaim partition.
-func (p *SystemServicePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.HandlerContext) error {
-	if in.View == nil {
-		// No reclaim ground truth this tick — skip rather than clear masks.
-		return nil
-	}
-	sysCPUs := in.View.ReclaimEffective.Clone().ToSliceInt()
-	if len(sysCPUs) == 0 {
-		// An empty affinity mask would pin the kthread to no CPUs — an
-		// unrecoverable state on many kernels. Defer to a future tick.
-		return nil
-	}
-
-	pids, err := p.listRootCgroupPIDs()
-	if err != nil {
-		emitBulkheadSystemServiceResult(in.Emitter, "kthread_pin", "skipped", "list_root_cgroup_pids")
-		return fmt.Errorf("list root cgroup pids: %w", err)
-	}
-
-	pinned := 0
-	for _, pid := range pids {
-		info, err := p.proc.ReadProc(pid)
-		if err != nil {
-			// PID likely exited between listing and read — normal race.
-			continue
-		}
-		if !info.IsKThread || !p.shouldMigrate(info) {
-			continue
-		}
-		if err := p.proc.SchedSetaffinity(pid, sysCPUs); err != nil {
-			// PID may have exited, or the kernel may refuse to migrate a
-			// per-CPU thread. Log and move on — retries next tick.
-			general.InfofV(4, "system_service: sched_setaffinity failed, pid=%d comm=%q err=%v",
-				pid, info.Comm, err)
-			continue
-		}
-		general.InfofV(2, "system_service: pinned kernel thread, pid=%d comm=%q cpus=%v",
-			pid, info.Comm, sysCPUs)
-		pinned++
-	}
-	emitBulkheadSystemServiceResult(in.Emitter, "kthread_pin", "success", "")
-	general.InfofV(4, "system_service: kthread pin complete, scanned=%d pinned=%d", len(pids), pinned)
+// CPUSetAdjustmentHandler is intentionally a no-op: all migration runs in
+// PeriodicalHandler via cgroup.procs (AttachPID).
+func (p *SystemServicePlugin) CPUSetAdjustmentHandler(context.Context, bulkheadapi.HandlerContext) error {
 	return nil
 }
 
 // CPUSetAdjustmentDisabledHandler is a no-op: when bulkhead is disabled we do
-// not proactively revert kthread affinity (the adapter source has no undo
-// action either).
+// not proactively revert cgroup placement (there is no safe global undo).
 func (p *SystemServicePlugin) CPUSetAdjustmentDisabledHandler(context.Context, bulkheadapi.HandlerContext) error {
 	return nil
 }
 
-// PeriodicalHandler migrates matching userspace daemons into the target
-// cgroup via CgroupClient.AttachPID. This path has no View, but the target
-// cgroup is filesystem-resident and does not depend on it.
+// PeriodicalHandler migrates every eligible root-cgroup PID into the target
+// cgroup via CgroupClient.AttachPID:
+//   - kernel threads whose comm matches BulkheadSystemKThreadCommSubstrs
+//     (whitelist);
+//   - userspace processes whose comm is NOT in BulkheadSystemdCommBlacklist.
+//
+// Ineligible / racing PIDs are logged at V(4) and skipped without aborting
+// the sweep.
 func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
 	// RunPeriodicalHandlers is only gated by the top-level bulkhead switch, so
 	// re-check this plugin's own dynamic switch here.
@@ -189,20 +150,20 @@ func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkhead
 	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
 		general.InfofV(4, "system_service: target cgroup missing, skipping, rel=%q err=%v",
 			p.targetRel, err)
-		emitBulkheadSystemServiceResult(in.Emitter, "userspace_migrate", "skipped", "target_cgroup_missing")
+		emitBulkheadSystemServiceResult(in.Emitter, "migrate", "skipped", "target_cgroup_missing")
 		return nil
 	}
 
 	pids, err := p.listRootCgroupPIDs()
 	if err != nil {
-		emitBulkheadSystemServiceResult(in.Emitter, "userspace_migrate", "skipped", "list_root_cgroup_pids")
+		emitBulkheadSystemServiceResult(in.Emitter, "migrate", "skipped", "list_root_cgroup_pids")
 		return fmt.Errorf("list root cgroup pids: %w", err)
 	}
 
 	moved := 0
 	for _, pid := range pids {
 		if ctx.Err() != nil {
-			emitBulkheadSystemServiceResult(in.Emitter, "userspace_migrate", "failed", "context_canceled")
+			emitBulkheadSystemServiceResult(in.Emitter, "migrate", "failed", "context_canceled")
 			return fmt.Errorf("context canceled: %w", ctx.Err())
 		}
 		info, err := p.proc.ReadProc(pid)
@@ -210,28 +171,32 @@ func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkhead
 			// PID likely exited between listing and read — normal race.
 			continue
 		}
-		if info.IsKThread || !p.shouldMigrate(info) {
+		if !p.shouldMigrate(info) {
 			continue
 		}
 		if err := p.cgroup.AttachPID(ctx, p.targetRel, pid); err != nil {
-			general.InfofV(4, "system_service: cgroup migration failed, pid=%d comm=%q err=%v",
-				pid, info.Comm, err)
+			// PID may have exited, or the kernel may refuse to migrate a
+			// per-CPU / non-movable kthread. Log and move on — retries next tick.
+			general.InfofV(4, "system_service: cgroup migration failed, pid=%d comm=%q kthread=%v err=%v",
+				pid, info.Comm, info.IsKThread, err)
 			continue
 		}
-		general.InfofV(2, "system_service: migrated systemd process, pid=%d comm=%q",
-			pid, info.Comm)
+		general.InfofV(2, "system_service: migrated process, pid=%d comm=%q kthread=%v",
+			pid, info.Comm, info.IsKThread)
 		moved++
 	}
-	emitBulkheadSystemServiceResult(in.Emitter, "userspace_migrate", "success", "")
-	general.InfofV(4, "system_service: userspace migrate complete, scanned=%d moved=%d", len(pids), moved)
+	emitBulkheadSystemServiceResult(in.Emitter, "migrate", "success", "")
+	general.InfofV(4, "system_service: migrate complete, scanned=%d moved=%d", len(pids), moved)
 	return nil
 }
 
 // shouldMigrate returns true if the process described by info is eligible for
 // migration. The decision is defensive by design:
-//   - Kernel threads: only migrate when comm matches one of the configured
-//     substrings; skip otherwise (never touch scheduler-critical kthreads).
-//   - Userspace: only migrate when comm is in BulkheadSystemdCommWhitelist.
+//   - Kernel threads: only migrate when comm contains one of the configured
+//     substrings (positive whitelist); skip otherwise so scheduler-critical
+//     kthreads are never touched.
+//   - Userspace: migrate unless comm exactly matches one of the configured
+//     blacklist entries (negative list of latency-critical daemons).
 func (p *SystemServicePlugin) shouldMigrate(info procfscommon.ProcInfo) bool {
 	if info.IsKThread {
 		for _, sub := range p.cfg.BulkheadSystemKThreadCommSubstrs {
@@ -244,12 +209,12 @@ func (p *SystemServicePlugin) shouldMigrate(info procfscommon.ProcInfo) bool {
 		}
 		return false
 	}
-	for _, w := range p.cfg.BulkheadSystemdCommWhitelist {
-		if w != "" && info.Comm == w {
-			return true
+	for _, b := range p.cfg.BulkheadSystemdCommBlacklist {
+		if b != "" && info.Comm == b {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // listRootCgroupPIDs reads the cgroup ROOT's cgroup.procs and returns the

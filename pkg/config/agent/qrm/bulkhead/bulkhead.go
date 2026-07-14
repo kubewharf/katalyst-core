@@ -32,9 +32,18 @@ type BulkheadConfiguration struct {
 	BulkheadWorkqueueNames    []string
 
 	// system_service plugin
-	BulkheadSystemRelPath            string
-	BulkheadSystemServiceProcfsPath  string
-	BulkheadSystemdCommWhitelist     []string
+	BulkheadSystemRelPath           string
+	BulkheadSystemServiceProcfsPath string
+	// BulkheadSystemdCommBlacklist lists userspace comm values that MUST
+	// stay in the cgroup ROOT (i.e. NOT be migrated to the system cgroup).
+	// Anything not on the blacklist is a candidate. Latency-critical
+	// daemons such as systemd, kubelet, containerd should be listed here.
+	BulkheadSystemdCommBlacklist []string
+	// BulkheadSystemKThreadCommSubstrs is the substring whitelist for
+	// kernel threads: an eligible kthread must have a comm containing one
+	// of these substrings. Default is a small set of high-load movable
+	// kthreads (kswapd, kcompactd). Never populate this with per-CPU
+	// kthreads (migration/N, ksoftirqd/N) — they cannot be moved.
 	BulkheadSystemKThreadCommSubstrs []string
 }
 

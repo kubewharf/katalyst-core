@@ -28,12 +28,10 @@ import (
 	"time"
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
-	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	utilfs "github.com/kubewharf/katalyst-core/pkg/util/fs"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	procfscommon "github.com/kubewharf/katalyst-core/pkg/util/procfs/common"
 )
 
@@ -122,11 +120,9 @@ func seedRootPIDs(fFS *fakeFS, pids ...int) {
 // ---------------------------------------------------------------------------
 
 type fakeProc struct {
-	procs        map[int]procfscommon.ProcInfo
-	listErr      error
-	affinity     map[int][]int // pid -> last cpus applied via SchedSetaffinity
-	affinityErr  error
-	affinityErrs map[int]error // per-pid overrides
+	procs    map[int]procfscommon.ProcInfo
+	listErr  error
+	affinity map[int][]int
 }
 
 func (f *fakeProc) ListPIDs() ([]int, error) {
@@ -150,12 +146,6 @@ func (f *fakeProc) ReadProc(pid int) (procfscommon.ProcInfo, error) {
 }
 
 func (f *fakeProc) SchedSetaffinity(pid int, cpus []int) error {
-	if err, ok := f.affinityErrs[pid]; ok {
-		return err
-	}
-	if f.affinityErr != nil {
-		return f.affinityErr
-	}
 	if f.affinity == nil {
 		f.affinity = map[int][]int{}
 	}
@@ -209,7 +199,7 @@ func dynConf(enabled bool) *dynamicconfig.Configuration {
 }
 
 // ---------------------------------------------------------------------------
-// Enable
+// Enable / Name
 // ---------------------------------------------------------------------------
 
 func TestEnable(t *testing.T) {
@@ -241,41 +231,46 @@ func TestName(t *testing.T) {
 // shouldMigrate
 // ---------------------------------------------------------------------------
 
-func TestShouldMigrate_KThreadWhitelist(t *testing.T) {
+func TestShouldMigrate_KThreadWhitelistSubstr(t *testing.T) {
 	t.Parallel()
 	p := &SystemServicePlugin{cfg: bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemKThreadCommSubstrs: []string{"nvme", "loop"},
+		BulkheadSystemKThreadCommSubstrs: []string{"kswapd", "kcompactd"},
 	}}
 	cases := []struct {
 		info procfscommon.ProcInfo
 		want bool
 	}{
-		{procfscommon.ProcInfo{Comm: "nvme_wq", IsKThread: true}, true},
-		{procfscommon.ProcInfo{Comm: "loop2", IsKThread: true}, true},
+		{procfscommon.ProcInfo{Comm: "kswapd0", IsKThread: true}, true},
+		{procfscommon.ProcInfo{Comm: "kcompactd1", IsKThread: true}, true},
 		{procfscommon.ProcInfo{Comm: "kworker/0", IsKThread: true}, false},
 		{procfscommon.ProcInfo{Comm: "migration/1", IsKThread: true}, false},
-		{procfscommon.ProcInfo{Comm: "nvme_wq", IsKThread: false}, false}, // userspace name matches but IsKThread=false
+		{procfscommon.ProcInfo{Comm: "ksoftirqd/0", IsKThread: true}, false},
 	}
 	for _, c := range cases {
 		if got := p.shouldMigrate(c.info); got != c.want {
-			t.Fatalf("shouldMigrate(%q, kthread=%v) = %v, want %v", c.info.Comm, c.info.IsKThread, got, c.want)
+			t.Fatalf("shouldMigrate(%q, kthread=true) = %v, want %v", c.info.Comm, got, c.want)
 		}
 	}
 }
 
-func TestShouldMigrate_UserspaceExactMatch(t *testing.T) {
+func TestShouldMigrate_UserspaceBlacklistExactMatch(t *testing.T) {
 	t.Parallel()
 	p := &SystemServicePlugin{cfg: bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist: []string{"crond", "rsyslogd"},
+		BulkheadSystemdCommBlacklist: []string{"systemd", "kubelet", "containerd"},
 	}}
 	cases := []struct {
 		info procfscommon.ProcInfo
 		want bool
 	}{
+		// Anything not on the blacklist is a candidate.
 		{procfscommon.ProcInfo{Comm: "crond"}, true},
 		{procfscommon.ProcInfo{Comm: "rsyslogd"}, true},
-		{procfscommon.ProcInfo{Comm: "systemd"}, false},     // NOT on whitelist
-		{procfscommon.ProcInfo{Comm: "crond-extra"}, false}, // must be exact, not prefix
+		{procfscommon.ProcInfo{Comm: "sshd"}, true},
+		// Blacklisted daemons stay put.
+		{procfscommon.ProcInfo{Comm: "systemd"}, false},
+		{procfscommon.ProcInfo{Comm: "kubelet"}, false},
+		// Exact-match only: prefix collisions must NOT protect.
+		{procfscommon.ProcInfo{Comm: "kubeletx"}, true},
 	}
 	for _, c := range cases {
 		if got := p.shouldMigrate(c.info); got != c.want {
@@ -284,130 +279,62 @@ func TestShouldMigrate_UserspaceExactMatch(t *testing.T) {
 	}
 }
 
+func TestShouldMigrate_UserspaceEmptyBlacklistAllowsAll(t *testing.T) {
+	t.Parallel()
+	p := &SystemServicePlugin{cfg: bulkheadconfig.BulkheadConfiguration{}}
+	if !p.shouldMigrate(procfscommon.ProcInfo{Comm: "arbitrary"}) {
+		t.Fatalf("empty blacklist ⇒ every userspace comm must be a migration candidate")
+	}
+}
+
 func TestShouldMigrate_EmptyEntriesIgnored(t *testing.T) {
 	t.Parallel()
 	p := &SystemServicePlugin{cfg: bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist:     []string{"", "crond", ""},
-		BulkheadSystemKThreadCommSubstrs: []string{"", "nvme"},
+		BulkheadSystemdCommBlacklist:     []string{"", "systemd", ""},
+		BulkheadSystemKThreadCommSubstrs: []string{"", "kswapd"},
 	}}
-	if !p.shouldMigrate(procfscommon.ProcInfo{Comm: "crond"}) {
-		t.Fatalf("empty whitelist entries must not disable real matches (userspace)")
+	if p.shouldMigrate(procfscommon.ProcInfo{Comm: "systemd"}) {
+		t.Fatalf("empty blacklist entries must not disable real matches (userspace)")
 	}
-	if !p.shouldMigrate(procfscommon.ProcInfo{Comm: "nvme_wq", IsKThread: true}) {
+	if !p.shouldMigrate(procfscommon.ProcInfo{Comm: "crond"}) {
+		t.Fatalf("empty blacklist entries must not block non-blacklisted comm (userspace)")
+	}
+	if !p.shouldMigrate(procfscommon.ProcInfo{Comm: "kswapd0", IsKThread: true}) {
 		t.Fatalf("empty whitelist entries must not disable real matches (kthread)")
 	}
-	if p.shouldMigrate(procfscommon.ProcInfo{Comm: "random"}) {
-		t.Fatalf("empty whitelist entries must not match arbitrary comm")
+	if p.shouldMigrate(procfscommon.ProcInfo{Comm: "kworker/0", IsKThread: true}) {
+		t.Fatalf("kthread outside whitelist must not migrate")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// CPUSetAdjustmentHandler (kthread affinity pinning)
+// CPUSetAdjustmentHandler / CPUSetAdjustmentDisabledHandler are no-ops
 // ---------------------------------------------------------------------------
 
-func adjustCtx(reclaim machine.CPUSet) bulkheadapi.HandlerContext {
-	return bulkheadapi.HandlerContext{
-		View: &bulkheadutils.CPUSetPartitionView{ReclaimEffective: reclaim},
-	}
-}
-
-func TestCPUSetAdjustmentHandler_PinsMatchingKThreads(t *testing.T) {
+func TestCPUSetAdjustmentHandler_IsNoOp(t *testing.T) {
 	t.Parallel()
 	fFS := newFakeFS()
 	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
-		100: {PID: 100, Comm: "crond"},                             // userspace, must NOT be pinned here
-		300: {PID: 300, Comm: "kworker/0", IsKThread: true},        // kthread not on substr list
-		400: {PID: 400, Comm: "nvme_wq", IsKThread: true, PPID: 2}, // pin via SchedSetaffinity
+		400: {PID: 400, Comm: "kswapd0", IsKThread: true, PPID: 2},
+		100: {PID: 100, Comm: "crond"},
 	}}
-	seedRootPIDs(fFS, 100, 300, 400)
+	seedRootPIDs(fFS, 100, 400)
 	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
 	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist:     []string{"crond"},
-		BulkheadSystemKThreadCommSubstrs: []string{"nvme"},
+		BulkheadSystemKThreadCommSubstrs: []string{"kswapd"},
 	})
 
-	if err := p.CPUSetAdjustmentHandler(context.Background(), adjustCtx(machine.NewCPUSet(0, 1, 2, 3))); err != nil {
+	if err := p.CPUSetAdjustmentHandler(context.Background(), bulkheadapi.HandlerContext{}); err != nil {
 		t.Fatalf("CPUSetAdjustmentHandler: %v", err)
 	}
-	got, ok := fProc.affinity[400]
-	if !ok {
-		t.Fatalf("kthread pid 400 must be pinned via SchedSetaffinity, affinity=%+v", fProc.affinity)
-	}
-	if len(got) != 4 || got[0] != 0 || got[3] != 3 {
-		t.Fatalf("kthread pid 400 pinned to unexpected cpus: %v", got)
-	}
-	if _, pinned := fProc.affinity[300]; pinned {
-		t.Fatalf("pid 300 (kworker) must not be pinned")
-	}
-	if _, pinned := fProc.affinity[100]; pinned {
-		t.Fatalf("userspace pid 100 must not be pinned by CPUSetAdjustmentHandler")
+	if len(fProc.affinity) != 0 {
+		t.Fatalf("CPUSetAdjustmentHandler must NOT invoke SchedSetaffinity, got %+v", fProc.affinity)
 	}
 	if len(fCg.attaches) != 0 {
-		t.Fatalf("CPUSetAdjustmentHandler must never AttachPID, got %+v", fCg.attaches)
+		t.Fatalf("CPUSetAdjustmentHandler must NOT invoke AttachPID, got %+v", fCg.attaches)
 	}
 }
-
-func TestCPUSetAdjustmentHandler_SkippedWhenViewNil(t *testing.T) {
-	t.Parallel()
-	fFS := newFakeFS()
-	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
-		400: {PID: 400, Comm: "nvme_wq", IsKThread: true, PPID: 2},
-	}}
-	seedRootPIDs(fFS, 400)
-	p := newTestPlugin("system", fFS, fProc, newFakeCgroup(), bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemKThreadCommSubstrs: []string{"nvme"},
-	})
-	if err := p.CPUSetAdjustmentHandler(context.Background(), bulkheadapi.HandlerContext{}); err != nil {
-		t.Fatalf("CPUSetAdjustmentHandler with nil View: %v", err)
-	}
-	if len(fProc.affinity) != 0 {
-		t.Fatalf("nil View ⇒ no SchedSetaffinity calls, got %+v", fProc.affinity)
-	}
-}
-
-func TestCPUSetAdjustmentHandler_SkippedWhenReclaimEmpty(t *testing.T) {
-	t.Parallel()
-	fFS := newFakeFS()
-	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
-		400: {PID: 400, Comm: "nvme_wq", IsKThread: true, PPID: 2},
-	}}
-	seedRootPIDs(fFS, 400)
-	p := newTestPlugin("system", fFS, fProc, newFakeCgroup(), bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemKThreadCommSubstrs: []string{"nvme"},
-	})
-	if err := p.CPUSetAdjustmentHandler(context.Background(), adjustCtx(machine.NewCPUSet())); err != nil {
-		t.Fatalf("CPUSetAdjustmentHandler with empty reclaim: %v", err)
-	}
-	if len(fProc.affinity) != 0 {
-		t.Fatalf("empty reclaim ⇒ no SchedSetaffinity calls, got %+v", fProc.affinity)
-	}
-}
-
-func TestCPUSetAdjustmentHandler_ToleratesSchedSetaffinityError(t *testing.T) {
-	t.Parallel()
-	fFS := newFakeFS()
-	fProc := &fakeProc{
-		procs: map[int]procfscommon.ProcInfo{
-			400: {PID: 400, Comm: "nvme_wq", IsKThread: true, PPID: 2},
-			401: {PID: 401, Comm: "nvme_x", IsKThread: true, PPID: 2},
-		},
-		affinityErrs: map[int]error{400: errors.New("EPERM")},
-	}
-	seedRootPIDs(fFS, 400, 401)
-	p := newTestPlugin("system", fFS, fProc, newFakeCgroup(), bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemKThreadCommSubstrs: []string{"nvme"},
-	})
-	if err := p.CPUSetAdjustmentHandler(context.Background(), adjustCtx(machine.NewCPUSet(0))); err != nil {
-		t.Fatalf("CPUSetAdjustmentHandler must swallow per-kthread errors: %v", err)
-	}
-	if _, ok := fProc.affinity[401]; !ok {
-		t.Fatalf("pid 401 must be pinned despite pid 400 failure: %+v", fProc.affinity)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CPUSetAdjustmentDisabledHandler
-// ---------------------------------------------------------------------------
 
 func TestCPUSetAdjustmentDisabledHandler_NoOp(t *testing.T) {
 	t.Parallel()
@@ -422,7 +349,7 @@ func TestCPUSetAdjustmentDisabledHandler_NoOp(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PeriodicalHandler (userspace cgroup migration)
+// PeriodicalHandler — unified migration path (kthread whitelist + userspace non-blacklist)
 // ---------------------------------------------------------------------------
 
 func periodCtx(enabled bool) bulkheadapi.PeriodicalHandlerContext {
@@ -436,9 +363,7 @@ func TestPeriodicalHandler_DisabledByConfig(t *testing.T) {
 	seedRootPIDs(fFS, 100)
 	fCg := newFakeCgroup()
 	fCg.existingDirs["system"] = true
-	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist: []string{"crond"},
-	})
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
 		t.Fatalf("PeriodicalHandler: %v", err)
 	}
@@ -452,9 +377,7 @@ func TestPeriodicalHandler_SkipsWhenTargetMissing(t *testing.T) {
 	fFS := newFakeFS()
 	fProc := &fakeProc{}
 	fCg := newFakeCgroup() // no existingDirs → StatDir fails
-	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist: []string{"crond"},
-	})
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
 		t.Fatalf("PeriodicalHandler: %v", err)
 	}
@@ -463,29 +386,76 @@ func TestPeriodicalHandler_SkipsWhenTargetMissing(t *testing.T) {
 	}
 }
 
-func TestPeriodicalHandler_MigratesMatchingProcs(t *testing.T) {
+// PeriodicalHandler must migrate BOTH whitelisted kthreads AND non-blacklisted
+// userspace processes through the same AttachPID path.
+func TestPeriodicalHandler_MigratesKThreadAndUserspaceViaAttachPID(t *testing.T) {
 	t.Parallel()
 	fFS := newFakeFS()
 	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
-		100: {PID: 100, Comm: "crond"},                             // migrate via AttachPID
-		200: {PID: 200, Comm: "systemd"},                           // skip (not on WL)
-		400: {PID: 400, Comm: "nvme_wq", IsKThread: true, PPID: 2}, // kthread, must NOT be attached
+		100: {PID: 100, Comm: "crond"},                             // userspace, not blacklisted → migrate
+		101: {PID: 101, Comm: "rsyslogd"},                          // userspace, not blacklisted → migrate
+		200: {PID: 200, Comm: "systemd"},                           // userspace, blacklisted → skip
+		201: {PID: 201, Comm: "kubelet"},                           // userspace, blacklisted → skip
+		400: {PID: 400, Comm: "kswapd0", IsKThread: true, PPID: 2}, // kthread on whitelist → migrate
+		401: {PID: 401, Comm: "kcompactd1", IsKThread: true, PPID: 2}, // kthread on whitelist → migrate
+		500: {PID: 500, Comm: "kworker/0", IsKThread: true, PPID: 2}, // kthread NOT on whitelist → skip
+		501: {PID: 501, Comm: "migration/1", IsKThread: true, PPID: 2}, // kthread NOT on whitelist → skip
 	}}
-	seedRootPIDs(fFS, 100, 200, 400)
+	seedRootPIDs(fFS, 100, 101, 200, 201, 400, 401, 500, 501)
 	fCg := newFakeCgroup()
 	fCg.existingDirs["system"] = true
 	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist:     []string{"crond"},
-		BulkheadSystemKThreadCommSubstrs: []string{"nvme"},
+		BulkheadSystemdCommBlacklist:     []string{"systemd", "kubelet"},
+		BulkheadSystemKThreadCommSubstrs: []string{"kswapd", "kcompactd"},
 	})
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
 		t.Fatalf("PeriodicalHandler: %v", err)
 	}
-	if len(fCg.attaches) != 1 || fCg.attaches[0].pid != 100 || fCg.attaches[0].rel != "system" {
-		t.Fatalf("expected exactly one AttachPID call for pid 100 on rel=system, got %+v", fCg.attaches)
+
+	got := map[int]string{}
+	for _, a := range fCg.attaches {
+		got[a.pid] = a.rel
+	}
+	want := map[int]string{100: "system", 101: "system", 400: "system", 401: "system"}
+	if len(got) != len(want) {
+		t.Fatalf("AttachPID call set mismatch, got=%+v want=%+v", got, want)
+	}
+	for pid, rel := range want {
+		if got[pid] != rel {
+			t.Fatalf("pid %d attached to %q, want %q", pid, got[pid], rel)
+		}
 	}
 	if len(fProc.affinity) != 0 {
-		t.Fatalf("PeriodicalHandler must never pin kthreads, got %+v", fProc.affinity)
+		t.Fatalf("PeriodicalHandler must never invoke SchedSetaffinity, got %+v", fProc.affinity)
+	}
+}
+
+func TestPeriodicalHandler_EmptyBlacklistMigratesAllUserspace(t *testing.T) {
+	t.Parallel()
+	fFS := newFakeFS()
+	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
+		100: {PID: 100, Comm: "crond"},
+		101: {PID: 101, Comm: "systemd"},
+		400: {PID: 400, Comm: "kworker/0", IsKThread: true, PPID: 2},
+	}}
+	seedRootPIDs(fFS, 100, 101, 400)
+	fCg := newFakeCgroup()
+	fCg.existingDirs["system"] = true
+	// No blacklist AND no kthread whitelist. Every userspace PID should
+	// migrate; every kthread should be skipped.
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
+		t.Fatalf("PeriodicalHandler: %v", err)
+	}
+	got := map[int]bool{}
+	for _, a := range fCg.attaches {
+		got[a.pid] = true
+	}
+	if !got[100] || !got[101] {
+		t.Fatalf("empty blacklist: every userspace PID must migrate, got=%+v", got)
+	}
+	if got[400] {
+		t.Fatalf("empty kthread whitelist: kthread must NOT migrate, got=%+v", got)
 	}
 }
 
@@ -500,9 +470,7 @@ func TestPeriodicalHandler_ToleratesReadProcError(t *testing.T) {
 	wrapped := &raceyProcReader{fakeProc: base, failingPID: 200}
 	fCg := newFakeCgroup()
 	fCg.existingDirs["system"] = true
-	p := newTestPlugin("system", fFS, wrapped, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist: []string{"crond"},
-	})
+	p := newTestPlugin("system", fFS, wrapped, fCg, bulkheadconfig.BulkheadConfiguration{})
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
 		t.Fatalf("PeriodicalHandler: %v", err)
 	}
@@ -511,7 +479,7 @@ func TestPeriodicalHandler_ToleratesReadProcError(t *testing.T) {
 	}
 }
 
-func TestPeriodicalHandler_TolerateWriteFailures(t *testing.T) {
+func TestPeriodicalHandler_TolerateAttachFailures(t *testing.T) {
 	t.Parallel()
 	fFS := newFakeFS()
 	fProc := &fakeProc{procs: map[int]procfscommon.ProcInfo{
@@ -522,9 +490,7 @@ func TestPeriodicalHandler_TolerateWriteFailures(t *testing.T) {
 	fCg := newFakeCgroup()
 	fCg.existingDirs["system"] = true
 	fCg.attachErr = errors.New("EBUSY")
-	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist: []string{"crond"},
-	})
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
 	// Per-PID AttachPID failures MUST NOT surface — they are logged and the
 	// loop continues.
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(true)); err != nil {
@@ -539,9 +505,7 @@ func TestPeriodicalHandler_ContextCancelation(t *testing.T) {
 	seedRootPIDs(fFS, 100)
 	fCg := newFakeCgroup()
 	fCg.existingDirs["system"] = true
-	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{
-		BulkheadSystemdCommWhitelist: []string{"crond"},
-	})
+	p := newTestPlugin("system", fFS, fProc, fCg, bulkheadconfig.BulkheadConfiguration{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel
 	if err := p.PeriodicalHandler(ctx, periodCtx(true)); err == nil {
