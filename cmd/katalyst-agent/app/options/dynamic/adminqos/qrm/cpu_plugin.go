@@ -30,6 +30,7 @@ type CPUPluginOptions struct {
 	EnableBulkheadCpusetTopology bool
 	EnableBulkheadWorkqueue      bool
 	EnableBulkheadSystemService  bool
+	BindIRQToReclaimedPool       bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
@@ -53,6 +54,9 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if true, enable bulkhead workqueue plugin.")
 	fs.BoolVar(&o.EnableBulkheadSystemService, "enable-bulkhead-system-service", o.EnableBulkheadSystemService,
 		"if true, enable bulkhead system_service plugin.")
+	fs.BoolVar(&o.BindIRQToReclaimedPool, "bind-irq-to-reclaimed-pool", o.BindIRQToReclaimedPool,
+		"if true and the reclaimed pool is present and non-empty, GetIRQForbiddenCores expands its result to "+
+			"(machine cpuset - reclaimed pool cpuset), effectively pinning network IRQs into the reclaimed pool.")
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
@@ -63,6 +67,7 @@ func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
 	c.BulkheadConfig.EnableBulkheadWorkqueue = o.EnableBulkheadWorkqueue
 	c.BulkheadConfig.EnableBulkheadSystemService = o.EnableBulkheadSystemService
+	c.BindIRQToReclaimedPool = o.BindIRQToReclaimedPool
 
 	return nil
 }

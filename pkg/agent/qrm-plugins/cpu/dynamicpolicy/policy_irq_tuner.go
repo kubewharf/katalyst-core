@@ -152,9 +152,18 @@ func (p *DynamicPolicy) getPinnedResourcePackageIRQForbiddenCPUSet() machine.CPU
 }
 
 // GetIRQForbiddenCores retrieves the cpu set of cores that are forbidden for irq binding.
-// The forbidden cores include:
-// 1. Reserved CPUs (system reserved).
-// 2. CPUs pinned by specific resource packages (as defined by the configuration).
+//
+// The forbidden cores always include:
+//  1. reservedCPUs (system reserved);
+//  2. system pool cpuset (union of every commonstate.IsSystemPool pool);
+//  3. cpus pinned by resource packages matched by the configured selector.
+//
+// Additionally, when the dynamic AdminQoS knob CPUPluginConfiguration.BindIRQToReclaimedPool
+// is enabled AND the reclaimed pool is present with a non-empty cpuset, the returned
+// forbidden set is expanded to "machine cpuset - reclaimed pool cpuset", unioned with
+// the always-forbidden sources above. Net effect: IRQ binding is restricted to the
+// reclaimed pool. If the reclaimed pool is missing or empty on this node, the plugin
+// logs at V(4) and falls back to the previous semantics.
 func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
@@ -166,8 +175,31 @@ func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	irqForbiddenCPUSet := p.getPinnedResourcePackageIRQForbiddenCPUSet()
 	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
+	if p.shouldBindIRQToReclaimedPool() {
+		reclaimCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsReclaimedPool)
+		if reclaimCPUs.IsEmpty() {
+			general.InfofV(4, "bind-irq-to-reclaimed-pool: reclaimed pool empty/absent, fall back")
+		} else {
+			machineCPUs := p.machineInfo.CPUDetails.CPUs()
+			forbiddenCores = forbiddenCores.Union(machineCPUs.Difference(reclaimCPUs))
+		}
+	}
+
 	general.Infof("get the irq forbidden cores %v", forbiddenCores)
 	return forbiddenCores, nil
+}
+
+// shouldBindIRQToReclaimedPool returns whether the dynamic AdminQoS knob is enabled.
+// Guards against nil dynamicConfig (some unit tests construct a bare DynamicPolicy).
+func (p *DynamicPolicy) shouldBindIRQToReclaimedPool() bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	if dyn == nil || dyn.CPUPluginConfiguration == nil {
+		return false
+	}
+	return dyn.CPUPluginConfiguration.BindIRQToReclaimedPool
 }
 
 func (p *DynamicPolicy) GetStepExpandableCPUsMax() int {

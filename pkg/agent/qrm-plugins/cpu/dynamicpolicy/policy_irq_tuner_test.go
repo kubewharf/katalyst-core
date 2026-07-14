@@ -484,3 +484,110 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 		as.True(podEntries[commonstate.PoolNameInterrupt][commonstate.FakedContainerName].AllocationResult.Equals(irqCPUSet))
 	})
 }
+
+// setupPolicyForBindReclaimTest builds a DynamicPolicy fixture for the BindIRQToReclaimedPool tests.
+// It seeds reservedCPUs (0,1), a system pool (4,5) and optionally a reclaimed pool.
+func setupPolicyForBindReclaimTest(t *testing.T, name string, reclaimCPUs *machine.CPUSet) *DynamicPolicy {
+	t.Helper()
+	tmpDir, err := ioutil.TempDir("", "checkpoint-"+name)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	policy.reservedCPUs = machine.NewCPUSet(0, 1)
+
+	systemPoolName := commonstate.GetSystemPoolName("latency")
+	systemPoolCPUSet := machine.NewCPUSet(4, 5)
+	policy.state.SetAllocationInfo(systemPoolName, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(systemPoolName),
+		AllocationResult:         systemPoolCPUSet,
+		OriginalAllocationResult: systemPoolCPUSet,
+	}, true)
+
+	if reclaimCPUs != nil {
+		policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:         reclaimCPUs.Clone(),
+			OriginalAllocationResult: reclaimCPUs.Clone(),
+		}, true)
+	}
+
+	return policy
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_Enabled(t *testing.T) {
+	t.Parallel()
+
+	reclaim := machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-enabled", &reclaim)
+
+	dyn := policy.dynamicConfig.GetDynamicConfiguration()
+	require.NotNil(t, dyn)
+	require.NotNil(t, dyn.CPUPluginConfiguration)
+	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = true
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// machine (0..15) - reclaim (6..15) = 0..5; unioned with reserved (0,1) and system (4,5) = 0..5
+	expected := machine.NewCPUSet(0, 1, 2, 3, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+	assert.True(t, reclaim.Intersection(forbidden).IsEmpty(), "reclaim %v should not overlap forbidden %v", reclaim, forbidden)
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_EmptyReclaim(t *testing.T) {
+	t.Parallel()
+
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-empty", nil)
+
+	dyn := policy.dynamicConfig.GetDynamicConfiguration()
+	require.NotNil(t, dyn)
+	require.NotNil(t, dyn.CPUPluginConfiguration)
+	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = true
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// reclaim missing -> fall back: reserved (0,1) ∪ system (4,5)
+	expected := machine.NewCPUSet(0, 1, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_Disabled(t *testing.T) {
+	t.Parallel()
+
+	reclaim := machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-disabled", &reclaim)
+
+	dyn := policy.dynamicConfig.GetDynamicConfiguration()
+	require.NotNil(t, dyn)
+	require.NotNil(t, dyn.CPUPluginConfiguration)
+	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = false
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// knob off -> reclaim ignored: reserved (0,1) ∪ system (4,5)
+	expected := machine.NewCPUSet(0, 1, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_NilDynamicConfig(t *testing.T) {
+	t.Parallel()
+
+	reclaim := machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-nil-dyn", &reclaim)
+	policy.dynamicConfig = nil
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// nil dynamicConfig -> fall back: reserved (0,1) ∪ system (4,5)
+	expected := machine.NewCPUSet(0, 1, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}

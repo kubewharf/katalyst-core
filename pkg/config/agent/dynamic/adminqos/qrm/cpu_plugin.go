@@ -34,6 +34,13 @@ type CPUPluginConfiguration struct {
 	SystemExclusivePoolShrinkRatio *float64
 	SystemExclusivePoolShrinkMin   *int64
 	SystemExclusivePoolShrinkMax   *int64
+	// BindIRQToReclaimedPool, when true, forces GetIRQForbiddenCores to return
+	// "machine cpuset - reclaimed pool cpuset (still unioned with reservedCPUs
+	// and other unconditional forbidden sources)" so that network IRQs are
+	// effectively pinned into the reclaimed pool. Requires the reclaimed pool
+	// to exist and be non-empty; otherwise the plugin falls back to the
+	// previous behavior.
+	BindIRQToReclaimedPool bool
 }
 
 type DynamicBulkheadConfiguration struct {
@@ -78,5 +85,8 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		c.SystemExclusivePoolShrinkRatio = config.SystemExclusivePoolShrinkRatio
 		c.SystemExclusivePoolShrinkMin = config.SystemExclusivePoolShrinkMin
 		c.SystemExclusivePoolShrinkMax = config.SystemExclusivePoolShrinkMax
+		if config.BindIRQToReclaimedPool != nil {
+			c.BindIRQToReclaimedPool = *config.BindIRQToReclaimedPool
+		}
 	}
 }
