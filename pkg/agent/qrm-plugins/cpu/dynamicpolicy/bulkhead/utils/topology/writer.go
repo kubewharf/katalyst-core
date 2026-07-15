@@ -49,15 +49,16 @@ type DAGApplyInputs struct {
 	// Callers should only use it when the input is already known to be monotonic.
 	SkipObservedRead    bool
 	ExpectedCPUSetByRel map[string]machine.CPUSet
-	// ProtectUnmanagedKubePodLeaf, when true, keeps live Kubernetes-managed
-	// pod/container leaves owned by kubelet/containerd/runc from being clobbered
-	// or under-cut by bulkhead's DAG apply. Concretely it does three things:
+	// ProtectUnmanagedKubePodLeaf is the legacy switch for Kubernetes-managed
+	// subtree safety. When true, it keeps expected kube container cgroups and
+	// admit-pending allocations from being under-cut by bulkhead's DAG apply.
+	// Concretely it does three things:
 	//
 	//  1. Widens every primary node's effective target to include the union of
-	//     the current cpuset of every unmanaged kube pod/container leaf found
-	//     under it (see collectProtectedLeafCPUSet). This preserves the cgroup
-	//     v1 parent-superset invariant when a parent must be written while a
-	//     live leaf still sits on a stale cpuset from a shrunk pool.
+	//     the current cpuset of kube cgroups present in ExpectedCPUSetByRel
+	//     found under it (see collectProtectedLeafCPUSet). This preserves the
+	//     cgroup v1 parent-superset invariant when a parent must be written
+	//     before the child is updated to its resolved allocation.
 	//  2. Additionally folds ProtectedPendingCPUSet (allocations whose cgroup
 	//     leaf has not been created yet) into the same widened primary target,
 	//     so the primary never shrinks below an allocation about to materialize.
@@ -68,11 +69,11 @@ type DAGApplyInputs struct {
 	//     nodes containing expected container leaves are still expanded safely
 	//     via current ∪ observedDescendants ∪ expectedDescendants.
 	//
-	// After widening the primary, reclaim/reclaim-sibling targets are normalized by
-	// removing the primary effective CPUs from them. This keeps the partitions
-	// disjoint while preserving the primary cgroup v1 parent-superset invariant.
-	// Leaves that DO appear in ExpectedCPUSetByRel are still written to their
-	// resolved allocation, regardless of this flag.
+	// After widening the primary, reclaim targets are normalized by removing the
+	// primary effective CPUs from them, then reclaim parents are widened to cover
+	// their NUMA buckets. This keeps the partitions disjoint while preserving the
+	// cgroup v1 parent-superset invariant. Leaves that DO appear in
+	// ExpectedCPUSetByRel are still written to their resolved allocation.
 	ProtectUnmanagedKubePodLeaf bool
 	// KubeManagedRelPrefix scopes the protection above to rels under this prefix
 	// (typically BulkheadPrimaryRelPath, e.g. "kubepods"). Empty prefix means the
@@ -126,13 +127,12 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 	cache := newApplyCache(cg, kubeRelPrefix, expected)
 
 	// Build the effective target for every controlled node before touching any
-	// cgroup: effective = desired ∪ (current cpuset of every protected unmanaged
-	// kube leaf in its subtree) [∪ pending allocations for the primary]. This
-	// guarantees the cgroup v1 parent-superset invariant when a parent has to be
-	// written while a live pod/container leaf still sits on a stale cpuset. The
-	// Reclaim targets are normalized against widened primary targets before
-	// applying, so a boundary CPU temporarily required by the primary is removed
-	// from reclaim instead of causing a partition conflict.
+	// cgroup: effective = desired ∪ (current cpuset of every expected kube rel in
+	// its subtree) [∪ pending allocations for the primary]. This guarantees the
+	// cgroup v1 parent-superset invariant when a parent has to be written before
+	// expected children converge. Reclaim targets are normalized against widened
+	// primary targets before applying, so a boundary CPU temporarily required by
+	// the primary is removed from reclaim instead of causing a partition conflict.
 	effectiveTargets, err := computeEffectiveTargets(ctx, cg, dag, expected, controlledRels, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, protectedPending, cache)
 	if err != nil {
 		return err
@@ -170,9 +170,17 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 			if d.grow && d.shrink {
 				intersection := observed.Intersection(target)
 				if intersection.IsEmpty() {
-					return fmt.Errorf("ApplyDAGDiff: disjoint cpuset change @ %s observed=%s target=%s", n.Rel, observed.String(), target.String())
+					if ok, reason := allowReclaimNUMABucketDisjointReplacement(dag, n, target, effectiveTargets); ok {
+						d.shrinkTarget = target
+						d.grow = false
+						general.InfofV(4, "topo_dag_writer: allow safe reclaim numa disjoint replacement, rel=%q observed=%s target=%s reason=%s",
+							n.Rel, observed.String(), target.String(), reason)
+					} else {
+						return fmt.Errorf("ApplyDAGDiff: disjoint cpuset change @ %s observed=%s target=%s reason=%s", n.Rel, observed.String(), target.String(), reason)
+					}
+				} else {
+					d.shrinkTarget = intersection
 				}
-				d.shrinkTarget = intersection
 			}
 		}
 		diffs[n.Rel] = d
@@ -435,21 +443,20 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 }
 
 // computeEffectiveTargets returns, per controlled node, the cpuset that must be
-// enforced so the cgroup v1 parent-superset invariant holds even while unmanaged
-// live pod/container leaves still sit on a stale cpuset:
+// enforced so the cgroup v1 parent-superset invariant holds while expected kube
+// cgroups and reclaim NUMA buckets converge:
 //
-//	effective(rel) = desired(rel) ∪ protectedDescendantCurrentCPUSet(rel)
+//	effective(primary) = desired(primary) ∪ expectedKubeCurrentCPUSet(primary)
 //	effective(primary) additionally ∪ protectedPending (allocations with no leaf yet)
+//	effective(reclaim parent) includes its reclaim NUMA bucket targets
 //
-// protectedDescendantCurrentCPUSet(rel) is the union of the current cpuset of
-// every protected unmanaged kube leaf found under rel's subtree. Leaves present
-// in the expected map are NOT protected (they are written to their resolved
-// allocation and any mismatch surfaces via shrink blocker diagnostics).
+// expectedKubeCurrentCPUSet(rel) is the union of current cpusets for kube rels
+// that are present in ExpectedCPUSetByRel. Unrelated pod-scoped cgroups are not
+// protected because their current cpuset may be an inherited full-machine value.
 //
 // After widening, reclaim targets are deducted by the union of primary effective
-// targets. That keeps primary/non-reclaim and reclaim disjoint without dropping
-// CPUs that are still required by the primary cgroup v1 parent-superset
-// invariant.
+// targets, reclaim parents are widened to contain NUMA buckets, and reclaim NUMA
+// siblings are checked for disjointness.
 func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, dag *TopoDAG, expected map[string]machine.CPUSet, controlledRels map[string]struct{}, allowEmptyTarget bool, protectKubeLeaf bool, kubeRelPrefix string, protectedPending machine.CPUSet, cache *applyCache) (map[string]machine.CPUSet, error) {
 	effective := map[string]machine.CPUSet{}
 	for _, n := range dag.Nodes() {
@@ -464,7 +471,7 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 		}
 		// On cgroup v2, an empty cpuset.cpus is a valid explicit target and
 		// means the node inherits its effective CPUs from ancestors. Do not widen
-		// an intentionally empty target with protected leaf/pending CPUs; otherwise
+		// an intentionally empty target with protected current/pending CPUs; otherwise
 		// we would erase the empty-target semantics before expandDescendants has a
 		// chance to propagate it.
 		if allowEmptyTarget && n.CPUs.IsEmpty() {
@@ -482,7 +489,11 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 			n.Rel, n.CPUs.String(), protectedUnion.String(), effective[n.Rel].String())
 	}
 	normalizeReclaimTargetsByPrimary(dag, effective)
+	normalizeReclaimParentContainsNUMABuckets(dag, effective)
 	if err := validateNoPrimaryReclaimOverlap(dag, effective); err != nil {
+		return nil, err
+	}
+	if err := validateReclaimNUMABucketSiblingsDisjoint(dag, effective); err != nil {
 		return nil, err
 	}
 	return effective, nil
@@ -500,7 +511,7 @@ func collectProtectedLeafCPUSet(ctx context.Context, cg cgroupclient.CgroupClien
 	}
 	children, err := cache.listChildren(ctx, rel)
 	if err != nil {
-		general.InfofV(5, "topo_dag_writer: list children failed during protected leaf collection, rel=%q err=%v", rel, err)
+		general.InfofV(5, "topo_dag_writer: list children failed during expected kube current collection, rel=%q err=%v", rel, err)
 		return out
 	}
 	for _, name := range children {
@@ -551,6 +562,27 @@ func normalizeReclaimTargetsByPrimary(dag *TopoDAG, effective map[string]machine
 	}
 }
 
+func normalizeReclaimParentContainsNUMABuckets(dag *TopoDAG, effective map[string]machine.CPUSet) {
+	for _, n := range dag.Nodes() {
+		if n.Role != TopoNodeRoleReclaimNUMABucket {
+			continue
+		}
+		parent := reclaimParentForBucket(dag, n)
+		if parent == nil {
+			continue
+		}
+		childTarget := effective[n.Rel]
+		parentTarget := effective[parent.Rel]
+		if childTarget.IsSubsetOf(parentTarget) {
+			continue
+		}
+		widened := parentTarget.Union(childTarget)
+		general.InfofV(5, "topo_dag_writer: widen reclaim parent target for numa bucket, parent=%q child=%q parentTarget=%s childTarget=%s effective=%s",
+			parent.Rel, n.Rel, parentTarget.String(), childTarget.String(), widened.String())
+		effective[parent.Rel] = widened
+	}
+}
+
 // validateNoPrimaryReclaimOverlap rejects the apply if any primary/non-reclaim
 // effective target overlaps a reclaim target. The overlap is reported per rel so
 // the operator can see the conflicting partition and the offending cpus.
@@ -575,6 +607,76 @@ func validateNoPrimaryReclaimOverlap(dag *TopoDAG, effective map[string]machine.
 			if !overlap.IsEmpty() {
 				return fmt.Errorf("ApplyDAGDiff: partition cpuset overlap: primary=%s target=%s reclaim=%s target=%s overlap=%s",
 					n.Rel, primaryTarget.String(), r.Rel, effective[r.Rel].String(), overlap.String())
+			}
+		}
+	}
+	return nil
+}
+
+func validateReclaimNUMABucketSiblingsDisjoint(dag *TopoDAG, effective map[string]machine.CPUSet) error {
+	for _, parent := range dag.Nodes() {
+		if parent.Role != TopoNodeRoleReclaim {
+			continue
+		}
+		var buckets []*TopoNode
+		for _, child := range parent.children {
+			if child.Role == TopoNodeRoleReclaimNUMABucket {
+				buckets = append(buckets, child)
+			}
+		}
+		for i := range buckets {
+			for j := i + 1; j < len(buckets); j++ {
+				left := buckets[i]
+				right := buckets[j]
+				overlap := effective[left.Rel].Intersection(effective[right.Rel])
+				if !overlap.IsEmpty() {
+					return fmt.Errorf("ApplyDAGDiff: reclaim numa bucket overlap: parent=%s left=%s target=%s right=%s target=%s overlap=%s",
+						parent.Rel,
+						left.Rel, effective[left.Rel].String(),
+						right.Rel, effective[right.Rel].String(),
+						overlap.String())
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func allowReclaimNUMABucketDisjointReplacement(dag *TopoDAG, node *TopoNode, target machine.CPUSet, effective map[string]machine.CPUSet) (bool, string) {
+	if node == nil || node.Role != TopoNodeRoleReclaimNUMABucket {
+		return false, "role_not_allowed"
+	}
+	parent := reclaimParentForBucket(dag, node)
+	if parent == nil {
+		return false, "missing_reclaim_parent"
+	}
+	parentTarget := effective[parent.Rel]
+	if !target.IsSubsetOf(parentTarget) {
+		return false, fmt.Sprintf("target_not_subset_of_parent parent=%s parentTarget=%s", parent.Rel, parentTarget.String())
+	}
+	for _, sibling := range parent.children {
+		if sibling.Rel == node.Rel || sibling.Role != TopoNodeRoleReclaimNUMABucket {
+			continue
+		}
+		overlap := target.Intersection(effective[sibling.Rel])
+		if !overlap.IsEmpty() {
+			return false, fmt.Sprintf("sibling_overlap sibling=%s overlap=%s", sibling.Rel, overlap.String())
+		}
+	}
+	return true, "reclaim_numa_bucket_parent_contains_target"
+}
+
+func reclaimParentForBucket(dag *TopoDAG, node *TopoNode) *TopoNode {
+	if dag == nil || node == nil || node.Role != TopoNodeRoleReclaimNUMABucket {
+		return nil
+	}
+	for _, parent := range dag.Nodes() {
+		if parent.Role != TopoNodeRoleReclaim {
+			continue
+		}
+		for _, child := range parent.children {
+			if child.Rel == node.Rel {
+				return parent
 			}
 		}
 	}
@@ -625,11 +727,10 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 		// sandbox/pause/reclaim leaves are not protected by primary widening.
 		// Also leave non-pod intermediate nodes untouched when they contain an
 		// unresolved pod-scoped descendant; otherwise writing that intermediate
-		// node can fail or narrow a parent of the protected pause/container leaf.
+		// node can fail or narrow a parent of unrelated pod-scoped leaves.
 		// If the protected subtree contains expected container leaves, safely
 		// expand each intermediate node to current ∪ expectedDescendants so the
-		// expected leaves can still expand without narrowing protected pause or
-		// unmanaged container leaves.
+		// expected leaves can still expand without narrowing unrelated pod leaves.
 		if protectKubeLeaf && !parentTarget.IsEmpty() && cache.hasKubeManagedPodInSubtree(ctx, childRel, depth+1) {
 			res.Skipped++
 			if expUnion := cache.expectedDescendantUnion(childRel); !expUnion.IsEmpty() {
@@ -651,7 +752,7 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 					}
 				}
 			}
-			general.InfofV(5, "topo_dag_writer: protect unmanaged kube subtree during expand, rel=%q parentTarget=%s", childRel, parentTarget.String())
+			general.InfofV(5, "topo_dag_writer: skip unrelated kube subtree during expand, rel=%q parentTarget=%s", childRel, parentTarget.String())
 			continue
 		}
 		if parentInExpected {

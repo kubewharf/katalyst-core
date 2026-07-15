@@ -169,8 +169,9 @@ func TestApplyDAGDiffShrinksBeforeExpands(t *testing.T) {
 	cg.cpus["domain-b"] = machine.NewCPUSet(2)
 
 	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
-		DAG:    dag,
-		Cgroup: cg,
+		DAG:                         dag,
+		Cgroup:                      cg,
+		ProtectUnmanagedKubePodLeaf: true,
 	})
 	if err != nil {
 		t.Fatalf("ApplyDAGDiff: %v", err)
@@ -711,6 +712,124 @@ func TestApplyDAGDiffDeductsPrimaryEffectiveCPUsFromReclaim(t *testing.T) {
 	}
 	if got := cg.cpus["reclaim"].String(); got != "4-5" {
 		t.Fatalf("reclaim target = %s, want 4-5 after deducting primary effective cpu 3; writes=%#v", got, cg.writes)
+	}
+}
+
+func TestApplyDAGDiffAllowsReclaimNUMABucketDisjointReplacementWhenParentContainsTarget(t *testing.T) {
+	t.Parallel()
+
+	parentCPUs := machine.NewCPUSet(42, 43, 44, 45, 46, 47, 95, 96, 138, 139, 140, 141, 142, 143, 144, 191)
+	numa0CPUs := machine.NewCPUSet(42, 43, 44, 45, 46, 47, 96, 138, 139, 140, 141, 142, 143)
+	numa1CPUs := machine.NewCPUSet(95, 144, 191)
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: parentCPUs},
+		{Rel: "kubesandbox/numa0", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: numa0CPUs},
+		{Rel: "kubesandbox/numa1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: numa1CPUs},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox"] = parentCPUs.Clone()
+	cg.cpus["kubesandbox/numa0"] = numa0CPUs.Clone()
+	cg.cpus["kubesandbox/numa1"] = numa0CPUs.Clone()
+	cg.children["kubesandbox"] = []string{"numa0", "numa1"}
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:                         dag,
+		Cgroup:                      cg,
+		ProtectUnmanagedKubePodLeaf: true,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v; writes=%#v", err, cg.writes)
+	}
+	if got := cg.cpus["kubesandbox/numa1"].String(); got != numa1CPUs.String() {
+		t.Fatalf("numa1 target = %s, want %s; writes=%#v", got, numa1CPUs.String(), cg.writes)
+	}
+	if overlap := cg.cpus["kubesandbox/numa0"].Intersection(cg.cpus["kubesandbox/numa1"]); !overlap.IsEmpty() {
+		t.Fatalf("reclaim NUMA buckets overlap after apply: overlap=%s writes=%#v", overlap.String(), cg.writes)
+	}
+}
+
+func TestApplyDAGDiffRejectsReclaimNUMABucketDisjointReplacementWithoutReclaimParent(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox/numa1", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(4, 5)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox/numa1"] = machine.NewCPUSet(1, 2)
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:                         dag,
+		Cgroup:                      cg,
+		ProtectUnmanagedKubePodLeaf: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "disjoint cpuset change") {
+		t.Fatalf("expected disjoint replacement rejection, got err=%v writes=%#v", err, cg.writes)
+	}
+	if len(cg.writes) != 0 {
+		t.Fatalf("disjoint validation should fail before writes, got %#v", cg.writes)
+	}
+}
+
+func TestApplyDAGDiffRejectsReclaimNUMABucketSiblingOverlap(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1, 2, 3)},
+		{Rel: "kubesandbox/numa0", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(1, 2)},
+		{Rel: "kubesandbox/numa1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(2, 3)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(1, 2, 3)
+	cg.cpus["kubesandbox/numa0"] = machine.NewCPUSet(1, 2)
+	cg.cpus["kubesandbox/numa1"] = machine.NewCPUSet(3)
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:                         dag,
+		Cgroup:                      cg,
+		ProtectUnmanagedKubePodLeaf: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "reclaim numa bucket overlap") {
+		t.Fatalf("expected reclaim numa bucket overlap error, got err=%v writes=%#v", err, cg.writes)
+	}
+	if len(cg.writes) != 0 {
+		t.Fatalf("overlap validation should fail before writes, got %#v", cg.writes)
+	}
+}
+
+func TestApplyDAGDiffWidensReclaimParentToContainNUMABucket(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1)},
+		{Rel: "kubesandbox/numa0", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(1, 2)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(1)
+	cg.cpus["kubesandbox/numa0"] = machine.NewCPUSet(1)
+	cg.children["kubesandbox"] = []string{"numa0"}
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:                         dag,
+		Cgroup:                      cg,
+		ProtectUnmanagedKubePodLeaf: true,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v; writes=%#v", err, cg.writes)
+	}
+	if got := cg.cpus["kubesandbox"].String(); got != "1-2" {
+		t.Fatalf("reclaim parent target = %s, want 1-2 containing bucket; writes=%#v", got, cg.writes)
 	}
 }
 
