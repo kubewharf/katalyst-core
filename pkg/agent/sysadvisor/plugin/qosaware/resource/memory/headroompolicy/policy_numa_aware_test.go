@@ -17,8 +17,10 @@ limitations under the License.
 package headroompolicy
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +42,7 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestPolicyNUMAAware(t *testing.T) {
@@ -53,6 +56,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 		memoryHeadroomConfiguration *memoryheadroom.MemoryHeadroomConfiguration
 		essentials                  types.ResourceEssentials
 		setFakeMetric               func(store *metric.FakeMetricsFetcher)
+		reclaimParents              []string
 	}
 	tests := []struct {
 		name     string
@@ -427,11 +431,196 @@ func TestPolicyNUMAAware(t *testing.T) {
 				1: resource.MustParse("75Gi"),
 			},
 		},
+		{
+			name: "multi-path: sum across parents aggregates caps",
+			fields: fields{
+				podList:    []*v1.Pod{},
+				containers: []*types.ContainerInfo{},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       true,
+					ResourceUpperBound:  400 << 30,
+					ReservedForAllocate: 4 << 30,
+				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   1.5,
+					},
+				},
+				reclaimParents: []string{"/kubereclaim/a", "/kubereclaim/b"},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetCgroupMetric("/kubereclaim/a", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetCgroupMetric("/kubereclaim/b", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 60 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+				},
+			},
+			wantErr: false,
+			want:    resource.MustParse("221Gi"),
+			wantNUMA: map[int]resource.Quantity{
+				0: resource.MustParse("110.5Gi"),
+				1: resource.MustParse("110.5Gi"),
+			},
+		},
+		{
+			name: "multi-path: some parents missing still succeeds using survivors",
+			fields: fields{
+				podList:    []*v1.Pod{},
+				containers: []*types.ContainerInfo{},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       true,
+					ResourceUpperBound:  400 << 30,
+					ReservedForAllocate: 4 << 30,
+				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   1.5,
+					},
+				},
+				reclaimParents: []string{"/kubereclaim/a", "/kubereclaim/b"},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetCgroupMetric("/kubereclaim/a", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+				},
+			},
+			wantErr: false,
+			want:    resource.MustParse("150Gi"),
+			wantNUMA: map[int]resource.Quantity{
+				0: resource.MustParse("75Gi"),
+				1: resource.MustParse("75Gi"),
+			},
+		},
+		{
+			name: "multi-path: all parents missing returns error",
+			fields: fields{
+				podList:    []*v1.Pod{},
+				containers: []*types.ContainerInfo{},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       true,
+					ResourceUpperBound:  400 << 30,
+					ReservedForAllocate: 4 << 30,
+				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   1.5,
+					},
+				},
+				reclaimParents: []string{"/kubereclaim/a", "/kubereclaim/b"},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "multi-path numa-binding: sum across per-NUMA cgroups",
+			fields: fields{
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							UID:       "pod1",
+							Name:      "pod1",
+							Namespace: "default",
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationNUMABindResultKey: "0",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{{Name: "container1"}},
+						},
+					},
+				},
+				containers: []*types.ContainerInfo{
+					makeContainerInfo("pod1", "default",
+						"pod1", "container1",
+						consts.PodAnnotationQoSLevelReclaimedCores,
+						map[string]string{cpuconsts.CPUStateAnnotationKeyNUMAHint: "0"},
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0)}, 50<<30),
+				},
+				essentials: types.ResourceEssentials{
+					EnableReclaim:       true,
+					ResourceUpperBound:  500 << 30,
+					ReservedForAllocate: 25 << 30,
+				},
+				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
+					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
+						CacheBasedRatio:   0,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   2,
+					},
+				},
+				reclaimParents: []string{"/kubereclaim/a", "/kubereclaim/b"},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetCgroupMetric("/kubereclaim/a", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetCgroupMetric("/kubereclaim/b", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetCgroupMetric("/kubereclaim/a-0", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 30 << 30, Time: &now})
+					store.SetCgroupMetric("/kubereclaim/a-1", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 30 << 30, Time: &now})
+					store.SetCgroupMetric("/kubereclaim/b-0", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 30 << 30, Time: &now})
+					store.SetCgroupMetric("/kubereclaim/b-1", pkgconsts.MetricMemLimitCgroup, utilmetric.MetricData{Value: 30 << 30, Time: &now})
+					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemTotalNuma, utilmetric.MetricData{Value: 250 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 100 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 50 << 30, Time: &now})
+				},
+			},
+			wantErr: false,
+			want:    resource.MustParse("195Gi"),
+			wantNUMA: map[int]resource.Quantity{
+				0: resource.MustParse("120Gi"),
+				1: resource.MustParse("75Gi"),
+			},
+		},
 	}
+	seedReclaimRegistry := func(paths []string, tag string) []string {
+		names := make([]string, 0, len(paths))
+		for i, p := range paths {
+			name := fmt.Sprintf("policy-numa-aware-test-%s-%d", tag, i)
+			reclaim.UnregisterConsumer(name)
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, p, 0))
+			names = append(names, name)
+		}
+		return names
+	}
+	// registryMu serializes the parallel subtests below: they all mutate the
+	// process-global reclaim consumer registry (generic consumer at L621, plus
+	// per-parent consumers seeded by seedReclaimRegistry). Without this, two
+	// concurrent subtests can see each other's registrations leak into their
+	// AggregateCgroupPathsWithPercentage results, or trip the ">100 total"
+	// validation in registerConsumer.
+	var registryMu sync.Mutex
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			registryMu.Lock()
+			defer registryMu.Unlock()
 
 			ckDir, err := ioutil.TempDir("", "checkpoint-TestPolicyNUMAAware")
 			require.NoError(t, err)
@@ -443,6 +632,17 @@ func TestPolicyNUMAAware(t *testing.T) {
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
 			conf.GetDynamicConfiguration().MemoryHeadroomConfiguration = tt.fields.memoryHeadroomConfiguration
+			reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
+			defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+			if len(tt.fields.reclaimParents) > 0 {
+				names := seedReclaimRegistry(tt.fields.reclaimParents, tt.name)
+				defer func() {
+					for _, name := range names {
+						reclaim.UnregisterConsumer(name)
+					}
+				}()
+			}
 
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)

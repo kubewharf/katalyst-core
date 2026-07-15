@@ -17,6 +17,8 @@ limitations under the License.
 package region
 
 import (
+	"fmt"
+	"math"
 	"os"
 	"testing"
 
@@ -37,7 +39,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestGetRegionNameFromMetaCache(t *testing.T) {
@@ -256,6 +260,124 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 			share := NewQoSRegionShare(&ci, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
 			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
+		})
+	}
+}
+
+func TestGetEffectiveReclaimResource(t *testing.T) {
+	t.Parallel()
+
+	reclaim.UnregisterConsumer("region-test-a")
+	reclaim.UnregisterConsumer("region-test-b")
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("region-test-a", "/kubepods/besteffort", 0))
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("region-test-b", "/kubesandbox", 0))
+
+	period := uint64(100000)
+	stats := func(cores float64) *common.CPUStats {
+		return &common.CPUStats{CpuPeriod: period, CpuQuota: int64(cores * float64(period))}
+	}
+	unlimited := &common.CPUStats{CpuPeriod: period, CpuQuota: common.CPUQuotaUnlimit}
+	maxInt := &common.CPUStats{CpuPeriod: period, CpuQuota: math.MaxInt}
+
+	tests := []struct {
+		name          string
+		isNumaBinding bool
+		bindingNumas  machine.CPUSet
+		gateEnabled   bool
+		// cpuStats maps a reclaim cgroup path to its stats; a missing key makes
+		// the mocked GetCPUWithRelativePath return an error for that path.
+		cpuStats     map[string]*common.CPUStats
+		reclaimPool  *types.PoolInfo
+		expectQuota  float64
+		expectCpuset int
+	}{
+		{
+			name:         "non-binding sums finite quotas across consumers",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": stats(1.0), "/kubesandbox": stats(2.0)},
+			expectQuota:  3.0,
+			expectCpuset: 0,
+		},
+		{
+			name:         "non-binding any unlimited path makes whole scope unlimited",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": stats(1.0), "/kubesandbox": unlimited},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "non-binding math.MaxInt is treated as unlimited",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": maxInt, "/kubesandbox": stats(2.0)},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "gate disabled yields unlimited regardless of cgroup values",
+			gateEnabled:  false,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": stats(1.0), "/kubesandbox": stats(2.0)},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "all paths missing yields unlimited",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "missing path is skipped and the remainder is summed",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubesandbox": stats(2.0)},
+			expectQuota:  2.0,
+			expectCpuset: 0,
+		},
+		{
+			name:          "numa-binding resolves per-numa paths, sums quota and reads cpuset",
+			isNumaBinding: true,
+			bindingNumas:  machine.NewCPUSet(1),
+			gateEnabled:   true,
+			cpuStats:      map[string]*common.CPUStats{"/kubepods/besteffort-1": stats(1.0), "/kubesandbox-1": stats(1.5)},
+			reclaimPool: &types.PoolInfo{
+				PoolName: commonstate.PoolNameReclaim,
+				TopologyAwareAssignments: types.TopologyAwareAssignment{
+					1: machine.NewCPUSet(10, 11, 12),
+				},
+			},
+			expectQuota:  2.5,
+			expectCpuset: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			metaCache := metacache.NewDummyMetaCacheImp()
+			if tt.reclaimPool != nil {
+				require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameReclaim, tt.reclaimPool))
+			}
+
+			r := &QoSRegionBase{
+				isNumaBinding: tt.isNumaBinding,
+				bindingNumas:  tt.bindingNumas,
+				metaReader:    metaCache,
+				isQuotaCtrlKnobEnabled: func(metacache.MetaReader) (bool, error) {
+					return tt.gateEnabled, nil
+				},
+				getCPUWithRelativePath: func(path string) (*common.CPUStats, error) {
+					if s, ok := tt.cpuStats[path]; ok {
+						return s, nil
+					}
+					return nil, fmt.Errorf("cgroup not found: %s", path)
+				},
+			}
+
+			quota, cpusetSize, err := r.getEffectiveReclaimResource()
+			require.NoError(t, err)
+			assert.InDelta(t, tt.expectQuota, quota, 1e-9)
+			assert.Equal(t, tt.expectCpuset, cpusetSize)
 		})
 	}
 }

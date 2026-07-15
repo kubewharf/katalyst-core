@@ -49,6 +49,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
@@ -227,6 +228,12 @@ type QoSRegionBase struct {
 
 	isNumaBinding   bool
 	isNumaExclusive bool
+
+	// injected dependencies for getEffectiveReclaimResource — overridable in
+	// tests so parallel subtests can stub without patching package-level
+	// functions (which mockey serializes at process scope).
+	isQuotaCtrlKnobEnabled func(metacache.MetaReader) (bool, error)
+	getCPUWithRelativePath func(string) (*common.CPUStats, error)
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -274,6 +281,9 @@ func NewQoSRegionBase(name string, ownerPoolName string, resourcePackageName str
 
 		isNumaBinding:   isNumaBinding,
 		isNumaExclusive: isNumaExclusive,
+
+		isQuotaCtrlKnobEnabled: metacache.IsQuotaCtrlKnobEnabled,
+		getCPUWithRelativePath: cgroupmgr.GetCPUWithRelativePath,
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
@@ -966,20 +976,52 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 		numaID = r.bindingNumas.ToSliceInt()[0]
 	}
 
-	quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(r.metaReader)
+	quotaCtrlKnobEnabled, err := r.isQuotaCtrlKnobEnabled(r.metaReader)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	reclaimPath := common.GetReclaimRelativeRootCgroupPath(r.conf.ReclaimRelativeRootCgroupPath, numaID)
-	cpuStats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
-	if err != nil {
-		return 0, 0, err
+	// resolve the reclaim cgroup paths for this region's existing NUMA scope,
+	// across all registered reclaim consumers (multiple disjoint subtrees).
+	var reclaimPaths []string
+	if r.isNumaBinding {
+		reclaimPaths = reclaim.AggregateNumaBindingCgroupPaths([]int{numaID})[numaID]
+	} else {
+		reclaimPaths = reclaim.AggregateCgroupPaths()
 	}
-	if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit || !quotaCtrlKnobEnabled {
+
+	if !quotaCtrlKnobEnabled {
 		quota = common.CPUQuotaUnlimit
 	} else {
-		quota = float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
+		var summed float64
+		found := false
+		unlimited := false
+		for _, path := range reclaimPaths {
+			cpuStats, err := r.getCPUWithRelativePath(path)
+			if err != nil {
+				general.Infof("skip missing reclaim cgroup %s: %v", path, err)
+				continue
+			}
+			found = true
+			// an uncapped subtree lets the reclaim tier burst freely, so any
+			// unlimited path makes the whole scope unlimited.
+			if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit {
+				unlimited = true
+				break
+			}
+
+			if cpuStats.CpuPeriod == 0 {
+				general.Infof("skip reclaim cgroup %s with zero CpuPeriod", path)
+				continue
+			}
+
+			summed += float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
+		}
+		if unlimited || !found {
+			quota = common.CPUQuotaUnlimit
+		} else {
+			quota = summed
+		}
 	}
 
 	for _, numaID := range r.bindingNumas.ToSliceInt() {

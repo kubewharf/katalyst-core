@@ -17,14 +17,17 @@ limitations under the License.
 package malachite
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
@@ -36,10 +39,30 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
+
+// malachiteRegistryMu serializes tests in this file that mutate the
+// process-global reclaim consumer registry (or invoke code paths that
+// read it while others might be writing). Without it, concurrent
+// registry writes racing with a reader inside AggregateNumaBindingCgroupPaths
+// can corrupt sync.RWMutex state and panic ("RUnlock of unlocked
+// RWMutex"), and Test_noneExistMetricsProvisioner sees /kubesandbox*
+// entries leaked from Test_getCgroupPaths_multiReclaim.
+var malachiteRegistryMu sync.Mutex
 
 func Test_noneExistMetricsProvisioner(t *testing.T) {
 	t.Parallel()
+
+	// This test asserts on getCgroupPaths() output, which reads the
+	// process-global reclaim registry. Serialize with
+	// malachiteRegistryMu, register a single generic consumer that
+	// produces the expected "test" / "test-<n>" paths, and clean up.
+	malachiteRegistryMu.Lock()
+	defer malachiteRegistryMu.Unlock()
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, "test", 100))
+	defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 
 	store := utilmetric.NewMetricStore()
 
@@ -219,6 +242,72 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 		"test", "test-0", "test-1", "test-2", "test-3",
 	})
 }
+
+func Test_getCgroupPaths_multiReclaim(t *testing.T) {
+	t.Parallel()
+
+	// Serialize with sibling tests that touch the reclaim registry (see
+	// malachiteRegistryMu). Without this, the registry mutations below
+	// race Test_noneExistMetricsProvisioner and corrupt sync.RWMutex.
+	malachiteRegistryMu.Lock()
+	defer malachiteRegistryMu.Unlock()
+
+	store := utilmetric.NewMetricStore()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+
+	// seed the process-global reclaim registry: the default GenericConsumer
+	// (path "test", per-NUMA "test-<n>") plus a test-only nested consumer
+	// (path "/kubesandbox", per-NUMA "/kubesandbox/kubesandbox-<n>").
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	reclaim.UnregisterConsumer("malachite-test-nested")
+	reclaim.RegisterFactory("malachite-test-nested", func() reclaim.ReclaimedConsumer { return &nestedConsumer{} })
+	require.NoError(t, reclaim.SetupConsumers("test", 0, []string{reclaim.GenericConsumerName, "malachite-test-nested"}))
+	defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	defer reclaim.UnregisterConsumer("malachite-test-nested")
+
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
+		ReclaimRelativeRootCgroupPath: "test",
+		MalachiteConfiguration: &global.MalachiteConfiguration{
+			GeneralRelativeCgroupPaths:  []string{"d1", "d2"},
+			OptionalRelativeCgroupPaths: []string{"d3"},
+		},
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
+		&machine.KatalystMachineInfo{CPUTopology: cpuTopology})
+
+	defer mockey.UnPatchAll()
+	mockey.Mock(general.IsPathExists).To(func(_ string) bool { return true }).Build()
+	mockey.Mock(common.CheckCgroup2UnifiedMode).To(func() bool { return true }).Build()
+
+	paths := implement.(*MalachiteMetricsProvisioner).getCgroupPaths()
+	assert.ElementsMatch(t, paths, []string{
+		"d1", "d2", "d3",
+		"/kubepods/burstable", "/kubepods/besteffort",
+		"test", "test-0", "test-1", "test-2", "test-3",
+		"/kubesandbox",
+		"/kubesandbox/kubesandbox-0",
+		"/kubesandbox/kubesandbox-1",
+		"/kubesandbox/kubesandbox-2",
+		"/kubesandbox/kubesandbox-3",
+	})
+}
+
+// nestedConsumer is a test-only ReclaimedConsumer that produces the nested "/"
+// per-NUMA shape (parent "/kubesandbox", child "/kubesandbox/kubesandbox-<n>").
+type nestedConsumer struct{}
+
+func (*nestedConsumer) GetCgroupPath() string { return "/kubesandbox" }
+
+func (*nestedConsumer) GetNumaBindingCgroupPaths(numaNodes []int) map[int]string {
+	out := make(map[int]string, len(numaNodes))
+	for _, n := range numaNodes {
+		out[n] = fmt.Sprintf("/kubesandbox/kubesandbox-%d", n)
+	}
+	return out
+}
+
+func (*nestedConsumer) GetReclaimedPercentage() float64 { return 100 }
 
 func Test_getCPI(t *testing.T) {
 	t.Parallel()

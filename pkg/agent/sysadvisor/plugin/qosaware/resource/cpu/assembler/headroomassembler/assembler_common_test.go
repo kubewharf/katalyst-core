@@ -59,6 +59,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metric_util "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
@@ -894,6 +895,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			defer os.RemoveAll(sfDir)
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
+			reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
 			conf.GetDynamicConfiguration().ReclaimedResourceConfiguration = tt.fields.reclaimedResourceConfiguration
 			conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores = tt.fields.allowSharedCoresOverlapReclaimedCores
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})

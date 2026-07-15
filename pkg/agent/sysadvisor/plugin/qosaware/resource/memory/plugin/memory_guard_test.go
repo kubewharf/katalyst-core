@@ -23,26 +23,32 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestGetAdvices_MultiPath(t *testing.T) {
 	t.Parallel()
 	mg := &memoryGuard{
+		reclaimRelativeRootCgroupEntries: []reclaim.CgroupPathWithPercentage{
+			{Path: "/kubepods/besteffort", Percentage: 100},
+			{Path: "/parentPath/childPath", Percentage: 100},
+		},
+		numaBindingRelativeRootCgroupEntries: map[int][]reclaim.CgroupPathWithPercentage{
+			0: {
+				{Path: "/kubepods/besteffort-0", Percentage: 100},
+				{Path: "/parentPath/childPath-0", Percentage: 100},
+			},
+		},
 		reclaimRelativeRootCgroupPaths: []string{"/kubepods/besteffort", "/parentPath/childPath"},
 		numaBindingRelativeRootCgroupPaths: map[int][]string{
-			0: {"/kubepods/besteffort-0", "/parentPath/childPath/0"},
+			0: {"/kubepods/besteffort-0", "/parentPath/childPath-0"},
 		},
 		reclaimMemoryLimit:            atomic.NewInt64(1024),
 		numaBindingReclaimMemoryLimit: &atomic.Value{},
 		reconcileStatus:               atomic.NewString(reconcileStatusSucceeded),
 	}
-	mg.numaBindingReclaimMemoryLimit.Store(map[int]map[string]int64{
-		0: {
-			"/kubepods/besteffort-0":  512,
-			"/parentPath/childPath/0": 256,
-		},
+	mg.numaBindingReclaimMemoryLimit.Store(map[int]int64{
+		0: 512,
 	})
 
 	got := mg.GetAdvices()
@@ -55,20 +61,7 @@ func TestGetAdvices_MultiPath(t *testing.T) {
 	require.Contains(t, paths, "/kubepods/besteffort")
 	require.Contains(t, paths, "/parentPath/childPath")
 	require.Contains(t, paths, "/kubepods/besteffort-0")
-	require.Contains(t, paths, "/parentPath/childPath/0")
-}
-
-func TestGetNUMABindingReclaimRelativeRootCgroupPathsMulti(t *testing.T) {
-	t.Parallel()
-	entries := []global.ReclaimRelativeRootCgroupPathEntry{
-		{Path: "/kubepods/besteffort", NUMASeparator: "-"},
-		{Path: "/parentPath/childPath", NUMASeparator: "/"},
-	}
-	got := common.GetNUMABindingReclaimRelativeRootCgroupPathsMulti(entries, []int{0, 1})
-	require.Equal(t, map[int][]string{
-		0: {"/kubepods/besteffort-0", "/parentPath/childPath/0"},
-		1: {"/kubepods/besteffort-1", "/parentPath/childPath/1"},
-	}, got)
+	require.Contains(t, paths, "/parentPath/childPath-0")
 }
 
 func TestCalculateReclaimedMemoryLimitFor_WatermarkSource(t *testing.T) {

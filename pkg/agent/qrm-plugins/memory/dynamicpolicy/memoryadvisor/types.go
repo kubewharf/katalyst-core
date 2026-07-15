@@ -19,16 +19,17 @@ package memoryadvisor
 type MemoryControlKnobName string
 
 const (
-	ControlKnobKeyMemoryLimitInBytes MemoryControlKnobName = "memory_limit_in_bytes"
-	ControlKnobKeyDropCache          MemoryControlKnobName = "drop_cache"
-	ControlKnobKeyCPUSetMems         MemoryControlKnobName = "cpuset_mems"
-	ControlKnobReclaimedMemorySize   MemoryControlKnobName = "reclaimed_memory_size"
-	ControlKnobKeyBalanceNumaMemory  MemoryControlKnobName = "balance_numa_memory"
-	ControlKnobKeySwapMax            MemoryControlKnobName = "swap_max"
-	ControlKnowKeyMemoryOffloading   MemoryControlKnobName = "memory_offloading"
-	ControlKnowKeyDyingMemcgReclaim  MemoryControlKnobName = "dying_memcg_reclaim"
-	ControlKnobKeyMemoryNUMAHeadroom MemoryControlKnobName = "memory_numa_headroom"
-	ControlKnobKeyMemoryHigh         MemoryControlKnobName = "memory_high"
+	ControlKnobKeyMemoryLimitInBytes  MemoryControlKnobName = "memory_limit_in_bytes"
+	ControlKnobKeyDropCache           MemoryControlKnobName = "drop_cache"
+	ControlKnobKeyCPUSetMems          MemoryControlKnobName = "cpuset_mems"
+	ControlKnobReclaimedMemorySize    MemoryControlKnobName = "reclaimed_memory_size"
+	ControlKnobKeyBalanceNumaMemory   MemoryControlKnobName = "balance_numa_memory"
+	ControlKnobKeySwapMax             MemoryControlKnobName = "swap_max"
+	ControlKnowKeyMemoryOffloading    MemoryControlKnobName = "memory_offloading"
+	ControlKnowKeyDyingMemcgReclaim   MemoryControlKnobName = "dying_memcg_reclaim"
+	ControlKnobKeyMemoryNUMAHeadroom  MemoryControlKnobName = "memory_numa_headroom"
+	ControlKnobKeyMemoryTotalHeadroom MemoryControlKnobName = "memory_total_headroom"
+	ControlKnobKeyMemoryHigh          MemoryControlKnobName = "memory_high"
 )
 
 const (

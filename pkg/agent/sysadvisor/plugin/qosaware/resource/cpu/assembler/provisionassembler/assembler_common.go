@@ -92,6 +92,38 @@ func (pa *ProvisionAssemblerCommon) clampByReclaimedCPUMaxRatio(size int, limit 
 	return size, limit
 }
 
+// clampReclaimAndOverlap caps reclaim outputs by ReclaimedCPUMaxRatio * cpuCount.
+// If reclaimedCoresQuota >= 0, only the quota is clamped (CFS already bounds usage).
+// Otherwise, reclaimedCoresSize is clamped and overlap entries are floored down
+// proportionally when their sum exceeds it. No-op when ratio <= 0.
+func (pa *ProvisionAssemblerCommon) clampReclaimAndOverlap(
+	reclaimedCoresSize int, overlapReclaimSize map[string]int, reclaimedCoresQuota float64, cpuCount int,
+) (int, map[string]int, float64) {
+	ratio := pa.conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio
+	if ratio <= 0 {
+		return reclaimedCoresSize, overlapReclaimSize, reclaimedCoresQuota
+	}
+	capCpuCount := int(ratio * float64(cpuCount))
+	// Only quota is clamped when quota is set.
+	if reclaimedCoresQuota >= 0 {
+		reclaimedCoresQuota = general.MinFloat64(reclaimedCoresQuota, float64(capCpuCount))
+		return reclaimedCoresSize, overlapReclaimSize, reclaimedCoresQuota
+	}
+	if reclaimedCoresSize > capCpuCount {
+		reclaimedCoresSize = capCpuCount
+	}
+	totalOverlap := general.SumUpMapValues(overlapReclaimSize)
+	if totalOverlap > reclaimedCoresSize && totalOverlap > 0 {
+		scaled := make(map[string]int, len(overlapReclaimSize))
+		scale := float64(reclaimedCoresSize) / float64(totalOverlap)
+		for k, v := range overlapReclaimSize {
+			scaled[k] = int(math.Floor(float64(v) * scale))
+		}
+		return reclaimedCoresSize, scaled, reclaimedCoresQuota
+	}
+	return reclaimedCoresSize, overlapReclaimSize, reclaimedCoresQuota
+}
+
 func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	controlKnob, err := r.GetProvision()
 	if err != nil {
@@ -510,8 +542,6 @@ func (pa *ProvisionAssemblerCommon) calculateReclaimPool(
 		return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err
 	}
 
-	reclaimedCoresSize, _ = pa.clampByReclaimedCPUMaxRatio(reclaimedCoresSize, -1, data.numaCPUCount)
-
 	return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, nil
 }
 
@@ -639,6 +669,8 @@ func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
 		}
 	}
 
+	reclaimedCoresSize, overlapReclaimSize, reclaimedCoresQuota = pa.clampReclaimAndOverlap(reclaimedCoresSize, overlapReclaimSize, reclaimedCoresQuota, data.numaCPUCount)
+
 	for overlapPoolName, reclaimSize := range overlapReclaimSize {
 		if _, ok := data.shareInfo.requests[overlapPoolName]; ok {
 			general.InfoS("set pool overlap info",
@@ -679,37 +711,48 @@ func (pa *ProvisionAssemblerCommon) calculateNonOverlapReclaimPool(
 	var reclaimedCoresSize, overlapReclaimedCoresSize int
 	reclaimedCoresQuota := float64(-1)
 
-	if data.nodeEnableReclaim {
-		for poolName, size := range data.dedicatedInfo.requests {
-			if data.dedicatedInfo.reclaimEnable[poolName] {
-				reclaimSize := size - data.dedicatedInfo.requirements[poolName]
-				if reclaimSize <= 0 {
-					continue
-				}
-				if podSet, ok := data.dedicatedInfo.podSet[poolName]; ok {
-					for podUID, containerSet := range podSet {
-						for containerName := range containerSet {
-							general.InfoS("set pool overlap pod container info",
-								"poolName", commonstate.PoolNameReclaim,
-								"numaID", data.numaID,
-								"podUID", podUID,
-								"containerName", containerName,
-								"reclaimSize", reclaimSize)
-							result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, data.numaID, podUID, containerName, reclaimSize)
-						}
-					}
-					overlapReclaimedCoresSize += reclaimSize
-					continue
-				}
+	if !data.nodeEnableReclaim {
+		reclaimedCoresSize = data.reservedForReclaim
+		reclaimedCoresSize, _, _ = pa.clampReclaimAndOverlap(reclaimedCoresSize, nil, -1, data.numaCPUCount)
+		return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, nil
+	}
+
+	overlapReclaimSize := make(map[string]int)
+	for poolName, size := range data.dedicatedInfo.requests {
+		if !data.dedicatedInfo.reclaimEnable[poolName] {
+			continue
+		}
+		reclaimSize := size - data.dedicatedInfo.requirements[poolName]
+		if reclaimSize <= 0 {
+			continue
+		}
+		if _, ok := data.dedicatedInfo.podSet[poolName]; !ok {
+			continue
+		}
+		overlapReclaimSize[poolName] = reclaimSize
+	}
+
+	// We deduct totalUnusedNonReclaimablePinnedCPUSize here to ensure that the unused portion of non-reclaimable
+	// resource packages is not added to the reclaim pool, preventing those CPUs from being reclaimed.
+	shareReclaimedCoresSize := data.shareAndIsolatedDedicatedPoolAvailable - general.SumUpMapValues(data.shareAndIsolateDedicatedPoolSizes) - data.totalUnusedNonReclaimablePinnedCPUSize
+	reclaimedCoresSize = shareReclaimedCoresSize + data.dedicatedReclaimCoresSize + data.reservedForReclaim
+
+	reclaimedCoresSize, overlapReclaimSize, _ = pa.clampReclaimAndOverlap(reclaimedCoresSize, overlapReclaimSize, -1, data.numaCPUCount)
+
+	for poolName, reclaimSize := range overlapReclaimSize {
+		podSet := data.dedicatedInfo.podSet[poolName]
+		for podUID, containerSet := range podSet {
+			for containerName := range containerSet {
+				general.InfoS("set pool overlap pod container info",
+					"poolName", commonstate.PoolNameReclaim,
+					"numaID", data.numaID,
+					"podUID", podUID,
+					"containerName", containerName,
+					"reclaimSize", reclaimSize)
+				result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, data.numaID, podUID, containerName, reclaimSize)
 			}
 		}
-
-		// We deduct totalUnusedNonReclaimablePinnedCPUSize here to ensure that the unused portion of non-reclaimable
-		// resource packages is not added to the reclaim pool, preventing those CPUs from being reclaimed.
-		shareReclaimedCoresSize := data.shareAndIsolatedDedicatedPoolAvailable - general.SumUpMapValues(data.shareAndIsolateDedicatedPoolSizes) - data.totalUnusedNonReclaimablePinnedCPUSize
-		reclaimedCoresSize = shareReclaimedCoresSize + data.dedicatedReclaimCoresSize + data.reservedForReclaim
-	} else {
-		reclaimedCoresSize = data.reservedForReclaim
+		overlapReclaimedCoresSize += reclaimSize
 	}
 
 	return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, nil

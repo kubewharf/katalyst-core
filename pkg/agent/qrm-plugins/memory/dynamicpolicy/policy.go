@@ -63,6 +63,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
 
@@ -176,6 +177,8 @@ type DynamicPolicy struct {
 	allocationHooks                               []AllocationHook
 
 	extraResourceNames []string
+
+	reclaimConsumersForKCNR []string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -250,6 +253,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 		topologyAllocationAnnotationKey:               conf.TopologyAllocationAnnotationKey,
 		extraResourceNames:                            conf.ExtraMemoryResources,
+		reclaimConsumersForKCNR:                       conf.ReclaimConsumersForKCNR,
 	}
 
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
@@ -301,6 +305,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryNUMAHeadroom))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryTotalHeadroom))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyDyingMemcgReclaim,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDyingMemcgReclaim))
 
@@ -922,9 +928,58 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(context.Context,
 		}
 	}
 
+	p.addReclaimedMemoryAllocatable(allocatableResources, numaNodes, p.reclaimConsumersForKCNR)
+
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
 		AllocatableResources: allocatableResources,
 	}, nil
+}
+
+// addReclaimedMemoryAllocatable inserts a ReclaimedResourceMemory entry
+// into allocatableResources when ReclaimConsumersForKCNR is configured.
+// The reported value is (headroom * summed_percentage / 100) where
+// summed_percentage is the sum of GetReclaimedPercentage across every
+// configured consumer name, capped at 100 (unknown names contribute 0
+// and are logged by GetReclaimedPercentage).
+func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
+	allocatableResources map[string]*pluginapi.AllocatableTopologyAwareResource,
+	numaNodes []int,
+	consumerNames []string,
+) {
+	if len(consumerNames) == 0 {
+		return
+	}
+
+	var summedPct float64
+	for _, name := range consumerNames {
+		pct, _ := reclaim.GetReclaimedPercentage(name)
+		summedPct += pct
+	}
+	if summedPct > 100 {
+		summedPct = 100
+	}
+
+	numaHeadroom := p.state.GetNUMAHeadroom()
+	totalHeadroom := p.state.GetTotalHeadroom()
+
+	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
+	for _, numaNode := range numaNodes {
+		scaled := float64(numaHeadroom[numaNode]) * summedPct / 100
+		topologyAwareList = append(topologyAwareList, &pluginapi.TopologyAwareQuantity{
+			ResourceValue: scaled,
+			Node:          uint64(numaNode),
+		})
+	}
+	aggregated := float64(totalHeadroom) * summedPct / 100
+
+	allocatableResources[string(apiconsts.ReclaimedResourceMemory)] = &pluginapi.AllocatableTopologyAwareResource{
+		IsNodeResource:                       false,
+		IsScalarResource:                     true,
+		AggregatedAllocatableQuantity:        aggregated,
+		TopologyAwareAllocatableQuantityList: topologyAwareList,
+		AggregatedCapacityQuantity:           aggregated,
+		TopologyAwareCapacityQuantityList:    topologyAwareList,
+	}
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager

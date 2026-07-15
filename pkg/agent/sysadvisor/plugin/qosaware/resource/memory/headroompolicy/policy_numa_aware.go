@@ -30,10 +30,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 type PolicyNUMAAware struct {
@@ -46,19 +46,21 @@ type PolicyNUMAAware struct {
 
 	conf *config.Configuration
 
-	numaBindingReclaimRelativeRootCgroupPaths map[int]string
+	reclaimRelativeRootCgroupPaths            []string
+	numaBindingReclaimRelativeRootCgroupPaths map[int][]string
 }
 
 func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
 ) HeadroomPolicy {
+	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
 	p := PolicyNUMAAware{
-		PolicyBase:         NewPolicyBase(metaReader, metaServer),
-		numaMemoryHeadroom: make(map[int]resource.Quantity),
-		updateStatus:       types.PolicyUpdateFailed,
-		conf:               conf,
-		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		PolicyBase:                     NewPolicyBase(metaReader, metaServer),
+		numaMemoryHeadroom:             make(map[int]resource.Quantity),
+		updateStatus:                   types.PolicyUpdateFailed,
+		conf:                           conf,
+		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(numaIDs),
 	}
 
 	return &p
@@ -258,26 +260,45 @@ func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, map[int]resource.Qua
 	return p.memoryHeadroom, p.numaMemoryHeadroom, nil
 }
 
+// sumCgroupMetric returns the sum of the given metric across the provided
+// cgroup paths. Paths whose metric cannot be read are skipped with an info
+// log so that a single missing cgroup does not fail the whole query.
+// The bool return is true only when at least one path yielded a value;
+// callers use it to distinguish "aggregate found" from "no data at all".
+func (p *PolicyNUMAAware) sumCgroupMetric(paths []string, metric string) (float64, bool) {
+	total := 0.0
+	found := false
+	for _, cgroupPath := range paths {
+		data, err := p.metaServer.GetCgroupMetric(cgroupPath, metric)
+		if err != nil {
+			general.Infof("skip missing reclaim cgroup metric for %s: %v", cgroupPath, err)
+			continue
+		}
+		total += data.Value
+		found = true
+	}
+	if !found {
+		return 0, false
+	}
+	return total, true
+}
+
 func (p *PolicyNUMAAware) getReclaimMemoryLimit(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs machine.CPUSet) (map[int]float64, error) {
 	numaReclaimMemoryLimit := make(map[int]float64, actualNUMABindingNUMAs.Size()+nonActualNUMABindingNUMAs.Size())
+
 	for _, numaID := range actualNUMABindingNUMAs.ToSliceNoSortInt() {
-		cgroupPath := p.numaBindingReclaimRelativeRootCgroupPaths[numaID]
-		data, err := p.metaServer.GetCgroupMetric(cgroupPath, consts.MetricMemLimitCgroup)
-		if err != nil {
-			return nil, fmt.Errorf("get cgroup %s metric failed: %v", cgroupPath, err)
+		if limit, ok := p.sumCgroupMetric(p.numaBindingReclaimRelativeRootCgroupPaths[numaID], consts.MetricMemLimitCgroup); ok {
+			numaReclaimMemoryLimit[numaID] = limit
 		}
-
-		numaReclaimMemoryLimit[numaID] = data.Value
 	}
 
-	cgroupMetric, err := p.metaServer.GetCgroupMetric(p.conf.ReclaimRelativeRootCgroupPath, consts.MetricMemLimitCgroup)
-	if err != nil {
-		return nil, err
+	totalParentLimit, parentFound := p.sumCgroupMetric(p.reclaimRelativeRootCgroupPaths, consts.MetricMemLimitCgroup)
+	if !parentFound {
+		return nil, fmt.Errorf("no reclaim parent cgroup metric available among %v", p.reclaimRelativeRootCgroupPaths)
 	}
-	reclaimMemoryLimit := cgroupMetric.Value
 
 	if !nonActualNUMABindingNUMAs.IsEmpty() {
-		reclaimMemoryLimitPerNUMA := reclaimMemoryLimit / float64(nonActualNUMABindingNUMAs.Size())
+		reclaimMemoryLimitPerNUMA := totalParentLimit / float64(nonActualNUMABindingNUMAs.Size())
 		for _, numaID := range nonActualNUMABindingNUMAs.ToSliceNoSortInt() {
 			numaReclaimMemoryLimit[numaID] = reclaimMemoryLimitPerNUMA
 		}

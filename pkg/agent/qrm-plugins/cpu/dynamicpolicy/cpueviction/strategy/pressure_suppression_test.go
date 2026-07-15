@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const (
@@ -49,7 +50,8 @@ const (
 	defaultCPUMinSuppressionToleranceDuration = 10 * time.Millisecond
 )
 
-func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
+func makeSuppressionEvictionConf(t *testing.T,
+	cpuMaxSuppressionToleranceRate float64,
 	cpuMinSuppressionToleranceDuration time.Duration,
 ) *config.Configuration {
 	conf := config.NewConfiguration()
@@ -57,6 +59,8 @@ func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
 	conf.GetDynamicConfiguration().MaxSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
 	conf.GetDynamicConfiguration().MinSuppressionToleranceDuration = cpuMinSuppressionToleranceDuration
 	conf.ReclaimRelativeRootCgroupPath = "test"
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, "test", 0))
 	return conf
 }
 
@@ -67,7 +71,7 @@ func TestNewCPUPressureSuppressionEviction(t *testing.T) {
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
-	conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
+	conf := makeSuppressionEvictionConf(t, defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -411,7 +415,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 
 			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 			as.Nil(err)
-			conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
+			conf := makeSuppressionEvictionConf(t, defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
 
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)

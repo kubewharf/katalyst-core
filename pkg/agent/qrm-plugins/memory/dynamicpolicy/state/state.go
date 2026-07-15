@@ -555,6 +555,7 @@ func (nrm NUMANodeResourcesMap) Clone() NUMANodeResourcesMap {
 type reader interface {
 	GetMachineState() NUMANodeResourcesMap
 	GetNUMAHeadroom() map[int]int64
+	GetTotalHeadroom() int64
 	GetPodResourceEntries() PodResourceEntries
 	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo
 	// GetResourceAllocationInfo gets the allocationInfo of all resources of a specific container.
@@ -567,6 +568,7 @@ type reader interface {
 type writer interface {
 	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap, persist bool)
 	SetNUMAHeadroom(m map[int]int64, persist bool)
+	SetTotalHeadroom(totalHeadroom int64, persist bool)
 	SetPodResourceEntries(podResourceEntries PodResourceEntries, persist bool)
 	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool)
 

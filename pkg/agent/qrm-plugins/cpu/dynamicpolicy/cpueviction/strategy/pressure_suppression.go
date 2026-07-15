@@ -40,15 +40,18 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
 
 type CPUPressureSuppression struct {
-	conf                                         *config.Configuration
-	state                                        state.ReadonlyState
-	metaServer                                   *metaserver.MetaServer
-	nonNUMABindingReclaimRelativeRootCgroupPaths map[int]string
+	conf       *config.Configuration
+	state      state.ReadonlyState
+	metaServer *metaserver.MetaServer
+
+	reclaimRelativeRootCgroupPaths            []string
+	numaBindingReclaimRelativeRootCgroupPaths map[int][]string
 
 	lastToleranceTime sync.Map
 }
@@ -56,12 +59,13 @@ type CPUPressureSuppression struct {
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, state state.ReadonlyState,
 ) (CPUPressureEviction, error) {
+	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
 	return &CPUPressureSuppression{
-		conf:       conf,
-		state:      state,
-		metaServer: metaServer,
-		nonNUMABindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		conf:                           conf,
+		state:                          state,
+		metaServer:                     metaServer,
+		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(numaIDs),
 	}, nil
 }
 
@@ -147,8 +151,9 @@ func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, fi
 		nonActualNUMABindingCPUSet = nonActualNUMABindingCPUSet.Union(poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID)))
 	}
 
-	// get reclaim metrics
-	reclaimMetrics, err := helper.GetReclaimMetrics(nonActualNUMABindingCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+	// get reclaim metrics aggregated across every registered reclaim consumer's cgroup subtree
+	reclaimMetrics, err := helper.GetReclaimMetricsMulti(nonActualNUMABindingCPUSet,
+		p.reclaimRelativeRootCgroupPaths, p.metaServer.MetricsFetcher)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 	}
@@ -171,16 +176,23 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 	evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
 ) ([]*v1alpha1.EvictPod, error) {
 	var evictPods []*v1alpha1.EvictPod
-	for numaID, reclaimRelativeRootCgroupPath := range p.nonNUMABindingReclaimRelativeRootCgroupPaths {
-		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, reclaimRelativeRootCgroupPath)) {
+	for numaID, reclaimPaths := range p.numaBindingReclaimRelativeRootCgroupPaths {
+		// drop any per-consumer path that doesn't exist on disk yet
+		existingPaths := make([]string, 0, len(reclaimPaths))
+		for _, path := range reclaimPaths {
+			if general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)) {
+				existingPaths = append(existingPaths, path)
+			}
+		}
+		if len(existingPaths) == 0 {
 			continue
 		}
 
 		actualNUMABindingCPUSet := poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID))
 
-		// get reclaim metrics
-		reclaimMetrics, err := helper.GetReclaimMetrics(actualNUMABindingCPUSet,
-			reclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+		// get reclaim metrics aggregated across every registered reclaim consumer for this NUMA
+		reclaimMetrics, err := helper.GetReclaimMetricsMulti(actualNUMABindingCPUSet,
+			existingPaths, p.metaServer.MetricsFetcher)
 		if err != nil {
 			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 		}

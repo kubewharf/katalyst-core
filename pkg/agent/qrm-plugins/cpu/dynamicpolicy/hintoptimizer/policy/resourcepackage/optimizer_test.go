@@ -53,6 +53,7 @@ func (m *MockState) GetMachineState() state.NUMANodeMap {
 
 // Implement other required methods with empty implementations
 func (m *MockState) GetNUMAHeadroom() map[int]float64 { return nil }
+func (m *MockState) GetTotalHeadroom() float64        { return 0 }
 func (m *MockState) GetPodEntries() state.PodEntries  { return nil }
 func (m *MockState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	return nil
@@ -60,6 +61,7 @@ func (m *MockState) GetAllocationInfo(podUID string, containerName string) *stat
 func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool               { return false }
 func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool)  {}
 func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)   {}
+func (m *MockState) SetTotalHeadroom(totalHeadroom float64, persist bool)         {}
 func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) {}
 func (m *MockState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, persist bool) {
 }

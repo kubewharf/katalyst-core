@@ -42,6 +42,7 @@ type memoryPluginState struct {
 
 	machineState       NUMANodeResourcesMap
 	numaHeadroom       map[int]int64
+	totalHeadroom      int64
 	podResourceEntries PodResourceEntries
 
 	extraResourceNames []string
@@ -102,6 +103,13 @@ func (s *memoryPluginState) GetNUMAHeadroom() map[int]int64 {
 	defer s.RUnlock()
 
 	return general.DeepCopyIntToInt64Map(s.numaHeadroom)
+}
+
+func (s *memoryPluginState) GetTotalHeadroom() int64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.totalHeadroom
 }
 
 func (s *memoryPluginState) GetMachineInfo() *info.MachineInfo {
@@ -172,6 +180,14 @@ func (s *memoryPluginState) SetNUMAHeadroom(numaHeadroom map[int]int64) {
 	klog.InfoS("[cpu_plugin] Updated memory plugin numa headroom", "numaHeadroom", numaHeadroom)
 }
 
+func (s *memoryPluginState) SetTotalHeadroom(totalHeadroom int64) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.totalHeadroom = totalHeadroom
+	klog.InfoS("[memory_plugin] Updated memory plugin total headroom", "totalHeadroom", totalHeadroom)
+}
+
 func (s *memoryPluginState) SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo) {
 	s.Lock()
 	defer s.Unlock()
@@ -229,6 +245,7 @@ func (s *memoryPluginState) ClearState() {
 	s.machineState, _ = GenerateMachineState(s.machineInfo, s.memoryTopology, s.reservedMemory, s.extraResourceNames)
 	s.podResourceEntries = make(PodResourceEntries)
 	s.numaHeadroom = make(map[int]int64)
+	s.totalHeadroom = 0
 	s.socketTopology = make(map[int]string)
 
 	klog.V(2).InfoS("[memory_plugin] cleared state")

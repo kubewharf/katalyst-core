@@ -30,9 +30,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 type HeadroomAssemblerCommon struct {
@@ -41,6 +41,9 @@ type HeadroomAssemblerCommon struct {
 	reservedForReclaim *map[int]int
 	numaAvailable      *map[int]int
 	nonBindingNumas    *machine.CPUSet
+
+	reclaimRelativeRootCgroupPaths     []string
+	numaBindingRelativeRootCgroupPaths map[int][]string
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -51,12 +54,17 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomAssembler {
+	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
+
 	return &HeadroomAssemblerCommon{
 		conf:               conf,
 		regionMap:          regionMap,
 		reservedForReclaim: reservedForReclaim,
 		numaAvailable:      numaAvailable,
 		nonBindingNumas:    nonBindingNumas,
+
+		reclaimRelativeRootCgroupPaths:     reclaim.AggregateCgroupPaths(),
+		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(numaIDs),
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -103,8 +111,8 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
 		}
 
-		reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, reclaimPath, ha.metaServer.MetricsFetcher)
+		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, reclaimPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -126,7 +134,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			cpuSets = cpuSets.Union(cpuSet)
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, commonstate.FakedNUMAID), ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, ha.reclaimRelativeRootCgroupPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
@@ -184,8 +192,8 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
 		}
 
-		reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, reclaimPath, ha.metaServer.MetricsFetcher)
+		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, reclaimPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -216,7 +224,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpusets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, commonstate.FakedNUMAID), ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, ha.reclaimRelativeRootCgroupPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
