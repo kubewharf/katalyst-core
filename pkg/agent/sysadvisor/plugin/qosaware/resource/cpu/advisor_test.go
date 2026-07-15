@@ -59,8 +59,15 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	resourcepkg "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
+
+// advisorGlobalRegistryMu serializes tests in this package that mutate
+// the process-global reclaim consumer registry via newTestCPUResourceAdvisor.
+// Tests hold this lock across their body so parallel subtests can't observe
+// each other's half-registered state or leaked entries.
+var advisorGlobalRegistryMu sync.Mutex
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -86,6 +93,9 @@ func (m *testResourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha
 }
 
 func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, profiles map[k8stypes.UID]spd.DummyPodServiceProfile) (*cpuResourceAdvisor, metacache.MetaCache) {
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
+
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, mf)
 	require.NoError(t, err)
 
@@ -1442,6 +1452,12 @@ func TestAdvisorUpdate(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			// Serialize access to the process-global reclaim registry that
+			// newTestCPUResourceAdvisor mutates, so parallel subtests don't
+			// stomp on each other's registrations.
+			advisorGlobalRegistryMu.Lock()
+			defer advisorGlobalRegistryMu.Unlock()
 
 			now := time.Now()
 

@@ -51,6 +51,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	nativeutil "github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 

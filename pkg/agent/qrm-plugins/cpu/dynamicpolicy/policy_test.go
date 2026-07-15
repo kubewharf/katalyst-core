@@ -79,6 +79,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const (
@@ -5622,6 +5623,119 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 	}, resp)
 }
 
+func TestAddReclaimedCPUAllocatable(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestAddReclaimedCPUAllocatable")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	numaNodes := dynamicPolicy.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
+
+	// headroom is expressed in cores; the reported value is millicpu (cores * 1000).
+	dynamicPolicy.state.SetNUMAHeadroom(map[int]float64{
+		0: 1,
+		1: 2,
+		2: 3,
+		3: 4,
+	}, false)
+	dynamicPolicy.state.SetTotalHeadroom(10, false)
+
+	// Register multiple consumers so GetReclaimedPercentage returns each
+	// consumer's own percentage; the single-consumer force-100 rule only
+	// applies when exactly one consumer is registered in the whole registry.
+	reclaim.UnregisterConsumer("cpu-kcnr-a")
+	reclaim.UnregisterConsumer("cpu-kcnr-b")
+	reclaim.UnregisterConsumer("cpu-kcnr-c")
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-a", "", 50))
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-b", "", 30))
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-c", "", 20))
+
+	cpuKey := string(consts.ReclaimedResourceMilliCPU)
+
+	newResource := func(pct float64) *pluginapi.AllocatableTopologyAwareResource {
+		list := []*pluginapi.TopologyAwareQuantity{
+			{ResourceValue: 1 * 1000 * pct / 100, Node: 0},
+			{ResourceValue: 2 * 1000 * pct / 100, Node: 1},
+			{ResourceValue: 3 * 1000 * pct / 100, Node: 2},
+			{ResourceValue: 4 * 1000 * pct / 100, Node: 3},
+		}
+		return &pluginapi.AllocatableTopologyAwareResource{
+			IsNodeResource:                       false,
+			IsScalarResource:                     true,
+			AggregatedAllocatableQuantity:        10 * 1000 * pct / 100,
+			TopologyAwareAllocatableQuantityList: list,
+			AggregatedCapacityQuantity:           10 * 1000 * pct / 100,
+			TopologyAwareCapacityQuantityList:    list,
+		}
+	}
+
+	testCases := []struct {
+		name      string
+		consumers []string
+		expected  *pluginapi.AllocatableTopologyAwareResource // nil means no entry is added
+	}{
+		{
+			name:      "empty config adds no entry",
+			consumers: nil,
+			expected:  nil,
+		},
+		{
+			name:      "single configured consumer",
+			consumers: []string{"cpu-kcnr-a"},
+			expected:  newResource(50),
+		},
+		{
+			name:      "multiple configured consumers are summed",
+			consumers: []string{"cpu-kcnr-a", "cpu-kcnr-b"},
+			expected:  newResource(80),
+		},
+		{
+			name:      "summed percentage at 100",
+			consumers: []string{"cpu-kcnr-a", "cpu-kcnr-b", "cpu-kcnr-c"},
+			expected:  newResource(100),
+		},
+		{
+			name:      "unknown consumer contributes zero",
+			consumers: []string{"cpu-kcnr-a", "does-not-exist"},
+			expected:  newResource(50),
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			as := require.New(t)
+
+			allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
+			dynamicPolicy.addReclaimedCPUAllocatable(allocatableResources, numaNodes, tc.consumers)
+
+			if tc.expected == nil {
+				_, ok := allocatableResources[cpuKey]
+				as.False(ok, "expected no ReclaimedResourceMilliCPU entry when config is empty")
+				return
+			}
+			as.Equal(tc.expected, allocatableResources[cpuKey])
+		})
+	}
+
+	// end-to-end: the ReclaimedResourceMilliCPU entry is present in the full
+	// response when ReclaimConsumersForKCNR is configured.
+	dynamicPolicy.reclaimConsumersForKCNR = []string{"cpu-kcnr-a"}
+	resp, err := dynamicPolicy.GetTopologyAwareAllocatableResources(context.Background(),
+		&pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	as.Nil(err)
+	as.Equal(newResource(50), resp.AllocatableResources[cpuKey])
+}
+
 func TestGetTopologyAwareResources(t *testing.T) {
 	t.Parallel()
 
@@ -6557,7 +6671,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{
-								string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0": 10.1, "1": 12.2}`,
+								string(advisorapi.ControlKnobKeyCPUNUMAHeadroom):  `{"0": 10.1, "1": 12.2}`,
+								string(advisorapi.ControlKnobKeyCPUTotalHeadroom): `22.3`,
 							},
 						},
 					},

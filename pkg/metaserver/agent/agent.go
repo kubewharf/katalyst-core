@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 // ObjectFetcher is used to get object information.
@@ -209,14 +210,13 @@ func getAllAdditionalK8sCgroupPaths(conf *config.Configuration, machineInfo *mac
 	}
 
 	// add reclaim cgroup path
-	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, conf.ReclaimRelativeRootCgroupPath)
+	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, reclaim.AggregateCgroupPaths()...)
 
 	// if we have multiple numa nodes, we should add numa-binding reclaim cgroup path
 	if machineInfo.CPUTopology != nil {
-		nonNUMABindingReclaimRelativeRootCgroupPaths := common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt())
-		for _, cgroupPath := range nonNUMABindingReclaimRelativeRootCgroupPaths {
-			additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
+		numaIDs := machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()
+		for _, perNUMAPaths := range reclaim.AggregateNumaBindingCgroupPaths(numaIDs) {
+			additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, perNUMAPaths...)
 		}
 	}
 	return additionalK8sCgroupPaths

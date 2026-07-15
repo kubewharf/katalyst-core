@@ -526,9 +526,9 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
 	}
 
-	applyErr = p.applyNUMAHeadroom(resp)
+	applyErr = p.applyHeadroom(resp)
 	if applyErr != nil {
-		return fmt.Errorf("applyNUMAHeadroom failed with error: %v", applyErr)
+		return fmt.Errorf("applyHeadroom failed with error: %v", applyErr)
 	}
 
 	applyErr = p.applyCgroupConfigs(resp)
@@ -1640,9 +1640,9 @@ func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(allocationInfo *state.Alloca
 	return ownerPoolName
 }
 
-func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse) error {
+func (p *DynamicPolicy) applyHeadroom(resp *advisorapi.ListAndWatchResponse) error {
 	if resp == nil {
-		return fmt.Errorf("applyNUMAHeadroom got nil resp")
+		return fmt.Errorf("applyHeadroom got nil resp")
 	}
 
 	for _, calculationInfo := range resp.ExtraEntries {
@@ -1654,23 +1654,48 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 			continue
 		}
 
-		cpuNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
-		if !ok {
-			general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
-			continue
+		if err := p.applyNUMAHeadroom(calculationInfo); err != nil {
+			return err
 		}
-
-		cpuNUMAHeadroom := &advisorapi.CPUNUMAHeadroom{}
-		err := json.Unmarshal([]byte(cpuNUMAHeadroomValue), cpuNUMAHeadroom)
-		if err != nil {
-			return fmt.Errorf("unmarshal %s: %s failed with error: %v",
-				advisorapi.ControlKnobKeyCPUNUMAHeadroom, cpuNUMAHeadroomValue, err)
+		if err := p.applyTotalHeadroom(calculationInfo); err != nil {
+			return err
 		}
-
-		p.state.SetNUMAHeadroom(*cpuNUMAHeadroom, true)
-		general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
 	}
 
+	return nil
+}
+
+func (p *DynamicPolicy) applyNUMAHeadroom(calculationInfo *advisorsvc.CalculationInfo) error {
+	v, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
+	if !ok {
+		return nil
+	}
+
+	cpuNUMAHeadroom := &advisorapi.CPUNUMAHeadroom{}
+	if err := json.Unmarshal([]byte(v), cpuNUMAHeadroom); err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			advisorapi.ControlKnobKeyCPUNUMAHeadroom, v, err)
+	}
+
+	p.state.SetNUMAHeadroom(*cpuNUMAHeadroom, true)
+	general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
+	return nil
+}
+
+func (p *DynamicPolicy) applyTotalHeadroom(calculationInfo *advisorsvc.CalculationInfo) error {
+	v, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUTotalHeadroom)]
+	if !ok {
+		return nil
+	}
+
+	var cpuTotalHeadroom float64
+	if err := json.Unmarshal([]byte(v), &cpuTotalHeadroom); err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			advisorapi.ControlKnobKeyCPUTotalHeadroom, v, err)
+	}
+
+	p.state.SetTotalHeadroom(cpuTotalHeadroom, true)
+	general.Infof("cpuTotalHeadroom: %v", cpuTotalHeadroom)
 	return nil
 }
 

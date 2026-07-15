@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const (
@@ -190,12 +191,16 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 }
 
 func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
-	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
-	for _, path := range common.GetNUMABindingReclaimRelativeRootCgroupPaths(m.baseConf.ReclaimRelativeRootCgroupPath,
-		m.machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()) {
-		cgroupPaths = append(cgroupPaths, path)
+	cgroupPaths := []string{common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
+
+	cgroupPaths = append(cgroupPaths, reclaim.AggregateCgroupPaths()...)
+	numaIDs := m.machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()
+	perNUMA := reclaim.AggregateNumaBindingCgroupPaths(numaIDs)
+	for _, numaID := range numaIDs {
+		for _, p := range perNUMA[numaID] {
+			cgroupPaths = append(cgroupPaths, p)
+		}
 	}
-	cgroupPaths = append(cgroupPaths, m.baseConf.ReclaimRelativeRootCgroupPath)
 
 	for _, path := range m.baseConf.OptionalRelativeCgroupPaths {
 		absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)

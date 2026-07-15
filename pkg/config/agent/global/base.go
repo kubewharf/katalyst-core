@@ -16,18 +16,6 @@ limitations under the License.
 
 package global
 
-// ReclaimRelativeRootCgroupPathEntry describes one reclaimed-cores parent
-// cgroup path and how per-NUMA child paths are formed from it.
-//
-// NUMASeparator is the string inserted between Path and the numeric NUMA ID
-// when computing per-NUMA cgroups. Two shapes are typical:
-//   - "-": sibling  ("/kubepods/besteffort" + "-" + "0" = "/kubepods/besteffort-0")
-//   - "/": nested   ("/parentPath/childPath" + "/" + "0" = "/parentPath/childPath/0")
-type ReclaimRelativeRootCgroupPathEntry struct {
-	Path          string
-	NUMASeparator string
-}
-
 type BaseConfiguration struct {
 	// Agents is the list of agent components to enable or disable
 	// '*' means "all enabled by default agents"
@@ -48,10 +36,22 @@ type BaseConfiguration struct {
 	// specify a customized path for reclaimed-cores to enrich qos-management ways
 	ReclaimRelativeRootCgroupPath string
 
-	// ReclaimRelativeRootCgroupPaths is a superset used only by memoryGuard
-	// for now. When empty, memoryGuard falls back to the singular
-	// ReclaimRelativeRootCgroupPath with separator "-".
-	ReclaimRelativeRootCgroupPaths []ReclaimRelativeRootCgroupPathEntry
+	// ReclaimConsumers is the list of reclaim consumer names to activate at
+	// agent boot. Each name must resolve to a registered factory in
+	// pkg/util/reclaim. Defaults to [GenericConsumerName] when empty.
+	ReclaimConsumers []string
+
+	// ReclaimConsumersForKCNR is the subset of reclaim consumer names whose
+	// per-consumer reclaimed percentage is summed and applied to the NUMA
+	// and total memory headroom reported to KCNR. Empty means no
+	// ReclaimedResourceMemory entry is reported.
+	ReclaimConsumersForKCNR []string
+
+	// GenericReclaimedResourcePercentage is the fraction (0-100) of the total
+	// reclaimed resource reported by the GenericConsumer for both headroom and
+	// provision. Other ReclaimedConsumer impls supply their own percentages via
+	// GetReclaimedPercentage. Defaults to 100.
+	GenericReclaimedResourcePercentage float64
 
 	*MachineInfoConfiguration
 	*KubeletConfiguration

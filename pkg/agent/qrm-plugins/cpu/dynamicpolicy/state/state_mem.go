@@ -33,6 +33,7 @@ type cpuPluginState struct {
 
 	cpuTopology *machine.CPUTopology
 
+<<<<<<< HEAD
 	// cpuPluginStateData holds the mutable, lock-free portion of the plugin
 	// state (pod entries, machine state, NUMA headroom, overlap flag). The
 	// outer cpuPluginState wraps every read with an RLock+Clone and every
@@ -42,7 +43,8 @@ type cpuPluginState struct {
 	// preserve those semantics.
 	cpuPluginStateData
 
-	socketTopology map[int]string
+	totalHeadroom                         float64
+	socketTopology                        map[int]string
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
@@ -87,6 +89,13 @@ func (s *cpuPluginState) GetNUMAHeadroom() map[int]float64 {
 	return general.DeepCopyIntToFloat64Map(s.cpuPluginStateData.GetNUMAHeadroom())
 }
 
+func (s *cpuPluginState) GetTotalHeadroom() float64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.totalHeadroom
+}
+
 func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
 	s.RLock()
 	defer s.RUnlock()
@@ -121,6 +130,14 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
 
 	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
 	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
+}
+
+func (s *cpuPluginState) SetTotalHeadroom(totalHeadroom float64) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.totalHeadroom = totalHeadroom
+	klog.InfoS("[cpu_plugin] Updated cpu plugin total headroom", "totalHeadroom", totalHeadroom)
 }
 
 func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {

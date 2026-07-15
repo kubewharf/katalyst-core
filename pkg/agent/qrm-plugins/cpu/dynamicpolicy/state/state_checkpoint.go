@@ -109,6 +109,7 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 	sc.cache.SetMachineState(generatedMachineState)
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
 	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
+	sc.cache.SetTotalHeadroom(checkpoint.TotalHeadroom)
 	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(checkpoint.AllowSharedCoresOverlapReclaimedCores)
 
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
@@ -155,6 +156,7 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()
 	checkpoint.NUMAHeadroom = sc.cache.GetNUMAHeadroom()
+	checkpoint.TotalHeadroom = sc.cache.GetTotalHeadroom()
 	checkpoint.PodEntries = sc.cache.GetPodEntries()
 	checkpoint.AllowSharedCoresOverlapReclaimedCores = sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 	return checkpoint
@@ -172,6 +174,13 @@ func (sc *stateCheckpoint) GetNUMAHeadroom() map[int]float64 {
 	defer sc.RUnlock()
 
 	return sc.cache.GetNUMAHeadroom()
+}
+
+func (sc *stateCheckpoint) GetTotalHeadroom() float64 {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetTotalHeadroom()
 }
 
 func (sc *stateCheckpoint) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
@@ -210,6 +219,19 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64, persist bool) {
 		err := sc.storeState()
 		if err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store numa headroom to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) SetTotalHeadroom(totalHeadroom float64, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetTotalHeadroom(totalHeadroom)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store total headroom to checkpoint error")
 		}
 	}
 }

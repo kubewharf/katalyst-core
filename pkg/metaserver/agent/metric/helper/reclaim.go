@@ -17,6 +17,8 @@ limitations under the License.
 package helper
 
 import (
+	"fmt"
+
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -31,41 +33,61 @@ type ReclaimMetrics struct {
 	ReclaimedCoresSupply float64
 }
 
-// GetReclaimMetrics returns the reclaim CPU metrics for the given cpus and cgroupPath
+// GetReclaimMetrics returns the reclaim CPU metrics for the given cpus and cgroupPath.
+// It is a thin wrapper around GetReclaimMetricsMulti with a single-element slice.
 func GetReclaimMetrics(cpus machine.CPUSet, cgroupPath string, metricsFetcher types.MetricsFetcher) (*ReclaimMetrics, error) {
-	data := metricsFetcher.AggregateCoreMetric(cpus, pkgconsts.MetricCPUUsageRatio, metric.AggregatorSum)
-	poolCPUUsage := data.Value
+	return GetReclaimMetricsMulti(cpus, []string{cgroupPath}, metricsFetcher)
+}
 
-	data, err := metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUUsageCgroup)
-	if err != nil {
-		return nil, err
-	}
-	cgroupCPUUsage := data.Value
-
-	data, err = metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUQuotaCgroup)
-	if err != nil {
-		return nil, err
-	}
-	cfsQuota := data.Value
-
-	data, err = metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUPeriodCgroup)
-	if err != nil {
-		return nil, err
-	}
-	cfsPeriod := data.Value
-
-	if cfsQuota > 0 && cfsPeriod > 0 {
-		cfsQuota = cfsQuota / cfsPeriod
+// GetReclaimMetricsMulti aggregates reclaim CPU metrics across one or more
+// sibling reclaim cgroup paths that share the same reclaim CPU pool (cpus).
+func GetReclaimMetricsMulti(cpus machine.CPUSet, siblingCgroupPaths []string, metricsFetcher types.MetricsFetcher) (*ReclaimMetrics, error) {
+	if len(siblingCgroupPaths) == 0 {
+		return nil, fmt.Errorf("no reclaim cgroup paths provided")
 	}
 
-	// when shared_cores overlap reclaimed_cores, the actual CPU resource can be supplied to reclaimed cores is idle + reclaimed_cores cpu usage
-	reclaimedCoresSupply := general.MaxFloat64(float64(cpus.Size())-poolCPUUsage, 0) + cgroupCPUUsage
-	if cfsQuota > 0 {
-		reclaimedCoresSupply = general.MinFloat64(reclaimedCoresSupply, cfsQuota)
+	var totalCgroupCPUUsage, totalCfsQuota float64
+	unlimited := false
+	for _, cgroupPath := range siblingCgroupPaths {
+		usage, err := metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUUsageCgroup)
+		if err != nil {
+			return nil, err
+		}
+		quota, err := metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUQuotaCgroup)
+		if err != nil {
+			return nil, err
+		}
+		period, err := metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUPeriodCgroup)
+		if err != nil {
+			return nil, err
+		}
+		// convert the CFS quota/period pair into cores
+		cfsQuota := quota.Value
+		if cfsQuota > 0 && period.Value > 0 {
+			cfsQuota = cfsQuota / period.Value
+		}
+
+		// siblings are disjoint subtrees, so their usage and quota sum. a single
+		// uncapped subtree (quota <= 0) lets the whole pool burst freely.
+		totalCgroupCPUUsage += usage.Value
+		if cfsQuota > 0 {
+			totalCfsQuota += cfsQuota
+		} else {
+			unlimited = true
+		}
+	}
+
+	// the pool's spare (unused) capacity is a property of the shared pool, so it
+	// is measured once rather than per sibling path.
+	poolCPUUsage := metricsFetcher.AggregateCoreMetric(cpus, pkgconsts.MetricCPUUsageRatio, metric.AggregatorSum).Value
+	reclaimedCoresSupply := general.MaxFloat64(float64(cpus.Size())-poolCPUUsage, 0) + totalCgroupCPUUsage
+	// only clamp to the quota when every path has a quota
+	if !unlimited && totalCfsQuota > 0 {
+		reclaimedCoresSupply = general.MinFloat64(reclaimedCoresSupply, totalCfsQuota)
 	}
 
 	return &ReclaimMetrics{
-		CgroupCPUUsage:       cgroupCPUUsage,
+		CgroupCPUUsage:       totalCgroupCPUUsage,
 		ReclaimedCoresSupply: reclaimedCoresSupply,
 	}, nil
 }

@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestCPUServerUpdate(t *testing.T) {
@@ -110,7 +111,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -247,7 +248,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -450,7 +451,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -777,7 +778,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -1102,7 +1103,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -1248,7 +1249,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -1393,7 +1394,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}"},
+							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
 						},
 					},
 					{
@@ -1593,6 +1594,18 @@ func TestCPUServerUpdate(t *testing.T) {
 			testFunc := testFunc
 			t.Run(tt.name+"_"+apiMode, func(t *testing.T) {
 				t.Parallel()
+
+				// cs.assembleCgroupConfig reads the process-global reclaim
+				// consumer registry, and the wantRes below asserts on the
+				// /kubepods/besteffort* entries derived from it. Serialize
+				// against sibling parallel tests in this package (see
+				// serverGlobalRegistryMu in cpu_server_test.go) and register
+				// a single consumer for the duration of this subtest.
+				serverGlobalRegistryMu.Lock()
+				defer serverGlobalRegistryMu.Unlock()
+				reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+				require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, "/kubepods/besteffort", 100))
+				defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 
 				advisor := &mockCPUResourceAdvisor{
 					provision: &tt.provision,

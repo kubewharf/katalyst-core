@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/logging"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const healthzNameLockingFileAcquired = "LockingFileReady"
@@ -49,6 +50,14 @@ const (
 func Run(
 	conf *config.Configuration, clientSet *client.GenericClientSet, genericOptions ...katalystbase.GenericOptions,
 ) error {
+	if err := reclaim.SetupConsumers(
+		conf.BaseConfiguration.ReclaimRelativeRootCgroupPath,
+		conf.BaseConfiguration.GenericReclaimedResourcePercentage,
+		conf.ReclaimConsumers,
+	); err != nil {
+		return err
+	}
+
 	// Set up signals so that we handle the first shutdown signal gracefully.
 	ctx := process.SetupSignalHandler()
 

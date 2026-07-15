@@ -462,22 +462,33 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 		return
 	}
 
-	err = cgroupcmutils.ApplyCPUWithRelativePath(p.reclaimRelativeRootCgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
+	// filter out paths whose cgroup dir doesn't exist on disk yet
+	existingPaths := make([]string, 0, len(p.reclaimRelativeRootCgroupPaths))
+	for _, path := range p.reclaimRelativeRootCgroupPaths {
+		if general.IsPathExists(cgroupcm.GetAbsCgroupPath(cgroupcm.DefaultSelectedSubsys, path)) {
+			existingPaths = append(existingPaths, path)
+		}
+	}
+	err = cgroupcmutils.ApplyCPUWithRelativePaths(existingPaths, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
 	if err != nil {
-		general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
-			p.reclaimRelativeRootCgroupPath, p.enableCPUIdle, err)
+		general.Errorf("ApplyCPUWithRelativePaths in %v with enableCPUIdle: %v failed with error: %v",
+			existingPaths, p.enableCPUIdle, err)
 	}
 
 	// sync numa binding reclaim cgroup
-	for _, cgroupPath := range p.numaBindingReclaimRelativeRootCgroupPaths {
-		if !general.IsPathExists(cgroupcm.GetAbsCgroupPath(cgroupcm.DefaultSelectedSubsys, cgroupPath)) {
+	for numaID, paths := range p.numaBindingReclaimRelativeRootCgroupPaths {
+		existingNUMAPaths := make([]string, 0, len(paths))
+		for _, path := range paths {
+			if general.IsPathExists(cgroupcm.GetAbsCgroupPath(cgroupcm.DefaultSelectedSubsys, path)) {
+				existingNUMAPaths = append(existingNUMAPaths, path)
+			}
+		}
+		if len(existingNUMAPaths) == 0 {
 			continue
 		}
-
-		err = cgroupcmutils.ApplyCPUWithRelativePath(cgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
-		if err != nil {
-			general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
-				cgroupPath, p.enableCPUIdle, err)
+		if err := cgroupcmutils.ApplyCPUWithRelativePaths(existingNUMAPaths, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle}); err != nil {
+			general.Errorf("ApplyCPUWithRelativePaths in %v (numa %d) with enableCPUIdle: %v failed with error: %v",
+				existingNUMAPaths, numaID, p.enableCPUIdle, err)
 		}
 	}
 }

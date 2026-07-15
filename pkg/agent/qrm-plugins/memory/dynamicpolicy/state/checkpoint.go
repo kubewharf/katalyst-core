@@ -29,6 +29,7 @@ type MemoryPluginCheckpoint struct {
 	PolicyName         string               `json:"policyName"`
 	MachineState       NUMANodeResourcesMap `json:"machineState"`
 	NUMAHeadroom       map[int]int64        `json:"numa_headroom"`
+	TotalHeadroom      int64                `json:"total_headroom"`
 	PodResourceEntries PodResourceEntries   `json:"pod_resource_entries"`
 	SocketTopology     map[int]string       `json:"socket_topology,omitempty"`
 	Checksum           checksum.Checksum    `json:"checksum"`

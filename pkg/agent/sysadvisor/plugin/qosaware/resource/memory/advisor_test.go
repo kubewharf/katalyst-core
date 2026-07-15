@@ -21,7 +21,6 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
-	"strconv"
 	"sync"
 	"testing"
 
@@ -57,6 +56,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 var qosLevel2PoolName = map[string]string{
@@ -109,6 +109,8 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metrictypes.MetricsFetcher, plugins []types.MemoryAdvisorPluginName) (*memoryResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
 	if len(plugins) == 0 {
 		conf.MemoryAdvisorPlugins = []types.MemoryAdvisorPluginName{memadvisorplugin.CacheReaper}
 	} else {
@@ -462,6 +464,30 @@ var cgroupNUMAMetrics = []cgroupNUMAMetric{
 		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
 		numaID:      3,
 		cgroupPath:  "/kubepods/besteffort",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      0,
+		cgroupPath:  "/kubepods/besteffort-0",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      1,
+		cgroupPath:  "/kubepods/besteffort-1",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      2,
+		cgroupPath:  "/kubepods/besteffort-2",
+		metricValue: metricutil.MetricData{Value: 6 << 30},
+	},
+	{
+		metricName:  coreconsts.MetricsMemTotalPerNumaCgroup,
+		numaID:      3,
+		cgroupPath:  "/kubepods/besteffort-3",
 		metricValue: metricutil.MetricData{Value: 6 << 30},
 	},
 }
@@ -1266,8 +1292,36 @@ func TestUpdate(t *testing.T) {
 					{
 						CgroupPath: "/kubepods/besteffort",
 						Values: map[string]string{
-							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(240 << 30),
-							string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(int64(0.95*float64(240<<30)), 10),
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "257698037760",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "244813135872",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-0",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "64424509440",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "61203283968",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-1",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "64424509440",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "61203283968",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-2",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "64424509440",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "61203283968",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-3",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "64424509440",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "61203283968",
 						},
 					},
 				},
@@ -1323,8 +1377,36 @@ func TestUpdate(t *testing.T) {
 					{
 						CgroupPath: "/kubepods/besteffort",
 						Values: map[string]string{
-							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(184 << 30),
-							string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(187690070835, 10),
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "197568495616",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "187690070835",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-0",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "49392123904",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "46922517708",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-1",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "49392123904",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "46922517708",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-2",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "49392123904",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "46922517708",
+						},
+					},
+					{
+						CgroupPath: "/kubepods/besteffort-3",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): "49392123904",
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         "46922517708",
 						},
 					},
 				},
@@ -1345,13 +1427,21 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			reclaimedEnable:  true,
-			wantErr:          true,
-			wantHeadroom:     *resource.NewQuantity(996<<30, resource.DecimalSI),
-			nodeMetrics:      defaultNodeMetrics,
-			numaMetrics:      defaultNumaMetrics,
-			plugins:          []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
-			wantAdviceResult: &types.InternalMemoryCalculationResult{},
+			reclaimedEnable: true,
+			wantErr:         true,
+			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:     defaultNodeMetrics,
+			numaMetrics:     defaultNumaMetrics,
+			plugins:         []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			// cgroupNUMAMetrics intentionally omitted: memory_guard's
+			// calculateReclaimedMemoryLimitFor must fail-fast when the
+			// per-NUMA cgroup metric is missing. That makes Reconcile
+			// return an error, which advisor.update aggregates as a
+			// non-fatal error while still returning a non-nil result
+			// with no ExtraEntries.
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
+				ExtraEntries: nil,
+			},
 		},
 		{
 			name: "memory offloading",

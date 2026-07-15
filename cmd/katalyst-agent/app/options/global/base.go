@@ -17,9 +17,7 @@ limitations under the License.
 package global
 
 import (
-	"fmt"
 	"strconv"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -55,11 +53,13 @@ type BaseOptions struct {
 	CgroupType            string
 	AdditionalCgroupPaths []string
 
-	ReclaimRelativeRootCgroupPath  string
-	ReclaimRelativeRootCgroupPaths []string
-	GeneralRelativeCgroupPaths     []string
-	OptionalRelativeCgroupPaths    []string
-	DisableCGroupV2TaskLoadMetrics bool
+	ReclaimRelativeRootCgroupPath      string
+	ReclaimConsumers                   []string
+	ReclaimConsumersForKCNR            []string
+	GenericReclaimedResourcePercentage float64
+	GeneralRelativeCgroupPaths         []string
+	OptionalRelativeCgroupPaths        []string
+	DisableCGroupV2TaskLoadMetrics     bool
 
 	// configurations for kubelet
 	KubeletReadOnlyPort      int
@@ -91,7 +91,8 @@ func NewBaseOptions() *BaseOptions {
 
 		CgroupType: "cgroupfs",
 
-		ReclaimRelativeRootCgroupPath: "/kubepods/besteffort",
+		ReclaimRelativeRootCgroupPath:      "/kubepods/besteffort",
+		GenericReclaimedResourcePercentage: 100,
 
 		KubeletReadOnlyPort:      defaultKubeletReadOnlyPort,
 		KubeletSecurePort:        defaultKubeletSecurePort,
@@ -130,11 +131,15 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath, "reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
-	fs.StringSliceVar(&o.ReclaimRelativeRootCgroupPaths, "reclaim-relative-root-cgroup-paths", o.ReclaimRelativeRootCgroupPaths,
-		"Additional reclaimed_cores parent cgroup paths for memoryGuard, as "+
-			"comma-separated '<path>:<separator>' tuples "+
-			"(separator '-' means sibling, '/' means nested). "+
-			"If empty, falls back to --reclaim-relative-root-cgroup-path with separator '-'.")
+	fs.StringSliceVar(&o.ReclaimConsumers, "reclaim-consumers", o.ReclaimConsumers,
+		"Names of reclaim consumers to activate. Each must be pre-registered "+
+			"via pkg/util/reclaim.RegisterFactory. If empty, defaults to \"generic\".")
+	fs.StringSliceVar(&o.ReclaimConsumersForKCNR, "reclaim-consumers-for-kcnr", o.ReclaimConsumersForKCNR,
+		"Names of reclaim consumers whose reclaimed percentages are summed "+
+			"and applied to memory headroom reported under ReclaimedResourceMemory in KCNR. "+
+			"Empty disables the ReclaimedResourceMemory entry.")
+	fs.Float64Var(&o.GenericReclaimedResourcePercentage, "generic-reclaimed-resource-percentage", o.GenericReclaimedResourcePercentage,
+		"percentage (0-100) reported by the generic reclaim consumer for headroom and provision")
 	fs.StringSliceVar(&o.GeneralRelativeCgroupPaths, "malachite-general-relative-cgroup-paths", o.GeneralRelativeCgroupPaths,
 		"The cgroup paths of standalone services which not managed by kubernetes, errors will occur if these paths not existed")
 	fs.StringSliceVar(&o.OptionalRelativeCgroupPaths, "malachite-optional-relative-cgroup-paths", o.OptionalRelativeCgroupPaths,
@@ -187,11 +192,9 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.LockWaitingEnabled = o.LockWaitingEnabled
 
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
-	entries, err := parseReclaimRelativeRootCgroupPathEntries(o.ReclaimRelativeRootCgroupPaths, o.ReclaimRelativeRootCgroupPath)
-	if err != nil {
-		return err
-	}
-	c.ReclaimRelativeRootCgroupPaths = entries
+	c.ReclaimConsumers = o.ReclaimConsumers
+	c.ReclaimConsumersForKCNR = o.ReclaimConsumersForKCNR
+	c.GenericReclaimedResourcePercentage = o.GenericReclaimedResourcePercentage
 	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths
 	c.OptionalRelativeCgroupPaths = o.OptionalRelativeCgroupPaths
 	c.CgroupType = o.CgroupType
@@ -217,27 +220,6 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.RuntimeEndpoint = o.RuntimeEndpoint
 	return nil
-}
-
-func parseReclaimRelativeRootCgroupPathEntries(raw []string, fallback string) ([]global.ReclaimRelativeRootCgroupPathEntry, error) {
-	if len(raw) == 0 {
-		return []global.ReclaimRelativeRootCgroupPathEntry{{
-			Path:          fallback,
-			NUMASeparator: "-",
-		}}, nil
-	}
-	out := make([]global.ReclaimRelativeRootCgroupPathEntry, 0, len(raw))
-	for _, s := range raw {
-		idx := strings.LastIndex(s, ":")
-		if idx < 0 {
-			return nil, fmt.Errorf("invalid reclaim-relative-root-cgroup-paths entry %q, expected '<path>:<separator>'", s)
-		}
-		out = append(out, global.ReclaimRelativeRootCgroupPathEntry{
-			Path:          s[:idx],
-			NUMASeparator: s[idx+1:],
-		})
-	}
-	return out, nil
 }
 
 func mapStrToFloat64(input map[string]string) map[string]float64 {

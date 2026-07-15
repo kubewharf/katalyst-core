@@ -18,6 +18,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"reflect"
@@ -30,10 +32,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -299,7 +303,10 @@ func TestMemoryServerUpdate(t *testing.T) {
 					},
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"memory_numa_headroom": "{}"},
+							Values: map[string]string{
+								"memory_numa_headroom":  "{}",
+								"memory_total_headroom": "0",
+							},
 						},
 					},
 				},
@@ -381,4 +388,84 @@ func TestMemoryServerUpdate(t *testing.T) {
 			})
 		}
 	}
+}
+
+type fakeMemoryHeadroomResourceManager struct {
+	allocatable    resource.Quantity
+	allocatableErr error
+
+	numaAllocatable    map[int]resource.Quantity
+	numaAllocatableErr error
+}
+
+func (f *fakeMemoryHeadroomResourceManager) GetAllocatable() (resource.Quantity, error) {
+	return f.allocatable, f.allocatableErr
+}
+
+func (f *fakeMemoryHeadroomResourceManager) GetCapacity() (resource.Quantity, error) {
+	return resource.Quantity{}, nil
+}
+
+func (f *fakeMemoryHeadroomResourceManager) GetNumaAllocatable() (map[int]resource.Quantity, error) {
+	return f.numaAllocatable, f.numaAllocatableErr
+}
+
+func (f *fakeMemoryHeadroomResourceManager) GetNumaCapacity() (map[int]resource.Quantity, error) {
+	return nil, nil
+}
+
+func Test_memoryServer_assembleHeadroom(t *testing.T) {
+	t.Parallel()
+
+	bytesQty := func(v int64) resource.Quantity {
+		return *resource.NewQuantity(v, resource.BinarySI)
+	}
+
+	newServer := func(hrm reporter.HeadroomResourceManager) *memoryServer {
+		return &memoryServer{headroomResourceManager: hrm}
+	}
+
+	t.Run("emits both keys with bytes", func(t *testing.T) {
+		t.Parallel()
+		ms := newServer(&fakeMemoryHeadroomResourceManager{
+			allocatable: bytesQty(8 << 30),
+			numaAllocatable: map[int]resource.Quantity{
+				0: bytesQty(3 << 30),
+				1: bytesQty(5 << 30),
+			},
+		})
+
+		got := ms.assembleHeadroom()
+		require.NotNil(t, got)
+
+		vals := got.CalculationResult.Values
+		require.Contains(t, vals, string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom))
+		require.Contains(t, vals, string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom))
+
+		var numa map[int]int64
+		require.NoError(t, json.Unmarshal([]byte(vals[string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom)]), &numa))
+		require.Equal(t, int64(3<<30), numa[0])
+		require.Equal(t, int64(5<<30), numa[1])
+
+		var total int64
+		require.NoError(t, json.Unmarshal([]byte(vals[string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom)]), &total))
+		require.Equal(t, int64(8<<30), total)
+	})
+
+	t.Run("returns nil when GetNumaAllocatable errors", func(t *testing.T) {
+		t.Parallel()
+		ms := newServer(&fakeMemoryHeadroomResourceManager{
+			numaAllocatableErr: fmt.Errorf("boom-numa"),
+		})
+		require.Nil(t, ms.assembleHeadroom())
+	})
+
+	t.Run("returns nil when GetAllocatable errors", func(t *testing.T) {
+		t.Parallel()
+		ms := newServer(&fakeMemoryHeadroomResourceManager{
+			numaAllocatable: map[int]resource.Quantity{0: bytesQty(1024)},
+			allocatableErr:  fmt.Errorf("boom-total"),
+		})
+		require.Nil(t, ms.assembleHeadroom())
+	})
 }

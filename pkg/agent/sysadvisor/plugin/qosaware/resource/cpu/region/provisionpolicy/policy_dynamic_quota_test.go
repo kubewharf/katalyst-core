@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func generateDynamicQuotaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
@@ -71,6 +72,11 @@ func newTestPolicyDynamicQuota(t *testing.T, checkpointDir string, stateFileDir 
 	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher,
 ) ProvisionPolicy {
 	conf := generateDynamicQuotaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
+
+	// register the default reclaim consumer so the registry-driven path
+	// aggregation resolves to the single "/kubepods/besteffort" subtree.
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
 
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricFetcher)
 	require.NoError(t, err)
@@ -445,4 +451,107 @@ func TestPolicyDynamicQuota_sanityCheck(t *testing.T) {
 	err = p.sanityCheck()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "reclaim disabled")
+}
+
+// TestPolicyDynamicQuota_updateForCPUQuota_multiPath exercises the multi-consumer
+// usage summation. Registering the extra consumer under a fixed name is idempotent
+// (same key overwrites, not accumulates) and each subtest owns its own metric
+// fetcher and policy instance, so it is safe to run in parallel.
+func TestPolicyDynamicQuota_updateForCPUQuota_multiPath(t *testing.T) {
+	t.Parallel()
+
+	regionInfo := types.RegionInfo{
+		RegionName:   "share-xxx",
+		RegionType:   v1alpha1.QoSRegionTypeShare,
+		BindingNumas: machine.NewCPUSet(0),
+	}
+	controlEssentials := types.ControlEssentials{
+		Indicators: types.Indicator{
+			string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
+				Target:  0.6,
+				Current: 0.4,
+			},
+		},
+	}
+
+	tests := []struct {
+		name  string
+		usage map[string]float64
+		// quota = Max(reclaimNUMACPUSize*(target-current) + sum(usage), ReservedForReclaim)
+		//       = Max(4*(0.6-0.4) + sum(usage), 1.0)
+		//       = Max(0.8 + sum(usage), 1.0)
+		wantQuota float64
+	}{
+		{
+			name: "usage summed across both paths",
+			usage: map[string]float64{
+				"/kubepods/besteffort-0": 2.0,
+				"/kubesandbox-0":         1.5,
+			},
+			wantQuota: 4.3, // 0.8 + 3.5
+		},
+		{
+			name: "missing path is skipped",
+			usage: map[string]float64{
+				// "/kubepods/besteffort-0" intentionally unset -> skipped
+				"/kubesandbox-0": 1.5,
+			},
+			wantQuota: 2.3, // 0.8 + 1.5
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Now()
+
+			checkpointDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(checkpointDir) })
+
+			stateFileDir, err := os.MkdirTemp("", "statefile")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(stateFileDir) })
+
+			checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(checkpointManagerDir) })
+
+			metricFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			for path, value := range tc.usage {
+				metricFetcher.(*metric.FakeMetricsFetcher).SetCgroupMetric(
+					path, consts.MetricCPUUsageCgroup, metricutil.MetricData{Value: value, Time: &now})
+			}
+
+			policy := newTestPolicyDynamicQuota(t, checkpointDir, stateFileDir,
+				checkpointManagerDir, regionInfo, metricFetcher).(*PolicyDynamicQuota)
+			require.NotNil(t, policy)
+
+			// add a second reclaim consumer; combined with the default generic
+			// consumer the registry resolves two disjoint subtrees. Same key
+			// across subtests is idempotent under parallel execution.
+			reclaim.UnregisterConsumer("dq-multi-sandbox")
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer("dq-multi-sandbox", "/kubesandbox", 0))
+
+			reclaimPoolInfo := &types.PoolInfo{
+				PoolName:                 commonstate.PoolNameReclaim,
+				TopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(10, 11, 12, 13)}, // size 4
+			}
+			require.NoError(t, policy.metaReader.(*metacache.MetaCacheImp).SetPoolInfo(commonstate.PoolNameReclaim, reclaimPoolInfo))
+
+			policy.SetEssentials(types.ResourceEssentials{}, controlEssentials)
+			policy.ReservedForReclaim = 1.0
+
+			require.NoError(t, policy.Update())
+			got, err := policy.GetControlKnobAdjusted()
+			require.NoError(t, err)
+			assert.Equal(t, types.ControlKnob{
+				v1alpha1.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{
+					Value:  tc.wantQuota,
+					Action: types.ControlKnobActionNone,
+				},
+			}, got)
+		})
+	}
 }
