@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"fmt"
+	"sort"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -61,6 +62,23 @@ func deriveIsolationSourceSharePool(allocationInfo *state.AllocationInfo) (strin
 		return "", false
 	}
 	return sourcePool, true
+}
+
+// deriveDedicatedSourceSharePool treats dedicated_cores without NUMA binding as sourced
+// from the default share pool. dedicated_cores currently has no declared source share pool
+// semantics, so phase 2 only covers this conservative non-NUMA-binding default source.
+// NUMA-binding dedicated allocations keep the legacy path.
+func deriveDedicatedSourceSharePool(allocationInfo *state.AllocationInfo) (string, bool) {
+	if allocationInfo == nil {
+		return "", false
+	}
+	if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
+		return "", false
+	}
+	if allocationInfo.CheckNUMABinding() {
+		return "", false
+	}
+	return commonstate.PoolNameShare, true
 }
 
 // takeByTieredPreferredCPUs allocates cpuRequirement cpus from availableCPUs, preferring
@@ -159,6 +177,42 @@ func buildIsolationSourcePreferredCPUs(entries state.PodEntries) map[string]mach
 	return preferred
 }
 
+// buildDedicatedSourcePreferredCPUs collects historical cpusets for dedicated_cores without
+// NUMA binding:
+// 1. source-pool preferred cpus help the share pool reclaim CPUs first when dedicated shrinks,
+//    disappears, or returns to share;
+// 2. container preferred cpus let still-active dedicated containers reuse their own historical
+//    cpuset and reduce churn.
+func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (map[string]machine.CPUSet, map[string]map[string]machine.CPUSet) {
+	poolPreferred := make(map[string]machine.CPUSet)
+	containerPreferred := make(map[string]map[string]machine.CPUSet)
+
+	for podUID, containerEntries := range entries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			sourcePool, ok := deriveDedicatedSourceSharePool(allocationInfo)
+			if !ok {
+				continue
+			}
+
+			poolPreferred[sourcePool] = poolPreferred[sourcePool].Union(allocationInfo.AllocationResult)
+			if containerPreferred[podUID] == nil {
+				containerPreferred[podUID] = make(map[string]machine.CPUSet)
+			}
+			containerPreferred[podUID][containerName] = allocationInfo.AllocationResult.Clone()
+		}
+	}
+
+	return poolPreferred, containerPreferred
+}
+
 // takeCPUsForPoolsInPlaceWithPreferred behaves like takeCPUsForPoolsInPlace, but for pools
 // that carry a preferred cpuset (their historically carved isolation cpus) it takes from that
 // preferred set first and only spills to the remaining available cpus afterwards. Pools without
@@ -196,4 +250,51 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 	}
 
 	return availableCPUs, nil
+}
+
+// takeCPUsForContainersWithPreferred follows the same semantics as takeCPUsForContainers, but
+// first tries to reuse the preferred cpuset for each pod/container and then fills the remaining
+// request from available CPUs with NUMA balancing.
+func (p *DynamicPolicy) takeCPUsForContainersWithPreferred(
+	containersQuantityMap map[string]map[string]int,
+	availableCPUs machine.CPUSet,
+	preferredCPUsByContainer map[string]map[string]machine.CPUSet,
+) (map[string]map[string]machine.CPUSet, machine.CPUSet, error) {
+	containersCPUSet := make(map[string]map[string]machine.CPUSet)
+	clonedAvailableCPUs := availableCPUs.Clone()
+
+	sortedPodUIDs := make([]string, 0, len(containersQuantityMap))
+	for podUID := range containersQuantityMap {
+		sortedPodUIDs = append(sortedPodUIDs, podUID)
+	}
+	sort.Strings(sortedPodUIDs)
+	for _, podUID := range sortedPodUIDs {
+		containerQuantities := containersQuantityMap[podUID]
+		if len(containerQuantities) > 0 {
+			containersCPUSet[podUID] = make(map[string]machine.CPUSet)
+		}
+
+		sortedContainerNames := general.GetSortedMapKeys(containerQuantities)
+		for _, containerName := range sortedContainerNames {
+			quantity := containerQuantities[containerName]
+			general.Infof("allocated for pod: %s container: %s with req: %d", podUID, containerName, quantity)
+
+			var preferredTiers []machine.CPUSet
+			if preferredCPUsByContainer != nil && preferredCPUsByContainer[podUID] != nil {
+				if preferred := preferredCPUsByContainer[podUID][containerName]; !preferred.IsEmpty() {
+					preferredTiers = []machine.CPUSet{preferred}
+				}
+			}
+
+			cset, remaining, err := p.takeByTieredPreferredCPUs(availableCPUs, preferredTiers, quantity)
+			if err != nil {
+				return nil, clonedAvailableCPUs, fmt.Errorf("take cpu for pod: %s container: %s of req: %d failed with error: %v",
+					podUID, containerName, quantity, err)
+			}
+			containersCPUSet[podUID][containerName] = cset
+			availableCPUs = remaining
+		}
+	}
+
+	return containersCPUSet, availableCPUs, nil
 }

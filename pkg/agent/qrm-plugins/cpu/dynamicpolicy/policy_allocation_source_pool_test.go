@@ -135,6 +135,80 @@ func TestBuildIsolationSourcePreferredCPUs(t *testing.T) {
 	require.NotContains(t, preferred, commonstate.PoolNameReclaim)
 }
 
+func TestBuildDedicatedSourcePreferredCPUs(t *testing.T) {
+	t.Parallel()
+
+	entries := state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"c": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "c",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					Annotations:   map[string]string{},
+				},
+				AllocationResult: machine.NewCPUSet(8, 9),
+			},
+		},
+		"pod2": state.ContainerEntries{
+			"c": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod2",
+					ContainerName: "c",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						cpuconsts.CPUStateAnnotationKeyNUMAHint:             "1",
+					},
+				},
+				AllocationResult: machine.NewCPUSet(10, 11),
+			},
+		},
+	}
+
+	poolPreferred, containerPreferred := buildDedicatedSourcePreferredCPUs(entries)
+
+	require.Contains(t, poolPreferred, commonstate.PoolNameShare)
+	require.True(t, poolPreferred[commonstate.PoolNameShare].Equals(machine.NewCPUSet(8, 9)),
+		"source share preferred should include non-NUMA dedicated cpus only, got %s",
+		poolPreferred[commonstate.PoolNameShare].String())
+	require.Contains(t, containerPreferred, "pod1")
+	require.True(t, containerPreferred["pod1"]["c"].Equals(machine.NewCPUSet(8, 9)))
+	require.NotContains(t, containerPreferred, "pod2")
+}
+
+func TestDynamicPolicy_takeCPUsForContainersWithPreferred(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_takeCPUsForContainersWithPreferred")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	available := machine.NewCPUSet(0, 1, 2, 3, 8, 9)
+	containersQuantityMap := map[string]map[string]int{
+		"pod1": {"c": 2},
+	}
+	preferred := map[string]map[string]machine.CPUSet{
+		"pod1": {"c": machine.NewCPUSet(8, 9)},
+	}
+
+	containersCPUSet, remaining, err := p.takeCPUsForContainersWithPreferred(
+		containersQuantityMap, available, preferred)
+	require.NoError(t, err)
+	require.True(t, containersCPUSet["pod1"]["c"].Equals(machine.NewCPUSet(8, 9)),
+		"dedicated container should reuse historical cpuset first, got %s",
+		containersCPUSet["pod1"]["c"].String())
+	require.True(t, remaining.Equals(machine.NewCPUSet(0, 1, 2, 3)))
+}
+
 func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +344,38 @@ func TestDeriveIsolationSourceSharePool(t *testing.T) {
 	}
 }
 
+func TestDeriveDedicatedSourceSharePool(t *testing.T) {
+	t.Parallel()
+
+	t.Run("dedicated_cores without numa_binding -> share", func(t *testing.T) {
+		t.Parallel()
+		source, ok := deriveDedicatedSourceSharePool(&state.AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				OwnerPoolName: commonstate.PoolNameDedicated,
+				Annotations:   map[string]string{},
+			},
+		})
+		require.True(t, ok)
+		require.Equal(t, commonstate.PoolNameShare, source)
+	})
+
+	t.Run("dedicated_cores with numa_binding is out of phase-2 scope", func(t *testing.T) {
+		t.Parallel()
+		_, ok := deriveDedicatedSourceSharePool(&state.AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				OwnerPoolName: commonstate.PoolNameDedicated,
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					cpuconsts.CPUStateAnnotationKeyNUMAHint:             "1",
+				},
+			},
+		})
+		require.False(t, ok)
+	})
+}
+
 // TestDynamicPolicy_generatePoolsAndIsolation_reclaimsIsolationCPUs verifies the end-to-end
 // behavior: when a shared_cores isolation container already exists in state and its source
 // share pool is regenerated, the share pool preferentially reclaims exactly the cpus that
@@ -322,4 +428,91 @@ func TestDynamicPolicy_generatePoolsAndIsolation_reclaimsIsolationCPUs(t *testin
 	require.Equal(t, 4, share.Size(), "share=%s", share.String())
 	require.True(t, share.Contains(8) && share.Contains(9) && share.Contains(10),
 		"share pool should reclaim the historical isolation cpus 8,9,10 first, got %s", share.String())
+}
+
+func TestDynamicPolicy_generatePoolsAndIsolation_reusesDedicatedCPUs(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generatePoolsAndIsolation_reuse_dedicated")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetAllowSharedCoresOverlapReclaimedCores(false, true)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"container1": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "container1",
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					Annotations:   map[string]string{},
+				},
+				AllocationResult: machine.NewCPUSet(8, 9),
+			},
+		},
+	}, false)
+
+	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{commonstate.PoolNameShare: {commonstate.FakedNUMAID: 4}},
+		map[string]map[string]int{"pod1": {"container1": 2}},
+		machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11),
+		map[string]float64{})
+	require.NoError(t, err)
+
+	require.True(t, isolatedCPUSet["pod1"]["container1"].Equals(machine.NewCPUSet(8, 9)),
+		"dedicated container should reuse historical cpuset first, got %s",
+		isolatedCPUSet["pod1"]["container1"].String())
+	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Intersection(machine.NewCPUSet(8, 9)).IsEmpty(),
+		"source share pool must not overlap with still-active dedicated cpuset, share=%s",
+		poolsCPUSet[commonstate.PoolNameShare].String())
+}
+
+func TestDynamicPolicy_generatePoolsAndIsolation_reclaimsDedicatedCPUs(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generatePoolsAndIsolation_reclaim_dedicated")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetAllowSharedCoresOverlapReclaimedCores(false, true)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"container1": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "container1",
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					Annotations:   map[string]string{},
+				},
+				AllocationResult: machine.NewCPUSet(8, 9),
+			},
+		},
+	}, false)
+
+	poolsCPUSet, _, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{commonstate.PoolNameShare: {commonstate.FakedNUMAID: 4}},
+		map[string]map[string]int{},
+		machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11),
+		map[string]float64{})
+	require.NoError(t, err)
+
+	share := poolsCPUSet[commonstate.PoolNameShare]
+	require.True(t, share.Contains(8) && share.Contains(9),
+		"source share pool should reclaim historical dedicated cpus first, got %s", share.String())
 }

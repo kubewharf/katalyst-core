@@ -1718,18 +1718,32 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	// is true the reclaim overlap is computed reversely from share pools and mixing in a
 	// preferred carve would break the overlap ratio, so we keep the legacy behavior there.
 	var preferredCPUsByPool map[string]machine.CPUSet
+	var preferredCPUsByContainer map[string]map[string]machine.CPUSet
 	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 		preferredCPUsByPool = buildIsolationSourcePreferredCPUs(p.state.GetPodEntries())
+		dedicatedPreferredCPUsByPool, dedicatedPreferredCPUsByContainer := buildDedicatedSourcePreferredCPUs(p.state.GetPodEntries())
+		for poolName, cset := range dedicatedPreferredCPUsByPool {
+			preferredCPUsByPool[poolName] = preferredCPUsByPool[poolName].Union(cset)
+		}
+		preferredCPUsByContainer = dedicatedPreferredCPUsByContainer
 	}
 
 	var tErr error
 	if nonBindingPoolsTotalQuantity+isolatedTotalQuantity <= nonBindingAvailableSize {
 		general.Infof("all pools and isolated containers could be allocated")
 
-		isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainers(isolatedQuantityMap, nonBindingAvailableCPUs)
-		if tErr != nil {
-			err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
-			return
+		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+			isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainersWithPreferred(isolatedQuantityMap, nonBindingAvailableCPUs, preferredCPUsByContainer)
+			if tErr != nil {
+				err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
+				return
+			}
+		} else {
+			isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainers(isolatedQuantityMap, nonBindingAvailableCPUs)
+			if tErr != nil {
+				err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
+				return
+			}
 		}
 
 		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
