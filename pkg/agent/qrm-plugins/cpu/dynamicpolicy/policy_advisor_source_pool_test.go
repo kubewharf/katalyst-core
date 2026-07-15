@@ -246,6 +246,74 @@ func TestDynamicPolicy_allocateShareBlocks_carvesIsolationFromAllocatedSource(t 
 	require.True(t, availableCPUs.Equals(machine.NewCPUSet(4, 5)))
 }
 
+func TestDynamicPolicy_allocateShareBlocks_sourceCarveFallbackRespectsNUMA(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_allocateShareBlocks_sourceCarveFallbackRespectsNUMA")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"c": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "c",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+					OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod1",
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						"numa_hint": "0",
+					},
+				},
+			},
+		},
+	}, false)
+
+	blockCPUSet := advisorapi.BlockCPUSet{
+		"block-share-numa0": machine.NewCPUSet(0),
+	}
+	availableCPUs := machine.NewCPUSet(1, 2, 3, 4, 5, 6)
+	outsideNUMAAvailableCPUs := availableCPUs.Intersection(cpuTopology.CPUDetails.CPUsInNUMANodes(1))
+	nodeRemainingCPUs := availableCPUs.Clone()
+	blocks := []*advisorapi.BlockInfo{
+		{
+			Block: advisorapi.Block{BlockId: "block-isolation", Result: 3},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				commonstate.PoolNamePrefixIsolation + "-pod1": {
+					EntryName:    "pod1",
+					SubEntryName: "c",
+				},
+			},
+		},
+	}
+
+	err = p.allocateShareBlocks(
+		0,
+		blocks,
+		blockCPUSet,
+		cpuTopology.CPUDetails.CPUsInNUMANodes(0),
+		&nodeRemainingCPUs,
+		&availableCPUs,
+		nil,
+		machine.NewCPUSet(),
+		nil,
+		map[string]string{commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0": "block-share-numa0"},
+	)
+	require.NoError(t, err)
+	require.True(t, blockCPUSet["block-isolation"].IsSubsetOf(cpuTopology.CPUDetails.CPUsInNUMANodes(0)),
+		"NUMA-bound isolation fallback should stay within NUMA0, got %s",
+		blockCPUSet["block-isolation"].String())
+	require.True(t, outsideNUMAAvailableCPUs.IsSubsetOf(availableCPUs),
+		"CPUs outside NUMA0 must not be consumed by fallback, available=%s",
+		availableCPUs.String())
+}
+
 func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve(t *testing.T) {
 	t.Parallel()
 
