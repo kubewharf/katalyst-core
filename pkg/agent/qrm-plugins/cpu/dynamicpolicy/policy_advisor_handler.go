@@ -1292,6 +1292,11 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		}
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
+		err = p.allocateAdvisorSourceBlocksForCarve(reclaimBlocks, shareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, sourceBlockByPool)
+		if err != nil {
+			return nil, err
+		}
+
 		emptyNUMA := machine.NewCPUSet()
 		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil, sourceBlockByPool)
 		if err != nil {

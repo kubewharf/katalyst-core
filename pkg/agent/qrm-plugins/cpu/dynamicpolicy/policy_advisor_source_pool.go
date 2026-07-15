@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -81,6 +82,80 @@ func buildAdvisorSourceBlockByPool(numaToBlocks map[int][]*advisorapi.BlockInfo)
 		}
 	}
 	return sourceBlockByPool
+}
+
+// allocateAdvisorSourceBlocksForCarve preallocates a normal source share block with a
+// sourceResult + isolationResult candidate cpuset. allocateShareBlocks then reuses
+// tryCarveAdvisorBlockFromSource to carve isolation from this candidate, leaving the
+// source block at the sourceResult size requested by the advisor.
+func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
+	reclaimBlocks []*advisorapi.BlockInfo,
+	isolationBlocks []*advisorapi.BlockInfo,
+	blockCPUSet advisorapi.BlockCPUSet,
+	availableCPUs *machine.CPUSet,
+	nodeRemainingCPUs *machine.CPUSet,
+	sourceBlockByPool map[string]string,
+) error {
+	isolationQuantityBySource := make(map[string]int)
+	for _, block := range isolationBlocks {
+		sourcePoolName, ok := deriveAdvisorIsolationSourcePool(block, p.state.GetPodEntries())
+		if !ok {
+			continue
+		}
+
+		blockResult, err := general.CovertUInt64ToInt(block.Result)
+		if err != nil {
+			return fmt.Errorf("parse isolation block: %s result failed with error: %v", block.BlockId, err)
+		}
+		isolationQuantityBySource[sourcePoolName] += blockResult
+	}
+	if len(isolationQuantityBySource) == 0 {
+		return nil
+	}
+
+	for _, block := range reclaimBlocks {
+		if block == nil {
+			continue
+		}
+		if _, found := blockCPUSet[block.BlockId]; found {
+			continue
+		}
+
+		var sourcePoolName string
+		for ownerPoolName := range block.OwnerPoolEntryMap {
+			if sourceBlockByPool[ownerPoolName] == block.BlockId {
+				sourcePoolName = ownerPoolName
+				break
+			}
+		}
+		if sourcePoolName == "" || isolationQuantityBySource[sourcePoolName] == 0 {
+			continue
+		}
+
+		sourceResult, err := general.CovertUInt64ToInt(block.Result)
+		if err != nil {
+			return fmt.Errorf("parse source block: %s result failed with error: %v", block.BlockId, err)
+		}
+
+		combinedResult := sourceResult + isolationQuantityBySource[sourcePoolName]
+		cpuset, remaining, err := calculator.TakeByNUMABalance(p.machineInfo, *availableCPUs, combinedResult)
+		if err != nil {
+			return fmt.Errorf("allocate source block: %s with combined req: %d failed with error: %v",
+				block.BlockId, combinedResult, err)
+		}
+
+		blockCPUSet[block.BlockId] = cpuset
+		*availableCPUs = remaining
+		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
+		general.InfoS("preallocated advisor source block for isolation carve",
+			"blockID", block.BlockId,
+			"sourcePoolName", sourcePoolName,
+			"sourceResult", sourceResult,
+			"isolationResult", isolationQuantityBySource[sourcePoolName],
+			"allocatedCPUSet", cpuset.String())
+	}
+
+	return nil
 }
 
 // tryCarveAdvisorBlockFromSource tries to carve an isolation block from an already
