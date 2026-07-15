@@ -29,9 +29,11 @@ import (
 	resourceutil "k8s.io/kubernetes/pkg/api/v1/resource"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -43,6 +45,9 @@ const (
 	minCPUShares   = 2
 	sharesPerCPU   = 1024
 	milliCPUPerCPU = 1000
+
+	ruleTypeRestore  = "restore"
+	ruleTypeOverride = "override"
 )
 
 type Manager interface {
@@ -51,6 +56,7 @@ type Manager interface {
 
 type managerImpl struct {
 	metaServer *metaserver.MetaServer
+	emitter    metrics.MetricEmitter
 }
 
 var (
@@ -60,16 +66,17 @@ var (
 	BurstRatioAnnotationKey  = consts.PodAnnotationCPUWeightBurstRatioKey
 )
 
-func GetManager(metaServer *metaserver.MetaServer) Manager {
+func GetManager(metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) Manager {
 	once.Do(func() {
-		instance = newManager(metaServer)
+		instance = newManager(metaServer, emitter)
 	})
 	return instance
 }
 
-func newManager(metaServer *metaserver.MetaServer) *managerImpl {
+func newManager(metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) *managerImpl {
 	return &managerImpl{
 		metaServer: metaServer,
+		emitter:    emitter,
 	}
 }
 
@@ -77,6 +84,7 @@ func (m *managerImpl) UpdateCPUWeight(dynamicConfig *dynamic.DynamicAgentConfigu
 	if dynamicConfig == nil {
 		return nil
 	}
+
 	dynamicConf := dynamicConfig.GetDynamicConfiguration()
 	if dynamicConf == nil || dynamicConf.AdminQoSConfiguration == nil ||
 		dynamicConf.AdminQoSConfiguration.FineGrainedResourceConfiguration == nil {
@@ -112,32 +120,31 @@ func (m *managerImpl) processRestoreRule(rule finegrainedresource.CPUWeightResto
 	if err != nil {
 		return fmt.Errorf("failed to parse pod selector: %w", err)
 	}
-	pods, err := m.metaServer.GetPodList(context.Background(), func(pod *v1.Pod) bool {
+	matchedPods, err := m.metaServer.GetPodList(context.Background(), func(pod *v1.Pod) bool {
 		return podSelector.Matches(labels.Set(pod.Labels)) && native.PodIsActive(pod)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get pods: %w", err)
 	}
-	if len(pods) == 0 {
-		return nil
-	}
 
 	var errList []error
-	for _, pod := range pods {
-		cpuRequests := m.getPodOriginalCPURequests(pod)
-		cpuShares := milliCPUToShares(cpuRequests)
+	for _, matchedPod := range matchedPods {
+		podCPURequestMilli := m.getPodOriginalCPURequests(matchedPod)
+		targetShares := milliCPUToShares(podCPURequestMilli)
 
-		absCgroupPath, err := common.GetPodAbsCgroupPath(common.CgroupSubsysCPU, string(pod.UID))
+		absCgroupPath, err := common.GetPodAbsCgroupPath(common.CgroupSubsysCPU, string(matchedPod.UID))
 		if err != nil {
-			errList = append(errList, fmt.Errorf("failed to get the absolute path of pod %s: %w", pod.Name, err))
+			errList = append(errList, fmt.Errorf("failed to get the absolute path of pod %s: %w", matchedPod.Name, err))
 			continue
 		}
 
-		cpuData := &common.CPUData{Shares: cpuShares}
+		cpuData := &common.CPUData{Shares: targetShares}
 		if err := cgroupmgr.ApplyCPUWithAbsolutePath(absCgroupPath, cpuData); err != nil {
-			errList = append(errList, fmt.Errorf("failed to apply cpu weight for pod %s: %w", pod.Name, err))
+			errList = append(errList, fmt.Errorf("failed to apply cpu weight for pod %s: %w", matchedPod.Name, err))
 			continue
 		}
+
+		m.emitCPUWeightSucceededShares(ruleTypeRestore, rule.Name, matchedPod.Name, int64(targetShares))
 	}
 
 	return utilerrors.NewAggregate(errList)
@@ -151,35 +158,44 @@ func (m *managerImpl) processOverrideRule(rule finegrainedresource.CPUWeightOver
 	if err != nil {
 		return fmt.Errorf("failed to parse pod selector: %w", err)
 	}
-	pods, err := m.metaServer.GetPodList(context.Background(), func(pod *v1.Pod) bool {
+	matchedPods, err := m.metaServer.GetPodList(context.Background(), func(pod *v1.Pod) bool {
 		return podSelector.Matches(labels.Set(pod.Labels)) && native.PodIsActive(pod)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get pods: %w", err)
 	}
-	if len(pods) == 0 {
-		return nil
-	}
-
-	cpuRequests := rule.PodCPUDemand * milliCPUPerCPU
-	cpuShares := milliCPUToShares(cpuRequests)
+	targetMilliCPU := rule.PodCPUDemand * milliCPUPerCPU
+	targetShares := milliCPUToShares(targetMilliCPU)
 
 	var errList []error
-	for _, pod := range pods {
-		absCgroupPath, err := common.GetPodAbsCgroupPath(common.CgroupSubsysCPU, string(pod.UID))
+	for _, matchedPod := range matchedPods {
+		absCgroupPath, err := common.GetPodAbsCgroupPath(common.CgroupSubsysCPU, string(matchedPod.UID))
 		if err != nil {
-			errList = append(errList, fmt.Errorf("failed to get the absolute path of pod %s: %w", pod.Name, err))
+			errList = append(errList, fmt.Errorf("failed to get the absolute path of pod %s: %w", matchedPod.Name, err))
 			continue
 		}
 
-		cpuData := &common.CPUData{Shares: cpuShares}
+		cpuData := &common.CPUData{Shares: targetShares}
 		if err := cgroupmgr.ApplyCPUWithAbsolutePath(absCgroupPath, cpuData); err != nil {
-			errList = append(errList, fmt.Errorf("failed to apply cpu weight for pod %s: %w", pod.Name, err))
+			errList = append(errList, fmt.Errorf("failed to apply cpu weight for pod %s: %w", matchedPod.Name, err))
 			continue
 		}
+
+		m.emitCPUWeightSucceededShares(ruleTypeOverride, rule.Name, matchedPod.Name, int64(targetShares))
 	}
 
 	return utilerrors.NewAggregate(errList)
+}
+
+func (m *managerImpl) emitCPUWeightSucceededShares(ruleType, ruleName, podName string, value int64) {
+	if m.emitter == nil {
+		return
+	}
+
+	_ = m.emitter.StoreInt64(util.MetricNameCPUWeightSucceedShares, value, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "rule_type", Val: ruleType},
+		metrics.MetricTag{Key: "rule_name", Val: ruleName},
+		metrics.MetricTag{Key: "rule_pod", Val: podName})
 }
 
 func (m *managerImpl) getPodOriginalCPURequests(pod *v1.Pod) int64 {

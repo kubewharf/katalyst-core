@@ -29,11 +29,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 )
@@ -63,6 +65,55 @@ func (e *errPodFetcher) GetPodList(_ context.Context, _ func(*v1.Pod) bool) ([]*
 	return e.PodFetcherStub.GetPodList(context.Background(), nil)
 }
 
+type metricRecord struct {
+	name string
+	val  int64
+	tags map[string]string
+}
+
+type recordingEmitter struct {
+	records []metricRecord
+}
+
+func (r *recordingEmitter) StoreInt64(name string, val int64, _ metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	record := metricRecord{name: name, val: val, tags: map[string]string{}}
+	for _, tag := range tags {
+		record.tags[tag.Key] = tag.Val
+	}
+	r.records = append(r.records, record)
+	return nil
+}
+
+func (r *recordingEmitter) StoreFloat64(_ string, _ float64, _ metrics.MetricTypeName, _ ...metrics.MetricTag) error {
+	return nil
+}
+
+func (r *recordingEmitter) WithTags(_ string, _ ...metrics.MetricTag) metrics.MetricEmitter {
+	return r
+}
+
+func (r *recordingEmitter) Run(_ context.Context) {}
+
+func assertMetricRecord(t *testing.T, records []metricRecord, name string, value int64, tags map[string]string) {
+	t.Helper()
+	for _, record := range records {
+		if record.name == name && record.val == value && assert.ObjectsAreEqual(tags, record.tags) {
+			return
+		}
+	}
+	assert.Failf(t, "metric not found", "missing metric %s=%d with tags %+v in records %+v", name, value, tags, records)
+}
+
+func assertNoMetricRecord(t *testing.T, records []metricRecord, name string, tags map[string]string) {
+	t.Helper()
+	for _, record := range records {
+		if record.name == name && assert.ObjectsAreEqual(tags, record.tags) {
+			assert.Failf(t, "unexpected metric found", "unexpected metric %s with tags %+v in records %+v", name, tags, records)
+			return
+		}
+	}
+}
+
 func TestManager_GetManager(t *testing.T) {
 	t.Parallel()
 
@@ -76,8 +127,8 @@ func TestManager_GetManager(t *testing.T) {
 	metaServer1 := generateTestMetaServer(nil)
 	metaServer2 := generateTestMetaServer(nil)
 
-	manager1 := GetManager(metaServer1)
-	manager2 := GetManager(metaServer2)
+	manager1 := GetManager(metaServer1, nil)
+	manager2 := GetManager(metaServer2, nil)
 
 	assert.Same(t, manager1, manager2)
 	assert.Same(t, metaServer1, manager1.(*managerImpl).metaServer)
@@ -91,7 +142,7 @@ func TestManager_newManager(t *testing.T) {
 	}
 
 	metaServer := generateTestMetaServerWithPodFetcher(podFetcher)
-	manager := newManager(metaServer)
+	manager := newManager(metaServer, nil)
 
 	assert.NotNil(t, manager)
 	assert.Same(t, metaServer, manager.metaServer)
@@ -142,6 +193,9 @@ func TestManager_UpdateCPUWeight(t *testing.T) {
 		expectErrContains []string
 		mockPathErr       error
 		mockApplyErr      error
+		mockApplyErrs     []error
+		expectMetrics     []metricRecord
+		expectNoMetrics   []metricRecord
 	}{
 		{
 			name:         "nil cpu weight config",
@@ -282,6 +336,13 @@ func TestManager_UpdateCPUWeight(t *testing.T) {
 				},
 			}),
 			expectShares: []uint64{4096},
+			expectMetrics: []metricRecord{
+				{
+					name: util.MetricNameCPUWeightSucceedShares,
+					val:  4096,
+					tags: map[string]string{"rule_type": "override", "rule_name": "override-rule", "rule_pod": "override-pod"},
+				},
+			},
 		},
 		{
 			name: "override apply error",
@@ -303,12 +364,55 @@ func TestManager_UpdateCPUWeight(t *testing.T) {
 				"failed to process override rule override-rule: failed to apply cpu weight for pod override-pod: apply failed",
 			},
 			mockApplyErr: fmt.Errorf("apply failed"),
+			expectNoMetrics: []metricRecord{
+				{
+					name: util.MetricNameCPUWeightSucceedShares,
+					tags: map[string]string{"rule_type": "override", "rule_name": "override-rule", "rule_pod": "override-pod"},
+				},
+			},
+		},
+		{
+			name: "override partial failure emits metric only for successful pod",
+			metaServer: generateTestMetaServer([]*v1.Pod{
+				generateTestPod("override-pod-1", "override-pod-1", map[string]string{"app": "override-app"}, []v1.Container{
+					{Name: "c1"},
+				}),
+				generateTestPod("override-pod-2", "override-pod-2", map[string]string{"app": "override-app"}, []v1.Container{
+					{Name: "c1"},
+				}),
+			}),
+			config: generateTestDynamicConfig(&finegrainedresource.CPUWeightConfiguration{
+				OverrideRules: []finegrainedresource.CPUWeightOverride{
+					{
+						Name:         "override-rule",
+						PodSelector:  "app=override-app",
+						PodCPUDemand: 4,
+					},
+				},
+			}),
+			expectShares:      []uint64{4096, 4096},
+			expectErrContains: []string{"failed to process override rule override-rule: failed to apply cpu weight for pod override-pod-2: apply failed"},
+			mockApplyErrs:     []error{nil, fmt.Errorf("apply failed")},
+			expectMetrics: []metricRecord{
+				{
+					name: util.MetricNameCPUWeightSucceedShares,
+					val:  4096,
+					tags: map[string]string{"rule_type": "override", "rule_name": "override-rule", "rule_pod": "override-pod-1"},
+				},
+			},
+			expectNoMetrics: []metricRecord{
+				{
+					name: util.MetricNameCPUWeightSucceedShares,
+					tags: map[string]string{"rule_type": "override", "rule_name": "override-rule", "rule_pod": "override-pod-2"},
+				},
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		mockey.PatchConvey(tt.name, t, func() {
-			manager := &managerImpl{metaServer: tt.metaServer}
+			emitter := &recordingEmitter{}
+			manager := &managerImpl{metaServer: tt.metaServer, emitter: emitter}
 			if tt.expectShares == nil && tt.expectErrContains == nil && tt.mockPathErr == nil && tt.mockApplyErr == nil {
 				assert.NoError(t, manager.UpdateCPUWeight(tt.config))
 				return
@@ -341,14 +445,27 @@ func TestManager_UpdateCPUWeight(t *testing.T) {
 				pathMock.Return(podCgroupPath, nil).Build()
 			}
 
+			applyCallCount := 0
 			mockey.Mock(cgroupmgr.ApplyCPUWithAbsolutePath).IncludeCurrentGoRoutine().To(func(_ string, cpuData *common.CPUData) error {
 				gotShares = append(gotShares, cpuData.Shares)
+				if applyCallCount < len(tt.mockApplyErrs) {
+					err := tt.mockApplyErrs[applyCallCount]
+					applyCallCount++
+					return err
+				}
+				applyCallCount++
 				return tt.mockApplyErr
 			}).Build()
 
 			runAndAssert()
 			if len(tt.expectShares) > 0 {
 				assert.Equal(t, tt.expectShares, gotShares)
+			}
+			for _, expectedMetric := range tt.expectMetrics {
+				assertMetricRecord(t, emitter.records, expectedMetric.name, expectedMetric.val, expectedMetric.tags)
+			}
+			for _, expectedMetric := range tt.expectNoMetrics {
+				assertNoMetricRecord(t, emitter.records, expectedMetric.name, expectedMetric.tags)
 			}
 		})
 	}

@@ -541,3 +541,65 @@ func TestApplySystemExclusivePoolChanges(t *testing.T) {
 	assert.Equal(t, 2, poolAllocationInfo.AllocationResult.Size())
 	assert.True(t, podAllocationInfo.AllocationResult.Equals(poolAllocationInfo.AllocationResult))
 }
+
+func TestGetSystemExclusivePoolMetricValueAndStatus(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		currentPools  map[string]*state.AllocationInfo
+		expectedPools map[string]int
+		poolName      string
+		wantValue     int64
+		wantStatus    string
+	}{
+		{
+			name: "ready",
+			currentPools: map[string]*state.AllocationInfo{
+				"system-latency": {AllocationResult: newCPUSet(0, 2)},
+			},
+			expectedPools: map[string]int{"system-latency": 2},
+			poolName:      "system-latency",
+			wantValue:     2,
+			wantStatus:    "ready",
+		},
+		{
+			name:          "absent",
+			currentPools:  map[string]*state.AllocationInfo{},
+			expectedPools: map[string]int{"system-latency": 2},
+			poolName:      "system-latency",
+			wantValue:     0,
+			wantStatus:    "absent",
+		},
+		{
+			name: "stale",
+			currentPools: map[string]*state.AllocationInfo{
+				"system-latency": {AllocationResult: newCPUSet(0, 2)},
+			},
+			expectedPools: map[string]int{},
+			poolName:      "system-latency",
+			wantValue:     2,
+			wantStatus:    "stale",
+		},
+		{
+			name: "updating",
+			currentPools: map[string]*state.AllocationInfo{
+				"system-latency": {AllocationResult: newCPUSet(0, 4)},
+			},
+			expectedPools: map[string]int{"system-latency": 2},
+			poolName:      "system-latency",
+			wantValue:     4,
+			wantStatus:    "updating",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotValue, gotStatus := getSystemExclusivePoolMetricValueAndStatus(tc.currentPools, tc.expectedPools, tc.poolName)
+			assert.Equal(t, tc.wantValue, gotValue)
+			assert.Equal(t, tc.wantStatus, gotStatus)
+		})
+	}
+}

@@ -52,6 +52,8 @@ const (
 	MetricNameGetMemBWPreferenceFailed    = "get_mem_bw_preference_failed"
 	MetricNameGetNUMAAllocatedMemBWFailed = "get_numa_allocated_mem_bw_failed"
 	MetricNameSetExclusiveIRQCPUSize      = "set_exclusive_irq_cpu_size"
+	MetricNameCPUWeightSucceedShares      = "cpu_weight_succeed_shares"
+	MetricNameSystemExclusivePoolSize     = "system_exclusive_pool_size"
 
 	// metrics for memory plugin
 	MetricNameMemSetInvalid                           = "memset_invalid"
