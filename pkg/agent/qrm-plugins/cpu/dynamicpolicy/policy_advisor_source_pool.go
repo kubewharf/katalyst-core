@@ -94,6 +94,7 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 	blockCPUSet advisorapi.BlockCPUSet,
 	availableCPUs *machine.CPUSet,
 	nodeRemainingCPUs *machine.CPUSet,
+	globalNonReclaimableCPUSet machine.CPUSet,
 	sourceBlockByPool map[string]string,
 ) error {
 	isolationQuantityBySource := make(map[string]int)
@@ -138,14 +139,15 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 		}
 
 		combinedResult := sourceResult + isolationQuantityBySource[sourcePoolName]
-		cpuset, remaining, err := calculator.TakeByNUMABalance(p.machineInfo, *availableCPUs, combinedResult)
+		currentAvailableCPUs := availableCPUs.Difference(globalNonReclaimableCPUSet)
+		cpuset, _, err := calculator.TakeByNUMABalance(p.machineInfo, currentAvailableCPUs, combinedResult)
 		if err != nil {
 			return fmt.Errorf("allocate source block: %s with combined req: %d failed with error: %v",
 				block.BlockId, combinedResult, err)
 		}
 
 		blockCPUSet[block.BlockId] = cpuset
-		*availableCPUs = remaining
+		*availableCPUs = availableCPUs.Difference(cpuset)
 		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
 		general.InfoS("preallocated advisor source block for isolation carve",
 			"blockID", block.BlockId,
@@ -165,6 +167,7 @@ func (p *DynamicPolicy) tryCarveAdvisorBlockFromSource(
 	block *advisorapi.BlockInfo,
 	sourceBlockByPool map[string]string,
 	blockCPUSet advisorapi.BlockCPUSet,
+	fallbackCandidate machine.CPUSet,
 	availableCPUs *machine.CPUSet,
 	nodeRemainingCPUs *machine.CPUSet,
 	numaID int,
@@ -197,7 +200,7 @@ func (p *DynamicPolicy) tryCarveAdvisorBlockFromSource(
 		sourceCandidate = sourceCandidate.Intersection(p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
 	}
 
-	carveCandidates := sourceCandidate.Union(*availableCPUs)
+	carveCandidates := sourceCandidate.Union(fallbackCandidate)
 	taken, remainingCandidates, err := p.takeByTieredPreferredCPUs(carveCandidates, []machine.CPUSet{sourceCandidate}, blockResult)
 	if err != nil {
 		return false, fmt.Errorf("carve advisor block: %s from source pool: %s failed with error: %v",

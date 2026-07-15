@@ -1019,17 +1019,6 @@ func (p *DynamicPolicy) allocateShareBlocks(
 			return fmt.Errorf("parse block: %s result failed with error: %v", blockID, err)
 		}
 
-		carved, err := p.tryCarveAdvisorBlockFromSource(block, sourceBlockByPool, blockCPUSet, availableCPUs, nodeRemainingCPUs, numaID, blockResult)
-		if err != nil {
-			return err
-		}
-		if carved {
-			if withNUMABinding != nil {
-				*withNUMABinding = true
-			}
-			continue
-		}
-
 		// Same as in allocateDedicatedBlocks, intersect the globally updated availableCPUs with
 		// the static numaAvailableCPUs to get the latest available CPUs dynamically.
 		currentAvailableCPUs := availableCPUs.Intersection(numaAvailableCPUs)
@@ -1041,6 +1030,17 @@ func (p *DynamicPolicy) allocateShareBlocks(
 			currentAvailableCPUs = currentAvailableCPUs.Intersection(pinnedCPUSets)
 		} else {
 			currentAvailableCPUs = currentAvailableCPUs.Difference(allPinnedCPUSets)
+		}
+
+		carved, err := p.tryCarveAdvisorBlockFromSource(block, sourceBlockByPool, blockCPUSet, currentAvailableCPUs, availableCPUs, nodeRemainingCPUs, numaID, blockResult)
+		if err != nil {
+			return err
+		}
+		if carved {
+			if withNUMABinding != nil {
+				*withNUMABinding = true
+			}
+			continue
 		}
 
 		var cpuset machine.CPUSet
@@ -1292,7 +1292,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		}
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
-		err = p.allocateAdvisorSourceBlocksForCarve(reclaimBlocks, shareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, sourceBlockByPool)
+		err = p.allocateAdvisorSourceBlocksForCarve(reclaimBlocks, shareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, globalNonReclaimableCPUSet, sourceBlockByPool)
 		if err != nil {
 			return nil, err
 		}

@@ -107,7 +107,7 @@ func TestDynamicPolicy_tryCarveAdvisorBlockFromSource(t *testing.T) {
 	}
 
 	carved, err := p.tryCarveAdvisorBlockFromSource(
-		block, sourceBlockByPool, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
+		block, sourceBlockByPool, blockCPUSet, availableCPUs.Clone(), &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
 	require.NoError(t, err)
 	require.True(t, carved)
 
@@ -120,6 +120,63 @@ func TestDynamicPolicy_tryCarveAdvisorBlockFromSource(t *testing.T) {
 		blockCPUSet["block-share"].String())
 	require.True(t, availableCPUs.Equals(machine.NewCPUSet(4, 5)),
 		"available cpus should not be consumed when source is sufficient, got %s",
+		availableCPUs.String())
+}
+
+func TestDynamicPolicy_tryCarveAdvisorBlockFromSourceUsesConstrainedFallback(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_tryCarveAdvisorBlockFromSource_constrainedFallback")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"c": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "c",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+					OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod1",
+					Annotations:   map[string]string{},
+				},
+			},
+		},
+	}, false)
+
+	blockCPUSet := advisorapi.BlockCPUSet{
+		"block-share": machine.NewCPUSet(0),
+	}
+	sourceBlockByPool := map[string]string{
+		commonstate.PoolNameShare: "block-share",
+	}
+	fallbackCandidate := machine.NewCPUSet(4, 5)
+	availableCPUs := machine.NewCPUSet(4, 5, 6, 7)
+	nodeRemainingCPUs := machine.NewCPUSet(4, 5, 6, 7)
+	block := &advisorapi.BlockInfo{
+		Block: advisorapi.Block{BlockId: "block-isolation", Result: 3},
+		OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+			commonstate.PoolNamePrefixIsolation + "-pod1": {
+				EntryName:    "pod1",
+				SubEntryName: "c",
+			},
+		},
+	}
+
+	carved, err := p.tryCarveAdvisorBlockFromSource(
+		block, sourceBlockByPool, blockCPUSet, fallbackCandidate, &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
+	require.NoError(t, err)
+	require.True(t, carved)
+	require.True(t, blockCPUSet["block-isolation"].IsSubsetOf(machine.NewCPUSet(0, 4, 5)),
+		"fallback should only use the constrained candidate, got %s",
+		blockCPUSet["block-isolation"].String())
+	require.True(t, availableCPUs.Contains(6) && availableCPUs.Contains(7),
+		"unconstrained available CPUs must not be consumed, available=%s",
 		availableCPUs.String())
 }
 
@@ -245,7 +302,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve(t *testing.T) {
 	}
 
 	err = p.allocateAdvisorSourceBlocksForCarve(
-		reclaimBlocks, isolationBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, sourceBlockByPool)
+		reclaimBlocks, isolationBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, machine.NewCPUSet(), sourceBlockByPool)
 	require.NoError(t, err)
 	require.Equal(t, 6, blockCPUSet["block-share"].Size(),
 		"source share block should be preallocated with share + isolation quantity")
@@ -304,10 +361,75 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveReturnsErrorWhenInsuff
 		blockCPUSet,
 		&availableCPUs,
 		&nodeRemainingCPUs,
+		machine.NewCPUSet(),
 		map[string]string{commonstate.PoolNameShare: "block-share"})
 	require.Error(t, err)
 	require.NotContains(t, blockCPUSet, "block-share")
 	require.True(t, availableCPUs.Equals(machine.NewCPUSet(0, 1, 2)))
+}
+
+func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveExcludesNonReclaimable(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve_nonReclaimable")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"c": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "c",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+					OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod1",
+					Annotations:   map[string]string{},
+				},
+			},
+		},
+	}, false)
+
+	blockCPUSet := advisorapi.NewBlockCPUSet()
+	availableCPUs := machine.NewCPUSet(0, 1, 2, 3, 4, 5)
+	nodeRemainingCPUs := availableCPUs.Clone()
+	nonReclaimableCPUSet := machine.NewCPUSet(0, 1)
+
+	err = p.allocateAdvisorSourceBlocksForCarve(
+		[]*advisorapi.BlockInfo{{
+			Block: advisorapi.Block{BlockId: "block-share", Result: 2},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				commonstate.PoolNameShare: {
+					EntryName:    commonstate.PoolNameShare,
+					SubEntryName: commonstate.FakedContainerName,
+				},
+			},
+		}},
+		[]*advisorapi.BlockInfo{{
+			Block: advisorapi.Block{BlockId: "block-isolation", Result: 2},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				commonstate.PoolNamePrefixIsolation + "-pod1": {
+					EntryName:    "pod1",
+					SubEntryName: "c",
+				},
+			},
+		}},
+		blockCPUSet,
+		&availableCPUs,
+		&nodeRemainingCPUs,
+		nonReclaimableCPUSet,
+		map[string]string{commonstate.PoolNameShare: "block-share"})
+	require.NoError(t, err)
+	require.True(t, blockCPUSet["block-share"].Intersection(nonReclaimableCPUSet).IsEmpty(),
+		"source preallocation must exclude non-reclaimable CPUs, got %s",
+		blockCPUSet["block-share"].String())
+	require.True(t, availableCPUs.Intersection(nonReclaimableCPUSet).Equals(nonReclaimableCPUSet),
+		"non-reclaimable CPUs should remain available for their pinned owners, available=%s",
+		availableCPUs.String())
 }
 
 func TestDynamicPolicy_generateBlockCPUSet_combinedCarvesIsolationFromNormalShare(t *testing.T) {
