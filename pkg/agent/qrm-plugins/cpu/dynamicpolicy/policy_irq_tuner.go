@@ -168,24 +168,37 @@ func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
 	// get irq forbidden cores from cpu plugin checkpoint
-	forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
-	forbiddenCores = forbiddenCores.Union(state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), commonstate.IsSystemPool))
+	reservedCPUs := p.reservedCPUs
+	systemPoolCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), commonstate.IsSystemPool)
+	forbiddenCores = forbiddenCores.Union(reservedCPUs)
+	forbiddenCores = forbiddenCores.Union(systemPoolCPUs)
 
 	// get irq forbidden cores from pinned resource package
 	irqForbiddenCPUSet := p.getPinnedResourcePackageIRQForbiddenCPUSet()
 	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
-	if p.shouldBindIRQToReclaimedPool() {
-		reclaimCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsReclaimedPool)
+	bindIRQToReclaimedPool := p.shouldBindIRQToReclaimedPool()
+	reclaimCPUs := machine.NewCPUSet()
+	machineCPUs := p.machineInfo.CPUDetails.CPUs()
+	if bindIRQToReclaimedPool {
+		reclaimCPUs = state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsReclaimedPool)
 		if reclaimCPUs.IsEmpty() {
 			general.InfofV(4, "bind-irq-to-reclaimed-pool: reclaimed pool empty/absent, fall back")
 		} else {
-			machineCPUs := p.machineInfo.CPUDetails.CPUs()
 			forbiddenCores = forbiddenCores.Union(machineCPUs.Difference(reclaimCPUs))
 		}
 	}
 
 	general.Infof("get the irq forbidden cores %v", forbiddenCores)
+	general.Infof("irq-tuning diagnostic: bindIRQToReclaimedPool=%t machine=%s reclaim=%s reserved=%s system=%s pinned=%s finalForbidden=%s finalAllowed=%s",
+		bindIRQToReclaimedPool,
+		machineCPUs.String(),
+		reclaimCPUs.String(),
+		reservedCPUs.String(),
+		systemPoolCPUs.String(),
+		irqForbiddenCPUSet.String(),
+		forbiddenCores.String(),
+		machineCPUs.Difference(forbiddenCores).String())
 	return forbiddenCores, nil
 }
 
