@@ -62,7 +62,7 @@ func TestBuildCPUSetPartitionViewAndDeepCopy(t *testing.T) {
 
 	view := BuildCPUSetPartitionView(state, &machine.CPUTopology{CPUDetails: machine.CPUDetails{
 		0: {NUMANodeID: 0}, 1: {NUMANodeID: 0}, 2: {NUMANodeID: 1}, 3: {NUMANodeID: 1}, 4: {NUMANodeID: 1}, 5: {NUMANodeID: 1},
-	}})
+	}}, CPUSetPartitionViewOptions{})
 
 	assertCPUSet(t, "reserve", view.Reserve, "0")
 	assertCPUSet(t, "share", view.SharePool, "1,6")
@@ -97,7 +97,7 @@ func TestBuildCPUSetPartitionViewAndDeepCopy(t *testing.T) {
 func TestBuildCPUSetPartitionViewNilInputs(t *testing.T) {
 	t.Parallel()
 
-	view := BuildCPUSetPartitionView(nil, nil)
+	view := BuildCPUSetPartitionView(nil, nil, CPUSetPartitionViewOptions{})
 	if view == nil || !view.ReclaimEffective.IsEmpty() || len(view.ContainerCPUSetByPod) != 0 {
 		t.Fatalf("unexpected nil input view: %#v", view)
 	}
@@ -106,6 +106,108 @@ func TestBuildCPUSetPartitionViewNilInputs(t *testing.T) {
 	}
 	if (*CPUSetPartitionView)(nil).DeepCopy() != nil {
 		t.Fatalf("DeepCopy of nil view should be nil")
+	}
+}
+
+func TestBuildCPUSetPartitionViewPadsNonReclaimPoolToMinSize(t *testing.T) {
+	t.Parallel()
+
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	state.SetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+		AllocationResult: machine.NewCPUSet(2),
+	})
+
+	view := BuildCPUSetPartitionView(state, testTwoNUMATopology(), CPUSetPartitionViewOptions{
+		NonReclaimPoolMinSize: 4,
+	})
+
+	assertCPUSet(t, "reserve", view.Reserve, "0")
+	assertCPUSet(t, "original share preserved and padded", view.NonReclaimPool, "1-2,4-5")
+	assertCPUSet(t, "reclaim effective after padding", view.ReclaimEffective, "3,6-7")
+	assertCPUSet(t, "reclaim numa 0 after padding", view.ReclaimEffectivePerNUMA[0], "3")
+	assertCPUSet(t, "reclaim numa 1 after padding", view.ReclaimEffectivePerNUMA[1], "6-7")
+}
+
+func TestBuildCPUSetPartitionViewPadsNonReclaimPoolReversely(t *testing.T) {
+	t.Parallel()
+
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+
+	view := BuildCPUSetPartitionView(state, testTwoNUMATopology(), CPUSetPartitionViewOptions{
+		NonReclaimPoolMinSize: 4,
+		ReserveCPUReversely:   true,
+	})
+
+	assertCPUSet(t, "reverse padded non reclaim", view.NonReclaimPool, "2-3,6-7")
+	assertCPUSet(t, "reverse reclaim effective", view.ReclaimEffective, "1,4-5")
+	assertCPUSet(t, "reverse reclaim numa 0", view.ReclaimEffectivePerNUMA[0], "1")
+	assertCPUSet(t, "reverse reclaim numa 1", view.ReclaimEffectivePerNUMA[1], "4-5")
+}
+
+func TestBuildCPUSetPartitionViewDoesNotPadWhenOverlapAllowed(t *testing.T) {
+	t.Parallel()
+
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllowSharedCoresOverlapReclaimedCores(true)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(1, 2, 3),
+	})
+
+	view := BuildCPUSetPartitionView(state, testTwoNUMATopology(), CPUSetPartitionViewOptions{
+		NonReclaimPoolMinSize: 4,
+	})
+
+	assertCPUSet(t, "non reclaim remains empty", view.NonReclaimPool, "")
+	assertCPUSet(t, "reclaim effective remains raw", view.ReclaimEffective, "1-3")
+}
+
+func TestBuildCPUSetPartitionViewCapsPaddingToCandidates(t *testing.T) {
+	t.Parallel()
+
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0, 1, 2, 3, 4, 5),
+	})
+
+	view := BuildCPUSetPartitionView(state, testTwoNUMATopology(), CPUSetPartitionViewOptions{
+		NonReclaimPoolMinSize: 4,
+	})
+
+	assertCPUSet(t, "non reclaim capped to candidates", view.NonReclaimPool, "6-7")
+	assertCPUSet(t, "reclaim effective exhausted", view.ReclaimEffective, "")
+}
+
+func testTwoNUMATopology() *machine.CPUTopology {
+	return &machine.CPUTopology{
+		NumCPUs:      8,
+		NumCores:     8,
+		NumSockets:   2,
+		NumNUMANodes: 2,
+		CPUDetails: machine.CPUDetails{
+			0: {NUMANodeID: 0, SocketID: 0, CoreID: 0},
+			1: {NUMANodeID: 0, SocketID: 0, CoreID: 1},
+			2: {NUMANodeID: 0, SocketID: 0, CoreID: 2},
+			3: {NUMANodeID: 0, SocketID: 0, CoreID: 3},
+			4: {NUMANodeID: 1, SocketID: 1, CoreID: 4},
+			5: {NUMANodeID: 1, SocketID: 1, CoreID: 5},
+			6: {NUMANodeID: 1, SocketID: 1, CoreID: 6},
+			7: {NUMANodeID: 1, SocketID: 1, CoreID: 7},
+		},
 	}
 }
 

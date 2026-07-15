@@ -69,7 +69,13 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 		return nil
 	}
 	if in.State != nil {
-		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology)
+		opts := bulkheadutils.CPUSetPartitionViewOptions{
+			NonReclaimPoolMinSize: bulkheadNonReclaimPoolMinSize(in.DynamicConf),
+		}
+		if in.CoreConf != nil {
+			opts.ReserveCPUReversely = in.CoreConf.EnableReserveCPUReversely
+		}
+		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology, opts)
 	}
 	currentEnabled := m.buildPluginEnabledState(handlerCtx)
 	if m.lastCPUSetAdjustmentEnabled != nil &&
@@ -132,6 +138,13 @@ func bulkheadEnabled(conf *dynamicconfig.Configuration) bool {
 		return false
 	}
 	return conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable
+}
+
+func bulkheadNonReclaimPoolMinSize(conf *dynamicconfig.Configuration) int64 {
+	if conf == nil || conf.AdminQoSConfiguration == nil || conf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
+		return 0
+	}
+	return conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize
 }
 
 func equalPluginEnabledState(a, b map[string]bool) bool {

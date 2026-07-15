@@ -103,3 +103,66 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 		})
 	}
 }
+
+func TestCPUPluginConfigurationApplyDynamicBulkheadNonReclaimPoolMinSize(t *testing.T) {
+	t.Parallel()
+
+	int64Ptr := func(v int64) *int64 { return &v }
+
+	tests := []struct {
+		name           string
+		initialMinSize int64
+		bulkheadConfig *configv1alpha1.BulkheadConfig
+		wantMinSize    int64
+	}{
+		{
+			name:           "nil bulkhead config keeps old value",
+			initialMinSize: 2,
+			wantMinSize:    2,
+		},
+		{
+			name:           "nil non reclaim min keeps old value",
+			initialMinSize: 2,
+			bulkheadConfig: &configv1alpha1.BulkheadConfig{},
+			wantMinSize:    2,
+		},
+		{
+			name:           "zero overrides old value",
+			initialMinSize: 2,
+			bulkheadConfig: &configv1alpha1.BulkheadConfig{NonReclaimPoolMinSize: int64Ptr(0)},
+			wantMinSize:    0,
+		},
+		{
+			name:           "positive value overrides",
+			bulkheadConfig: &configv1alpha1.BulkheadConfig{NonReclaimPoolMinSize: int64Ptr(4)},
+			wantMinSize:    4,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := NewCPUPluginConfiguration()
+			c.BulkheadConfig.NonReclaimPoolMinSize = tt.initialMinSize
+			c.ApplyConfiguration(&crd.DynamicConfigCRD{
+				AdminQoSConfiguration: &configv1alpha1.AdminQoSConfiguration{
+					Spec: configv1alpha1.AdminQoSConfigurationSpec{
+						Config: configv1alpha1.AdminQoSConfig{
+							QRMPluginConfig: &configv1alpha1.QRMPluginConfig{
+								CPUPluginConfig: &configv1alpha1.CPUPluginConfig{
+									BulkheadConfig: tt.bulkheadConfig,
+								},
+							},
+						},
+					},
+				},
+			})
+
+			if c.BulkheadConfig.NonReclaimPoolMinSize != tt.wantMinSize {
+				t.Fatalf("NonReclaimPoolMinSize = %d, want %d", c.BulkheadConfig.NonReclaimPoolMinSize, tt.wantMinSize)
+			}
+		})
+	}
+}

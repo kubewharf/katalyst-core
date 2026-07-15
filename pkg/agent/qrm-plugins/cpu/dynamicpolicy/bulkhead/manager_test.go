@@ -23,11 +23,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type fakePlugin struct {
@@ -82,6 +84,50 @@ func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
 	if got := len(plugin.adjustViews); got != 1 {
 		t.Fatalf("expected unchanged view to skip plugin, got %d calls", got)
 	}
+}
+
+func TestRunCPUSetAdjustmentHandlersReconcilesWhenNonReclaimPoolMinSizeChanges(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	topology := &machine.CPUTopology{
+		NumCPUs:      4,
+		NumCores:     4,
+		NumSockets:   2,
+		NumNUMANodes: 2,
+		CPUDetails: machine.CPUDetails{
+			0: {NUMANodeID: 0, SocketID: 0, CoreID: 0},
+			1: {NUMANodeID: 0, SocketID: 0, CoreID: 1},
+			2: {NUMANodeID: 1, SocketID: 1, CoreID: 2},
+			3: {NUMANodeID: 1, SocketID: 1, CoreID: 3},
+		},
+	}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConfWithMinSize(true, 0),
+		State:       state,
+		Topology:    topology,
+	}); err != nil {
+		t.Fatalf("first run failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConfWithMinSize(true, 2),
+		State:       state,
+		Topology:    topology,
+	}); err != nil {
+		t.Fatalf("second run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("min size change should trigger plugin, got %d calls", got)
+	}
+	assertCPUSet(t, "first non reclaim", plugin.adjustViews[0].NonReclaimPool, "")
+	assertCPUSet(t, "second non reclaim", plugin.adjustViews[1].NonReclaimPool, "1-2")
 }
 
 func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
@@ -388,6 +434,12 @@ func dynamicBulkheadConf(enabled bool) *dynamicconfig.Configuration {
 	return conf
 }
 
+func dynamicBulkheadConfWithMinSize(enabled bool, minSize int64) *dynamicconfig.Configuration {
+	conf := dynamicBulkheadConf(enabled)
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize = minSize
+	return conf
+}
+
 func enabledCPUSetAdjustmentCtx() cpusetutil.CPUSetAdjustmentHandlerCtx {
 	return cpusetutil.CPUSetAdjustmentHandlerCtx{
 		DynamicConf: dynamicBulkheadConf(true),
@@ -398,6 +450,13 @@ func enabledDynamicAgentConf() *dynamicconfig.DynamicAgentConfiguration {
 	conf := dynamicconfig.NewDynamicAgentConfiguration()
 	conf.SetDynamicConfiguration(dynamicBulkheadConf(true))
 	return conf
+}
+
+func assertCPUSet(t *testing.T, name string, got machine.CPUSet, want string) {
+	t.Helper()
+	if got.String() != want {
+		t.Fatalf("%s cpuset = %s, want %s", name, got.String(), want)
+	}
 }
 
 func TestNewManagerRegistersDefaultPluginsInOrder(t *testing.T) {

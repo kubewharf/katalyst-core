@@ -50,6 +50,7 @@ func TestQRMPluginOptions_AddFlags(t *testing.T) {
 		"enable-bulkhead",
 		"enable-bulkhead-cpuset-topology",
 		"enable-bulkhead-workqueue",
+		"bulkhead-non-reclaim-pool-min-size",
 	} {
 		if cpuPluginFlagSet.Lookup(name) == nil {
 			t.Errorf("qrm-cpu-plugin flag %q not found", name)
@@ -72,6 +73,9 @@ func TestQRMPluginOptions_ApplyTo(t *testing.T) {
 	if config.CPUPluginConfiguration == nil {
 		t.Errorf("CPUPluginConfiguration is nil after ApplyTo")
 	}
+	if config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize != 16 {
+		t.Errorf("NonReclaimPoolMinSize = %d, want default 16", config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize)
+	}
 }
 
 func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
@@ -81,6 +85,7 @@ func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
 	options.EnableBulkhead = true
 	options.EnableBulkheadCpusetTopology = true
 	options.EnableBulkheadWorkqueue = true
+	options.BulkheadNonReclaimPoolMinSize = 4
 	config := qrm.NewQRMPluginConfiguration()
 
 	err := options.ApplyTo(config)
@@ -95,5 +100,28 @@ func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
 	}
 	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadWorkqueue {
 		t.Errorf("EnableBulkheadWorkqueue = false, want true")
+	}
+	if config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize != 4 {
+		t.Errorf("NonReclaimPoolMinSize = %d, want 4", config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize)
+	}
+}
+
+func TestQRMPluginOptions_ParseBulkheadNonReclaimPoolMinSize(t *testing.T) {
+	t.Parallel()
+
+	options := NewQRMPluginOptions()
+	fss := &cliflag.NamedFlagSets{}
+	options.AddFlags(fss)
+
+	if err := fss.FlagSet("qrm-cpu-plugin").Parse([]string{"--bulkhead-non-reclaim-pool-min-size=4"}); err != nil {
+		t.Fatalf("failed to parse flag: %v", err)
+	}
+
+	config := qrm.NewQRMPluginConfiguration()
+	if err := options.ApplyTo(config); err != nil {
+		t.Fatalf("ApplyTo failed: %v", err)
+	}
+	if config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize != 4 {
+		t.Fatalf("NonReclaimPoolMinSize = %d, want 4", config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize)
 	}
 }

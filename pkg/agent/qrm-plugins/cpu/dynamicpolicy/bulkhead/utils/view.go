@@ -35,7 +35,12 @@ type CPUSetPartitionView struct {
 	ContainerCPUSetByPod    map[string]map[string]machine.CPUSet
 }
 
-func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CPUTopology) *CPUSetPartitionView {
+type CPUSetPartitionViewOptions struct {
+	NonReclaimPoolMinSize int64
+	ReserveCPUReversely   bool
+}
+
+func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CPUTopology, opts CPUSetPartitionViewOptions) *CPUSetPartitionView {
 	view := &CPUSetPartitionView{
 		Reserve:                 machine.NewCPUSet(),
 		Dedicated:               machine.NewCPUSet(),
@@ -121,6 +126,82 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 		view.ReclaimEffective = view.ReclaimRaw.Clone()
 	} else {
 		view.ReclaimEffective = topology.CPUDetails.CPUs().Difference(view.NonReclaimPool).Difference(view.Reserve)
+		padNonReclaimPoolToMinSize(view, topology, opts)
+	}
+	rebuildReclaimEffectivePerNUMA(view, topology)
+	return view
+}
+
+func padNonReclaimPoolToMinSize(view *CPUSetPartitionView, topology *machine.CPUTopology, opts CPUSetPartitionViewOptions) {
+	if view == nil || topology == nil || opts.NonReclaimPoolMinSize <= 0 {
+		return
+	}
+	currentSize := view.NonReclaimPool.Size()
+	if currentSize >= int(opts.NonReclaimPoolMinSize) {
+		return
+	}
+	deficit := int(opts.NonReclaimPoolMinSize) - currentSize
+	candidates := view.ReclaimEffective.Clone()
+	if candidates.IsEmpty() {
+		return
+	}
+	if deficit > candidates.Size() {
+		deficit = candidates.Size()
+	}
+
+	padding := takeCPUsByNUMABalanceWithSeed(topology, candidates, view.NonReclaimPool, deficit, opts.ReserveCPUReversely)
+	view.NonReclaimPool = view.NonReclaimPool.Union(padding)
+	view.ReclaimEffective = view.ReclaimEffective.Difference(padding)
+}
+
+func takeCPUsByNUMABalanceWithSeed(topology *machine.CPUTopology, candidates, seed machine.CPUSet, count int, reverse bool) machine.CPUSet {
+	if topology == nil || count <= 0 || candidates.IsEmpty() {
+		return machine.NewCPUSet()
+	}
+
+	candidateByNUMA := map[int][]int{}
+	currentCountByNUMA := map[int]int{}
+	numaIDs := topology.CPUDetails.NUMANodes().ToSliceInt()
+	for _, numaID := range numaIDs {
+		numaCPUs := topology.CPUDetails.CPUsInNUMANodes(numaID)
+		currentCountByNUMA[numaID] = seed.Intersection(numaCPUs).Size()
+		numaCandidates := candidates.Intersection(numaCPUs)
+		if reverse {
+			candidateByNUMA[numaID] = numaCandidates.ToSliceIntReversely()
+		} else {
+			candidateByNUMA[numaID] = numaCandidates.ToSliceInt()
+		}
+	}
+
+	result := machine.NewCPUSet()
+	for result.Size() < count {
+		selectedNUMA := -1
+		for _, numaID := range numaIDs {
+			if len(candidateByNUMA[numaID]) == 0 {
+				continue
+			}
+			if selectedNUMA == -1 || currentCountByNUMA[numaID] < currentCountByNUMA[selectedNUMA] {
+				selectedNUMA = numaID
+			}
+		}
+		if selectedNUMA == -1 {
+			break
+		}
+		cpu := candidateByNUMA[selectedNUMA][0]
+		candidateByNUMA[selectedNUMA] = candidateByNUMA[selectedNUMA][1:]
+		result.Add(cpu)
+		currentCountByNUMA[selectedNUMA]++
+	}
+	return result
+}
+
+func rebuildReclaimEffectivePerNUMA(view *CPUSetPartitionView, topology *machine.CPUTopology) {
+	if view == nil {
+		return
+	}
+	view.ReclaimEffectivePerNUMA = map[int]machine.CPUSet{}
+	if topology == nil {
+		return
 	}
 	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		intersection := view.ReclaimEffective.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
@@ -128,7 +209,6 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 			view.ReclaimEffectivePerNUMA[numaID] = intersection
 		}
 	}
-	return view
 }
 
 func (v *CPUSetPartitionView) DeepCopy() *CPUSetPartitionView {

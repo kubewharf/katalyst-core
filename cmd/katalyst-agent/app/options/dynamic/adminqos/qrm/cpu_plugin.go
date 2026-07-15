@@ -23,18 +23,21 @@ import (
 )
 
 type CPUPluginOptions struct {
-	PreferUseExistNUMAHintResult bool
-	EnableBypassCPUSetAdjustment bool
-	DisableSharedCoresRampUp     bool
-	EnableBulkhead               bool
-	EnableBulkheadCpusetTopology bool
-	EnableBulkheadWorkqueue      bool
-	EnableBulkheadSystemService  bool
-	BindIRQToReclaimedPool       bool
+	PreferUseExistNUMAHintResult  bool
+	EnableBypassCPUSetAdjustment  bool
+	DisableSharedCoresRampUp      bool
+	EnableBulkhead                bool
+	EnableBulkheadCpusetTopology  bool
+	EnableBulkheadWorkqueue       bool
+	EnableBulkheadSystemService   bool
+	BulkheadNonReclaimPoolMinSize int64
+	BindIRQToReclaimedPool        bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
-	return &CPUPluginOptions{}
+	return &CPUPluginOptions{
+		BulkheadNonReclaimPoolMinSize: 16,
+	}
 }
 
 func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
@@ -54,6 +57,8 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if true, enable bulkhead workqueue plugin.")
 	fs.BoolVar(&o.EnableBulkheadSystemService, "enable-bulkhead-system-service", o.EnableBulkheadSystemService,
 		"if true, enable bulkhead system_service plugin.")
+	fs.Int64Var(&o.BulkheadNonReclaimPoolMinSize, "bulkhead-non-reclaim-pool-min-size", o.BulkheadNonReclaimPoolMinSize,
+		"minimum CPU count kept in the non-reclaim pool for bulkhead cpuset topology.")
 	fs.BoolVar(&o.BindIRQToReclaimedPool, "bind-irq-to-reclaimed-pool", o.BindIRQToReclaimedPool,
 		"if true and the reclaimed pool is present and non-empty, GetIRQForbiddenCores expands its result to "+
 			"(machine cpuset - reclaimed pool cpuset), effectively pinning network IRQs into the reclaimed pool.")
@@ -67,6 +72,7 @@ func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
 	c.BulkheadConfig.EnableBulkheadWorkqueue = o.EnableBulkheadWorkqueue
 	c.BulkheadConfig.EnableBulkheadSystemService = o.EnableBulkheadSystemService
+	c.BulkheadConfig.NonReclaimPoolMinSize = o.BulkheadNonReclaimPoolMinSize
 	c.BindIRQToReclaimedPool = o.BindIRQToReclaimedPool
 
 	return nil

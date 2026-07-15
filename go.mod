@@ -210,4 +210,4 @@ replace (
 	sigs.k8s.io/json => sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6
 )
 
-replace github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20260714092609-ad94b7a22bb4
+replace github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20260715123149-f169f50b3686

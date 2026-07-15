@@ -48,6 +48,7 @@ type DynamicBulkheadConfiguration struct {
 	EnableBulkheadCpusetTopology bool
 	EnableBulkheadWorkqueue      bool
 	EnableBulkheadSystemService  bool
+	NonReclaimPoolMinSize        int64
 }
 
 func NewCPUPluginConfiguration() *CPUPluginConfiguration {
@@ -76,6 +77,9 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			}
 			if config.BulkheadConfig.EnableBulkheadSystemService != nil {
 				c.BulkheadConfig.EnableBulkheadSystemService = *config.BulkheadConfig.EnableBulkheadSystemService
+			}
+			if config.BulkheadConfig.NonReclaimPoolMinSize != nil {
+				c.BulkheadConfig.NonReclaimPoolMinSize = *config.BulkheadConfig.NonReclaimPoolMinSize
 			}
 		}
 		if config.DisableSharedCoresRampUp != nil {
