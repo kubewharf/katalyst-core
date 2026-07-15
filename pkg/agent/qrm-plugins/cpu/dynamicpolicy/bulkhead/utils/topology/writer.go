@@ -68,11 +68,11 @@ type DAGApplyInputs struct {
 	//     nodes containing expected container leaves are still expanded safely
 	//     via current ∪ observedDescendants ∪ expectedDescendants.
 	//
-	// After widening the primary and reclaim/reclaim-sibling targets must stay
-	// disjoint; otherwise ApplyDAGDiff fails-closed with a partition conflict
-	// rather than mask a real overlap by absorbing reclaimed cpus into the
-	// primary. Leaves that DO appear in ExpectedCPUSetByRel are still written
-	// to their resolved allocation, regardless of this flag.
+	// After widening the primary, reclaim/reclaim-sibling targets are normalized by
+	// removing the primary effective CPUs from them. This keeps the partitions
+	// disjoint while preserving the primary cgroup v1 parent-superset invariant.
+	// Leaves that DO appear in ExpectedCPUSetByRel are still written to their
+	// resolved allocation, regardless of this flag.
 	ProtectUnmanagedKubePodLeaf bool
 	// KubeManagedRelPrefix scopes the protection above to rels under this prefix
 	// (typically BulkheadPrimaryRelPath, e.g. "kubepods"). Empty prefix means the
@@ -130,8 +130,9 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 	// kube leaf in its subtree) [∪ pending allocations for the primary]. This
 	// guarantees the cgroup v1 parent-superset invariant when a parent has to be
 	// written while a live pod/container leaf still sits on a stale cpuset. The
-	// widened primary target must stay disjoint from every reclaim target; if it
-	// cannot, we fail-closed instead of masking a real partition conflict.
+	// Reclaim targets are normalized against widened primary targets before
+	// applying, so a boundary CPU temporarily required by the primary is removed
+	// from reclaim instead of causing a partition conflict.
 	effectiveTargets, err := computeEffectiveTargets(ctx, cg, dag, expected, controlledRels, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, protectedPending, cache)
 	if err != nil {
 		return err
@@ -445,9 +446,10 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 // in the expected map are NOT protected (they are written to their resolved
 // allocation and any mismatch surfaces via shrink blocker diagnostics).
 //
-// After widening, the primary/non-reclaim effective target must remain disjoint
-// from every reclaim target; otherwise we fail-closed with a partition conflict
-// rather than mask a real overlap by absorbing reclaimed cpus into the primary.
+// After widening, reclaim targets are deducted by the union of primary effective
+// targets. That keeps primary/non-reclaim and reclaim disjoint without dropping
+// CPUs that are still required by the primary cgroup v1 parent-superset
+// invariant.
 func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, dag *TopoDAG, expected map[string]machine.CPUSet, controlledRels map[string]struct{}, allowEmptyTarget bool, protectKubeLeaf bool, kubeRelPrefix string, protectedPending machine.CPUSet, cache *applyCache) (map[string]machine.CPUSet, error) {
 	effective := map[string]machine.CPUSet{}
 	for _, n := range dag.Nodes() {
@@ -479,6 +481,7 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 		general.InfofV(5, "topo_dag_writer: widen primary effective target for protected leaves, rel=%q desired=%s protected=%s effective=%s",
 			n.Rel, n.CPUs.String(), protectedUnion.String(), effective[n.Rel].String())
 	}
+	normalizeReclaimTargetsByPrimary(dag, effective)
 	if err := validateNoPrimaryReclaimOverlap(dag, effective); err != nil {
 		return nil, err
 	}
@@ -524,6 +527,30 @@ func collectProtectedLeafCPUSet(ctx context.Context, cg cgroupclient.CgroupClien
 	return out
 }
 
+func normalizeReclaimTargetsByPrimary(dag *TopoDAG, effective map[string]machine.CPUSet) {
+	primaryUnion := machine.NewCPUSet()
+	for _, n := range dag.Nodes() {
+		if n.Role == TopoNodeRolePrimary {
+			primaryUnion = primaryUnion.Union(effective[n.Rel])
+		}
+	}
+	if primaryUnion.IsEmpty() {
+		return
+	}
+	for _, n := range dag.Nodes() {
+		switch n.Role {
+		case TopoNodeRoleReclaim, TopoNodeRoleReclaimNUMABucket, TopoNodeRoleReclaimSibling:
+			original := effective[n.Rel]
+			deducted := original.Difference(primaryUnion)
+			if !deducted.Equals(original) {
+				general.InfofV(5, "topo_dag_writer: deduct primary effective cpuset from reclaim target, rel=%q original=%s primary=%s effective=%s",
+					n.Rel, original.String(), primaryUnion.String(), deducted.String())
+				effective[n.Rel] = deducted
+			}
+		}
+	}
+}
+
 // validateNoPrimaryReclaimOverlap rejects the apply if any primary/non-reclaim
 // effective target overlaps a reclaim target. The overlap is reported per rel so
 // the operator can see the conflicting partition and the offending cpus.
@@ -544,10 +571,10 @@ func validateNoPrimaryReclaimOverlap(dag *TopoDAG, effective map[string]machine.
 		}
 		primaryTarget := effective[n.Rel]
 		for _, r := range reclaims {
-			overlap := primaryTarget.Intersection(r.CPUs)
+			overlap := primaryTarget.Intersection(effective[r.Rel])
 			if !overlap.IsEmpty() {
 				return fmt.Errorf("ApplyDAGDiff: partition cpuset overlap: primary=%s target=%s reclaim=%s target=%s overlap=%s",
-					n.Rel, primaryTarget.String(), r.Rel, r.CPUs.String(), overlap.String())
+					n.Rel, primaryTarget.String(), r.Rel, effective[r.Rel].String(), overlap.String())
 			}
 		}
 	}

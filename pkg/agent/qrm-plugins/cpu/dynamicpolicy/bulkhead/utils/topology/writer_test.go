@@ -671,22 +671,23 @@ func TestApplyDAGDiffWidensPrimaryEffectiveTargetForPendingAllocation(t *testing
 	_ = res
 }
 
-// TestApplyDAGDiffRejectsPrimaryReclaimPartitionOverlap verifies fail-closed when
-// widening the primary effective target would overlap a reclaim target. Masking
-// the overlap by absorbing reclaimed cpus into the primary would silently break
-// the partition invariant, so the apply must error instead.
-func TestApplyDAGDiffRejectsPrimaryReclaimPartitionOverlap(t *testing.T) {
+// TestApplyDAGDiffDeductsPrimaryEffectiveCPUsFromReclaim verifies that boundary
+// CPUs held by the primary effective target are removed from reclaim targets
+// before applying, keeping partitions disjoint without rejecting a recoverable
+// transient overlap.
+func TestApplyDAGDiffDeductsPrimaryEffectiveCPUsFromReclaim(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{
 		{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1, 2)},
-		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(3, 4)},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(3, 4, 5)},
 	})
 	if err != nil {
 		t.Fatalf("BuildDAG: %v", err)
 	}
 	cg := newTopologyFakeCgroup()
-	cg.cpus["kubepods"] = machine.NewCPUSet(1, 2)
+	cg.cpus["kubepods"] = machine.NewCPUSet(1, 2, 3)
+	cg.cpus["reclaim"] = machine.NewCPUSet(3, 4, 5)
 	// expected leaf currently sits on cpu 3, which belongs to the reclaim partition.
 	cg.cpus["kubepods/burstable/pod-abc/container-a"] = machine.NewCPUSet(3)
 	cg.children["kubepods"] = []string{"burstable"}
@@ -702,13 +703,14 @@ func TestApplyDAGDiffRejectsPrimaryReclaimPartitionOverlap(t *testing.T) {
 			"kubepods/burstable/pod-abc/container-a": machine.NewCPUSet(1, 2),
 		},
 	})
-	if err == nil {
-		t.Fatalf("expected partition overlap error, got nil; writes=%#v", cg.writes)
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v; writes=%#v", err, cg.writes)
 	}
-	for _, want := range []string{"partition cpuset overlap", "kubepods", "reclaim", "overlap=3"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("partition overlap error missing %q; got %q", want, err.Error())
-		}
+	if got := cg.cpus["kubepods"].String(); got != "1-3" {
+		t.Fatalf("primary target = %s, want 1-3; writes=%#v", got, cg.writes)
+	}
+	if got := cg.cpus["reclaim"].String(); got != "4-5" {
+		t.Fatalf("reclaim target = %s, want 4-5 after deducting primary effective cpu 3; writes=%#v", got, cg.writes)
 	}
 }
 
