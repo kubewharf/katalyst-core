@@ -225,8 +225,15 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 ) (machine.CPUSet, error) {
 	originalAvailableCPUSet := availableCPUs.Clone()
 
-	// to avoid random map iteration sequence generating pools randomly.
 	sortedPoolNames := general.GetSortedMapKeys(poolsQuantityMap)
+	sort.SliceStable(sortedPoolNames, func(i, j int) bool {
+		leftPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[sortedPoolNames[i]].IsEmpty()
+		rightPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[sortedPoolNames[j]].IsEmpty()
+		if leftPreferred != rightPreferred {
+			return leftPreferred
+		}
+		return sortedPoolNames[i] < sortedPoolNames[j]
+	})
 	for _, poolName := range sortedPoolNames {
 		if _, found := poolsCPUSet[poolName]; found {
 			return originalAvailableCPUSet, fmt.Errorf("duplicated pool: %s", poolName)
@@ -250,6 +257,38 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 	}
 
 	return availableCPUs, nil
+}
+
+// generateProportionalPoolsCPUSetInPlaceWithPreferred mirrors
+// generateProportionalPoolsCPUSetInPlace but uses preferred-aware taking when the
+// proportional requests can be satisfied disjointly. If available CPUs cannot satisfy
+// even one CPU per pool, it preserves the legacy shared-available behavior.
+func (p *DynamicPolicy) generateProportionalPoolsCPUSetInPlaceWithPreferred(
+	poolsQuantityMap map[string]int,
+	poolsCPUSet map[string]machine.CPUSet,
+	availableCPUs machine.CPUSet,
+	preferredCPUsByPool map[string]machine.CPUSet,
+) (machine.CPUSet, error) {
+	availableSize := availableCPUs.Size()
+
+	proportionalPoolsQuantityMap, totalProportionalPoolsQuantity := getProportionalPoolsQuantityMap(poolsQuantityMap, availableSize)
+
+	general.Infof("poolsQuantityMap: %v, proportionalPoolsQuantityMap: %v", poolsQuantityMap, proportionalPoolsQuantityMap)
+
+	if totalProportionalPoolsQuantity > availableSize {
+		for poolName := range poolsQuantityMap {
+			if _, found := poolsCPUSet[poolName]; found {
+				return availableCPUs.Clone(), fmt.Errorf("duplicated pool: %s", poolName)
+			}
+
+			poolsCPUSet[poolName] = availableCPUs.Clone()
+		}
+
+		return machine.NewCPUSet(), nil
+	}
+
+	return p.takeCPUsForPoolsInPlaceWithPreferred(
+		proportionalPoolsQuantityMap, poolsCPUSet, availableCPUs, preferredCPUsByPool)
 }
 
 // takeCPUsForContainersWithPreferred follows the same semantics as takeCPUsForContainers, but

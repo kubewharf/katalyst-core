@@ -1710,40 +1710,24 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	general.Infof("isolatedTotalQuantity: %d, nonBindingPoolsTotalQuantity: %d, nonBindingAvailableSize: %d",
 		isolatedTotalQuantity, nonBindingPoolsTotalQuantity, nonBindingAvailableSize)
 
-	// preferredCPUsByPool lets a source share pool preferentially reclaim the cpus it
-	// historically lent to its shared_cores isolation containers, so that when an isolation
-	// shrinks/disappears or a container returns to the share pool, those cpus flow back to
-	// the source share pool first (and only spill to reclaim when the source has no room).
-	// It is only consulted on the non-overlap path; when AllowSharedCoresOverlapReclaimedCores
-	// is true the reclaim overlap is computed reversely from share pools and mixing in a
-	// preferred carve would break the overlap ratio, so we keep the legacy behavior there.
-	var preferredCPUsByPool map[string]machine.CPUSet
-	var preferredCPUsByContainer map[string]map[string]machine.CPUSet
-	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-		preferredCPUsByPool = buildIsolationSourcePreferredCPUs(p.state.GetPodEntries())
-		dedicatedPreferredCPUsByPool, dedicatedPreferredCPUsByContainer := buildDedicatedSourcePreferredCPUs(p.state.GetPodEntries())
-		for poolName, cset := range dedicatedPreferredCPUsByPool {
-			preferredCPUsByPool[poolName] = preferredCPUsByPool[poolName].Union(cset)
-		}
-		preferredCPUsByContainer = dedicatedPreferredCPUsByContainer
+	// preferredCPUsByPool lets a source share pool preferentially reclaim the CPUs it
+	// historically lent to shared_cores isolation and dedicated containers. In overlap mode,
+	// proportional allocation still uses these preferences before reclaim overlap is computed
+	// reversely from the final share-type pools.
+	preferredCPUsByPool := buildIsolationSourcePreferredCPUs(p.state.GetPodEntries())
+	dedicatedPreferredCPUsByPool, preferredCPUsByContainer := buildDedicatedSourcePreferredCPUs(p.state.GetPodEntries())
+	for poolName, cset := range dedicatedPreferredCPUsByPool {
+		preferredCPUsByPool[poolName] = preferredCPUsByPool[poolName].Union(cset)
 	}
 
 	var tErr error
 	if nonBindingPoolsTotalQuantity+isolatedTotalQuantity <= nonBindingAvailableSize {
 		general.Infof("all pools and isolated containers could be allocated")
 
-		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-			isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainersWithPreferred(isolatedQuantityMap, nonBindingAvailableCPUs, preferredCPUsByContainer)
-			if tErr != nil {
-				err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
-				return
-			}
-		} else {
-			isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainers(isolatedQuantityMap, nonBindingAvailableCPUs)
-			if tErr != nil {
-				err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
-				return
-			}
+		isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainersWithPreferred(isolatedQuantityMap, nonBindingAvailableCPUs, preferredCPUsByContainer)
+		if tErr != nil {
+			err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
+			return
 		}
 
 		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
@@ -1754,10 +1738,10 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 			}
 		} else {
 			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
-			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 
 			if tErr != nil {
-				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlaceWithPreferred pools failed with error: %v", tErr)
 				return
 			}
 		}
@@ -1772,20 +1756,20 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 			}
 		} else {
 			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
-			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 
 			if tErr != nil {
-				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlaceWithPreferred pools failed with error: %v", tErr)
 				return
 			}
 		}
 	} else if nonBindingPoolsTotalQuantity > 0 {
 		general.Infof("can't allocate for all pools")
 
-		nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+		nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 
 		if tErr != nil {
-			err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+			err = fmt.Errorf("generateProportionalPoolsCPUSetInPlaceWithPreferred pools failed with error: %v", tErr)
 			return
 		}
 	}

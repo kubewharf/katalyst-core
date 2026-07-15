@@ -254,6 +254,42 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 	})
 }
 
+func TestDynamicPolicy_generateProportionalPoolsCPUSetInPlaceWithPreferred(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generateProportionalPoolsCPUSetInPlaceWithPreferred")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	poolsCPUSet := make(map[string]machine.CPUSet)
+	available := machine.NewCPUSet(0, 1, 2, 3, 8, 9)
+	poolsQuantityMap := map[string]int{
+		commonstate.PoolNameShare:                     4,
+		commonstate.PoolNamePrefixIsolation + "-pod1": 2,
+	}
+	preferred := map[string]machine.CPUSet{
+		commonstate.PoolNameShare: machine.NewCPUSet(8, 9),
+	}
+
+	remaining, err := p.generateProportionalPoolsCPUSetInPlaceWithPreferred(
+		poolsQuantityMap, poolsCPUSet, available, preferred)
+	require.NoError(t, err)
+	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Contains(8))
+	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Contains(9))
+	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Intersection(
+		poolsCPUSet[commonstate.PoolNamePrefixIsolation+"-pod1"]).IsEmpty())
+	require.True(t, poolsCPUSet[commonstate.PoolNameShare].
+		Union(poolsCPUSet[commonstate.PoolNamePrefixIsolation+"-pod1"]).
+		Union(remaining).
+		Equals(available))
+}
+
 func TestDeriveIsolationSourceSharePool(t *testing.T) {
 	t.Parallel()
 
@@ -430,6 +466,61 @@ func TestDynamicPolicy_generatePoolsAndIsolation_reclaimsIsolationCPUs(t *testin
 		"share pool should reclaim the historical isolation cpus 8,9,10 first, got %s", share.String())
 }
 
+func TestDynamicPolicy_generatePoolsAndIsolation_overlapReclaimsIsolationCPUs(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generatePoolsAndIsolation_overlap_reclaim_isolation")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetAllowSharedCoresOverlapReclaimedCores(true, true)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"container1": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "container1",
+					OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod1",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+					Annotations:   map[string]string{},
+				},
+				AllocationResult: machine.NewCPUSet(8, 9),
+			},
+		},
+	}, false)
+
+	poolsCPUSet, _, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{
+			commonstate.PoolNameShare:                     {commonstate.FakedNUMAID: 4},
+			commonstate.PoolNamePrefixIsolation + "-pod1": {commonstate.FakedNUMAID: 2},
+		},
+		map[string]map[string]int{},
+		machine.NewCPUSet(0, 1, 2, 3, 8, 9),
+		map[string]float64{commonstate.PoolNameShare: 0.5})
+	require.NoError(t, err)
+
+	share := poolsCPUSet[commonstate.PoolNameShare]
+	isolation := poolsCPUSet[commonstate.PoolNamePrefixIsolation+"-pod1"]
+	reclaim := poolsCPUSet[commonstate.PoolNameReclaim]
+	require.True(t, share.Contains(8) && share.Contains(9),
+		"overlap mode should still let source share reclaim historical isolation cpus first, share=%s",
+		share.String())
+	require.True(t, share.Intersection(isolation).IsEmpty())
+	require.True(t, reclaim.Intersection(isolation).IsEmpty(),
+		"reclaim overlap should come from share only, reclaim=%s isolation=%s",
+		reclaim.String(), isolation.String())
+	require.False(t, reclaim.Intersection(share).IsEmpty(),
+		"reclaim should still overlap source share according to ratio, reclaim=%s share=%s",
+		reclaim.String(), share.String())
+}
+
 func TestDynamicPolicy_generatePoolsAndIsolation_reusesDedicatedCPUs(t *testing.T) {
 	t.Parallel()
 
@@ -473,6 +564,48 @@ func TestDynamicPolicy_generatePoolsAndIsolation_reusesDedicatedCPUs(t *testing.
 	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Intersection(machine.NewCPUSet(8, 9)).IsEmpty(),
 		"source share pool must not overlap with still-active dedicated cpuset, share=%s",
 		poolsCPUSet[commonstate.PoolNameShare].String())
+}
+
+func TestDynamicPolicy_generatePoolsAndIsolation_overlapReusesDedicatedCPUs(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generatePoolsAndIsolation_overlap_reuse_dedicated")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetAllowSharedCoresOverlapReclaimedCores(true, true)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"container1": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "container1",
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					Annotations:   map[string]string{},
+				},
+				AllocationResult: machine.NewCPUSet(8, 9),
+			},
+		},
+	}, false)
+
+	_, isolatedCPUSet, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{commonstate.PoolNameShare: {commonstate.FakedNUMAID: 4}},
+		map[string]map[string]int{"pod1": {"container1": 2}},
+		machine.NewCPUSet(0, 1, 2, 3, 8, 9),
+		map[string]float64{commonstate.PoolNameShare: 0.5})
+	require.NoError(t, err)
+
+	require.True(t, isolatedCPUSet["pod1"]["container1"].Equals(machine.NewCPUSet(8, 9)),
+		"overlap mode should let dedicated container reuse historical cpuset first, got %s",
+		isolatedCPUSet["pod1"]["container1"].String())
 }
 
 func TestDynamicPolicy_generatePoolsAndIsolation_reclaimsDedicatedCPUs(t *testing.T) {
