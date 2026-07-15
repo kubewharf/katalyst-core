@@ -1710,6 +1710,18 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	general.Infof("isolatedTotalQuantity: %d, nonBindingPoolsTotalQuantity: %d, nonBindingAvailableSize: %d",
 		isolatedTotalQuantity, nonBindingPoolsTotalQuantity, nonBindingAvailableSize)
 
+	// preferredCPUsByPool lets a source share pool preferentially reclaim the cpus it
+	// historically lent to its shared_cores isolation containers, so that when an isolation
+	// shrinks/disappears or a container returns to the share pool, those cpus flow back to
+	// the source share pool first (and only spill to reclaim when the source has no room).
+	// It is only consulted on the non-overlap path; when AllowSharedCoresOverlapReclaimedCores
+	// is true the reclaim overlap is computed reversely from share pools and mixing in a
+	// preferred carve would break the overlap ratio, so we keep the legacy behavior there.
+	var preferredCPUsByPool map[string]machine.CPUSet
+	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
+		preferredCPUsByPool = buildIsolationSourcePreferredCPUs(p.state.GetPodEntries())
+	}
+
 	var tErr error
 	if nonBindingPoolsTotalQuantity+isolatedTotalQuantity <= nonBindingAvailableSize {
 		general.Infof("all pools and isolated containers could be allocated")
@@ -1721,7 +1733,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		}
 
 		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 			if tErr != nil {
 				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
 				return
@@ -1739,7 +1751,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		general.Infof("all pools could be allocated, all isolated containers would be put to pools")
 
 		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 			if tErr != nil {
 				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
 				return
