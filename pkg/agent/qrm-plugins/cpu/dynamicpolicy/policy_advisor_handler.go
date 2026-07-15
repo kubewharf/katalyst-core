@@ -990,6 +990,7 @@ func (p *DynamicPolicy) allocateShareBlocks(
 	rpPinnedCPUSet map[string]machine.CPUSet,
 	allPinnedCPUSets machine.CPUSet,
 	withNUMABinding *bool,
+	sourceBlockByPool map[string]string,
 ) error {
 	machineInfo := p.machineInfo
 	for _, block := range blocks {
@@ -1016,6 +1017,17 @@ func (p *DynamicPolicy) allocateShareBlocks(
 		blockResult, err := general.CovertUInt64ToInt(block.Result)
 		if err != nil {
 			return fmt.Errorf("parse block: %s result failed with error: %v", blockID, err)
+		}
+
+		carved, err := p.tryCarveAdvisorBlockFromSource(block, sourceBlockByPool, blockCPUSet, availableCPUs, nodeRemainingCPUs, numaID, blockResult)
+		if err != nil {
+			return err
+		}
+		if carved {
+			if withNUMABinding != nil {
+				*withNUMABinding = true
+			}
+			continue
 		}
 
 		// Same as in allocateDedicatedBlocks, intersect the globally updated availableCPUs with
@@ -1174,6 +1186,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	if err != nil {
 		return nil, err
 	}
+	sourceBlockByPool := buildAdvisorSourceBlockByPool(numaToBlocks)
 
 	machineInfo := p.machineInfo
 	topology := machineInfo.CPUTopology
@@ -1244,7 +1257,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			"nodeRemainingCPUs", nodeRemainingCPUs.String(),
 			"availableCPUs", availableCPUs.String())
 
-		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod)
+		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod, sourceBlockByPool)
 		if err != nil {
 			return nil, err
 		}
@@ -1280,7 +1293,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
 		emptyNUMA := machine.NewCPUSet()
-		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil)
+		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil, sourceBlockByPool)
 		if err != nil {
 			return nil, err
 		}
