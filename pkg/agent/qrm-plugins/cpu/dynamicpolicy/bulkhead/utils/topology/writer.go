@@ -485,11 +485,11 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 	return effective, nil
 }
 
-// collectProtectedLeafCPUSet walks rel's subtree and unions the current cpuset of
-// every unmanaged kube workload leaf (a leaf not present in expected and not a
-// controlled DAG node). Pod parent cgroups are treated as intermediate nodes:
-// their current cpuset may be an inherited/default full-machine value and must
-// not be bubbled up directly into the primary effective target.
+// collectProtectedLeafCPUSet walks rel's subtree and unions the current cpuset
+// only for kube cgroups present in expected. This protects parent shrink from
+// racing ahead of the child cgroup update, without preserving unrelated
+// pod-scoped cgroups whose current cpuset may be an inherited/default
+// full-machine value.
 func collectProtectedLeafCPUSet(ctx context.Context, cg cgroupclient.CgroupClient, rel string, expected map[string]machine.CPUSet, controlledRels map[string]struct{}, kubeRelPrefix string, depth int, cache *applyCache) machine.CPUSet {
 	out := machine.NewCPUSet()
 	if depth >= maxEnforceDepth {
@@ -506,32 +506,20 @@ func collectProtectedLeafCPUSet(ctx context.Context, cg cgroupclient.CgroupClien
 			continue
 		}
 		if _, ok := expected[childRel]; ok {
-			// expected leaves are managed by their resolved allocation.
-			continue
-		}
-		grandchildren, childListErr := cache.listChildren(ctx, childRel)
-		if childListErr != nil {
-			general.InfofV(5, "topo_dag_writer: list children failed during protected leaf classification, rel=%q err=%v", childRel, childListErr)
-			continue
-		}
-		if len(grandchildren) > 0 {
-			out = out.Union(collectProtectedLeafCPUSet(ctx, cg, childRel, expected, controlledRels, kubeRelPrefix, depth+1, cache))
-			continue
-		}
-		if isProtectedKubeWorkloadLeafRel(childRel, kubeRelPrefix) {
-			cur, readErr := cg.ReadCPUSet(ctx, childRel)
-			switch {
-			case readErr != nil:
-				// A transient read failure here means we cannot widen the
-				// primary effective target to cover this leaf. Do NOT block
-				// the apply (that would freeze admit on any cgroup hiccup);
-				// leave a trace so operators can correlate an unexplained
-				// shrink-blocker or v1 parent-superset error with it.
-				general.InfofV(5, "topo_dag_writer: read cpuset failed for protected kube leaf, widen skipped, rel=%q err=%v", childRel, readErr)
-			case !cur.IsEmpty():
-				out = out.Union(cur)
+			if isKubeManagedPodRel(childRel, kubeRelPrefix) {
+				cur, readErr := cg.ReadCPUSet(ctx, childRel)
+				switch {
+				case readErr != nil:
+					general.InfofV(5, "topo_dag_writer: read cpuset failed for expected kube rel protection, widen skipped, rel=%q err=%v", childRel, readErr)
+				case !cur.IsEmpty():
+					out = out.Union(cur)
+				}
 			}
 		}
+		if cache.expectedDescendantUnion(childRel).IsEmpty() {
+			continue
+		}
+		out = out.Union(collectProtectedLeafCPUSet(ctx, cg, childRel, expected, controlledRels, kubeRelPrefix, depth+1, cache))
 	}
 	return out
 }
@@ -604,11 +592,11 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 			}
 			continue
 		}
-		// Protect Kubernetes-managed workload leaves that are not present in the
-		// expected map: never propagate the parent pool target onto them. Pod
-		// parent cgroups are intermediate nodes and sandbox/pause/reclaim leaves
-		// are excluded from this primary protection path. Also leave non-pod
-		// intermediate nodes untouched when they contain an
+		// Leave Kubernetes-managed subtrees that are not present in the expected
+		// map untouched: never propagate the parent pool target onto unrelated
+		// pod-scoped cgroups. Pod parent cgroups are intermediate nodes, and
+		// sandbox/pause/reclaim leaves are not protected by primary widening.
+		// Also leave non-pod intermediate nodes untouched when they contain an
 		// unresolved pod-scoped descendant; otherwise writing that intermediate
 		// node can fail or narrow a parent of the protected pause/container leaf.
 		// If the protected subtree contains expected container leaves, safely
@@ -721,21 +709,6 @@ func isKubeManagedPodRel(rel, kubeRelPrefix string) bool {
 		}
 	}
 	return false
-}
-
-func isProtectedKubeWorkloadLeafRel(rel, kubeRelPrefix string) bool {
-	if !isKubeManagedPodRel(rel, kubeRelPrefix) {
-		return false
-	}
-	for _, part := range strings.Split(strings.Trim(rel, "/"), "/") {
-		part = strings.ToLower(part)
-		if strings.Contains(part, "sandbox") ||
-			strings.Contains(part, "pause") ||
-			strings.Contains(part, "reclaim") {
-			return false
-		}
-	}
-	return true
 }
 
 // isKubePodSegment matches a cgroup path segment that encodes a Kubernetes pod

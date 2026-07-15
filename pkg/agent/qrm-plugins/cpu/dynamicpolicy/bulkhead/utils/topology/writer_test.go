@@ -352,12 +352,7 @@ func TestApplyDAGDiffSkipsEmptyTargetsV1(t *testing.T) {
 	}
 }
 
-// TestApplyDAGDiffProtectsUnmanagedKubePodLeaf reproduces the production
-// pollution scenario: a live container leaf under kubepods that is NOT present
-// in ExpectedCPUSetByRel must NOT inherit the (transient) parent pool target
-// when protection is enabled. This is the direct fix for the cold-start seed
-// pollution that later blocked kubepods from shrinking.
-func TestApplyDAGDiffProtectsUnmanagedKubePodLeaf(t *testing.T) {
+func TestApplyDAGDiffDoesNotProtectUnmanagedKubePodLeaf(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0, 1)}})
@@ -380,25 +375,21 @@ func TestApplyDAGDiffProtectsUnmanagedKubePodLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyDAGDiff: %v", err)
 	}
-	// The unmanaged live leaf keeps its own cpuset; the parent target is not
-	// propagated onto it.
+	if got := cg.cpus["kubepods"].String(); got != "0-1" {
+		t.Fatalf("primary target = %s, want 0-1 without unmanaged leaf widening; writes=%#v", got, cg.writes)
+	}
 	if got := cg.cpus["kubepods/burstable/pod-abc/container-a"].String(); got != "5-6" {
-		t.Fatalf("protected leaf cpuset = %s, want unchanged 5-6; writes=%#v", got, cg.writes)
+		t.Fatalf("unmanaged leaf cpuset = %s, want unchanged 5-6; writes=%#v", got, cg.writes)
 	}
 	for _, w := range cg.writes {
 		if w.rel == "kubepods/burstable/pod-abc/container-a" {
-			t.Fatalf("protected leaf must not be written, got write=%#v", w)
+			t.Fatalf("unmanaged leaf must not be written, got write=%#v", w)
 		}
 	}
-	if res.Skipped == 0 {
-		t.Fatalf("expected protected-leaf skip to be counted, got %+v", res)
-	}
+	_ = res
 }
 
-// TestApplyDAGDiffProtectsUnmanagedKubePauseLeaf verifies that the protection
-// also covers the pod cgroup itself when it is the effective leaf, which can be
-// the pause/sandbox container's cgroup in some runtimes/layouts.
-func TestApplyDAGDiffProtectsUnmanagedKubePauseLeaf(t *testing.T) {
+func TestApplyDAGDiffDoesNotProtectUnmanagedKubePauseLeaf(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0, 1)}})
@@ -420,17 +411,18 @@ func TestApplyDAGDiffProtectsUnmanagedKubePauseLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyDAGDiff: %v", err)
 	}
+	if got := cg.cpus["kubepods"].String(); got != "0-1" {
+		t.Fatalf("primary target = %s, want 0-1 without unmanaged pause widening; writes=%#v", got, cg.writes)
+	}
 	if got := cg.cpus["kubepods/besteffort/pod-abc"].String(); got != "5-6" {
-		t.Fatalf("protected pause leaf cpuset = %s, want unchanged 5-6; writes=%#v", got, cg.writes)
+		t.Fatalf("unmanaged pause leaf cpuset = %s, want unchanged 5-6; writes=%#v", got, cg.writes)
 	}
 	for _, w := range cg.writes {
 		if w.rel == "kubepods/besteffort/pod-abc" {
-			t.Fatalf("protected pause leaf must not be written, got write=%#v", w)
+			t.Fatalf("unmanaged pause leaf must not be written, got write=%#v", w)
 		}
 	}
-	if res.Skipped == 0 {
-		t.Fatalf("expected protected pause leaf skip to be counted, got %+v", res)
-	}
+	_ = res
 }
 
 // TestApplyDAGDiffProtectStillWritesExpectedLeaf verifies protection does not
@@ -572,14 +564,7 @@ func TestApplyDAGDiffShrinkFallbackRelistsLiveChildrenAfterCacheMiss(t *testing.
 	}
 }
 
-// TestApplyDAGDiffWidensPrimaryEffectiveTargetForProtectedLeaf reproduces the
-// production seedpool pollution: kubepods desired shrinks to {1,2} while a live
-// unmanaged container leaf still sits on {73,79} (disjoint from the desired
-// target). With protection on, the primary effective target must be widened to
-// desired ∪ protectedLeafCurrent so the parent write does NOT try to shrink
-// below the live leaf (which cgroup v1 would reject), and the leaf itself must
-// stay untouched.
-func TestApplyDAGDiffWidensPrimaryEffectiveTargetForProtectedLeaf(t *testing.T) {
+func TestApplyDAGDiffWidensPrimaryEffectiveTargetForExpectedLeafCurrent(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1, 2)}})
@@ -598,22 +583,19 @@ func TestApplyDAGDiffWidensPrimaryEffectiveTargetForProtectedLeaf(t *testing.T) 
 		Cgroup:                      cg,
 		ProtectUnmanagedKubePodLeaf: true,
 		KubeManagedRelPrefix:        "kubepods",
+		ExpectedCPUSetByRel: map[string]machine.CPUSet{
+			"kubepods/burstable/pod-abc/container-a": machine.NewCPUSet(1, 2),
+		},
 	})
 	if err != nil {
 		t.Fatalf("ApplyDAGDiff: %v", err)
 	}
-	// Effective target = desired {1,2} ∪ protected leaf current {3,4} = {1,2,3,4}.
+	// Effective target = desired {1,2} ∪ expected leaf current {3,4} = {1,2,3,4}.
 	if got := cg.cpus["kubepods"].String(); got != "1-4" {
 		t.Fatalf("primary effective target = %s, want widened 1-4; writes=%#v", got, cg.writes)
 	}
-	// The protected leaf must not be written / shrunk.
-	if got := cg.cpus["kubepods/burstable/pod-abc/container-a"].String(); got != "3-4" {
-		t.Fatalf("protected leaf cpuset = %s, want unchanged 3-4; writes=%#v", got, cg.writes)
-	}
-	for _, w := range cg.writes {
-		if w.rel == "kubepods/burstable/pod-abc/container-a" {
-			t.Fatalf("protected leaf must not be written, got write=%#v", w)
-		}
+	if got := cg.cpus["kubepods/burstable/pod-abc/container-a"].String(); got != "1-2" {
+		t.Fatalf("expected leaf cpuset = %s, want 1-2; writes=%#v", got, cg.writes)
 	}
 	_ = res
 }
@@ -630,11 +612,11 @@ func TestComputeEffectiveTargetsDoesNotProtectPodParentOrSandboxFullCPUSet(t *te
 	cg.cpus["kubepods/burstable"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
 	cg.cpus["kubepods/burstable/pod-abc"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
 	cg.cpus["kubepods/burstable/pod-abc/container-expected"] = machine.NewCPUSet(0, 1)
-	cg.cpus["kubepods/burstable/pod-abc/container-live"] = machine.NewCPUSet(4, 5)
+	cg.cpus["kubepods/burstable/pod-abc/container-unexpected"] = machine.NewCPUSet(4, 5)
 	cg.cpus["kubepods/burstable/pod-abc/sandbox"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
 	cg.children["kubepods"] = []string{"burstable"}
 	cg.children["kubepods/burstable"] = []string{"pod-abc"}
-	cg.children["kubepods/burstable/pod-abc"] = []string{"container-expected", "container-live", "sandbox"}
+	cg.children["kubepods/burstable/pod-abc"] = []string{"container-expected", "container-unexpected", "sandbox"}
 
 	expected := map[string]machine.CPUSet{
 		"kubepods/burstable/pod-abc/container-expected": machine.NewCPUSet(1, 2),
@@ -654,8 +636,8 @@ func TestComputeEffectiveTargetsDoesNotProtectPodParentOrSandboxFullCPUSet(t *te
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
-	if got := effective["kubepods"].String(); got != "1-2,4-5" {
-		t.Fatalf("primary effective target = %s, want 1-2,4-5 without pod parent/sandbox full cpuset", got)
+	if got := effective["kubepods"].String(); got != "0-2" {
+		t.Fatalf("primary effective target = %s, want 0-2 from desired plus expected current only", got)
 	}
 }
 
@@ -705,7 +687,7 @@ func TestApplyDAGDiffRejectsPrimaryReclaimPartitionOverlap(t *testing.T) {
 	}
 	cg := newTopologyFakeCgroup()
 	cg.cpus["kubepods"] = machine.NewCPUSet(1, 2)
-	// live leaf sits on cpu 3, which belongs to the reclaim partition.
+	// expected leaf currently sits on cpu 3, which belongs to the reclaim partition.
 	cg.cpus["kubepods/burstable/pod-abc/container-a"] = machine.NewCPUSet(3)
 	cg.children["kubepods"] = []string{"burstable"}
 	cg.children["kubepods/burstable"] = []string{"pod-abc"}
@@ -716,6 +698,9 @@ func TestApplyDAGDiffRejectsPrimaryReclaimPartitionOverlap(t *testing.T) {
 		Cgroup:                      cg,
 		ProtectUnmanagedKubePodLeaf: true,
 		KubeManagedRelPrefix:        "kubepods",
+		ExpectedCPUSetByRel: map[string]machine.CPUSet{
+			"kubepods/burstable/pod-abc/container-a": machine.NewCPUSet(1, 2),
+		},
 	})
 	if err == nil {
 		t.Fatalf("expected partition overlap error, got nil; writes=%#v", cg.writes)
