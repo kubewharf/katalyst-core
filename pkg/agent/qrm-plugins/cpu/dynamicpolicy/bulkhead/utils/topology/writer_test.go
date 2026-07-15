@@ -618,6 +618,47 @@ func TestApplyDAGDiffWidensPrimaryEffectiveTargetForProtectedLeaf(t *testing.T) 
 	_ = res
 }
 
+func TestComputeEffectiveTargetsDoesNotProtectPodParentOrSandboxFullCPUSet(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1, 2)}})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubepods"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
+	cg.cpus["kubepods/burstable"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
+	cg.cpus["kubepods/burstable/pod-abc"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
+	cg.cpus["kubepods/burstable/pod-abc/container-expected"] = machine.NewCPUSet(0, 1)
+	cg.cpus["kubepods/burstable/pod-abc/container-live"] = machine.NewCPUSet(4, 5)
+	cg.cpus["kubepods/burstable/pod-abc/sandbox"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
+	cg.children["kubepods"] = []string{"burstable"}
+	cg.children["kubepods/burstable"] = []string{"pod-abc"}
+	cg.children["kubepods/burstable/pod-abc"] = []string{"container-expected", "container-live", "sandbox"}
+
+	expected := map[string]machine.CPUSet{
+		"kubepods/burstable/pod-abc/container-expected": machine.NewCPUSet(1, 2),
+	}
+	effective, err := computeEffectiveTargets(
+		context.Background(),
+		cg,
+		dag,
+		expected,
+		map[string]struct{}{"kubepods": {}},
+		false,
+		true,
+		"kubepods",
+		machine.NewCPUSet(),
+		newApplyCache(cg, "kubepods", expected),
+	)
+	if err != nil {
+		t.Fatalf("computeEffectiveTargets: %v", err)
+	}
+	if got := effective["kubepods"].String(); got != "1-2,4-5" {
+		t.Fatalf("primary effective target = %s, want 1-2,4-5 without pod parent/sandbox full cpuset", got)
+	}
+}
+
 // TestApplyDAGDiffWidensPrimaryEffectiveTargetForPendingAllocation verifies that
 // an admit-window container (allocation known, no cgroup leaf yet) folded in via
 // ProtectedPendingCPUSet also widens the primary effective target, so the parent
