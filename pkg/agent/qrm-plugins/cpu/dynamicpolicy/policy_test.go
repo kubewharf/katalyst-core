@@ -107,6 +107,9 @@ func generateSharedNumaBindingPoolAllocationMeta(poolName string) commonstate.Al
 func getTestDynamicPolicyWithInitialization(
 	topology *machine.CPUTopology, stateFileDirectory string,
 ) (*DynamicPolicy, error) {
+	advisorTestMutex.Lock()
+	defer advisorTestMutex.Unlock()
+
 	dynamicPolicy, err := getTestDynamicPolicyWithoutInitialization(topology, stateFileDirectory)
 	if err != nil {
 		return nil, err
@@ -218,6 +221,88 @@ func getTestDynamicPolicyWithoutInitialization(
 	}
 
 	return policyImplement, nil
+}
+
+func TestCleanPoolsSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestCleanPoolsSkipsNilAllocationInfo")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	policyImpl, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	policyImpl.state.SetPodEntries(state.PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}, false)
+
+	as.NotPanics(func() {
+		err = policyImpl.cleanPools()
+	})
+	as.Nil(err)
+}
+
+func TestGetResourcesAllocationSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetResourcesAllocationSkipsNilAllocationInfo")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	policyImpl, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	policyImpl.state.SetPodEntries(state.PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}, false)
+
+	var resp *pluginapi.GetResourcesAllocationResponse
+	as.NotPanics(func() {
+		resp, err = policyImpl.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	})
+	as.Nil(err)
+	as.NotNil(resp)
+	as.Contains(resp.PodResources, "pod-with-nil-entry")
+	as.Empty(resp.PodResources["pod-with-nil-entry"].ContainerResources)
+}
+
+func TestSystemExclusivePoolSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSystemExclusivePoolSkipsNilAllocationInfo")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	policyImpl, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	policyImpl.state.SetPodEntries(state.PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}, false)
+
+	as.NotPanics(func() {
+		_, _, _ = policyImpl.calculateSystemExclusivePoolChanges(map[string]*state.AllocationInfo{}, map[string]int{})
+	})
+	as.NotPanics(func() {
+		err = policyImpl.adjustSystemCoresPodAllocation()
+	})
+	as.Nil(err)
 }
 
 func TestInitPoolAndCalculator(t *testing.T) {

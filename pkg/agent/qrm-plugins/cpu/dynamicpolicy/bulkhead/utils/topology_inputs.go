@@ -74,11 +74,13 @@ func BuildTopologyNodeSpecsFromView(
 					continue
 				}
 			}
+			// cpuset_topology owns cpuset.cpus only. cpuset.mems for reclaim
+			// NUMA buckets is reconciled by the independent cpuset_mems plugin
+			// so it can run outside admission and be rolled back separately.
 			specs = append(specs, topology.NodeSpec{
 				Rel:       rel,
 				Role:      topology.TopoNodeRoleReclaimNUMABucket,
 				CPUs:      cpus,
-				Mems:      strconv.Itoa(numaID),
 				ParentRel: parentRelForReclaimNUMA(reclaimRel, rel),
 				Metadata: map[string]string{
 					"numa":          strconv.Itoa(numaID),

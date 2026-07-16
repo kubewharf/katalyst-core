@@ -80,6 +80,7 @@ type fakeCgroupClient struct {
 	cpus              map[string]machine.CPUSet
 	children          map[string][]string
 	writes            map[string]string
+	cpusetWrites      map[string]cgcommon.CPUSetData
 	pruned            map[string]struct{}
 	schedLoadBalance  map[string]bool
 	partitionWrites   map[string]cgcommon.CPUSetPartitionFlag
@@ -112,11 +113,17 @@ func (f *fakeCgroupClient) ApplyCPUSet(_ context.Context, rel string, data *cgco
 	if f.writes == nil {
 		f.writes = map[string]string{}
 	}
+	if f.cpusetWrites == nil {
+		f.cpusetWrites = map[string]cgcommon.CPUSetData{}
+	}
 	f.writes[rel] = data.CPUs
+	f.cpusetWrites[rel] = *data
 	if f.cpus == nil {
 		f.cpus = map[string]machine.CPUSet{}
 	}
-	f.cpus[rel] = machine.MustParse(data.CPUs)
+	if data.CPUs != "" || data.WriteEmptyCPUs {
+		f.cpus[rel] = machine.MustParse(data.CPUs)
+	}
 	return nil
 }
 
@@ -240,6 +247,9 @@ func TestCPUSetTopologyPluginDisabledTransitionUsesTopologySpecsAndDAGExpandV1(t
 	if got := cg.writes[containerRel]; got != "0" {
 		t.Fatalf("container cpuset = %q, want 0; writes=%#v", got, cg.writes)
 	}
+	if got := cg.cpusetWrites["reclaim/reclaim-0"].Mems; got != "" {
+		t.Fatalf("cpuset_topology wrote reclaim NUMA cpuset.mems = %q, want empty", got)
+	}
 	if _, ok := cg.writes["partition"]; ok {
 		t.Fatalf("partition should not receive cpuset.cpus write, writes=%#v", cg.writes)
 	}
@@ -279,6 +289,12 @@ func TestCPUSetTopologyPluginDisabledTransitionUsesTopologySpecsAndDAGExpandV2To
 	}
 	if got := cg.writes[containerRel]; got != "0" {
 		t.Fatalf("container cpuset = %q, want 0; writes=%#v", got, cg.writes)
+	}
+	if got := cg.cpusetWrites["reclaim/reclaim-0"].Mems; got != "" {
+		t.Fatalf("cpuset_topology wrote reclaim NUMA cpuset.mems = %q, want empty", got)
+	}
+	if write := cg.cpusetWrites["reclaim/reclaim-0"]; write.CPUs != "" || !write.WriteEmptyCPUs {
+		t.Fatalf("v2 reclaim NUMA cpuset write = %+v, want empty cpus with WriteEmptyCPUs", write)
 	}
 	if _, ok := cg.writes["partition"]; ok {
 		t.Fatalf("partition should not receive cpuset.cpus write, writes=%#v", cg.writes)

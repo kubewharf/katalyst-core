@@ -103,24 +103,35 @@ func (c *cachedCgroupClient) ApplyCPUSet(ctx context.Context, rel string, data *
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	skipCPUs := data.CPUs == "" || c.shouldSkipLocked(ctx, rel, "cpuset.cpus", data.CPUs)
-	skipMems := data.Mems == "" || c.shouldSkipLocked(ctx, rel, "cpuset.mems", data.Mems)
+	writeCPUs := data.CPUs != "" || data.WriteEmptyCPUs
+	writeMems := data.Mems != "" || data.WriteEmptyMems
+	skipCPUs := !writeCPUs || c.shouldSkipLocked(ctx, rel, "cpuset.cpus", data.CPUs)
+	skipMems := !writeMems || c.shouldSkipLocked(ctx, rel, "cpuset.mems", data.Mems)
 	if skipCPUs && skipMems {
 		return nil
 	}
-	if err := c.inner.ApplyCPUSet(ctx, rel, data); err != nil {
-		if data.CPUs != "" {
+	applyData := *data
+	if skipCPUs {
+		applyData.CPUs = ""
+		applyData.WriteEmptyCPUs = false
+	}
+	if skipMems {
+		applyData.Mems = ""
+		applyData.WriteEmptyMems = false
+	}
+	if err := c.inner.ApplyCPUSet(ctx, rel, &applyData); err != nil {
+		if writeCPUs {
 			c.invalidateLocked(rel, "cpuset.cpus")
 		}
-		if data.Mems != "" {
+		if writeMems {
 			c.invalidateLocked(rel, "cpuset.mems")
 		}
 		return err
 	}
-	if data.CPUs != "" {
+	if writeCPUs {
 		c.recordWriteLocked(ctx, rel, "cpuset.cpus", data.CPUs)
 	}
-	if data.Mems != "" {
+	if writeMems {
 		c.recordWriteLocked(ctx, rel, "cpuset.mems", data.Mems)
 	}
 	return nil

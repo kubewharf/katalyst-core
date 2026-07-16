@@ -91,7 +91,11 @@ func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) 
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.cpuPluginStateData.GetAllocationInfo(podUID, containerName).Clone()
+	allocationInfo := s.cpuPluginStateData.GetAllocationInfo(podUID, containerName)
+	if allocationInfo == nil {
+		return nil
+	}
+	return allocationInfo.Clone()
 }
 
 func (s *cpuPluginState) GetPodEntries() PodEntries {
@@ -122,6 +126,10 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
 func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	s.Lock()
 	defer s.Unlock()
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil allocation info for pod %s container %s", podUID, containerName)
+		return
+	}
 
 	if _, ok := s.podEntries[podUID]; !ok {
 		s.podEntries[podUID] = make(ContainerEntries)

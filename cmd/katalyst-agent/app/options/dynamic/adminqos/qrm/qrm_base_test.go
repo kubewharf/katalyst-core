@@ -32,6 +32,9 @@ func TestNewQRMPluginOptions(t *testing.T) {
 	if options.CPUPluginOptions == nil {
 		t.Errorf("CPUPluginOptions is nil")
 	}
+	if !options.EnableBulkheadCpusetMems {
+		t.Errorf("EnableBulkheadCpusetMems default = false, want true")
+	}
 }
 
 func TestQRMPluginOptions_AddFlags(t *testing.T) {
@@ -49,6 +52,7 @@ func TestQRMPluginOptions_AddFlags(t *testing.T) {
 	for _, name := range []string{
 		"enable-bulkhead",
 		"enable-bulkhead-cpuset-topology",
+		"enable-bulkhead-cpuset-mems",
 		"enable-bulkhead-workqueue",
 		"bulkhead-non-reclaim-pool-min-size",
 	} {
@@ -76,6 +80,9 @@ func TestQRMPluginOptions_ApplyTo(t *testing.T) {
 	if config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize != 16 {
 		t.Errorf("NonReclaimPoolMinSize = %d, want default 16", config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize)
 	}
+	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetMems {
+		t.Errorf("EnableBulkheadCpusetMems = false, want default true")
+	}
 }
 
 func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
@@ -84,6 +91,7 @@ func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
 	options := NewQRMPluginOptions()
 	options.EnableBulkhead = true
 	options.EnableBulkheadCpusetTopology = true
+	options.EnableBulkheadCpusetMems = true
 	options.EnableBulkheadWorkqueue = true
 	options.BulkheadNonReclaimPoolMinSize = 4
 	config := qrm.NewQRMPluginConfiguration()
@@ -97,6 +105,9 @@ func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
 	}
 	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetTopology {
 		t.Errorf("EnableBulkheadCpusetTopology = false, want true")
+	}
+	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadCpusetMems {
+		t.Errorf("EnableBulkheadCpusetMems = false, want true")
 	}
 	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadWorkqueue {
 		t.Errorf("EnableBulkheadWorkqueue = false, want true")

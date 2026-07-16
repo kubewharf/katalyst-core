@@ -221,6 +221,9 @@ func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
+	if len(ce) == 0 {
+		return false
+	}
 	return len(ce) == 1 && ce[commonstate.FakedContainerName] != nil
 }
 
@@ -268,6 +271,10 @@ func (pe PodEntries) Clone() PodEntries {
 
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				clone[podUID][containerName] = nil
+				continue
+			}
 			clone[podUID][containerName] = allocationInfo.Clone()
 		}
 	}
@@ -519,6 +526,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	res := ns.DefaultCPUSet.Clone()
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if excludeWholeNUMA != nil && excludeWholeNUMA(allocationInfo) {
 				return machine.NewCPUSet()
 			} else if excludeEntry != nil && excludeEntry(allocationInfo) {
@@ -533,6 +543,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) bool) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if f(allocationInfo) {
 				return true
 			}
@@ -550,6 +563,9 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 ) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if f(allocationInfo, annotations) {
 				return true
 			}
@@ -561,6 +577,10 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil allocation info for pod %s container %s", podUID, containerName)
 		return
 	}
 
@@ -576,6 +596,10 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 
 func (ns *NUMANodeState) SetPreOccAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil pre-occupation allocation info for pod %s container %s", podUID, containerName)
 		return
 	}
 

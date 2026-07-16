@@ -49,6 +49,70 @@ const (
 	policyName             = "dynamic"
 )
 
+func TestStateSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	podEntries := PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}
+	var nilContainerEntries ContainerEntries
+	as.False(nilContainerEntries.IsPoolEntry())
+	as.False(ContainerEntries{}.IsPoolEntry())
+	as.False(ContainerEntries{commonstate.FakedContainerName: nil}.IsPoolEntry())
+
+	as.NotPanics(func() {
+		cloned := podEntries.Clone()
+		as.Contains(cloned, "pod-with-nil-entry")
+		as.Nil(cloned["pod-with-nil-entry"]["container-with-nil-allocation"])
+	})
+
+	stateImpl := NewCPUPluginState(cpuTopology)
+	as.NotPanics(func() {
+		stateImpl.SetPodEntries(podEntries)
+	})
+	as.Nil(stateImpl.GetAllocationInfo("pod-with-nil-entry", "container-with-nil-allocation"))
+	as.NotPanics(func() {
+		stateImpl.SetAllocationInfo("pod-with-nil-entry", "another-nil-container", nil)
+	})
+
+	numaState := &NUMANodeState{
+		DefaultCPUSet: machine.NewCPUSet(0, 1),
+		PodEntries:    podEntries,
+	}
+	as.NotPanics(func() {
+		_ = numaState.GetFilteredDefaultCPUSet(func(ai *AllocationInfo) bool {
+			return ai.CheckDedicated()
+		}, func(ai *AllocationInfo) bool {
+			return ai.CheckNumaExclusive()
+		})
+	})
+	as.NotPanics(func() {
+		_ = numaState.ExistMatchedAllocationInfo(func(ai *AllocationInfo) bool {
+			return ai.CheckDedicated()
+		})
+	})
+	as.NotPanics(func() {
+		_ = numaState.ExistMatchedAllocationInfoWithAnnotations(func(ai *AllocationInfo, annotations map[string]string) bool {
+			return ai.CheckDedicated()
+		}, nil)
+	})
+	as.NotPanics(func() {
+		numaState.SetAllocationInfo("pod-with-nil-entry", "nil-container", nil)
+		numaState.SetPreOccAllocationInfo("pod-with-nil-entry", "nil-container", nil)
+	})
+
+	as.NotPanics(func() {
+		_, err = GenerateMachineStateFromPodEntries(cpuTopology, podEntries, nil)
+	})
+	as.Nil(err)
+}
+
 // assertStateEqual marks provided test as failed if provided states differ
 func assertStateEqual(t *testing.T, restoredState, expectedState State) {
 	as := require.New(t)

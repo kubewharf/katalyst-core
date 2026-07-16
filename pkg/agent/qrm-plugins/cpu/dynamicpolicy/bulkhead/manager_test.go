@@ -29,7 +29,9 @@ import (
 	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 type fakePlugin struct {
@@ -43,6 +45,37 @@ type fakePlugin struct {
 	periodicErr   error
 	disabledErr   error
 }
+
+type capturedMetric struct {
+	key      string
+	val      int64
+	emitType metrics.MetricTypeName
+	tags     []metrics.MetricTag
+}
+
+type capturingEmitter struct {
+	records []capturedMetric
+}
+
+func (e *capturingEmitter) StoreInt64(key string, val int64, emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	e.records = append(e.records, capturedMetric{
+		key:      key,
+		val:      val,
+		emitType: emitType,
+		tags:     append([]metrics.MetricTag(nil), tags...),
+	})
+	return nil
+}
+
+func (e *capturingEmitter) StoreFloat64(string, float64, metrics.MetricTypeName, ...metrics.MetricTag) error {
+	return nil
+}
+
+func (e *capturingEmitter) WithTags(string, ...metrics.MetricTag) metrics.MetricEmitter {
+	return e
+}
+
+func (e *capturingEmitter) Run(context.Context) {}
 
 func (p *fakePlugin) Name() string { return p.name }
 
@@ -128,6 +161,46 @@ func TestRunCPUSetAdjustmentHandlersReconcilesWhenNonReclaimPoolMinSizeChanges(t
 	}
 	assertCPUSet(t, "first non reclaim", plugin.adjustViews[0].NonReclaimPool, "")
 	assertCPUSet(t, "second non reclaim", plugin.adjustViews[1].NonReclaimPool, "1-2")
+}
+
+func TestRunCPUSetAdjustmentHandlersUsesDefaultNonReclaimPoolMinSize(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{
+		plugins:                      []bulkheadapi.Plugin{plugin},
+		defaultNonReclaimPoolMinSize: 2,
+	}
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	topology := &machine.CPUTopology{
+		NumCPUs:      4,
+		NumCores:     4,
+		NumSockets:   2,
+		NumNUMANodes: 2,
+		CPUDetails: machine.CPUDetails{
+			0: {NUMANodeID: 0, SocketID: 0, CoreID: 0},
+			1: {NUMANodeID: 0, SocketID: 0, CoreID: 1},
+			2: {NUMANodeID: 1, SocketID: 1, CoreID: 2},
+			3: {NUMANodeID: 1, SocketID: 1, CoreID: 3},
+		},
+	}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConfWithMinSize(true, 0),
+		State:       state,
+		Topology:    topology,
+	}); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 1 {
+		t.Fatalf("adjust calls = %d, want 1", got)
+	}
+	assertCPUSet(t, "non reclaim", plugin.adjustViews[0].NonReclaimPool, "1-2")
+	assertCPUSet(t, "reclaim effective", plugin.adjustViews[0].ReclaimEffective, "3")
 }
 
 func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
@@ -428,6 +501,30 @@ func TestRunPeriodicalHandlersSkipsPluginsWhenBulkheadDisabled(t *testing.T) {
 	}
 }
 
+func TestEmitBulkheadPluginResultFormatsReasonTag(t *testing.T) {
+	t.Parallel()
+
+	emitter := &capturingEmitter{}
+	rawReason := "apply cpuset failed at kubepods/podabc/container with no such file or directory and many details " + strings.Repeat("x", 200)
+
+	emitBulkheadPluginResult(emitter, "periodical", "cpuset_topology", "failed", rawReason)
+
+	if len(emitter.records) != 1 {
+		t.Fatalf("records = %d, want 1", len(emitter.records))
+	}
+	var gotReason string
+	for _, tag := range emitter.records[0].tags {
+		if tag.Key == "reason" {
+			gotReason = tag.Val
+			break
+		}
+	}
+	wantReason := metricutil.MetricTagValueFormat(rawReason)
+	if gotReason != wantReason {
+		t.Fatalf("reason tag = %q, want formatted %q", gotReason, wantReason)
+	}
+}
+
 func dynamicBulkheadConf(enabled bool) *dynamicconfig.Configuration {
 	conf := dynamicconfig.NewConfiguration()
 	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable = enabled
@@ -470,7 +567,7 @@ func TestNewManagerRegistersDefaultPluginsInOrder(t *testing.T) {
 	for _, plugin := range m.plugins {
 		got = append(got, plugin.Name())
 	}
-	want := []string{"cpuset_topology", "workqueue", "system_service"}
+	want := []string{"cpuset_topology", "cpuset_mems", "workqueue", "system_service"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected plugin names, got %v want %v", got, want)
 	}

@@ -44,6 +44,8 @@ func TestDynamicPolicy_takeByTieredPreferredCPUs(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("prefers the first tier before falling back to available", func(t *testing.T) {
+		t.Parallel()
+
 		available := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
 		// first tier is fully within available; request fits entirely in tier 1
 		taken, remaining, err := p.takeByTieredPreferredCPUs(available,
@@ -54,6 +56,8 @@ func TestDynamicPolicy_takeByTieredPreferredCPUs(t *testing.T) {
 	})
 
 	t.Run("spills from tier1 to tier2 then to remaining available", func(t *testing.T) {
+		t.Parallel()
+
 		available := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
 		// tier1 has 2 cpus, tier2 has 1 cpu, need 5 -> 2 from tier1, 1 from tier2, 2 from remaining
 		taken, remaining, err := p.takeByTieredPreferredCPUs(available,
@@ -67,6 +71,8 @@ func TestDynamicPolicy_takeByTieredPreferredCPUs(t *testing.T) {
 	})
 
 	t.Run("ignores preferred cpus outside available", func(t *testing.T) {
+		t.Parallel()
+
 		available := machine.NewCPUSet(0, 1, 2, 3)
 		// preferred references cpus that are no longer available; must fall back gracefully
 		taken, remaining, err := p.takeByTieredPreferredCPUs(available,
@@ -77,6 +83,8 @@ func TestDynamicPolicy_takeByTieredPreferredCPUs(t *testing.T) {
 	})
 
 	t.Run("zero request returns empty taken", func(t *testing.T) {
+		t.Parallel()
+
 		available := machine.NewCPUSet(0, 1, 2, 3)
 		taken, remaining, err := p.takeByTieredPreferredCPUs(available, nil, 0)
 		require.NoError(t, err)
@@ -85,6 +93,8 @@ func TestDynamicPolicy_takeByTieredPreferredCPUs(t *testing.T) {
 	})
 
 	t.Run("insufficient available returns error", func(t *testing.T) {
+		t.Parallel()
+
 		available := machine.NewCPUSet(0, 1)
 		_, _, err := p.takeByTieredPreferredCPUs(available, []machine.CPUSet{machine.NewCPUSet(0)}, 5)
 		require.Error(t, err)
@@ -223,6 +233,8 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("source share pool reclaims its historical isolation cpus first", func(t *testing.T) {
+		t.Parallel()
+
 		poolsCPUSet := make(map[string]machine.CPUSet)
 		available := machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11)
 		poolsQuantityMap := map[string]int{commonstate.PoolNameShare: 4}
@@ -242,6 +254,8 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 	})
 
 	t.Run("pools without preferred behave like the legacy take", func(t *testing.T) {
+		t.Parallel()
+
 		poolsCPUSet := make(map[string]machine.CPUSet)
 		available := machine.NewCPUSet(0, 1, 2, 3)
 		poolsQuantityMap := map[string]int{"batch": 2}

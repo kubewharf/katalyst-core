@@ -34,13 +34,15 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 type Manager struct {
-	mu                          sync.Mutex
-	plugins                     []bulkheadapi.Plugin
-	lastCPUSetAdjustmentView    *bulkheadutils.CPUSetPartitionView
-	lastCPUSetAdjustmentEnabled map[string]bool
+	mu                           sync.Mutex
+	plugins                      []bulkheadapi.Plugin
+	defaultNonReclaimPoolMinSize int64
+	lastCPUSetAdjustmentView     *bulkheadutils.CPUSetPartitionView
+	lastCPUSetAdjustmentEnabled  map[string]bool
 }
 
 const (
@@ -53,8 +55,14 @@ func NewManager(conf *config.Configuration) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	var defaultNonReclaimPoolMinSize int64
+	if conf != nil && conf.DynamicAgentConfiguration != nil {
+		defaultConf := conf.DynamicAgentConfiguration.GetDynamicConfiguration()
+		defaultNonReclaimPoolMinSize = bulkheadNonReclaimPoolMinSize(defaultConf)
+	}
 	return &Manager{
-		plugins: plugins,
+		plugins:                      plugins,
+		defaultNonReclaimPoolMinSize: defaultNonReclaimPoolMinSize,
 	}, nil
 }
 
@@ -69,8 +77,12 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 		return nil
 	}
 	if in.State != nil {
+		nonReclaimPoolMinSize := bulkheadNonReclaimPoolMinSize(in.DynamicConf)
+		if nonReclaimPoolMinSize <= 0 {
+			nonReclaimPoolMinSize = m.defaultNonReclaimPoolMinSize
+		}
 		opts := bulkheadutils.CPUSetPartitionViewOptions{
-			NonReclaimPoolMinSize: bulkheadNonReclaimPoolMinSize(in.DynamicConf),
+			NonReclaimPoolMinSize: nonReclaimPoolMinSize,
 		}
 		if in.CoreConf != nil {
 			opts.ReserveCPUReversely = in.CoreConf.EnableReserveCPUReversely
@@ -214,7 +226,7 @@ func emitBulkheadPluginResult(emitter metrics.MetricEmitter, phase, plugin, stat
 		metrics.MetricTag{Key: "phase", Val: phase},
 		metrics.MetricTag{Key: "plugin", Val: plugin},
 		metrics.MetricTag{Key: "status", Val: status},
-		metrics.MetricTag{Key: "reason", Val: reason},
+		metrics.MetricTag{Key: "reason", Val: metricutil.MetricTagValueFormat(reason)},
 	)
 }
 

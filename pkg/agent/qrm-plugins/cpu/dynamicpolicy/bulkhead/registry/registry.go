@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/cpusetmems"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/cpusettopology"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/systemservice"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/workqueue"
@@ -28,6 +29,7 @@ import (
 
 var defaultPluginFactories = []bulkheadapi.PluginFactory{
 	cpusettopology.NewCPUSetTopologyPlugin,
+	cpusetmems.NewCPUSetMemsPlugin,
 	workqueue.NewWorkqueuePlugin,
 	systemservice.NewSystemServicePlugin,
 }

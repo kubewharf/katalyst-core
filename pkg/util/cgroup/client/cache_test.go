@@ -104,6 +104,7 @@ type countingFake struct {
 	version               CgroupVersion
 	contentMu             sync.Mutex
 	content               map[cacheKey]string
+	cpuSetData            []cgcommon.CPUSetData
 }
 
 func newCountingFake() *countingFake {
@@ -163,15 +164,54 @@ func (f *countingFake) ReadCgroupFile(_ context.Context, rel, file string) ([]by
 func (f *countingFake) ApplyCPUSet(_ context.Context, rel string, data *cgcommon.CPUSetData) error {
 	atomic.AddInt64(&f.applyCPUSetN, 1)
 	if data != nil {
-		if data.CPUs != "" {
+		f.contentMu.Lock()
+		f.cpuSetData = append(f.cpuSetData, *data)
+		f.contentMu.Unlock()
+		if data.CPUs != "" || data.WriteEmptyCPUs {
 			f.writeContent(rel, "cpuset.cpus", data.CPUs)
 		}
-		if data.Mems != "" {
+		if data.Mems != "" || data.WriteEmptyMems {
 			f.writeContent(rel, "cpuset.mems", data.Mems)
 		}
 	}
 	f.bumpMTime()
 	return nil
+}
+
+func (f *countingFake) lastCPUSetData() cgcommon.CPUSetData {
+	f.contentMu.Lock()
+	defer f.contentMu.Unlock()
+	if len(f.cpuSetData) == 0 {
+		return cgcommon.CPUSetData{}
+	}
+	return f.cpuSetData[len(f.cpuSetData)-1]
+}
+
+func TestCachedCgroupClient_ApplyCPUSetWritesEmptyValues(t *testing.T) {
+	t.Parallel()
+
+	inner := newCountingFake()
+	inner.writeContent("kubepods", "cpuset.cpus", "0-3")
+	inner.writeContent("kubepods", "cpuset.mems", "0-1")
+	c := NewCachedCgroupClient(inner)
+	ctx := context.Background()
+
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{CPUs: "", WriteEmptyCPUs: true}); err != nil {
+		t.Fatalf("ApplyCPUSet WriteEmptyCPUs: %v", err)
+	}
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{Mems: "", WriteEmptyMems: true}); err != nil {
+		t.Fatalf("ApplyCPUSet WriteEmptyMems: %v", err)
+	}
+
+	if got := atomic.LoadInt64(&inner.applyCPUSetN); got != 2 {
+		t.Fatalf("ApplyCPUSet calls = %d, want 2", got)
+	}
+	if got := inner.readContent("kubepods", "cpuset.cpus"); got != "" {
+		t.Fatalf("cpuset.cpus = %q, want empty", got)
+	}
+	if got := inner.readContent("kubepods", "cpuset.mems"); got != "" {
+		t.Fatalf("cpuset.mems = %q, want empty", got)
+	}
 }
 
 func (f *countingFake) ApplyCPUSetPartition(_ context.Context, rel string, flag cgcommon.CPUSetPartitionFlag) error {
@@ -282,6 +322,31 @@ func TestCachedCgroupClient_ApplyCPUSet_PerFileCache(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&inner.applyCPUSetN); got != 2 {
 		t.Fatalf("inner ApplyCPUSet calls after mems change = %d, want 2", got)
+	}
+}
+
+func TestCachedCgroupClient_ApplyCPUSet_FiltersSkippedFields(t *testing.T) {
+	t.Parallel()
+
+	inner := newCountingFake()
+	c := NewCachedCgroupClient(inner)
+	ctx := context.Background()
+
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{CPUs: "0-1", Mems: "0"}); err != nil {
+		t.Fatalf("first ApplyCPUSet: %v", err)
+	}
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{CPUs: "0-1", Mems: "1"}); err != nil {
+		t.Fatalf("mems-only ApplyCPUSet: %v", err)
+	}
+	if got := inner.lastCPUSetData(); got.CPUs != "" || got.Mems != "1" {
+		t.Fatalf("mems-only write data = %+v, want CPUs skipped and Mems=1", got)
+	}
+
+	if err := c.ApplyCPUSet(ctx, "kubepods", &cgcommon.CPUSetData{CPUs: "2-3", Mems: "1"}); err != nil {
+		t.Fatalf("cpus-only ApplyCPUSet: %v", err)
+	}
+	if got := inner.lastCPUSetData(); got.CPUs != "2-3" || got.Mems != "" {
+		t.Fatalf("cpus-only write data = %+v, want CPUs=2-3 and Mems skipped", got)
 	}
 }
 

@@ -46,13 +46,18 @@ type CPUPluginConfiguration struct {
 type DynamicBulkheadConfiguration struct {
 	Enable                       bool
 	EnableBulkheadCpusetTopology bool
+	EnableBulkheadCpusetMems     bool
 	EnableBulkheadWorkqueue      bool
 	EnableBulkheadSystemService  bool
 	NonReclaimPoolMinSize        int64
 }
 
 func NewCPUPluginConfiguration() *CPUPluginConfiguration {
-	return &CPUPluginConfiguration{}
+	return &CPUPluginConfiguration{
+		BulkheadConfig: DynamicBulkheadConfiguration{
+			EnableBulkheadCpusetMems: true,
+		},
+	}
 }
 
 func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
@@ -71,6 +76,9 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			}
 			if config.BulkheadConfig.EnableBulkheadCpusetTopology != nil {
 				c.BulkheadConfig.EnableBulkheadCpusetTopology = *config.BulkheadConfig.EnableBulkheadCpusetTopology
+			}
+			if config.BulkheadConfig.EnableBulkheadCpusetMems != nil {
+				c.BulkheadConfig.EnableBulkheadCpusetMems = *config.BulkheadConfig.EnableBulkheadCpusetMems
 			}
 			if config.BulkheadConfig.EnableBulkheadWorkqueue != nil {
 				c.BulkheadConfig.EnableBulkheadWorkqueue = *config.BulkheadConfig.EnableBulkheadWorkqueue

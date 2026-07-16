@@ -179,10 +179,10 @@ func buildIsolationSourcePreferredCPUs(entries state.PodEntries) map[string]mach
 
 // buildDedicatedSourcePreferredCPUs collects historical cpusets for dedicated_cores without
 // NUMA binding:
-// 1. source-pool preferred cpus help the share pool reclaim CPUs first when dedicated shrinks,
-//    disappears, or returns to share;
-// 2. container preferred cpus let still-active dedicated containers reuse their own historical
-//    cpuset and reduce churn.
+//  1. source-pool preferred cpus help the share pool reclaim CPUs first when dedicated shrinks,
+//     disappears, or returns to share;
+//  2. container preferred cpus let still-active dedicated containers reuse their own historical
+//     cpuset and reduce churn.
 func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (map[string]machine.CPUSet, map[string]map[string]machine.CPUSet) {
 	poolPreferred := make(map[string]machine.CPUSet)
 	containerPreferred := make(map[string]map[string]machine.CPUSet)

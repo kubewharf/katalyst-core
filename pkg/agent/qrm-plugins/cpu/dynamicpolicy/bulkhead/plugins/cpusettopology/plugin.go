@@ -95,13 +95,15 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
 		return fmt.Errorf("build expected container cpuset: %w", err)
 	}
+	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s",
+		len(specs), len(siblings), len(expectedRes.ExpectedByRel), len(expectedRes.PendingByPod),
+		expectedRes.PendingCPUSetUnion().String())
 	_, err = topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
-		DAG:                         dag,
-		Cgroup:                      p.cgroup,
-		ExpectedCPUSetByRel:         expectedRes.ExpectedByRel,
-		ProtectUnmanagedKubePodLeaf: true,
-		KubeManagedRelPrefix:        p.cfg.BulkheadPrimaryRelPath,
-		ProtectedPendingCPUSet:      expectedRes.PendingCPUSetUnion(),
+		DAG:                    dag,
+		Cgroup:                 p.cgroup,
+		ExpectedCPUSetByRel:    expectedRes.ExpectedByRel,
+		KubeManagedRelPrefix:   p.cfg.BulkheadPrimaryRelPath,
+		ProtectedPendingCPUSet: expectedRes.PendingCPUSetUnion(),
 	})
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")

@@ -653,7 +653,11 @@ func (p *DynamicPolicy) calculateSystemExclusivePoolChanges(
 		if entry.IsPoolEntry() {
 			continue
 		}
-		for _, allocationInfo := range entry {
+		for containerName, allocationInfo := range entry {
+			if allocationInfo == nil {
+				general.Warningf("[SystemExclusivePool] container %s allocation info is nil during pool change calculation, skip it", containerName)
+				continue
+			}
 			if !allocationInfo.CheckSystem() {
 				continue
 			}
@@ -817,6 +821,10 @@ func (p *DynamicPolicy) adjustSystemCoresPodAllocation() error {
 		}
 
 		for containerName, allocationInfo := range entry {
+			if allocationInfo == nil {
+				general.Warningf("[SystemExclusivePool] pod %s container %s allocation info is nil during system cores pod adjustment, skip it", podUID, containerName)
+				continue
+			}
 			if !allocationInfo.CheckSystem() {
 				continue
 			}

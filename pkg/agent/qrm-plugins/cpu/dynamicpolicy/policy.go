@@ -720,6 +720,10 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 		}
 
 		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Warningf("container %s allocation info is nil during GetResourcesAllocation, skip it", containerName)
+				continue
+			}
 			if podResources[podUID].ContainerResources == nil {
 				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
 			}
@@ -1296,7 +1300,11 @@ func (p *DynamicPolicy) cleanPools() error {
 			continue
 		}
 
-		for _, allocationInfo := range entries {
+		for containerName, allocationInfo := range entries {
+			if allocationInfo == nil {
+				general.Warningf("container %s allocation info is nil during cleanPools, skip it", containerName)
+				continue
+			}
 			ownerPool := allocationInfo.GetOwnerPoolName()
 			if ownerPool != commonstate.EmptyOwnerPoolName {
 				remainPools[ownerPool] = true

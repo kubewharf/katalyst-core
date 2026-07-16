@@ -28,6 +28,7 @@ type CPUPluginOptions struct {
 	DisableSharedCoresRampUp      bool
 	EnableBulkhead                bool
 	EnableBulkheadCpusetTopology  bool
+	EnableBulkheadCpusetMems      bool
 	EnableBulkheadWorkqueue       bool
 	EnableBulkheadSystemService   bool
 	BulkheadNonReclaimPoolMinSize int64
@@ -37,6 +38,7 @@ type CPUPluginOptions struct {
 func NewCPUPluginOptions() *CPUPluginOptions {
 	return &CPUPluginOptions{
 		BulkheadNonReclaimPoolMinSize: 16,
+		EnableBulkheadCpusetMems:      true,
 	}
 }
 
@@ -53,6 +55,8 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if true, enable bulkhead.")
 	fs.BoolVar(&o.EnableBulkheadCpusetTopology, "enable-bulkhead-cpuset-topology", o.EnableBulkheadCpusetTopology,
 		"if true, enable bulkhead cpuset topology plugin.")
+	fs.BoolVar(&o.EnableBulkheadCpusetMems, "enable-bulkhead-cpuset-mems", o.EnableBulkheadCpusetMems,
+		"if true, enable bulkhead cpuset_mems plugin.")
 	fs.BoolVar(&o.EnableBulkheadWorkqueue, "enable-bulkhead-workqueue", o.EnableBulkheadWorkqueue,
 		"if true, enable bulkhead workqueue plugin.")
 	fs.BoolVar(&o.EnableBulkheadSystemService, "enable-bulkhead-system-service", o.EnableBulkheadSystemService,
@@ -70,6 +74,7 @@ func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.DisableSharedCoresRampUp = o.DisableSharedCoresRampUp
 	c.BulkheadConfig.Enable = o.EnableBulkhead
 	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
+	c.BulkheadConfig.EnableBulkheadCpusetMems = o.EnableBulkheadCpusetMems
 	c.BulkheadConfig.EnableBulkheadWorkqueue = o.EnableBulkheadWorkqueue
 	c.BulkheadConfig.EnableBulkheadSystemService = o.EnableBulkheadSystemService
 	c.BulkheadConfig.NonReclaimPoolMinSize = o.BulkheadNonReclaimPoolMinSize

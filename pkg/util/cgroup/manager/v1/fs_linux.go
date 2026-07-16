@@ -158,7 +158,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 }
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
-	if len(data.CPUs) != 0 {
+	if len(data.CPUs) != 0 || data.WriteEmptyCPUs {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
@@ -177,7 +177,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 		}
 	}
 
-	if len(data.Mems) != 0 {
+	if len(data.Mems) != 0 || data.WriteEmptyMems {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {

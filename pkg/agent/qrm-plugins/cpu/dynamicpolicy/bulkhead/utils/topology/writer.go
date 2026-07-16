@@ -20,8 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"syscall"
 
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -49,43 +52,14 @@ type DAGApplyInputs struct {
 	// Callers should only use it when the input is already known to be monotonic.
 	SkipObservedRead    bool
 	ExpectedCPUSetByRel map[string]machine.CPUSet
-	// ProtectUnmanagedKubePodLeaf is the legacy switch for Kubernetes-managed
-	// subtree safety. When true, it keeps expected kube container cgroups and
-	// admit-pending allocations from being under-cut by bulkhead's DAG apply.
-	// Concretely it does three things:
-	//
-	//  1. Widens every primary node's effective target to include the union of
-	//     the current cpuset of kube cgroups present in ExpectedCPUSetByRel
-	//     found under it (see collectProtectedLeafCPUSet). This preserves the
-	//     cgroup v1 parent-superset invariant when a parent must be written
-	//     before the child is updated to its resolved allocation.
-	//  2. Additionally folds ProtectedPendingCPUSet (allocations whose cgroup
-	//     leaf has not been created yet) into the same widened primary target,
-	//     so the primary never shrinks below an allocation about to materialize.
-	//  3. During the expand descent, refuses to propagate the parent pool target
-	//     onto pod/container leaves that are not present in ExpectedCPUSetByRel
-	//     (writing a transient pool cpuset onto a live container leaf can leave
-	//     it disjoint from the parent after the pool shrinks). Intermediate
-	//     nodes containing expected container leaves are still expanded safely
-	//     via current ∪ observedDescendants ∪ expectedDescendants.
-	//
-	// After widening the primary, reclaim targets are normalized by removing the
-	// primary effective CPUs from them, then reclaim parents are widened to cover
-	// their NUMA buckets. This keeps the partitions disjoint while preserving the
-	// cgroup v1 parent-superset invariant. Leaves that DO appear in
-	// ExpectedCPUSetByRel are still written to their resolved allocation.
-	ProtectUnmanagedKubePodLeaf bool
-	// KubeManagedRelPrefix scopes the protection above to rels under this prefix
-	// (typically BulkheadPrimaryRelPath, e.g. "kubepods"). Empty prefix means the
-	// protection is not scoped and applies to any pod-looking rel. Passing the
-	// configured primary rel path avoids hard-coding "kubepods/" in the writer.
+	// KubeManagedRelPrefix scopes Kubernetes-managed subtree handling to the
+	// configured primary rel path. Empty prefix falls back to the DAG primary rel.
 	KubeManagedRelPrefix string
 	// ProtectedPendingCPUSet is the union of container allocations that already
 	// exist in QRM state but whose cgroup leaf has not been created yet (pod
 	// admit window). These have no resolvable rel, so the writer folds them into
 	// the primary node's effective target to guarantee the primary cgroup never
-	// shrinks below an allocation that is about to materialize. It is only used
-	// when ProtectUnmanagedKubePodLeaf is true.
+	// shrinks below an allocation that is about to materialize.
 	ProtectedPendingCPUSet machine.CPUSet
 }
 
@@ -97,18 +71,33 @@ func ApplyDAGDiff(ctx context.Context, in DAGApplyInputs) (DAGApplyResult, error
 	if in.Cgroup == nil {
 		return res, errors.New("ApplyDAGDiff: nil Cgroup client")
 	}
-	err := applyTwoPhase(ctx, in.DAG, in.Cgroup, in.Mems, in.SkipObservedRead, in.ExpectedCPUSetByRel, in.ProtectUnmanagedKubePodLeaf, in.KubeManagedRelPrefix, in.ProtectedPendingCPUSet, &res)
+	err := applyTwoPhase(ctx, in, &res)
 	return res, err
 }
 
 type nodeDiff struct {
-	grow         bool
-	shrink       bool
-	target       machine.CPUSet
-	shrinkTarget machine.CPUSet
+	grow          bool
+	shrink        bool
+	target        machine.CPUSet
+	shrinkTarget  machine.CPUSet
+	observed      machine.CPUSet
+	observedKnown bool
 }
 
-func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClient, mems string, skipRead bool, expected map[string]machine.CPUSet, protectKubeLeaf bool, kubeRelPrefix string, protectedPending machine.CPUSet, res *DAGApplyResult) error {
+type siblingTransition struct {
+	node                *TopoNode
+	observed            machine.CPUSet
+	target              machine.CPUSet
+	leavingToSibling    machine.CPUSet
+	enteringFromSibling machine.CPUSet
+	preShrinkTarget     machine.CPUSet
+}
+
+func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) error {
+	dag := in.DAG
+	cg := in.Cgroup
+	expected := in.ExpectedCPUSetByRel
+	kubeRelPrefix := in.KubeManagedRelPrefix
 	version := cg.Version(ctx)
 	allowEmptyTarget := version == cgroupclient.CgroupVersionV2
 	diffs := map[string]nodeDiff{}
@@ -116,48 +105,52 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 	for _, n := range dag.Nodes() {
 		controlledRels[n.Rel] = struct{}{}
 	}
+	if strings.Trim(kubeRelPrefix, "/") == "" {
+		kubeRelPrefix = primaryRelPath(dag)
+	}
 
-	// A single applyCache is shared by computeEffectiveTargets,
-	// collectProtectedLeafCPUSet and expandDescendants so that every
-	// (rel -> children), (rel -> kubeInSubtree), (rel -> expectedDescendantUnion)
-	// question is answered at most once per apply. Without this cache each of
-	// those helpers used to walk the same subtree independently, so a shared
-	// ancestor could be traversed O(k) times where k is the number of protected
-	// leaves under it.
+	// A single applyCache is shared by computeEffectiveTargets, shrink follow-up,
+	// and expandDescendants so that every (rel -> children) and
+	// (rel -> expectedDescendantUnion) question is answered at most once per
+	// apply.
 	cache := newApplyCache(cg, kubeRelPrefix, expected)
 
 	// Build the effective target for every controlled node before touching any
-	// cgroup: effective = desired ∪ (current cpuset of every expected kube rel in
-	// its subtree) [∪ pending allocations for the primary]. This guarantees the
-	// cgroup v1 parent-superset invariant when a parent has to be written before
-	// expected children converge. Reclaim targets are normalized against widened
-	// primary targets before applying, so a boundary CPU temporarily required by
-	// the primary is removed from reclaim instead of causing a partition conflict.
-	effectiveTargets, err := computeEffectiveTargets(ctx, cg, dag, expected, controlledRels, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, protectedPending, cache)
-	if err != nil {
-		return err
+	// cgroup. Pending primary allocations widen the primary target; existing kube
+	// leaves and stale runtime residuals are converged by the shrink/expand
+	// descendant pass rather than by effective-target widening.
+	effectiveTargets := desiredTargets(dag)
+	if !in.SkipObservedRead {
+		var err error
+		effectiveTargets, err = computeEffectiveTargets(dag, allowEmptyTarget, in.ProtectedPendingCPUSet)
+		if err != nil {
+			return err
+		}
 	}
 
 	for _, n := range dag.Nodes() {
 		target := effectiveTargets[n.Rel]
-		if target.IsEmpty() && !allowEmptyTarget {
-			res.Skipped++
-			continue
-		}
 		var observed machine.CPUSet
 		observedKnown := false
-		if !skipRead {
+		if !in.SkipObservedRead {
 			if cs, readErr := cg.ReadCPUSet(ctx, n.Rel); readErr == nil {
 				observed = cs
 				observedKnown = true
 			}
 		}
+		if target.IsEmpty() && !allowEmptyTarget {
+			if observedKnown && !observed.IsEmpty() {
+				diffs[n.Rel] = nodeDiff{target: target, observed: observed, observedKnown: true}
+			}
+			res.Skipped++
+			continue
+		}
 		if observedKnown && observed.Equals(target) {
 			res.Skipped++
 			continue
 		}
-		d := nodeDiff{target: target}
-		if skipRead || !observedKnown || observed.IsEmpty() {
+		d := nodeDiff{target: target, observed: observed, observedKnown: observedKnown}
+		if in.SkipObservedRead || !observedKnown || observed.IsEmpty() {
 			d.grow = true
 		} else {
 			if !target.IsSubsetOf(observed) {
@@ -185,8 +178,16 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 		}
 		diffs[n.Rel] = d
 	}
+	general.InfofV(5, "topo_dag_writer: diff skip_observed=%t protected_pending=%s kube_prefix=%q effective=%s diffs=%s",
+		in.SkipObservedRead, in.ProtectedPendingCPUSet.String(), kubeRelPrefix,
+		formatCPUSetMapForLog(effectiveTargets, 16), formatNodeDiffsForLog(diffs, 16))
 
 	var firstErr error
+	failedSiblingLeaving := machine.NewCPUSet()
+	if !in.SkipObservedRead {
+		transitions := buildSiblingTransitions(dag, diffs, effectiveTargets)
+		failedSiblingLeaving = applySiblingPreShrink(ctx, cg, in, diffs, transitions, version, res, cache)
+	}
 	// sched_load_balance disabled cpuset domains must not overlap transiently.
 	// Apply changes in two phases: shrink in post-order first, then expand in
 	// pre-order. Overlap replacements are decomposed as observed->intersection
@@ -197,11 +198,11 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 			return nil
 		}
 		res.Attempted++
-		if err := applyCPUSet(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, mems)); err == nil {
+		if err := applyCPUSet(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, in.Mems)); err == nil {
 			res.Applied++
 			return nil
 		}
-		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, mems), expected, version, res, 0, cache); err != nil {
+		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, in.Mems), expected, version, res, 0, cache); err != nil {
 			res.Failed++
 			if firstErr == nil {
 				firstErr = err
@@ -214,28 +215,195 @@ func applyTwoPhase(ctx context.Context, dag *TopoDAG, cg cgroupclient.CgroupClie
 	_ = dag.ForEachExpand(func(n *TopoNode) error {
 		effTarget := effectiveTargets[n.Rel]
 		if d, ok := diffs[n.Rel]; ok && d.grow {
+			target := safeSiblingGrowTarget(n, d.target, failedSiblingLeaving)
+			if target.IsEmpty() && !allowEmptyTarget {
+				res.Skipped++
+				general.InfofV(5, "topo_dag_writer: skip empty v1 sibling grow target, rel=%q original_target=%s failed_leaving=%s",
+					n.Rel, d.target.String(), failedSiblingLeaving.String())
+				return nil
+			}
 			res.Attempted++
-			if err := applyCPUSet(ctx, cg, n.Rel, d.target, memsForNode(n, mems)); err != nil {
+			if err := applyCPUSet(ctx, cg, n.Rel, target, memsForNode(n, in.Mems)); err != nil {
 				res.Failed++
 				if firstErr == nil {
-					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", d.target.String(), n.Rel, err)
+					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", target.String(), n.Rel, err)
 				}
 				// The node's own grow write failed, so its cpuset is still at the
 				// smaller observed value. Descending now would write children to
 				// the (larger) effective target and violate the cgroup v1
 				// parent-superset invariant, mirroring the fail-fast guard in
 				// writeAndDescend. Skip this subtree; the next round retries.
-				general.InfofV(5, "topo_dag_writer: skip expand descent after node grow failure, rel=%q target=%s", n.Rel, d.target.String())
+				general.InfofV(5, "topo_dag_writer: skip expand descent after node grow failure, rel=%q target=%s", n.Rel, target.String())
 				return nil
 			}
 			res.Applied++
+			if !target.Equals(d.target) {
+				effTarget = target
+			}
 		}
 		if !effTarget.IsEmpty() || allowEmptyTarget {
-			expandDescendants(ctx, cg, n.Rel, effTarget, false, controlledRels, expected, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, res, &firstErr, 0, cache)
+			expandDescendants(ctx, cg, n.Rel, effTarget, false, controlledRels, expected, allowEmptyTarget, res, &firstErr, 0, cache)
 		}
 		return nil
 	})
 	return firstErr
+}
+
+func isSiblingDomainNode(n *TopoNode) bool {
+	if n == nil {
+		return false
+	}
+	switch n.Role {
+	case TopoNodeRolePrimary, TopoNodeRoleReclaim, TopoNodeRoleReclaimSibling:
+		return true
+	default:
+		return false
+	}
+}
+
+func siblingDomainNodes(dag *TopoDAG) []*TopoNode {
+	if dag == nil {
+		return nil
+	}
+	nodes := make([]*TopoNode, 0)
+	for _, n := range dag.Nodes() {
+		if isSiblingDomainNode(n) {
+			nodes = append(nodes, n)
+		}
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].Rel < nodes[j].Rel
+	})
+	return nodes
+}
+
+func buildSiblingTransitions(dag *TopoDAG, diffs map[string]nodeDiff, effectiveTargets map[string]machine.CPUSet) map[string]siblingTransition {
+	nodes := siblingDomainNodes(dag)
+	if len(nodes) <= 1 {
+		return nil
+	}
+
+	transitions := map[string]siblingTransition{}
+	for _, n := range nodes {
+		d, ok := diffs[n.Rel]
+		if !ok || !d.observedKnown {
+			continue
+		}
+
+		otherObservedUnion := machine.NewCPUSet()
+		otherTargetUnion := machine.NewCPUSet()
+		for _, other := range nodes {
+			if other.Rel == n.Rel {
+				continue
+			}
+			if od, ok := diffs[other.Rel]; ok && od.observedKnown {
+				otherObservedUnion = otherObservedUnion.Union(od.observed)
+			}
+			if target, ok := effectiveTargets[other.Rel]; ok {
+				otherTargetUnion = otherTargetUnion.Union(target)
+			}
+		}
+
+		target := effectiveTargets[n.Rel]
+		leaving := d.observed.Difference(target)
+		entering := target.Difference(d.observed)
+		t := siblingTransition{
+			node:                n,
+			observed:            d.observed,
+			target:              target,
+			leavingToSibling:    leaving.Intersection(otherTargetUnion),
+			enteringFromSibling: entering.Intersection(otherObservedUnion),
+		}
+		t.preShrinkTarget = t.observed.Difference(t.leavingToSibling)
+		if !t.leavingToSibling.IsEmpty() || !t.enteringFromSibling.IsEmpty() {
+			transitions[n.Rel] = t
+		}
+	}
+	return transitions
+}
+
+func applySiblingPreShrink(
+	ctx context.Context,
+	cg cgroupclient.CgroupClient,
+	in DAGApplyInputs,
+	diffs map[string]nodeDiff,
+	transitions map[string]siblingTransition,
+	version cgroupclient.CgroupVersion,
+	res *DAGApplyResult,
+	cache *applyCache,
+) machine.CPUSet {
+	failedLeaving := machine.NewCPUSet()
+	if len(transitions) == 0 {
+		return failedLeaving
+	}
+
+	rels := make([]string, 0, len(transitions))
+	for rel := range transitions {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+
+	for _, rel := range rels {
+		t := transitions[rel]
+		if t.leavingToSibling.IsEmpty() || t.preShrinkTarget.Equals(t.observed) {
+			continue
+		}
+		if t.preShrinkTarget.IsEmpty() && version == cgroupclient.CgroupVersionV1 {
+			failedLeaving = failedLeaving.Union(t.leavingToSibling)
+			general.InfofV(4, "topo_dag_writer: guard sibling grow after empty v1 pre-shrink, rel=%q leaving=%s",
+				rel, t.leavingToSibling.String())
+			continue
+		}
+
+		res.Attempted++
+		err := applyCPUSet(ctx, cg, rel, t.preShrinkTarget, memsForNode(t.node, in.Mems))
+		if err != nil {
+			err = shrinkNodeConverge(ctx, cg, rel, t.preShrinkTarget, memsForNode(t.node, in.Mems),
+				in.ExpectedCPUSetByRel, version, res, 0, cache)
+		}
+		if err != nil {
+			res.Failed++
+			failedLeaving = failedLeaving.Union(t.leavingToSibling)
+			general.InfofV(4, "topo_dag_writer: guard sibling grow after pre-shrink failure, rel=%q target=%s leaving=%s err=%v",
+				rel, t.preShrinkTarget.String(), t.leavingToSibling.String(), err)
+			continue
+		}
+
+		res.Applied++
+		if d, ok := diffs[rel]; ok {
+			diffs[rel] = recomputeNodeDiffWithObserved(d, t.preShrinkTarget)
+		}
+	}
+	return failedLeaving
+}
+
+func recomputeNodeDiffWithObserved(d nodeDiff, observed machine.CPUSet) nodeDiff {
+	d.observed = observed
+	d.observedKnown = true
+	d.grow = false
+	d.shrink = false
+	d.shrinkTarget = machine.NewCPUSet()
+	if !d.target.IsSubsetOf(observed) {
+		d.grow = true
+	}
+	if !observed.IsSubsetOf(d.target) {
+		d.shrink = true
+		d.shrinkTarget = d.target
+	}
+	if d.grow && d.shrink {
+		intersection := observed.Intersection(d.target)
+		if !intersection.IsEmpty() {
+			d.shrinkTarget = intersection
+		}
+	}
+	return d
+}
+
+func safeSiblingGrowTarget(n *TopoNode, target machine.CPUSet, failedLeaving machine.CPUSet) machine.CPUSet {
+	if !isSiblingDomainNode(n) || failedLeaving.IsEmpty() {
+		return target
+	}
+	return target.Difference(failedLeaving)
 }
 
 func memsForNode(n *TopoNode, defaultMems string) string {
@@ -247,13 +415,81 @@ func memsForNode(n *TopoNode, defaultMems string) string {
 
 func applyCPUSet(ctx context.Context, cg cgroupclient.CgroupClient, rel string, cpus machine.CPUSet, mems string) error {
 	data := &cgcommon.CPUSetData{CPUs: cpus.String()}
+	if cpus.IsEmpty() && cg.Version(ctx) == cgroupclient.CgroupVersionV2 {
+		data.WriteEmptyCPUs = true
+	}
 	if mems != "" {
 		data.Mems = mems
 	}
+	general.InfofV(6, "topo_dag_writer: cpuset_write start rel=%q target=%s mems=%q", rel, cpus.String(), mems)
 	if err := cg.ApplyCPUSet(ctx, rel, data); err != nil {
+		general.InfofV(4, "topo_dag_writer: cpuset_write failed rel=%q target=%s mems=%q err=%v", rel, cpus.String(), mems, err)
 		return fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", cpus.String(), rel, err)
 	}
+	general.InfofV(6, "topo_dag_writer: cpuset_write done rel=%q target=%s mems=%q", rel, cpus.String(), mems)
 	return nil
+}
+
+func formatCPUSetMapForLog(m map[string]machine.CPUSet, limit int) string {
+	if len(m) == 0 {
+		return "{}"
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if limit <= 0 || limit > len(keys) {
+		limit = len(keys)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, k := range keys[:limit] {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, m[k].String()))
+	}
+	if len(keys) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(keys)-limit))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func formatNodeDiffsForLog(diffs map[string]nodeDiff, limit int) string {
+	if len(diffs) == 0 {
+		return "{}"
+	}
+	keys := make([]string, 0, len(diffs))
+	for k := range diffs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if limit <= 0 || limit > len(keys) {
+		limit = len(keys)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, k := range keys[:limit] {
+		d := diffs[k]
+		observed := "unknown"
+		if d.observedKnown {
+			observed = d.observed.String()
+		}
+		parts = append(parts, fmt.Sprintf("%s{observed=%s,target=%s,shrinkTarget=%s,grow=%t,shrink=%t}",
+			k, observed, d.target.String(), d.shrinkTarget.String(), d.grow, d.shrink))
+	}
+	if len(keys) > limit {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(keys)-limit))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func isCgroupNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return true
+	}
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "no such file or directory") ||
+		strings.Contains(errText, "not a directory")
 }
 
 func shrinkNodeConverge(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, newSelf machine.CPUSet, mems string, expected map[string]machine.CPUSet, version cgroupclient.CgroupVersion, res *DAGApplyResult, depth int, cache *applyCache) error {
@@ -263,6 +499,22 @@ func shrinkNodeConverge(ctx context.Context, cg cgroupclient.CgroupClient, relPa
 	var lastErr error
 	for attempt := 0; attempt < maxShrinkRetries; attempt++ {
 		liveChildren := attempt > 0
+		if !newSelf.IsEmpty() {
+			cur, readErr := cg.ReadCPUSet(ctx, relPath)
+			if readErr != nil {
+				general.InfofV(5, "topo_dag_writer: read cpuset before shrink failed, rel=%q target=%s err=%v",
+					relPath, newSelf.String(), readErr)
+			} else if !newSelf.IsSubsetOf(cur) {
+				widened := cur.Union(newSelf)
+				if err := applyCPUSet(ctx, cg, relPath, widened, ""); err != nil {
+					general.InfofV(5, "topo_dag_writer: expand intermediate before shrink failed, rel=%q cur=%s target=%s widened=%s err=%v",
+						relPath, cur.String(), newSelf.String(), widened.String(), err)
+				} else {
+					general.InfofV(5, "topo_dag_writer: expand intermediate before shrink, rel=%q cur=%s target=%s widened=%s",
+						relPath, cur.String(), newSelf.String(), widened.String())
+				}
+			}
+		}
 		shrinkDescendantsToParent(ctx, cg, relPath, newSelf, expected, version, res, depth+1, cache, liveChildren)
 		err := applyCPUSet(ctx, cg, relPath, newSelf, mems)
 		if err == nil {
@@ -409,6 +661,12 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 	convergeChild := func(childRel string, cpus machine.CPUSet) {
 		res.Attempted++
 		if err := shrinkNodeConverge(ctx, cg, childRel, cpus, "", expected, version, res, depth+1, cache); err != nil {
+			if isCgroupNotFoundError(err) {
+				res.Skipped++
+				general.InfofV(5, "topo_dag_writer: skip disappeared dynamic cgroup during shrink, rel=%q target=%s err=%v",
+					childRel, cpus.String(), err)
+				return
+			}
 			res.Failed++
 			general.InfofV(5, "topo_dag_writer: shrink child converge failed, rel=%q err=%v", childRel, err)
 			return
@@ -429,12 +687,23 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 			shrinkDescendantsToParent(ctx, cg, childRel, newParent, expected, version, res, depth+1, cache, liveChildren)
 			continue
 		}
+		if !newParent.IsEmpty() && isUnderRelPrefix(childRel, cache.kubeRelPrefix) {
+			convergeChild(childRel, newParent)
+			continue
+		}
 		if cur.IsSubsetOf(newParent) {
 			shrinkDescendantsToParent(ctx, cg, childRel, cur, expected, version, res, depth+1, cache, liveChildren)
 			continue
 		}
 		clamped := cur.Intersection(newParent)
 		if clamped.IsEmpty() {
+			if version == cgroupclient.CgroupVersionV1 && !newParent.IsEmpty() &&
+				!hasLiveTaskInSubtree(ctx, cg, childRel, depth+1, cache, liveChildren) {
+				general.InfofV(5, "topo_dag_writer: park disjoint child inside shrinking parent, rel=%q cur=%s newParent=%s",
+					childRel, cur.String(), newParent.String())
+				convergeChild(childRel, newParent)
+				continue
+			}
 			general.InfofV(5, "topo_dag_writer: shrink follow skipped disjoint child, rel=%q cur=%s newParent=%s", childRel, cur.String(), newParent.String())
 			continue
 		}
@@ -442,29 +711,76 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 	}
 }
 
-// computeEffectiveTargets returns, per controlled node, the cpuset that must be
-// enforced so the cgroup v1 parent-superset invariant holds while expected kube
-// cgroups and reclaim NUMA buckets converge:
-//
-//	effective(primary) = desired(primary) ∪ expectedKubeCurrentCPUSet(primary)
-//	effective(primary) additionally ∪ protectedPending (allocations with no leaf yet)
-//	effective(reclaim parent) includes its reclaim NUMA bucket targets
-//
-// expectedKubeCurrentCPUSet(rel) is the union of current cpusets for kube rels
-// that are present in ExpectedCPUSetByRel. Unrelated pod-scoped cgroups are not
-// protected because their current cpuset may be an inherited full-machine value.
-//
-// After widening, reclaim targets are deducted by the union of primary effective
-// targets, reclaim parents are widened to contain NUMA buckets, and reclaim NUMA
-// siblings are checked for disjointness.
-func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, dag *TopoDAG, expected map[string]machine.CPUSet, controlledRels map[string]struct{}, allowEmptyTarget bool, protectKubeLeaf bool, kubeRelPrefix string, protectedPending machine.CPUSet, cache *applyCache) (map[string]machine.CPUSet, error) {
+func isUnderRelPrefix(rel, prefix string) bool {
+	rel = strings.Trim(rel, "/")
+	prefix = strings.Trim(prefix, "/")
+	if rel == "" || prefix == "" {
+		return false
+	}
+	return rel != prefix && strings.HasPrefix(rel, prefix+"/")
+}
+
+func hasLiveTaskInSubtree(ctx context.Context, cg cgroupclient.CgroupClient, rel string, depth int, cache *applyCache, liveChildren bool) bool {
+	if depth >= maxEnforceDepth {
+		return false
+	}
+	for _, file := range []string{"tasks", "cgroup.procs"} {
+		raw, err := cg.ReadCgroupFile(ctx, rel, file)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(raw)) != "" {
+			return true
+		}
+	}
+	children, err := listShrinkChildren(ctx, cg, rel, cache, liveChildren)
+	if err != nil {
+		return false
+	}
+	for _, name := range children {
+		if hasLiveTaskInSubtree(ctx, cg, filepath.Join(rel, name), depth+1, cache, liveChildren) {
+			return true
+		}
+	}
+	return false
+}
+
+func primaryRelPath(dag *TopoDAG) string {
+	if dag == nil {
+		return ""
+	}
+	for _, n := range dag.Nodes() {
+		if n.Role == TopoNodeRolePrimary {
+			return n.Rel
+		}
+	}
+	return ""
+}
+
+func desiredTargets(dag *TopoDAG) map[string]machine.CPUSet {
 	effective := map[string]machine.CPUSet{}
 	for _, n := range dag.Nodes() {
 		effective[n.Rel] = n.CPUs
 	}
-	if !protectKubeLeaf {
-		return effective, nil
-	}
+	return effective
+}
+
+// computeEffectiveTargets returns, per controlled node, the cpuset that must be
+// enforced so the cgroup v1 parent-superset invariant holds while expected kube
+// cgroups and reclaim NUMA buckets converge:
+//
+//	effective(primary) = desired(primary) ∪ protectedPending (allocations with no leaf yet)
+//	effective(reclaim parent) includes its reclaim NUMA bucket targets
+//
+// Existing kube leaves under a primary rel are expected to converge through the
+// shrink/expand descendant pass instead of widening the primary effective
+// target with inherited full-machine cpusets.
+//
+// After pending widening, reclaim targets are deducted by the union of primary
+// effective targets, reclaim parents are widened to contain NUMA buckets, and
+// reclaim NUMA siblings are checked for disjointness.
+func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, protectedPending machine.CPUSet) (map[string]machine.CPUSet, error) {
+	effective := desiredTargets(dag)
 	for _, n := range dag.Nodes() {
 		if n.Role != TopoNodeRolePrimary {
 			continue
@@ -477,7 +793,7 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 		if allowEmptyTarget && n.CPUs.IsEmpty() {
 			continue
 		}
-		protectedUnion := collectProtectedLeafCPUSet(ctx, cg, n.Rel, expected, controlledRels, kubeRelPrefix, 0, cache)
+		protectedUnion := machine.NewCPUSet()
 		if !protectedPending.IsEmpty() {
 			protectedUnion = protectedUnion.Union(protectedPending)
 		}
@@ -485,7 +801,7 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 			continue
 		}
 		effective[n.Rel] = n.CPUs.Union(protectedUnion)
-		general.InfofV(5, "topo_dag_writer: widen primary effective target for protected leaves, rel=%q desired=%s protected=%s effective=%s",
+		general.InfofV(5, "topo_dag_writer: widen primary effective target for pending allocations, rel=%q desired=%s pending=%s effective=%s",
 			n.Rel, n.CPUs.String(), protectedUnion.String(), effective[n.Rel].String())
 	}
 	normalizeReclaimTargetsByPrimary(dag, effective)
@@ -497,45 +813,6 @@ func computeEffectiveTargets(ctx context.Context, cg cgroupclient.CgroupClient, 
 		return nil, err
 	}
 	return effective, nil
-}
-
-// collectProtectedLeafCPUSet walks rel's subtree and unions the current cpuset
-// only for kube cgroups present in expected. This protects parent shrink from
-// racing ahead of the child cgroup update, without preserving unrelated
-// pod-scoped cgroups whose current cpuset may be an inherited/default
-// full-machine value.
-func collectProtectedLeafCPUSet(ctx context.Context, cg cgroupclient.CgroupClient, rel string, expected map[string]machine.CPUSet, controlledRels map[string]struct{}, kubeRelPrefix string, depth int, cache *applyCache) machine.CPUSet {
-	out := machine.NewCPUSet()
-	if depth >= maxEnforceDepth {
-		return out
-	}
-	children, err := cache.listChildren(ctx, rel)
-	if err != nil {
-		general.InfofV(5, "topo_dag_writer: list children failed during expected kube current collection, rel=%q err=%v", rel, err)
-		return out
-	}
-	for _, name := range children {
-		childRel := filepath.Join(rel, name)
-		if _, isControlled := controlledRels[childRel]; isControlled {
-			continue
-		}
-		if _, ok := expected[childRel]; ok {
-			if isKubeManagedPodRel(childRel, kubeRelPrefix) {
-				cur, readErr := cg.ReadCPUSet(ctx, childRel)
-				switch {
-				case readErr != nil:
-					general.InfofV(5, "topo_dag_writer: read cpuset failed for expected kube rel protection, widen skipped, rel=%q err=%v", childRel, readErr)
-				case !cur.IsEmpty():
-					out = out.Union(cur)
-				}
-			}
-		}
-		if cache.expectedDescendantUnion(childRel).IsEmpty() {
-			continue
-		}
-		out = out.Union(collectProtectedLeafCPUSet(ctx, cg, childRel, expected, controlledRels, kubeRelPrefix, depth+1, cache))
-	}
-	return out
 }
 
 func normalizeReclaimTargetsByPrimary(dag *TopoDAG, effective map[string]machine.CPUSet) {
@@ -683,10 +960,11 @@ func reclaimParentForBucket(dag *TopoDAG, node *TopoNode) *TopoNode {
 	return nil
 }
 
-func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, allowEmptyTarget bool, protectKubeLeaf bool, kubeRelPrefix string, res *DAGApplyResult, firstErr *error, depth int, cache *applyCache) {
+func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult, firstErr *error, depth int, cache *applyCache) {
 	if depth >= maxEnforceDepth || (parentTarget.IsEmpty() && !allowEmptyTarget) {
 		return
 	}
+	version := cg.Version(ctx)
 	children, err := cache.listChildren(ctx, parentRel)
 	if err != nil {
 		general.InfofV(5, "topo_dag_writer: list children failed during expand descent, rel=%q err=%v", parentRel, err)
@@ -694,7 +972,13 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 	}
 	writeAndDescend := func(childRel string, cpus machine.CPUSet, childInExpected bool) {
 		res.Attempted++
-		if err := applyCPUSet(ctx, cg, childRel, cpus, ""); err != nil {
+		if err := shrinkNodeConverge(ctx, cg, childRel, cpus, "", expected, version, res, depth+1, cache); err != nil {
+			if isCgroupNotFoundError(err) {
+				res.Skipped++
+				general.InfofV(5, "topo_dag_writer: skip disappeared dynamic cgroup during expand, rel=%q target=%s err=%v",
+					childRel, cpus.String(), err)
+				return
+			}
 			res.Failed++
 			if *firstErr == nil {
 				*firstErr = err
@@ -708,7 +992,7 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 			return
 		}
 		res.Applied++
-		expandDescendants(ctx, cg, childRel, cpus, childInExpected, controlledRels, expected, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, res, firstErr, depth+1, cache)
+		expandDescendants(ctx, cg, childRel, cpus, childInExpected, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
 	}
 	for _, name := range children {
 		childRel := filepath.Join(parentRel, name)
@@ -721,40 +1005,10 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 			}
 			continue
 		}
-		// Leave Kubernetes-managed subtrees that are not present in the expected
-		// map untouched: never propagate the parent pool target onto unrelated
-		// pod-scoped cgroups. Pod parent cgroups are intermediate nodes, and
-		// sandbox/pause/reclaim leaves are not protected by primary widening.
-		// Also leave non-pod intermediate nodes untouched when they contain an
-		// unresolved pod-scoped descendant; otherwise writing that intermediate
-		// node can fail or narrow a parent of unrelated pod-scoped leaves.
-		// If the protected subtree contains expected container leaves, safely
-		// expand each intermediate node to current ∪ expectedDescendants so the
-		// expected leaves can still expand without narrowing unrelated pod leaves.
-		if protectKubeLeaf && !parentTarget.IsEmpty() && cache.hasKubeManagedPodInSubtree(ctx, childRel, depth+1) {
-			res.Skipped++
-			if expUnion := cache.expectedDescendantUnion(childRel); !expUnion.IsEmpty() {
-				cur, readErr := cg.ReadCPUSet(ctx, childRel)
-				if readErr == nil {
-					observedDescendants := observedCPUSetDescendantUnion(ctx, cg, childRel, depth+1, cache)
-					safeTarget := cur.Union(observedDescendants).Union(expUnion)
-					if safeTarget.IsSubsetOf(parentTarget) {
-						general.InfofV(5, "topo_dag_writer: safely expand protected kube subtree intermediate, rel=%q cur=%s observedDescendants=%s expectedDescendants=%s target=%s",
-							childRel, cur.String(), observedDescendants.String(), expUnion.String(), safeTarget.String())
-						writeAndDescend(childRel, safeTarget, true)
-						continue
-					}
-					if expUnion.IsSubsetOf(cur) && !cur.IsEmpty() {
-						general.InfofV(5, "topo_dag_writer: descend protected kube subtree with current cpuset, rel=%q cur=%s expectedDescendants=%s parentTarget=%s",
-							childRel, cur.String(), expUnion.String(), parentTarget.String())
-						expandDescendants(ctx, cg, childRel, cur, true, controlledRels, expected, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, res, firstErr, depth+1, cache)
-						continue
-					}
-				}
-			}
-			general.InfofV(5, "topo_dag_writer: skip unrelated kube subtree during expand, rel=%q parentTarget=%s", childRel, parentTarget.String())
-			continue
-		}
+		// Runtime-managed descendants are also converged by bulkhead. They are
+		// not used to widen parent targets with inherited full-machine cpusets;
+		// instead this expand/shrink pass recursively propagates the parent
+		// target unless a more specific expected target was supplied above.
 		if parentInExpected {
 			cur, readErr := cg.ReadCPUSet(ctx, childRel)
 			if readErr != nil {
@@ -768,12 +1022,12 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 				continue
 			}
 			if allowEmptyTarget && cur.IsEmpty() {
-				expandDescendants(ctx, cg, childRel, parentTarget, true, controlledRels, expected, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, res, firstErr, depth+1, cache)
+				expandDescendants(ctx, cg, childRel, parentTarget, true, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
 				continue
 			}
 			if cur.IsSubsetOf(parentTarget) {
 				if !cur.IsEmpty() {
-					expandDescendants(ctx, cg, childRel, cur, true, controlledRels, expected, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, res, firstErr, depth+1, cache)
+					expandDescendants(ctx, cg, childRel, cur, true, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
 				}
 				continue
 			}
@@ -787,7 +1041,7 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 		}
 		if allowEmptyTarget {
 			if obs, obsErr := cg.ReadCPUSet(ctx, childRel); obsErr == nil && obs.IsEmpty() {
-				expandDescendants(ctx, cg, childRel, parentTarget, false, controlledRels, expected, allowEmptyTarget, protectKubeLeaf, kubeRelPrefix, res, firstErr, depth+1, cache)
+				expandDescendants(ctx, cg, childRel, parentTarget, false, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
 				continue
 			}
 		}
@@ -814,54 +1068,6 @@ func observedCPUSetDescendantUnion(ctx context.Context, cg cgroupclient.CgroupCl
 	return out
 }
 
-// isKubeManagedPodRel reports whether rel points at a Kubernetes pod-scoped
-// cgroup (a "pod<uid>" segment, or anything beneath it such as a container
-// leaf) under the given managed prefix. These nodes are owned by
-// kubelet/containerd/runc rather than bulkhead. When kubeRelPrefix is non-empty
-// the rel must live under it (e.g. "kubepods"); an empty prefix disables the
-// scoping and only relies on the pod-segment heuristic.
-func isKubeManagedPodRel(rel, kubeRelPrefix string) bool {
-	rel = strings.Trim(rel, "/")
-	if rel == "" {
-		return false
-	}
-	prefix := strings.Trim(kubeRelPrefix, "/")
-	if prefix != "" {
-		if rel != prefix && !strings.HasPrefix(rel, prefix+"/") {
-			return false
-		}
-	}
-	for _, part := range strings.Split(rel, "/") {
-		if isKubePodSegment(part) {
-			return true
-		}
-	}
-	return false
-}
-
-// isKubePodSegment matches a cgroup path segment that encodes a Kubernetes pod
-// UID. Kubelet emits "pod<uid>" for both cgroupfs and systemd layouts; we
-// accept the "pod" prefix followed by a UID-like body (hex digits, dashes,
-// underscores). Tightening this to require at least one dash/hex-digit was
-// considered but skipped to preserve compatibility with all kubelet layouts.
-func isKubePodSegment(part string) bool {
-	const podPrefix = "pod"
-	if len(part) <= len(podPrefix) || !strings.HasPrefix(part, podPrefix) {
-		return false
-	}
-	body := part[len(podPrefix):]
-	for _, r := range body {
-		if r == '-' || r == '_' ||
-			(r >= '0' && r <= '9') ||
-			(r >= 'a' && r <= 'f') ||
-			(r >= 'A' && r <= 'F') {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
 // applyCache is a per-ApplyDAGDiff memo that eliminates repeated cgroup tree
 // walks within one applyTwoPhase invocation. It must NOT be reused across
 // applies.
@@ -871,10 +1077,8 @@ func isKubePodSegment(part string) bool {
 // apply (a new pod/container leaf may be mkdir'd between two syscalls). The
 // cache therefore only backs code paths where a stale (slightly-too-old)
 // children view is SAFE:
-//   - effective-target widening (collectProtectedLeafCPUSet) is fail-open:
-//     missing a just-created leaf only means the primary is not widened to
-//     cover it this round; the pending-cpuset union and the next round catch
-//     it, and no invariant is broken.
+//   - effective-target computation only folds in QRM state known pending
+//     allocations and does not depend on a complete live child list.
 //   - the expand descent is a single forward fail-open pass: missing a child
 //     just skips it this round.
 //   - the first shrink convergence attempt can use the cached children view as
@@ -889,8 +1093,6 @@ func isKubePodSegment(part string) bool {
 // Fields:
 //   - children: memoized cg.ListChildren(rel) result, shared among fail-open
 //     callers and the first shrink convergence attempt.
-//   - kubeInSubtree: memoized hasKubeManagedPodInSubtree(rel). The predicate
-//     only depends on rel string shape + subtree topology.
 //   - expectedDescendantIdx: prefix -> union of every ExpectedCPUSetByRel entry
 //     whose rel equals or lives under prefix. Precomputed once so that
 //     expectedDescendantUnion becomes an O(1) lookup instead of scanning the
@@ -899,7 +1101,6 @@ type applyCache struct {
 	cg                    cgroupclient.CgroupClient
 	kubeRelPrefix         string
 	children              map[string][]string
-	kubeInSubtree         map[string]bool
 	expectedDescendantIdx map[string]machine.CPUSet
 }
 
@@ -908,7 +1109,6 @@ func newApplyCache(cg cgroupclient.CgroupClient, kubeRelPrefix string, expected 
 		cg:            cg,
 		kubeRelPrefix: kubeRelPrefix,
 		children:      map[string][]string{},
-		kubeInSubtree: map[string]bool{},
 	}
 	c.expectedDescendantIdx = buildExpectedDescendantIndex(expected)
 	return c
@@ -930,36 +1130,6 @@ func (c *applyCache) listChildren(ctx context.Context, rel string) ([]string, er
 	cp := append([]string(nil), v...)
 	c.children[rel] = cp
 	return cp, nil
-}
-
-// hasKubeManagedPodInSubtree returns whether rel or any descendant is a
-// Kubernetes-managed pod-scoped cgroup. Results are memoized per rel; children
-// are resolved through listChildren so the underlying cg.ListChildren is also
-// shared with other callers.
-func (c *applyCache) hasKubeManagedPodInSubtree(ctx context.Context, rel string, depth int) bool {
-	if v, ok := c.kubeInSubtree[rel]; ok {
-		return v
-	}
-	if isKubeManagedPodRel(rel, c.kubeRelPrefix) {
-		c.kubeInSubtree[rel] = true
-		return true
-	}
-	if depth >= maxEnforceDepth {
-		return false
-	}
-	children, err := c.listChildren(ctx, rel)
-	if err != nil {
-		return false
-	}
-	for _, name := range children {
-		childRel := filepath.Join(rel, name)
-		if c.hasKubeManagedPodInSubtree(ctx, childRel, depth+1) {
-			c.kubeInSubtree[rel] = true
-			return true
-		}
-	}
-	c.kubeInSubtree[rel] = false
-	return false
 }
 
 // expectedDescendantUnion returns the pre-indexed union of every expected leaf

@@ -34,38 +34,51 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 		bulkheadConfig *configv1alpha1.BulkheadConfig
 		wantEnable     bool
 		wantTopology   bool
+		wantMems       bool
 		wantWorkqueue  bool
 	}{
 		{
 			name:          "nil bulkhead config keeps old value",
 			initialEnable: true,
 			wantEnable:    true,
+			wantMems:      true,
 		},
 		{
 			name:           "nil enable keeps old value",
 			initialEnable:  true,
 			bulkheadConfig: &configv1alpha1.BulkheadConfig{},
 			wantEnable:     true,
+			wantMems:       true,
 		},
 		{
 			name:           "enable true overrides",
 			bulkheadConfig: &configv1alpha1.BulkheadConfig{Enable: boolPtr(true)},
 			wantEnable:     true,
+			wantMems:       true,
 		},
 		{
 			name:           "enable false overrides",
 			initialEnable:  true,
 			bulkheadConfig: &configv1alpha1.BulkheadConfig{Enable: boolPtr(false)},
+			wantMems:       true,
+		},
+		{
+			name: "cpuset mems false overrides default",
+			bulkheadConfig: &configv1alpha1.BulkheadConfig{
+				EnableBulkheadCpusetMems: boolPtr(false),
+			},
 		},
 		{
 			name: "all bulkhead fields override",
 			bulkheadConfig: &configv1alpha1.BulkheadConfig{
 				Enable:                       boolPtr(true),
 				EnableBulkheadCpusetTopology: boolPtr(true),
+				EnableBulkheadCpusetMems:     boolPtr(true),
 				EnableBulkheadWorkqueue:      boolPtr(true),
 			},
 			wantEnable:    true,
 			wantTopology:  true,
+			wantMems:      true,
 			wantWorkqueue: true,
 		},
 	}
@@ -96,6 +109,9 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 			}
 			if c.BulkheadConfig.EnableBulkheadCpusetTopology != tt.wantTopology {
 				t.Fatalf("EnableBulkheadCpusetTopology = %t, want %t", c.BulkheadConfig.EnableBulkheadCpusetTopology, tt.wantTopology)
+			}
+			if c.BulkheadConfig.EnableBulkheadCpusetMems != tt.wantMems {
+				t.Fatalf("EnableBulkheadCpusetMems = %t, want %t", c.BulkheadConfig.EnableBulkheadCpusetMems, tt.wantMems)
 			}
 			if c.BulkheadConfig.EnableBulkheadWorkqueue != tt.wantWorkqueue {
 				t.Fatalf("EnableBulkheadWorkqueue = %t, want %t", c.BulkheadConfig.EnableBulkheadWorkqueue, tt.wantWorkqueue)
