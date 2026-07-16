@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-`katalyst-core` (module `github.com/kubewharf/katalyst-core`) is the upstream implementation of the Katalyst QoS resource-management stack: node agent, control-plane controllers, custom scheduler, admission webhook, and custom-metric server. It depends on `katalyst-api` for CRD types, constants, and plugin protocols; internal downstream repos vendor both and add site-specific behavior on top.
+`katalyst-core` (module `github.com/kubewharf/katalyst-core`) is the upstream implementation of the Katalyst QoS resource-management stack: node agent, control-plane controllers, custom scheduler, admission webhook, and custom-metric server. It depends on `katalyst-api` for CRD types, constants, and plugin protocols; internal downstream repos consume both upstream repos and add site-specific behavior on top.
 
 ## 2. Critical Rules
 
@@ -48,11 +48,11 @@ Before pushing, run `make fmt-strict && make vet && make test`, i.e.:
 
 ### CI Notes
 
-CI runs formatting, `vet`, build, `paralleltest`, unit tests, and license checks; release workflows build and publish images for `main`, `release-*`, and tags. `paralleltest` is enforced — every `t.Run` subtest must call `t.Parallel()`.
+CI runs formatting, `vet`, build, `paralleltest`, unit tests, and license checks; release workflows build and publish images for `master`, `main`, `release-*`, and published releases. `paralleltest` is enforced — every `t.Run` subtest must call `t.Parallel()`.
 
 ## 5. Coding & Editing Rules
 
-- Go toolchain: `go.mod` is the single source of truth (Go 1.18+); tabs for indentation.
+- Go toolchain: `go.mod` is the single source of truth (Go 1.18); tabs for indentation.
 - Use `goimports` with local prefix `github.com/kubewharf`.
 - Package names are lower-case single words; exported identifiers use MixedCaps.
 - `make license` repairs Apache-2.0 header drift (see section 2, rule 6).
@@ -68,7 +68,7 @@ CI runs formatting, `vet`, build, `paralleltest`, unit tests, and license checks
 
 - Generated files owned by this repo (do not hand-edit — see section 2, rule 1): `zz_generated_*.go`, `*.pb.go`. Regenerate via `make generate` / `make generate-pb`.
 - `katalyst-api` is consumed via `go.mod` pin. See section 2, rule 2 for what belongs upstream.
-- This repo does not vendor any downstream repo; downstream repos vendor this one.
+- This repo does not vendor any downstream repo; downstream repos consume it via module pins or deployment artifacts.
 
 ## 8. Testing
 
@@ -98,7 +98,7 @@ Backward-compatibility policy for flags, config, plugin protocols, and exported 
 ## 11. Commit & Release
 
 - Conventional Commits are not enforced by tooling in this repo; follow upstream `kubewharf` project conventions.
-- Release workflows build and publish images for `main`, `release-*`, and tags.
+- Release workflows build and publish images for `master`, `main`, `release-*`, and published releases.
 - Ownership and contribution process: see `CODEOWNERS`, `MAINTAINERS.md`, `GOVERNANCE.md`, and `CONTRIBUTING.md`.
 
 ## 12. Cross-Repo Change Playbooks
@@ -109,7 +109,7 @@ The Katalyst stack is layered strictly from schema to rollout:
 
 1. `katalyst-api` — shared schema, constants, and plugin protocols.
 2. `katalyst-core` — upstream runtime binaries (agent, controller, scheduler, webhook, metric).
-3. Internal downstream repos — internal-only repos vendor the upstream releases and produce deployment artifacts. Their contents and workflows are out of scope for this file.
+3. Internal downstream repos — internal-only repos consume the upstream releases and produce deployment artifacts. Their contents and workflows are out of scope for this file.
 
 Dependency direction is one-way: internal downstream <- `katalyst-core` <- `katalyst-api`. Never introduce reverse or cyclic imports. Cross-repo changes always land in `katalyst-api` first, then `katalyst-core`, then internal downstream.
 
