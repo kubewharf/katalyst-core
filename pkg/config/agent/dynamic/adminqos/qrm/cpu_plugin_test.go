@@ -36,6 +36,7 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 		wantTopology   bool
 		wantMems       bool
 		wantWorkqueue  bool
+		wantSystem     bool
 	}{
 		{
 			name:          "nil bulkhead config keeps old value",
@@ -75,11 +76,13 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 				EnableBulkheadCpusetTopology: boolPtr(true),
 				EnableBulkheadCpusetMems:     boolPtr(true),
 				EnableBulkheadWorkqueue:      boolPtr(true),
+				EnableBulkheadSystemService:  boolPtr(true),
 			},
 			wantEnable:    true,
 			wantTopology:  true,
 			wantMems:      true,
 			wantWorkqueue: true,
+			wantSystem:    true,
 		},
 	}
 
@@ -115,6 +118,9 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 			}
 			if c.BulkheadConfig.EnableBulkheadWorkqueue != tt.wantWorkqueue {
 				t.Fatalf("EnableBulkheadWorkqueue = %t, want %t", c.BulkheadConfig.EnableBulkheadWorkqueue, tt.wantWorkqueue)
+			}
+			if c.BulkheadConfig.EnableBulkheadSystemService != tt.wantSystem {
+				t.Fatalf("EnableBulkheadSystemService = %t, want %t", c.BulkheadConfig.EnableBulkheadSystemService, tt.wantSystem)
 			}
 		})
 	}

@@ -44,6 +44,23 @@ func TestBuildDAGValidationAndTraversal(t *testing.T) {
 	if !reflect.DeepEqual(nodeRels, []string{"primary", "primary/child-a", "primary/child-b"}) {
 		t.Fatalf("Nodes order = %v", nodeRels)
 	}
+	if dag.index["primary"].parent != nil {
+		t.Fatalf("top-level node parent = %v, want nil", dag.index["primary"].parent.Rel)
+	}
+	if parentNodeOf(nil) != nil {
+		t.Fatalf("nil node parent should be nil")
+	}
+	if parentNodeOf(dag.index["primary"]) != nil {
+		t.Fatalf("top-level parentNodeOf should be nil")
+	}
+	for _, rel := range []string{"primary/child-a", "primary/child-b"} {
+		if dag.index[rel].parent != dag.index["primary"] {
+			t.Fatalf("node %q parent = %v, want primary", rel, dag.index[rel].parent)
+		}
+		if parentNodeOf(dag.index[rel]) != dag.index["primary"] {
+			t.Fatalf("node %q parentNodeOf mismatch", rel)
+		}
+	}
 
 	var shrinkOrder []string
 	if err := dag.ForEachShrink(func(n *TopoNode) error {

@@ -46,9 +46,13 @@ package systemservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+
+	apierrors "k8s.io/apimachinery/pkg/util/errors"
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -162,11 +166,10 @@ func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkhead
 			return nil
 		}
 		err := p.resetTargetToRoot(ctx, in)
-		// Always mark tracker as disabled, even on reset error, to prevent a
-		// storm of retries. A subsequent enabled tick will overwrite the
-		// tracker and let the next disable transition trigger reset again.
-		f := false
-		p.lastPeriodicalEnabled = &f
+		if err == nil {
+			f := false
+			p.lastPeriodicalEnabled = &f
+		}
 		return err
 	}
 
@@ -187,6 +190,9 @@ func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.Per
 	// Target cgroup not created yet — bail early, cpuset_topology owns
 	// creation. Next tick will retry.
 	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat target cgroup %q: %w", p.targetRel, err)
+		}
 		general.InfofV(4, "system_service: target cgroup missing, skipping, rel=%q err=%v",
 			p.targetRel, err)
 		emitBulkheadSystemServiceResult(in.Emitter, "migrate", "skipped", "target_cgroup_missing")
@@ -233,10 +239,13 @@ func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.Per
 // dynamic switch transitions from enabled to disabled (or the first tick
 // after restart observes disabled). It reads every PID currently in
 // targetRel/cgroup.procs and re-attaches it into the cpuset root (rel="")
-// via CgroupClient.AttachPID. Per-PID AttachPID failures are logged at V(4)
-// and tolerated; only listing / ctx failures propagate.
+// via CgroupClient.AttachPID. Any per-PID failure is returned so the disabled
+// transition remains pending and a later tick retries the incomplete reset.
 func (p *SystemServicePlugin) resetTargetToRoot(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
 	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat target cgroup %q for reset: %w", p.targetRel, err)
+		}
 		general.InfofV(4, "system_service: reset skipped, target missing, rel=%q err=%v",
 			p.targetRel, err)
 		emitBulkheadSystemServiceResult(in.Emitter, "reset", "skipped", "target_cgroup_missing")
@@ -250,6 +259,7 @@ func (p *SystemServicePlugin) resetTargetToRoot(ctx context.Context, in bulkhead
 	}
 
 	moved := 0
+	var errs []error
 	for _, pid := range pids {
 		if ctx.Err() != nil {
 			emitBulkheadSystemServiceResult(in.Emitter, "reset", "failed", "context_canceled")
@@ -257,10 +267,15 @@ func (p *SystemServicePlugin) resetTargetToRoot(ctx context.Context, in bulkhead
 		}
 		if err := p.cgroup.AttachPID(ctx, "", pid); err != nil {
 			general.InfofV(4, "system_service: reset attach failed, pid=%d err=%v", pid, err)
+			errs = append(errs, fmt.Errorf("attach pid %d to root: %w", pid, err))
 			continue
 		}
 		general.InfofV(2, "system_service: reset migrated pid=%d back to root cgroup", pid)
 		moved++
+	}
+	if len(errs) != 0 {
+		emitBulkheadSystemServiceResult(in.Emitter, "reset", "failed", "attach_error")
+		return apierrors.NewAggregate(errs)
 	}
 	emitBulkheadSystemServiceResult(in.Emitter, "reset", "success", "")
 	general.InfofV(4, "system_service: reset complete, scanned=%d moved=%d", len(pids), moved)

@@ -246,6 +246,9 @@ func EqualCPUSetPartitionView(a, b *CPUSetPartitionView) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
+	// ContainerCPUSetByPod is intentionally excluded: leaf-only allocation
+	// changes must not trigger the expensive cpuset topology reconciliation when
+	// all aggregate partition CPU sets remain unchanged.
 	return a.Reserve.Equals(b.Reserve) &&
 		a.Dedicated.Equals(b.Dedicated) &&
 		a.SharePool.Equals(b.SharePool) &&

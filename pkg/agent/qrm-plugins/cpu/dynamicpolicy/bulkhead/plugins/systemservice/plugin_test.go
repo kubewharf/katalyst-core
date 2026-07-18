@@ -756,7 +756,7 @@ func TestPeriodicalHandler_ResetSkippedWhenTargetMissing(t *testing.T) {
 }
 
 // TestPeriodicalHandler_ResetToleratesAttachPIDErrors asserts per-PID
-// AttachPID failures during reset are swallowed and the handler returns nil.
+// AttachPID failures during reset are surfaced so the next disabled tick retries.
 func TestPeriodicalHandler_ResetToleratesAttachPIDErrors(t *testing.T) {
 	t.Parallel()
 	fFS := newFakeFS()
@@ -769,17 +769,17 @@ func TestPeriodicalHandler_ResetToleratesAttachPIDErrors(t *testing.T) {
 	tr := true
 	p.lastPeriodicalEnabled = &tr
 
-	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err != nil {
-		t.Fatalf("PeriodicalHandler must swallow per-PID reset attach errors: %v", err)
+	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err == nil {
+		t.Fatal("PeriodicalHandler must surface per-PID reset attach errors")
 	}
-	if trackerVal(t, p) != false {
-		t.Fatalf("tracker must be &false after tolerated reset failures, got &true")
+	if trackerVal(t, p) != true {
+		t.Fatalf("tracker must remain pending after reset failures, got &false")
 	}
 }
 
 // TestPeriodicalHandler_ResetListError asserts that when reading targetRel's
-// cgroup.procs fails, PeriodicalHandler surfaces the error but the tracker
-// still advances to &false to prevent a retry storm.
+// cgroup.procs fails, PeriodicalHandler surfaces the error and keeps the
+// transition pending so a later disabled tick retries.
 func TestPeriodicalHandler_ResetListError(t *testing.T) {
 	t.Parallel()
 	fFS := newFakeFS()
@@ -794,7 +794,7 @@ func TestPeriodicalHandler_ResetListError(t *testing.T) {
 	if err := p.PeriodicalHandler(context.Background(), periodCtx(false)); err == nil {
 		t.Fatalf("PeriodicalHandler must surface listTargetCgroupPIDs error")
 	}
-	if trackerVal(t, p) != false {
-		t.Fatalf("tracker must be &false even after reset listing error, got &true")
+	if trackerVal(t, p) != true {
+		t.Fatalf("tracker must remain pending after reset listing error, got &false")
 	}
 }

@@ -17,6 +17,9 @@ limitations under the License.
 package utils
 
 import (
+	"errors"
+	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,7 +37,7 @@ func BuildTopologyNodeSpecsFromView(
 	view *CPUSetPartitionView,
 	reclaimSiblings []string,
 	relExists RelExistsFunc,
-) []topology.NodeSpec {
+) ([]topology.NodeSpec, error) {
 	specs := []topology.NodeSpec{{Rel: cfg.BulkheadPrimaryRelPath, Role: topology.TopoNodeRolePrimary}}
 	if view != nil {
 		specs[0].CPUs = view.NonReclaimPool
@@ -46,6 +49,9 @@ func BuildTopologyNodeSpecsFromView(
 		}
 		if relExists != nil {
 			if err := relExists(reclaimRel); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return nil, fmt.Errorf("stat reclaim rel path %q: %w", reclaimRel, err)
+				}
 				general.InfofV(4, "bulkhead: reclaim rel path does not exist, skipping topology spec, rel=%q err=%v", reclaimRel, err)
 				continue
 			}
@@ -70,6 +76,9 @@ func BuildTopologyNodeSpecsFromView(
 			}
 			if relExists != nil {
 				if err := relExists(rel); err != nil {
+					if !errors.Is(err, os.ErrNotExist) {
+						return nil, fmt.Errorf("stat reclaim NUMA rel path %q: %w", rel, err)
+					}
 					general.InfofV(4, "bulkhead: reclaim NUMA rel path does not exist, skipping topology spec, rel=%q err=%v", rel, err)
 					continue
 				}
@@ -102,6 +111,9 @@ func BuildTopologyNodeSpecsFromView(
 		seen[rel] = struct{}{}
 		if relExists != nil {
 			if err := relExists(rel); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return nil, fmt.Errorf("stat reclaim sibling rel path %q: %w", rel, err)
+				}
 				general.InfofV(4, "bulkhead: reclaim sibling rel path does not exist, skipping topology spec, rel=%q err=%v", rel, err)
 				continue
 			}
@@ -112,7 +124,7 @@ func BuildTopologyNodeSpecsFromView(
 		}
 		specs = append(specs, spec)
 	}
-	return specs
+	return specs, nil
 }
 
 func sortedNUMAIDs(perNUMA map[int]machine.CPUSet) []int {

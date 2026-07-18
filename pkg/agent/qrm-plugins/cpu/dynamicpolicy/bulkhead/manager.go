@@ -206,7 +206,11 @@ func (m *Manager) RunPeriodicalHandlers(
 	}
 	var errs []error
 	for _, p := range m.plugins {
-		if err := p.PeriodicalHandler(ctx, handlerCtx); err != nil {
+		pluginCtx := handlerCtx
+		if enabled, ok := m.lastCPUSetAdjustmentEnabled[p.Name()]; ok {
+			pluginCtx.EffectiveEnabled = &enabled
+		}
+		if err := p.PeriodicalHandler(ctx, pluginCtx); err != nil {
 			wrapped := fmt.Errorf("bulkhead plugin %q periodical failed: %w", p.Name(), err)
 			general.ErrorS(wrapped, "bulkhead periodical handler failed")
 			emitBulkheadPluginResult(emitter, "periodical", p.Name(), "failed", err.Error())

@@ -60,7 +60,10 @@ func TestBuildTopologyNodeSpecsFromViewUsesBulkheadConfig(t *testing.T) {
 		ReclaimEffectivePerNUMA: map[int]machine.CPUSet{0: machine.NewCPUSet(2)},
 	}
 
-	specs := BuildTopologyNodeSpecsFromView(cfg, view, []string{"sibling"}, nil)
+	specs, err := BuildTopologyNodeSpecsFromView(cfg, view, []string{"sibling"}, nil)
+	if err != nil {
+		t.Fatalf("BuildTopologyNodeSpecsFromView: %v", err)
+	}
 	rels := map[string]struct{}{}
 	for _, spec := range specs {
 		rels[spec.Rel] = struct{}{}

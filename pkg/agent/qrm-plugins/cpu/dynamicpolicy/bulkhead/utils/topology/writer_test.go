@@ -79,7 +79,6 @@ func (f *topologyFakeCgroup) ReadCPUSet(_ context.Context, rel string) (machine.
 }
 
 func (f *topologyFakeCgroup) ApplyCPUSet(_ context.Context, rel string, data *cgcommon.CPUSetData) error {
-	target := machine.MustParse(data.CPUs)
 	if f.onApply != nil {
 		f.onApply(rel, data)
 	}
@@ -89,7 +88,12 @@ func (f *topologyFakeCgroup) ApplyCPUSet(_ context.Context, rel string, data *cg
 	if f.failRel[rel] {
 		return fmt.Errorf("forced failure @ %s", rel)
 	}
-	if f.enforceParentContainsTarget {
+	var target machine.CPUSet
+	writeCPUs := data.CPUs != "" || data.WriteEmptyCPUs
+	if writeCPUs {
+		target = machine.MustParse(data.CPUs)
+	}
+	if writeCPUs && f.enforceParentContainsTarget {
 		parent := filepath.Dir(rel)
 		if parent != "." && parent != rel {
 			if parentCPUs, ok := f.cpus[parent]; ok && !target.IsSubsetOf(parentCPUs) {
@@ -97,7 +101,7 @@ func (f *topologyFakeCgroup) ApplyCPUSet(_ context.Context, rel string, data *cg
 			}
 		}
 	}
-	if f.version != cgroupclient.CgroupVersionV2 || !target.IsEmpty() {
+	if writeCPUs && (f.version != cgroupclient.CgroupVersionV2 || !target.IsEmpty()) {
 		for _, child := range f.children[rel] {
 			childRel := filepath.Join(rel, child)
 			if childCPUs := f.cpus[childRel]; !childCPUs.IsEmpty() && !childCPUs.IsSubsetOf(target) {
@@ -105,7 +109,9 @@ func (f *topologyFakeCgroup) ApplyCPUSet(_ context.Context, rel string, data *cg
 			}
 		}
 	}
-	f.cpus[rel] = target.Clone()
+	if writeCPUs {
+		f.cpus[rel] = target.Clone()
+	}
 	f.writes = append(f.writes, cpusetWrite{
 		rel:            rel,
 		cpus:           data.CPUs,
@@ -134,34 +140,40 @@ func (f *topologyFakeCgroup) ReadCgroupFile(_ context.Context, rel, file string)
 	return nil, nil
 }
 
-func TestApplyDAGDiffRejectsDisjointReplacement(t *testing.T) {
+func TestApplyDAGDiffBridgesDisjointReplacement(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{
-		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(2, 3), Mems: "0"},
-		{Rel: "primary/pod", ParentRel: "primary", Role: TopoNodeRoleReclaimSibling, CPUs: machine.NewCPUSet(2, 3), Mems: "0"},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(2, 3), Mems: "0"},
+		{Rel: "reclaim/numa-0", ParentRel: "reclaim", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(2, 3), Mems: "0"},
 	})
 	if err != nil {
 		t.Fatalf("BuildDAG: %v", err)
 	}
 	cg := newTopologyFakeCgroup()
-	cg.cpus["primary"] = machine.NewCPUSet(0, 1)
-	cg.cpus["primary/pod"] = machine.NewCPUSet(0, 1)
-	cg.children["primary"] = []string{"pod"}
+	cg.cpus["reclaim"] = machine.NewCPUSet(0, 1)
+	cg.cpus["reclaim/numa-0"] = machine.NewCPUSet(0, 1)
+	cg.children["reclaim"] = []string{"numa-0"}
 
 	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
 		DAG:    dag,
 		Cgroup: cg,
 		Mems:   "0",
 		ExpectedCPUSetByRel: map[string]machine.CPUSet{
-			"primary/pod": machine.NewCPUSet(2, 3),
+			"reclaim/numa-0": machine.NewCPUSet(2, 3),
 		},
 	})
-	if err == nil {
-		t.Fatalf("expected disjoint replacement validation error, got result=%+v writes=%#v", res, cg.writes)
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v writes=%#v result=%+v", err, cg.writes, res)
 	}
-	if len(cg.writes) != 0 {
-		t.Fatalf("disjoint validation should fail before writes, got %#v", cg.writes)
+	want := []cpusetWrite{
+		{rel: "reclaim", cpus: "0-3", mems: "0"},
+		{rel: "reclaim/numa-0", cpus: "0-3", mems: "0"},
+		{rel: "reclaim/numa-0", cpus: "2-3", mems: "0"},
+		{rel: "reclaim", cpus: "2-3", mems: "0"},
+	}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v (result=%+v)", cg.writes, want, res)
 	}
 }
 
@@ -266,6 +278,44 @@ func TestApplyDAGDiffPreShrinksSiblingMovesBeforeTargetGrow(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cg.writes[:len(wantPrefix)], wantPrefix) {
 		t.Fatalf("writes = %#v, want prefix %#v", cg.writes, wantPrefix)
+	}
+}
+
+func TestApplyDAGDiffRecomputesBridgeAfterSiblingPreShrink(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(6)},
+		{Rel: "kubepods/pod-a", CPUs: machine.NewCPUSet(6), ParentRel: "kubepods"},
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 99)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubepods"] = machine.NewCPUSet(0, 99)
+	cg.cpus["kubepods/pod-a"] = machine.NewCPUSet(6)
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6)
+	cg.afterApply = func(rel string, data *cgcommon.CPUSetData) {
+		overlap := cg.cpus["kubepods"].Intersection(cg.cpus["kubesandbox"])
+		if !overlap.IsEmpty() {
+			t.Fatalf("overlap after write rel=%s cpus=%s: kubepods=%s kubesandbox=%s overlap=%s writes=%#v",
+				rel, data.CPUs, cg.cpus["kubepods"].String(), cg.cpus["kubesandbox"].String(), overlap.String(), cg.writes)
+		}
+	}
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:    dag,
+		Cgroup: cg,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v; writes=%#v", err, cg.writes)
+	}
+	for _, w := range cg.writes {
+		if w.rel == "kubepods" && strings.Contains(w.cpus, "99") {
+			t.Fatalf("bridged primary should not re-add CPU 99 after pre-shrink; writes=%#v", cg.writes)
+		}
 	}
 }
 

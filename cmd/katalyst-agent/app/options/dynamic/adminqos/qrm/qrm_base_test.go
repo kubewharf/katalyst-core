@@ -54,6 +54,8 @@ func TestQRMPluginOptions_AddFlags(t *testing.T) {
 		"enable-bulkhead-cpuset-topology",
 		"enable-bulkhead-cpuset-mems",
 		"enable-bulkhead-workqueue",
+		"enable-bulkhead-system-service",
+		"bind-irq-to-reclaimed-pool",
 		"bulkhead-non-reclaim-pool-min-size",
 	} {
 		if cpuPluginFlagSet.Lookup(name) == nil {
@@ -93,6 +95,8 @@ func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
 	options.EnableBulkheadCpusetTopology = true
 	options.EnableBulkheadCpusetMems = true
 	options.EnableBulkheadWorkqueue = true
+	options.EnableBulkheadSystemService = true
+	options.BindIRQToReclaimedPool = true
 	options.BulkheadNonReclaimPoolMinSize = 4
 	config := qrm.NewQRMPluginConfiguration()
 
@@ -111,6 +115,12 @@ func TestQRMPluginOptions_ApplyToDynamicBulkheadConfiguration(t *testing.T) {
 	}
 	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadWorkqueue {
 		t.Errorf("EnableBulkheadWorkqueue = false, want true")
+	}
+	if !config.CPUPluginConfiguration.BulkheadConfig.EnableBulkheadSystemService {
+		t.Errorf("EnableBulkheadSystemService = false, want true")
+	}
+	if !config.CPUPluginConfiguration.BindIRQToReclaimedPool {
+		t.Errorf("BindIRQToReclaimedPool = false, want true")
 	}
 	if config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize != 4 {
 		t.Errorf("NonReclaimPoolMinSize = %d, want 4", config.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize)

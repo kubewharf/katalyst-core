@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package topology describes the desired bulkhead cpuset cgroup hierarchy and
+// provides deterministic traversal helpers for safe shrink and expand writes.
 package topology
 
 import (
@@ -40,9 +42,19 @@ type TopoNode struct {
 	Mems     string
 	Metadata map[string]string
 
+	// parent is set only by BuildDAG from NodeSpec.ParentRel. Keeping it private
+	// preserves the DAG invariants while allowing bridge validation to inspect
+	// direct ancestors without scanning all nodes.
+	parent   *TopoNode
 	children []*TopoNode
 }
 
+// NodeSpec defines one desired topology node.
+//
+// Rel is the cgroup-relative path for the node. ParentRel is empty for a
+// top-level node; otherwise it must reference another NodeSpec.Rel in the same
+// BuildDAG input. CPUs and Mems carry the desired cpuset values, and Metadata
+// preserves caller-specific labels used by the writer.
 type NodeSpec struct {
 	Rel       string
 	Role      TopoNodeRole
@@ -57,6 +69,12 @@ type TopoDAG struct {
 	index    map[string]*TopoNode
 }
 
+// BuildDAG constructs a topology DAG from node specs.
+//
+// The input may be unordered. BuildDAG validates rel uniqueness, parent
+// existence, reachability, and cycles, then links both child and parent
+// references. The returned DAG owns copied Metadata maps so later caller-side
+// mutations cannot change node metadata.
 func BuildDAG(specs []NodeSpec) (*TopoDAG, error) {
 	d := &TopoDAG{index: map[string]*TopoNode{}}
 	for _, spec := range specs {
@@ -89,6 +107,7 @@ func BuildDAG(specs []NodeSpec) (*TopoDAG, error) {
 		if !ok {
 			return nil, fmt.Errorf("BuildDAG: parent %q for rel %q not found", parentRel, node.Rel)
 		}
+		node.parent = parent
 		pendingChildren[parent.Rel] = append(pendingChildren[parent.Rel], node)
 	}
 
@@ -103,6 +122,7 @@ func BuildDAG(specs []NodeSpec) (*TopoDAG, error) {
 	return d, nil
 }
 
+// Nodes returns all nodes in deterministic role/path order.
 func (d *TopoDAG) Nodes() []*TopoNode {
 	if d == nil {
 		return nil
@@ -120,6 +140,17 @@ func lessNode(a, b *TopoNode) bool {
 		return a.Role < b.Role
 	}
 	return a.Rel < b.Rel
+}
+
+// parentNodeOf returns the direct parent recorded during BuildDAG.
+//
+// Nil nodes and top-level nodes return nil. Callers should use this helper
+// instead of walking the DAG when they need immediate ancestor context.
+func parentNodeOf(node *TopoNode) *TopoNode {
+	if node == nil {
+		return nil
+	}
+	return node.parent
 }
 
 func (d *TopoDAG) detectCycles() error {

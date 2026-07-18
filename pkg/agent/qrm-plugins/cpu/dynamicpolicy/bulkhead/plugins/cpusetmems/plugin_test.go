@@ -190,7 +190,7 @@ func TestCPUSetMemsPluginPeriodicalReconcileWritesMemsOnly(t *testing.T) {
 	}
 }
 
-func TestCPUSetMemsPluginPeriodicalReconcileSkipsRecursiveWhenRootMemsMatches(t *testing.T) {
+func TestCPUSetMemsPluginPeriodicalReconcileRepairsDescendantsWhenRootMemsMatches(t *testing.T) {
 	t.Parallel()
 
 	cg := &fakeCgroupClient{
@@ -215,11 +215,11 @@ func TestCPUSetMemsPluginPeriodicalReconcileSkipsRecursiveWhenRootMemsMatches(t 
 	if err := p.PeriodicalHandler(context.Background(), periodicalCtx(true)); err != nil {
 		t.Fatalf("PeriodicalHandler: %v", err)
 	}
-	if cg.listCallCount != 0 {
-		t.Fatalf("ListChildren calls = %d, want 0 when root cpuset.mems already matches", cg.listCallCount)
+	if cg.listCallCount == 0 {
+		t.Fatalf("ListChildren calls = %d, want recursive descendant traversal", cg.listCallCount)
 	}
-	if cg.applyCallCount != 0 {
-		t.Fatalf("ApplyCPUSet calls = %d, want 0 when root cpuset.mems already matches", cg.applyCallCount)
+	if cg.applyCallCount == 0 {
+		t.Fatalf("ApplyCPUSet calls = %d, want descendant reconciliation", cg.applyCallCount)
 	}
 }
 

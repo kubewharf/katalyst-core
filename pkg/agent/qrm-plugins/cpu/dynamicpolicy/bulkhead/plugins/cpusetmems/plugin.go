@@ -127,13 +127,14 @@ func (p *CPUSetMemsPlugin) reconcileNUMAMems(ctx context.Context, version cgroup
 				continue
 			}
 			if _, err := p.cgroup.StatDir(ctx, rel); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					errs = append(errs, fmt.Errorf("stat reclaim NUMA rel %q: %w", rel, err))
+					continue
+				}
 				general.InfofV(4, "bulkhead cpuset_mems: reclaim NUMA rel path does not exist, skipping, version=%s rel=%q err=%v", version, rel, err)
 				continue
 			}
 			targetMems := strconv.Itoa(numaID)
-			if p.rootMemsMatches(ctx, rel, targetMems) {
-				continue
-			}
 			if err := p.applyMemsRecursive(ctx, rel, cgcommon.CPUSetData{Mems: targetMems}, memsPostOrder); err != nil {
 				errs = append(errs, err)
 			}
@@ -158,6 +159,10 @@ func (p *CPUSetMemsPlugin) rollbackNUMAMems(ctx context.Context, version cgroupc
 				continue
 			}
 			if _, err := p.cgroup.StatDir(ctx, rel); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					errs = append(errs, fmt.Errorf("stat reclaim NUMA rel %q for rollback: %w", rel, err))
+					continue
+				}
 				general.InfofV(4, "bulkhead cpuset_mems: rollback rel path does not exist, skipping, version=%s rel=%q err=%v", version, rel, err)
 				continue
 			}
@@ -167,15 +172,6 @@ func (p *CPUSetMemsPlugin) rollbackNUMAMems(ctx context.Context, version cgroupc
 		}
 	}
 	return apierrors.NewAggregate(errs)
-}
-
-func (p *CPUSetMemsPlugin) rootMemsMatches(ctx context.Context, rel, targetMems string) bool {
-	data, err := p.cgroup.ReadCgroupFile(ctx, rel, "cpuset.mems")
-	if err != nil {
-		general.InfofV(5, "bulkhead cpuset_mems: read root cpuset.mems failed, falling back to recursive apply, rel=%q targetMems=%q err=%v", rel, targetMems, err)
-		return false
-	}
-	return strings.TrimSpace(string(data)) == strings.TrimSpace(targetMems)
 }
 
 func (p *CPUSetMemsPlugin) applyMemsRecursive(ctx context.Context, rel string, data cgcommon.CPUSetData, order memsApplyOrder) error {

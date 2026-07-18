@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -79,7 +80,10 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "discover_error")
 		return fmt.Errorf("discover bulkhead reclaim siblings: %w", err)
 	}
-	specs := bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, in.View, siblings, relExists)
+	specs, err := bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, in.View, siblings, relExists)
+	if err != nil {
+		return fmt.Errorf("build bulkhead topology inputs: %w", err)
+	}
 	dag, err := topology.BuildDAG(specs)
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")
@@ -149,7 +153,10 @@ func (p *CPUSetTopologyPlugin) buildDisabledResetDAG(
 		return nil, fmt.Errorf("discover bulkhead reclaim siblings: %w", err)
 	}
 
-	specs := bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, in.View, siblings, relExists)
+	specs, err := bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, in.View, siblings, relExists)
+	if err != nil {
+		return nil, fmt.Errorf("build disabled reset topology inputs: %w", err)
+	}
 	if len(specs) == 0 {
 		return nil, nil
 	}
@@ -215,6 +222,9 @@ func (p *CPUSetTopologyPlugin) PeriodicalHandler(
 	in bulkheadapi.PeriodicalHandlerContext,
 ) error {
 	enabled := enableBulkheadCpusetTopologyByDynamicConf(in.DynamicConf)
+	if in.EffectiveEnabled != nil {
+		enabled = *in.EffectiveEnabled
+	}
 	if p.cgroup.Version(ctx) == cgroupclient.CgroupVersionV1 {
 		schedLoadBalance := !enabled
 		if err := p.cgroup.ApplySchedLoadBalance(ctx, "", schedLoadBalance); err != nil {
@@ -238,6 +248,10 @@ func (p *CPUSetTopologyPlugin) applyBulkheadPartitionFlag(ctx context.Context, f
 			continue
 		}
 		if _, err := p.cgroup.StatDir(ctx, rel); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("stat partition rel path %q: %w", rel, err))
+				continue
+			}
 			general.InfofV(4, "bulkhead: partition rel path does not exist, skipping, rel=%q err=%v", rel, err)
 			continue
 		}

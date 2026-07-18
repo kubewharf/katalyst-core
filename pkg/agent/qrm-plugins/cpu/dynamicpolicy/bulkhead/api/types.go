@@ -38,6 +38,10 @@ type PeriodicalHandlerContext struct {
 	DynamicConf *dynamicconfig.Configuration
 	Emitter     metrics.MetricEmitter
 	MetaServer  *metaserver.MetaServer
+	// EffectiveEnabled is derived from the same state-aware rule used by
+	// CPUSetAdjustmentHandler. nil distinguishes an unset value from an
+	// explicit disabled state.
+	EffectiveEnabled *bool
 }
 
 type Plugin interface {

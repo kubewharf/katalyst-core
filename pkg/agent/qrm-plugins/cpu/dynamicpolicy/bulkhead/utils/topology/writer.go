@@ -78,6 +78,8 @@ func ApplyDAGDiff(ctx context.Context, in DAGApplyInputs) (DAGApplyResult, error
 type nodeDiff struct {
 	grow          bool
 	shrink        bool
+	bridge        bool
+	bridgeTarget  machine.CPUSet
 	target        machine.CPUSet
 	shrinkTarget  machine.CPUSet
 	observed      machine.CPUSet
@@ -163,9 +165,10 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 			if d.grow && d.shrink {
 				intersection := observed.Intersection(target)
 				if intersection.IsEmpty() {
-					if ok, reason := allowReclaimNUMABucketDisjointReplacement(dag, n, target, effectiveTargets); ok {
+					if ok, reason := allowSafeDisjointReplacement(n, target, effectiveTargets); ok {
 						d.shrinkTarget = target
-						d.grow = false
+						d.bridge = true
+						d.bridgeTarget = observed.Union(target)
 						general.InfofV(4, "topo_dag_writer: allow safe reclaim numa disjoint replacement, rel=%q observed=%s target=%s reason=%s",
 							n.Rel, observed.String(), target.String(), reason)
 					} else {
@@ -178,10 +181,6 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 		}
 		diffs[n.Rel] = d
 	}
-	general.InfofV(5, "topo_dag_writer: diff skip_observed=%t protected_pending=%s kube_prefix=%q effective=%s diffs=%s",
-		in.SkipObservedRead, in.ProtectedPendingCPUSet.String(), kubeRelPrefix,
-		formatCPUSetMapForLog(effectiveTargets, 16), formatNodeDiffsForLog(diffs, 16))
-
 	var firstErr error
 	failedSiblingLeaving := machine.NewCPUSet()
 	if !in.SkipObservedRead {
@@ -194,7 +193,7 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 	// then intersection->target; disjoint jumps are rejected above.
 	_ = dag.ForEachShrink(func(n *TopoNode) error {
 		d, ok := diffs[n.Rel]
-		if !ok || !d.shrink {
+		if !ok || !d.shrink || d.bridge {
 			return nil
 		}
 		res.Attempted++
@@ -212,10 +211,17 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 		res.Applied++
 		return nil
 	})
+	if firstErr != nil {
+		return firstErr
+	}
 	_ = dag.ForEachExpand(func(n *TopoNode) error {
 		effTarget := effectiveTargets[n.Rel]
 		if d, ok := diffs[n.Rel]; ok && d.grow {
-			target := safeSiblingGrowTarget(n, d.target, failedSiblingLeaving)
+			target := d.target
+			if d.bridge {
+				target = d.bridgeTarget
+			}
+			target = safeSiblingGrowTarget(n, target, failedSiblingLeaving)
 			if target.IsEmpty() && !allowEmptyTarget {
 				res.Skipped++
 				general.InfofV(5, "topo_dag_writer: skip empty v1 sibling grow target, rel=%q original_target=%s failed_leaving=%s",
@@ -237,13 +243,57 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 				return nil
 			}
 			res.Applied++
-			if !target.Equals(d.target) {
+			if !d.bridge && !target.Equals(d.target) {
 				effTarget = target
 			}
 		}
 		if !effTarget.IsEmpty() || allowEmptyTarget {
 			expandDescendants(ctx, cg, n.Rel, effTarget, false, controlledRels, expected, allowEmptyTarget, res, &firstErr, 0, cache)
 		}
+		return nil
+	})
+	if firstErr != nil {
+		return firstErr
+	}
+	// Bridged nodes were expanded to observed union target first. After their
+	// children are safely inside the final target, shrink the bridged parent to
+	// the requested cpuset to restore the desired hierarchy.
+	_ = dag.ForEachShrink(func(n *TopoNode) error {
+		d, ok := diffs[n.Rel]
+		if !ok || !d.bridge {
+			return nil
+		}
+		for _, child := range n.children {
+			childDiff, childOK := diffs[child.Rel]
+			if !childOK {
+				continue
+			}
+			childTarget := childDiff.target
+			if current, err := cg.ReadCPUSet(ctx, child.Rel); err == nil && current.Equals(childTarget) {
+				continue
+			}
+			res.Attempted++
+			if err := applyCPUSet(ctx, cg, child.Rel, childTarget, memsForNode(child, in.Mems)); err != nil {
+				res.Failed++
+				if firstErr == nil {
+					firstErr = fmt.Errorf("apply bridged child cpuset.cpus=%s @ %s: %w", childTarget.String(), child.Rel, err)
+				}
+				return nil
+			}
+			res.Applied++
+		}
+		if firstErr != nil {
+			return nil
+		}
+		res.Attempted++
+		if err := applyCPUSet(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, in.Mems)); err != nil {
+			res.Failed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("apply bridged cpuset.cpus=%s @ %s: %w", d.shrinkTarget.String(), n.Rel, err)
+			}
+			return nil
+		}
+		res.Applied++
 		return nil
 	})
 	return firstErr
@@ -383,6 +433,7 @@ func recomputeNodeDiffWithObserved(d nodeDiff, observed machine.CPUSet) nodeDiff
 	d.grow = false
 	d.shrink = false
 	d.shrinkTarget = machine.NewCPUSet()
+	d.bridgeTarget = machine.NewCPUSet()
 	if !d.target.IsSubsetOf(observed) {
 		d.grow = true
 	}
@@ -394,6 +445,10 @@ func recomputeNodeDiffWithObserved(d nodeDiff, observed machine.CPUSet) nodeDiff
 		intersection := observed.Intersection(d.target)
 		if !intersection.IsEmpty() {
 			d.shrinkTarget = intersection
+			d.bridge = false
+		} else if d.bridge {
+			d.shrinkTarget = d.target
+			d.bridgeTarget = observed.Union(d.target)
 		}
 	}
 	return d
@@ -428,56 +483,6 @@ func applyCPUSet(ctx context.Context, cg cgroupclient.CgroupClient, rel string, 
 	}
 	general.InfofV(6, "topo_dag_writer: cpuset_write done rel=%q target=%s mems=%q", rel, cpus.String(), mems)
 	return nil
-}
-
-func formatCPUSetMapForLog(m map[string]machine.CPUSet, limit int) string {
-	if len(m) == 0 {
-		return "{}"
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	if limit <= 0 || limit > len(keys) {
-		limit = len(keys)
-	}
-	parts := make([]string, 0, limit+1)
-	for _, k := range keys[:limit] {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, m[k].String()))
-	}
-	if len(keys) > limit {
-		parts = append(parts, fmt.Sprintf("...(+%d)", len(keys)-limit))
-	}
-	return "{" + strings.Join(parts, ",") + "}"
-}
-
-func formatNodeDiffsForLog(diffs map[string]nodeDiff, limit int) string {
-	if len(diffs) == 0 {
-		return "{}"
-	}
-	keys := make([]string, 0, len(diffs))
-	for k := range diffs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	if limit <= 0 || limit > len(keys) {
-		limit = len(keys)
-	}
-	parts := make([]string, 0, limit+1)
-	for _, k := range keys[:limit] {
-		d := diffs[k]
-		observed := "unknown"
-		if d.observedKnown {
-			observed = d.observed.String()
-		}
-		parts = append(parts, fmt.Sprintf("%s{observed=%s,target=%s,shrinkTarget=%s,grow=%t,shrink=%t}",
-			k, observed, d.target.String(), d.shrinkTarget.String(), d.grow, d.shrink))
-	}
-	if len(keys) > limit {
-		parts = append(parts, fmt.Sprintf("...(+%d)", len(keys)-limit))
-	}
-	return "{" + strings.Join(parts, ",") + "}"
 }
 
 func isCgroupNotFoundError(err error) bool {
@@ -844,7 +849,7 @@ func normalizeReclaimParentContainsNUMABuckets(dag *TopoDAG, effective map[strin
 		if n.Role != TopoNodeRoleReclaimNUMABucket {
 			continue
 		}
-		parent := reclaimParentForBucket(dag, n)
+		parent := parentNodeOf(n)
 		if parent == nil {
 			continue
 		}
@@ -919,11 +924,32 @@ func validateReclaimNUMABucketSiblingsDisjoint(dag *TopoDAG, effective map[strin
 	return nil
 }
 
-func allowReclaimNUMABucketDisjointReplacement(dag *TopoDAG, node *TopoNode, target machine.CPUSet, effective map[string]machine.CPUSet) (bool, string) {
-	if node == nil || node.Role != TopoNodeRoleReclaimNUMABucket {
+// allowSafeDisjointReplacement reports whether a disjoint cpuset replacement can
+// be applied through a temporary bridge target.
+//
+// node is the topology node being replaced, target is its final desired cpuset,
+// and effective contains normalized target cpusets keyed by node rel. The check
+// only allows replacements that keep children within their parent target and do
+// not overlap sibling effective targets.
+func allowSafeDisjointReplacement(node *TopoNode, target machine.CPUSet, effective map[string]machine.CPUSet) (bool, string) {
+	if node == nil {
 		return false, "role_not_allowed"
 	}
-	parent := reclaimParentForBucket(dag, node)
+	if node.Role == TopoNodeRolePrimary || node.Role == TopoNodeRoleReclaim {
+		if len(node.children) == 0 {
+			return false, "no_descendants"
+		}
+		for _, child := range node.children {
+			if !effective[child.Rel].IsSubsetOf(target) {
+				return false, fmt.Sprintf("descendant_not_subset_of_target child=%s", child.Rel)
+			}
+		}
+		return true, "ancestor_bridge"
+	}
+	if node.Role != TopoNodeRoleReclaimNUMABucket && node.Role != TopoNodeRoleReclaimSibling {
+		return false, "role_not_allowed"
+	}
+	parent := parentNodeOf(node)
 	if parent == nil {
 		return false, "missing_reclaim_parent"
 	}
@@ -932,7 +958,7 @@ func allowReclaimNUMABucketDisjointReplacement(dag *TopoDAG, node *TopoNode, tar
 		return false, fmt.Sprintf("target_not_subset_of_parent parent=%s parentTarget=%s", parent.Rel, parentTarget.String())
 	}
 	for _, sibling := range parent.children {
-		if sibling.Rel == node.Rel || sibling.Role != TopoNodeRoleReclaimNUMABucket {
+		if sibling.Rel == node.Rel {
 			continue
 		}
 		overlap := target.Intersection(effective[sibling.Rel])
@@ -941,23 +967,6 @@ func allowReclaimNUMABucketDisjointReplacement(dag *TopoDAG, node *TopoNode, tar
 		}
 	}
 	return true, "reclaim_numa_bucket_parent_contains_target"
-}
-
-func reclaimParentForBucket(dag *TopoDAG, node *TopoNode) *TopoNode {
-	if dag == nil || node == nil || node.Role != TopoNodeRoleReclaimNUMABucket {
-		return nil
-	}
-	for _, parent := range dag.Nodes() {
-		if parent.Role != TopoNodeRoleReclaim {
-			continue
-		}
-		for _, child := range parent.children {
-			if child.Rel == node.Rel {
-				return parent
-			}
-		}
-	}
-	return nil
 }
 
 func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult, firstErr *error, depth int, cache *applyCache) {
