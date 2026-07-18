@@ -565,10 +565,13 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 }
 
 func (cs *cpuServer) getRequestedPodsByUID(ctx context.Context, req *cpuadvisor.GetAdviceRequest) (map[string]*v1.Pod, sets.String, error) {
+	if req == nil {
+		return nil, nil, fmt.Errorf("nil GetAdvice request")
+	}
 	requestedPodUIDSet := sets.NewString()
 	for entryName, entry := range req.Entries {
 		if entry == nil {
-			continue
+			return nil, nil, fmt.Errorf("nil GetAdvice entry for %q", entryName)
 		}
 		if _, ok := entry.Entries[commonstate.FakedContainerName]; ok {
 			continue

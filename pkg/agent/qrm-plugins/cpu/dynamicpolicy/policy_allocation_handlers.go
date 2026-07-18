@@ -141,7 +141,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 					checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true, persistCheckpoint)
 					if err != nil {
 						// roll back the freshly-inserted allocation to keep pod entries clean
-						p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, nil, persistCheckpoint)
+						p.state.Delete(allocationInfo.PodUid, allocationInfo.ContainerName, persistCheckpoint)
 						general.Errorf("pod: %s/%s, container: %s cold-start seed pool %s failed: %v",
 							req.PodNamespace, req.PodName, req.ContainerName, targetPoolName, err)
 						return nil, fmt.Errorf("cold-start seed pool %s failed: %v", targetPoolName, err)
@@ -1157,7 +1157,9 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 		return fmt.Errorf("cleanPools failed with error: %v", err)
 	}
 
-	if err := p.runCPUSetAdjustmentHandlers(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.runCPUSetAdjustmentHandlers(ctx); err != nil {
 		return fmt.Errorf("runCPUSetAdjustmentHandlers failed with error: %v", err)
 	}
 

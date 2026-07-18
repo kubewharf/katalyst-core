@@ -487,11 +487,9 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 
 // setupPolicyForBindReclaimTest builds a DynamicPolicy fixture for the BindIRQToReclaimedPool tests.
 // It seeds reservedCPUs (0,1), a system pool (4,5) and optionally a reclaimed pool.
-func setupPolicyForBindReclaimTest(t *testing.T, name string, reclaimCPUs *machine.CPUSet) *DynamicPolicy {
+func setupPolicyForBindReclaimTest(t *testing.T, _ string, reclaimCPUs *machine.CPUSet) *DynamicPolicy {
 	t.Helper()
-	tmpDir, err := ioutil.TempDir("", "checkpoint-"+name)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	tmpDir := t.TempDir()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
 	require.NoError(t, err)

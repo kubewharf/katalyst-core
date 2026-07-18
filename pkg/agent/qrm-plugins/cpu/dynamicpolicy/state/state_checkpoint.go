@@ -262,9 +262,6 @@ func (sc *stateCheckpoint) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
-// Snapshot delegates to the underlying in-memory cache so callers observe the
-// same lock-free view semantics regardless of whether the state is checkpoint-
-// backed or purely in-memory.
 func (sc *stateCheckpoint) Delete(podUID string, containerName string, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()

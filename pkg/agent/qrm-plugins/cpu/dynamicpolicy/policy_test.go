@@ -6287,7 +6287,8 @@ func TestSharedCoresRampUpDisabledAllocation(t *testing.T) {
 	t.Run("cold-start seed persists checkpoint pool entry", func(t *testing.T) {
 		t.Parallel()
 		as := require.New(t)
-		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		checkpointDir := t.TempDir()
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, checkpointDir)
 		as.Nil(err)
 		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
 
@@ -6295,7 +6296,9 @@ func TestSharedCoresRampUpDisabledAllocation(t *testing.T) {
 		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, true)
 		as.Nil(err)
 
-		podEntries := policy.state.GetPodEntries()
+		reloaded, err := getTestDynamicPolicyWithInitialization(cpuTopology, checkpointDir)
+		as.Nil(err)
+		podEntries := reloaded.state.GetPodEntries()
 		as.NotNil(podEntries)
 		poolEntry := podEntries[commonstate.PoolNameShare]
 		as.NotNil(poolEntry, "share pool entry should exist after cold-start seed")
@@ -7911,6 +7914,56 @@ func TestClearResidualState(t *testing.T) {
 	as.Nil(err)
 
 	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+}
+
+func TestClearResidualStateTreatsFailedPodAsResidual(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestClearResidualStateTreatsFailedPodAsResidual")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	const podUID = "failed-pod-uid"
+	dynamicPolicy.state.SetPodEntries(state.PodEntries{
+		podUID: state.ContainerEntries{
+			"main": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        podUID,
+					PodNamespace:  "default",
+					PodName:       "failed-pod",
+					ContainerName: "main",
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+				},
+				AllocationResult: machine.NewCPUSet(1),
+			},
+		},
+	}, false)
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{PodList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       types.UID(podUID),
+						Name:      "failed-pod",
+						Namespace: "default",
+					},
+					Status: v1.PodStatus{Phase: v1.PodFailed},
+				},
+			}},
+		},
+	}
+
+	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+
+	as.Equal(int64(1), dynamicPolicy.residualHitMap[podUID])
 }
 
 func TestStart(t *testing.T) {

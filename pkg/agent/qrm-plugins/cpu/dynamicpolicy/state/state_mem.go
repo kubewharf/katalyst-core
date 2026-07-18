@@ -170,9 +170,6 @@ func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return s.cpuPluginStateData.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
-// Snapshot returns a lock-free deep-copied view of the in-memory state. It is
-// intended for periodical tick-scoped consumers that want to observe a stable
-// picture without repeatedly re-acquiring the RWMutex during their fan-out.
 func (s *cpuPluginState) Delete(podUID string, containerName string) {
 	s.Lock()
 	defer s.Unlock()

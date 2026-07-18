@@ -40,6 +40,7 @@ import (
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -355,8 +356,8 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 		return
 	}
 
-	ctx := context.Background()
-	podList, err = p.metaServer.GetPodList(ctx, nil)
+	ctx := context.WithValue(context.Background(), metapod.BypassCacheKey, metapod.BypassCacheTrue)
+	podList, err = p.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		general.Errorf("get pod list failed: %v", err)
 		return
@@ -369,6 +370,10 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 
 	p.Lock()
 	defer p.Unlock()
+
+	if p.residualHitMap == nil {
+		p.residualHitMap = make(map[string]int64)
+	}
 
 	podEntries := p.state.GetPodEntries()
 	for podUID, containerEntries := range podEntries {
@@ -649,13 +654,13 @@ func (p *DynamicPolicy) calculateSystemExclusivePoolChanges(
 
 	// only create pool used by pod
 	systemPoolsWithPod := sets.NewString()
-	for _, entry := range p.state.GetPodEntries() {
+	for podUID, entry := range p.state.GetPodEntries() {
 		if entry.IsPoolEntry() {
 			continue
 		}
 		for containerName, allocationInfo := range entry {
 			if allocationInfo == nil {
-				general.Warningf("[SystemExclusivePool] container %s allocation info is nil during pool change calculation, skip it", containerName)
+				general.Warningf("[SystemExclusivePool] pod %s container %s allocation info is nil during pool change calculation, skip it", podUID, containerName)
 				continue
 			}
 			if !allocationInfo.CheckSystem() {

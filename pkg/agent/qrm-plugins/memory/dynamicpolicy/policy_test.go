@@ -392,6 +392,64 @@ func TestClearResidualState(t *testing.T) {
 	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
 }
 
+func TestClearResidualStateTreatsFailedPodAsResidual(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestClearResidualStateTreatsFailedPodAsResidual")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	const podUID = "failed-pod-uid"
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			podUID: state.ContainerEntries{
+				"main": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:        podUID,
+						PodNamespace:  "default",
+						PodName:       "failed-pod",
+						ContainerName: "main",
+						QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					},
+					AggregatedQuantity:   256 * 1024 * 1024,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 256 * 1024 * 1024,
+					},
+				},
+			},
+		},
+	}, true)
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{PodList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       types.UID(podUID),
+						Name:      "failed-pod",
+						Namespace: "default",
+					},
+					Status: v1.PodStatus{Phase: v1.PodFailed},
+				},
+			}},
+		},
+	}
+
+	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+
+	as.Equal(int64(1), dynamicPolicy.residualHitMap[podUID])
+}
+
 func TestSetMemoryMigrate(t *testing.T) {
 	t.Parallel()
 
