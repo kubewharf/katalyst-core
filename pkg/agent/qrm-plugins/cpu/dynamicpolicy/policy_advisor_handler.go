@@ -995,6 +995,10 @@ func (p *DynamicPolicy) allocateShareBlocks(
 	sourceBlockByPool map[string]string,
 ) error {
 	machineInfo := p.machineInfo
+	sourceBlockResultByID, err := buildAdvisorSourceBlockResultByID(blocks, sourceBlockByPool)
+	if err != nil {
+		return err
+	}
 	for _, block := range blocks {
 		if block == nil {
 			continue
@@ -1034,7 +1038,7 @@ func (p *DynamicPolicy) allocateShareBlocks(
 			currentAvailableCPUs = currentAvailableCPUs.Difference(allPinnedCPUSets)
 		}
 
-		carved, err := p.tryCarveAdvisorBlockFromSource(block, sourceBlockByPool, blockCPUSet, currentAvailableCPUs, availableCPUs, nodeRemainingCPUs, numaID, blockResult)
+		carved, err := p.tryCarveAdvisorBlockFromSource(block, sourceBlockByPool, sourceBlockResultByID, blockCPUSet, currentAvailableCPUs, availableCPUs, nodeRemainingCPUs, numaID, blockResult)
 		if err != nil {
 			return err
 		}

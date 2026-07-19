@@ -107,7 +107,7 @@ func TestDynamicPolicy_tryCarveAdvisorBlockFromSource(t *testing.T) {
 	}
 
 	carved, err := p.tryCarveAdvisorBlockFromSource(
-		block, sourceBlockByPool, blockCPUSet, availableCPUs.Clone(), &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
+		block, sourceBlockByPool, nil, blockCPUSet, availableCPUs.Clone(), &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
 	require.NoError(t, err)
 	require.True(t, carved)
 
@@ -169,7 +169,7 @@ func TestDynamicPolicy_tryCarveAdvisorBlockFromSourceUsesConstrainedFallback(t *
 	}
 
 	carved, err := p.tryCarveAdvisorBlockFromSource(
-		block, sourceBlockByPool, blockCPUSet, fallbackCandidate, &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
+		block, sourceBlockByPool, nil, blockCPUSet, fallbackCandidate, &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
 	require.NoError(t, err)
 	require.True(t, carved)
 	require.True(t, blockCPUSet["block-isolation"].IsSubsetOf(machine.NewCPUSet(0, 4, 5)),
@@ -312,6 +312,80 @@ func TestDynamicPolicy_allocateShareBlocks_sourceCarveFallbackRespectsNUMA(t *te
 	require.True(t, outsideNUMAAvailableCPUs.IsSubsetOf(availableCPUs),
 		"CPUs outside NUMA0 must not be consumed by fallback, available=%s",
 		availableCPUs.String())
+}
+
+func TestDynamicPolicy_allocateShareBlocks_preservesRealNUMASourceResult(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_allocateShareBlocks_preservesRealNUMASourceResult")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"c": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod1",
+					ContainerName: "c",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+					OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod1",
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						"numa_hint": "0",
+					},
+				},
+			},
+		},
+	}, false)
+
+	sourcePoolName := commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0"
+	blockCPUSet := advisorapi.BlockCPUSet{}
+	availableCPUs := machine.NewCPUSet(0, 1, 2, 3, 8, 9)
+	nodeRemainingCPUs := availableCPUs.Clone()
+	blocks := []*advisorapi.BlockInfo{
+		{
+			Block: advisorapi.Block{BlockId: "block-share-numa0", Result: 4},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				sourcePoolName: {
+					EntryName:    sourcePoolName,
+					SubEntryName: commonstate.FakedContainerName,
+				},
+			},
+		},
+		{
+			Block: advisorapi.Block{BlockId: "block-isolation", Result: 2},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				commonstate.PoolNamePrefixIsolation + "-pod1": {
+					EntryName:    "pod1",
+					SubEntryName: "c",
+				},
+			},
+		},
+	}
+
+	err = p.allocateShareBlocks(
+		0,
+		blocks,
+		blockCPUSet,
+		cpuTopology.CPUDetails.CPUsInNUMANodes(0),
+		&nodeRemainingCPUs,
+		&availableCPUs,
+		nil,
+		machine.NewCPUSet(),
+		nil,
+		map[string]string{sourcePoolName: "block-share-numa0"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 4, blockCPUSet["block-share-numa0"].Size(),
+		"source block must keep its advisor result after isolation carve, got %s",
+		blockCPUSet["block-share-numa0"].String())
+	require.Equal(t, 2, blockCPUSet["block-isolation"].Size())
+	require.True(t, blockCPUSet["block-share-numa0"].Intersection(blockCPUSet["block-isolation"]).IsEmpty())
 }
 
 func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve(t *testing.T) {

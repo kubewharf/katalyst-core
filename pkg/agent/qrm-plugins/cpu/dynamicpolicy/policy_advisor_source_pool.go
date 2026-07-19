@@ -84,6 +84,30 @@ func buildAdvisorSourceBlockByPool(numaToBlocks map[int][]*advisorapi.BlockInfo)
 	return sourceBlockByPool
 }
 
+func buildAdvisorSourceBlockResultByID(blocks []*advisorapi.BlockInfo, sourceBlockByPool map[string]string) (map[string]int, error) {
+	sourceBlockResultByID := make(map[string]int)
+	if len(sourceBlockByPool) == 0 {
+		return sourceBlockResultByID, nil
+	}
+	for _, block := range blocks {
+		if block == nil {
+			continue
+		}
+		for ownerPoolName := range block.OwnerPoolEntryMap {
+			if sourceBlockByPool[ownerPoolName] != block.BlockId {
+				continue
+			}
+			result, err := general.CovertUInt64ToInt(block.Result)
+			if err != nil {
+				return nil, fmt.Errorf("parse source block: %s result failed with error: %v", block.BlockId, err)
+			}
+			sourceBlockResultByID[block.BlockId] = result
+			break
+		}
+	}
+	return sourceBlockResultByID, nil
+}
+
 // allocateAdvisorSourceBlocksForCarve preallocates a normal source share block with a
 // sourceResult + isolationResult candidate cpuset. allocateShareBlocks then reuses
 // tryCarveAdvisorBlockFromSource to carve isolation from this candidate, leaving the
@@ -166,6 +190,7 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 func (p *DynamicPolicy) tryCarveAdvisorBlockFromSource(
 	block *advisorapi.BlockInfo,
 	sourceBlockByPool map[string]string,
+	sourceBlockResultByID map[string]int,
 	blockCPUSet advisorapi.BlockCPUSet,
 	fallbackCandidate machine.CPUSet,
 	availableCPUs *machine.CPUSet,
@@ -198,6 +223,19 @@ func (p *DynamicPolicy) tryCarveAdvisorBlockFromSource(
 	sourceCandidate := sourceCPUSet
 	if numaID != commonstate.FakedNUMAID {
 		sourceCandidate = sourceCandidate.Intersection(p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
+	}
+	if sourceResult, ok := sourceBlockResultByID[sourceBlockID]; ok {
+		sourceSurplusSize := sourceCPUSet.Size() - sourceResult
+		if sourceSurplusSize <= 0 {
+			sourceCandidate = machine.NewCPUSet()
+		} else if sourceCandidate.Size() > sourceSurplusSize {
+			var err error
+			sourceCandidate, err = calculator.TakeByTopology(p.machineInfo, sourceCandidate, sourceSurplusSize, true)
+			if err != nil {
+				return false, fmt.Errorf("reserve source block: %s result: %d failed with error: %v",
+					sourceBlockID, sourceResult, err)
+			}
+		}
 	}
 
 	carveCandidates := sourceCandidate.Union(fallbackCandidate)
