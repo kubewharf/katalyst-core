@@ -50,7 +50,7 @@ var (
 var k8sCgroupPathSettingOnce = sync.Once{}
 
 var (
-	absoluteCgroupPathHandlerLock sync.Mutex
+	absoluteCgroupPathHandlerLock sync.RWMutex
 	// Ensure that we always go through the default handler first to get cgroup path
 	absoluteCgroupPathHandlerList = []AbsoluteCgroupPathHandler{
 		{
@@ -58,7 +58,7 @@ var (
 			Handler: getContainerDefaultAbsCgroupPath,
 		},
 	}
-	relativeCgroupPathHandlerLock sync.Mutex
+	relativeCgroupPathHandlerLock sync.RWMutex
 	relativeCgroupPathHandlerList = []RelativeCgroupPathHandler{
 		{
 			Name:    defaultCgroupPathHandlerName,
@@ -77,6 +77,22 @@ func RegisterRelativeCgroupPathHandler(handler RelativeCgroupPathHandler) {
 	relativeCgroupPathHandlerLock.Lock()
 	defer relativeCgroupPathHandlerLock.Unlock()
 	relativeCgroupPathHandlerList = append(relativeCgroupPathHandlerList, handler)
+}
+
+func snapshotAbsoluteCgroupPathHandlers() []AbsoluteCgroupPathHandler {
+	absoluteCgroupPathHandlerLock.RLock()
+	defer absoluteCgroupPathHandlerLock.RUnlock()
+	handlers := make([]AbsoluteCgroupPathHandler, len(absoluteCgroupPathHandlerList))
+	copy(handlers, absoluteCgroupPathHandlerList)
+	return handlers
+}
+
+func snapshotRelativeCgroupPathHandlers() []RelativeCgroupPathHandler {
+	relativeCgroupPathHandlerLock.RLock()
+	defer relativeCgroupPathHandlerLock.RUnlock()
+	handlers := make([]RelativeCgroupPathHandler, len(relativeCgroupPathHandlerList))
+	copy(handlers, relativeCgroupPathHandlerList)
+	return handlers
 }
 
 // InitKubernetesCGroupPath can only be called once to init dynamic cgroup path configurations.
@@ -196,7 +212,7 @@ func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (strin
 // It uses all the handlers in absoluteCgroupPathHandlerMap and returns the first non-empty path.
 func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	var errors []error
-	for _, handler := range absoluteCgroupPathHandlerList {
+	for _, handler := range snapshotAbsoluteCgroupPathHandlers() {
 		if handler.Handler == nil {
 			errors = append(errors, fmt.Errorf("absolute cgroup path Handler for %s is nil", handler.Name))
 			continue
@@ -214,7 +230,7 @@ func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, erro
 // It uses all the handlers in relativeCgroupPathHandlerMap and returns the first non-empty path.
 func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
 	var errors []error
-	for _, handler := range relativeCgroupPathHandlerList {
+	for _, handler := range snapshotRelativeCgroupPathHandlers() {
 		if handler.Handler == nil {
 			errors = append(errors, fmt.Errorf("relative cgroup path Handler for %s is nil", handler.Name))
 			continue

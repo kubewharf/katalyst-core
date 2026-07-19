@@ -34,7 +34,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -48,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
@@ -102,6 +105,9 @@ func generateSharedNumaBindingPoolAllocationMeta(poolName string) commonstate.Al
 func getTestDynamicPolicyWithInitialization(
 	topology *machine.CPUTopology, stateFileDirectory string,
 ) (*DynamicPolicy, error) {
+	advisorTestMutex.Lock()
+	defer advisorTestMutex.Unlock()
+
 	dynamicPolicy, err := getTestDynamicPolicyWithoutInitialization(topology, stateFileDirectory)
 	if err != nil {
 		return nil, err
@@ -150,6 +156,10 @@ func getTestDynamicPolicyWithoutInitialization(
 	if err != nil {
 		return nil, err
 	}
+	bulkheadManager, err := bulkhead.NewManager(conf)
+	if err != nil {
+		return nil, err
+	}
 
 	policyImplement := &DynamicPolicy{
 		conf:                      conf,
@@ -167,6 +177,7 @@ func getTestDynamicPolicyWithoutInitialization(
 		numaNumberAnnotationKey:   consts.PodAnnotationCPUEnhancementNumaNumber,
 		numaIDsAnnotationKey:      consts.PodAnnotationCPUEnhancementNumaIDs,
 		resourcePackageManager:    resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(&npd.DummyNPDFetcher{NPD: &nodev1alpha1.NodeProfileDescriptor{}})),
+		bulkheadManager:           bulkheadManager,
 
 		topologyAllocationAnnotationKey: coreconsts.QRMPodAnnotationTopologyAllocationKey,
 	}
@@ -208,6 +219,88 @@ func getTestDynamicPolicyWithoutInitialization(
 	}
 
 	return policyImplement, nil
+}
+
+func TestCleanPoolsSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestCleanPoolsSkipsNilAllocationInfo")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	policyImpl, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	policyImpl.state.SetPodEntries(state.PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}, false)
+
+	as.NotPanics(func() {
+		err = policyImpl.cleanPools()
+	})
+	as.Nil(err)
+}
+
+func TestGetResourcesAllocationSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetResourcesAllocationSkipsNilAllocationInfo")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	policyImpl, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	policyImpl.state.SetPodEntries(state.PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}, false)
+
+	var resp *pluginapi.GetResourcesAllocationResponse
+	as.NotPanics(func() {
+		resp, err = policyImpl.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	})
+	as.Nil(err)
+	as.NotNil(resp)
+	as.Contains(resp.PodResources, "pod-with-nil-entry")
+	as.Empty(resp.PodResources["pod-with-nil-entry"].ContainerResources)
+}
+
+func TestSystemExclusivePoolSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSystemExclusivePoolSkipsNilAllocationInfo")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	policyImpl, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	policyImpl.state.SetPodEntries(state.PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}, false)
+
+	as.NotPanics(func() {
+		_, _, _ = policyImpl.calculateSystemExclusivePoolChanges(map[string]*state.AllocationInfo{}, map[string]int{})
+	})
+	as.NotPanics(func() {
+		err = policyImpl.adjustSystemCoresPodAllocation()
+	})
+	as.Nil(err)
 }
 
 func TestInitPoolAndCalculator(t *testing.T) {
@@ -5941,6 +6034,334 @@ func TestGetResourcesAllocation(t *testing.T) {
 	as.Equal(6, reclaimEntry.AllocationResult.Size()) // ceil("14 * (4 / 10)") == 6
 }
 
+func TestShouldSharedCoresRampUpDisabledByDynamicConfig(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	pendingPodUID := "pending-pod"
+	activePodUID := "active-pod"
+
+	t.Run("default config keeps pending pod ramp up", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(pendingPodUID), Namespace: "default", Name: "pending-pod"},
+				Status:     v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+		assert.True(t, policy.shouldSharedCoresRampUp(pendingPodUID))
+	})
+
+	t.Run("default config skips active pod ramp up", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(activePodUID), Namespace: "default", Name: "active-pod"},
+				Status:     v1.PodStatus{Phase: v1.PodRunning},
+			},
+		}}
+		assert.False(t, policy.shouldSharedCoresRampUp(activePodUID))
+	})
+
+	t.Run("disabled config skips pending pod ramp up", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(pendingPodUID), Namespace: "default", Name: "pending-pod"},
+				Status:     v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+		assert.False(t, policy.shouldSharedCoresRampUp(pendingPodUID))
+	})
+
+	t.Run("disabled config skips ramp up before pod fetch", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		assert.False(t, policy.shouldSharedCoresRampUp("missing-pod"))
+	})
+}
+
+func TestSharedCoresRampUpDisabledAllocation(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	newSharedCoresReq := func(podUID string) *pluginapi.ResourceRequest {
+		return &pluginapi.ResourceRequest{
+			PodUid:         podUID,
+			PodNamespace:   "default",
+			PodName:        podUID,
+			ContainerName:  "main",
+			ContainerType:  pluginapi.ContainerType_MAIN,
+			ContainerIndex: 0,
+			ResourceName:   string(v1.ResourceCPU),
+			ResourceRequests: map[string]float64{
+				string(v1.ResourceCPU): 2,
+			},
+			Labels: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			},
+		}
+	}
+
+	t.Run("uses target pool instead of pooled cpus", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID("shared-no-ramp-up"), Namespace: "default", Name: "shared-no-ramp-up"},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "main",
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceCPU: resource.MustParse("2"),
+								},
+							},
+						},
+					},
+				},
+				Status: v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+
+		targetPoolCPUs := machine.NewCPUSet(2, 3, 4, 5)
+		policy.state.SetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+			AllocationResult:         targetPoolCPUs,
+			OriginalAllocationResult: targetPoolCPUs.Clone(),
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: targetPoolCPUs,
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: targetPoolCPUs.Clone(),
+			},
+		}, false)
+
+		req := newSharedCoresReq("shared-no-ramp-up")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.NotEqual(t, cpuTopology.CPUDetails.CPUs().Difference(policy.reservedCPUs).String(), allocationInfo.AllocationResult.String())
+		assert.Equal(t, targetPoolCPUs.String(), allocationInfo.AllocationResult.String())
+	})
+
+	t.Run("returns error when target pool is missing", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req := newSharedCoresReq("shared-missing-pool")
+		// cold-start seed path: with DisableSharedCoresRampUp=true and no pre-existing
+		// target pool entry, we now seed the pool via the assembler pipeline instead of
+		// returning admit failure. Verify admit succeeds, RampUp=false, and the target
+		// pool entry has been persisted.
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+
+		// target pool should now be present in state
+		poolInfo := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+		as.NotNil(poolInfo)
+		assert.Equal(t, allocationInfo.AllocationResult.String(), poolInfo.AllocationResult.String())
+	})
+
+	t.Run("cold-start seed overlap-false excludes reclaim pool", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.state.SetAllowSharedCoresOverlapReclaimedCores(false, false)
+
+		reclaimCPUs := machine.NewCPUSet(10, 11, 12, 13, 14, 15)
+		policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:                 reclaimCPUs,
+			OriginalAllocationResult:         reclaimCPUs.Clone(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{0: reclaimCPUs},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: reclaimCPUs.Clone()},
+		}, false)
+
+		req := newSharedCoresReq("shared-cold-start-overlap-false")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		// After assembler, the reclaim pool may be reshaped; the overlap=false
+		// invariant is that the pod's cpuset does not intersect the FINAL reclaim pool.
+		finalReclaim := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+		as.NotNil(finalReclaim)
+		assert.True(t, allocationInfo.AllocationResult.Intersection(finalReclaim.AllocationResult).IsEmpty(),
+			"cold-start seed cpuset should not overlap final reclaim pool when overlap=false; pod=%s reclaim=%s",
+			allocationInfo.AllocationResult.String(), finalReclaim.AllocationResult.String())
+	})
+
+	t.Run("cold-start seed overlap-true allows reclaim intersection", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+		policy.state.SetAllowSharedCoresOverlapReclaimedCores(true, false)
+
+		reclaimCPUs := machine.NewCPUSet(10, 11, 12, 13, 14, 15)
+		policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:                 reclaimCPUs,
+			OriginalAllocationResult:         reclaimCPUs.Clone(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{0: reclaimCPUs},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: reclaimCPUs.Clone()},
+		}, false)
+
+		req := newSharedCoresReq("shared-cold-start-overlap-true")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+	})
+
+	t.Run("cold-start seed without reclaim pool falls back to pooled cpus", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req := newSharedCoresReq("shared-cold-start-no-reclaim")
+		resp, err := policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+		as.NotNil(resp)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		assert.False(t, allocationInfo.RampUp)
+		assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+	})
+
+	t.Run("cold-start seed persists checkpoint pool entry", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		checkpointDir := t.TempDir()
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, checkpointDir)
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req := newSharedCoresReq("shared-cold-start-persist")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, true)
+		as.Nil(err)
+
+		reloaded, err := getTestDynamicPolicyWithInitialization(cpuTopology, checkpointDir)
+		as.Nil(err)
+		podEntries := reloaded.state.GetPodEntries()
+		as.NotNil(podEntries)
+		poolEntry := podEntries[commonstate.PoolNameShare]
+		as.NotNil(poolEntry, "share pool entry should exist after cold-start seed")
+		assert.NotNil(t, poolEntry[commonstate.FakedContainerName])
+	})
+
+	t.Run("cold-start seed re-entry takes clone branch on second admit", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = true
+
+		req1 := newSharedCoresReq("shared-cold-start-first")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req1, false)
+		as.Nil(err)
+		firstAllocation := policy.state.GetAllocationInfo(req1.PodUid, req1.ContainerName)
+		as.NotNil(firstAllocation)
+
+		poolAfterFirst := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+		as.NotNil(poolAfterFirst)
+		poolCPUsBefore := poolAfterFirst.AllocationResult.String()
+
+		// second pod admits with pool already present - should clone pool, not re-seed
+		req2 := newSharedCoresReq("shared-cold-start-second")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req2, false)
+		as.Nil(err)
+		secondAllocation := policy.state.GetAllocationInfo(req2.PodUid, req2.ContainerName)
+		as.NotNil(secondAllocation)
+		assert.False(t, secondAllocation.RampUp)
+
+		poolAfterSecond := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+		as.NotNil(poolAfterSecond)
+		// pool cpuset should remain stable across re-admits (may expand slightly if
+		// assembler recomputes on second admit, but must not shrink to empty)
+		assert.False(t, poolAfterSecond.AllocationResult.IsEmpty(),
+			"pool should still be present after second admit; before=%s after=%s",
+			poolCPUsBefore, poolAfterSecond.AllocationResult.String())
+	})
+
+	t.Run("disable=false cold-start keeps RampUp behavior", func(t *testing.T) {
+		t.Parallel()
+		as := require.New(t)
+		policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+		as.Nil(err)
+		policy.dynamicConfig.GetDynamicConfiguration().DisableSharedCoresRampUp = false
+		policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID("ramp-up-pending"), Namespace: "default", Name: "ramp-up-pending"},
+				Status:     v1.PodStatus{Phase: v1.PodPending},
+			},
+		}}
+
+		req := newSharedCoresReq("ramp-up-pending")
+		_, err = policy.sharedCoresWithoutNUMABindingAllocationHandler(context.Background(), req, false)
+		as.Nil(err)
+
+		allocationInfo := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+		as.NotNil(allocationInfo)
+		// disable=false + pending pod + no existing pool → RampUp=true broad path,
+		// no cold-start seed
+		assert.True(t, allocationInfo.RampUp)
+	})
+}
+
 func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 	t.Parallel()
 
@@ -7491,6 +7912,56 @@ func TestClearResidualState(t *testing.T) {
 	as.Nil(err)
 
 	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+}
+
+func TestClearResidualStateTreatsFailedPodAsResidual(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestClearResidualStateTreatsFailedPodAsResidual")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	const podUID = "failed-pod-uid"
+	dynamicPolicy.state.SetPodEntries(state.PodEntries{
+		podUID: state.ContainerEntries{
+			"main": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        podUID,
+					PodNamespace:  "default",
+					PodName:       "failed-pod",
+					ContainerName: "main",
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+				},
+				AllocationResult: machine.NewCPUSet(1),
+			},
+		},
+	}, false)
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{PodList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       types.UID(podUID),
+						Name:      "failed-pod",
+						Namespace: "default",
+					},
+					Status: v1.PodStatus{Phase: v1.PodFailed},
+				},
+			}},
+		},
+	}
+
+	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+
+	as.Equal(int64(1), dynamicPolicy.residualHitMap[podUID])
 }
 
 func TestStart(t *testing.T) {

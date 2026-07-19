@@ -167,11 +167,16 @@ func writeFileIfChange(dir, file, data string) (error, bool, string) {
 	}
 
 	if strings.TrimSpace(data) != strings.TrimSpace(oldData) {
-		if err := cgroups.WriteFile(dir, file, data); err != nil {
-			return err, false, oldData
+		var err error
+		if data == "" {
+			err = os.WriteFile(filepath.Join(dir, file), []byte(data), 0o644)
 		} else {
-			return nil, true, oldData
+			err = cgroups.WriteFile(dir, file, data)
 		}
+		if err != nil {
+			return err, false, oldData
+		}
+		return nil, true, oldData
 	}
 	return nil, false, oldData
 }

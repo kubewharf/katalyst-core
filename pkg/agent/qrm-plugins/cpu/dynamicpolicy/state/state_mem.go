@@ -33,11 +33,16 @@ type cpuPluginState struct {
 
 	cpuTopology *machine.CPUTopology
 
-	podEntries                            PodEntries
-	machineState                          NUMANodeMap
-	numaHeadroom                          map[int]float64
-	allowSharedCoresOverlapReclaimedCores bool
-	socketTopology                        map[int]string
+	// cpuPluginStateData holds the mutable, lock-free portion of the plugin
+	// state (pod entries, machine state, NUMA headroom, overlap flag). The
+	// outer cpuPluginState wraps every read with an RLock+Clone and every
+	// write with a Lock+Clone to keep its long-standing external contract:
+	// callers receive fully-owned copies. The lock-free reader methods
+	// promoted from cpuPluginStateData are intentionally shadowed below to
+	// preserve those semantics.
+	cpuPluginStateData
+
+	socketTopology map[int]string
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
@@ -59,8 +64,10 @@ func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 	klog.InfoS("[cpu_plugin] initializing new cpu plugin in-memory state store")
 	return &cpuPluginState{
-		podEntries:     make(PodEntries),
-		machineState:   GetDefaultMachineState(topology),
+		cpuPluginStateData: cpuPluginStateData{
+			podEntries:   make(PodEntries),
+			machineState: GetDefaultMachineState(topology),
+		},
 		socketTopology: topology.GetSocketTopology(),
 		cpuTopology:    topology,
 	}
@@ -70,31 +77,32 @@ func (s *cpuPluginState) GetMachineState() NUMANodeMap {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.machineState.Clone()
+	return s.cpuPluginStateData.GetMachineState().Clone()
 }
 
 func (s *cpuPluginState) GetNUMAHeadroom() map[int]float64 {
 	s.RLock()
 	defer s.RUnlock()
 
-	return general.DeepCopyIntToFloat64Map(s.numaHeadroom)
+	return general.DeepCopyIntToFloat64Map(s.cpuPluginStateData.GetNUMAHeadroom())
 }
 
 func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
 	s.RLock()
 	defer s.RUnlock()
 
-	if res, ok := s.podEntries[podUID][containerName]; ok {
-		return res.Clone()
+	allocationInfo := s.cpuPluginStateData.GetAllocationInfo(podUID, containerName)
+	if allocationInfo == nil {
+		return nil
 	}
-	return nil
+	return allocationInfo.Clone()
 }
 
 func (s *cpuPluginState) GetPodEntries() PodEntries {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.podEntries.Clone()
+	return s.cpuPluginStateData.GetPodEntries().Clone()
 }
 
 func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
@@ -118,6 +126,10 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
 func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	s.Lock()
 	defer s.Unlock()
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil allocation info for pod %s container %s", podUID, containerName)
+		return
+	}
 
 	if _, ok := s.podEntries[podUID]; !ok {
 		s.podEntries[podUID] = make(ContainerEntries)
@@ -155,7 +167,7 @@ func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.allowSharedCoresOverlapReclaimedCores
+	return s.cpuPluginStateData.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
 func (s *cpuPluginState) Delete(podUID string, containerName string) {

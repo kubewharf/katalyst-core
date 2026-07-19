@@ -1,0 +1,579 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package bulkhead
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
+	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
+	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
+)
+
+type fakePlugin struct {
+	name           string
+	adjustViews    []*bulkheadutils.CPUSetPartitionView
+	periodicCalls  int
+	periodicStates []interface{}
+	disabledCalls  int
+	enableStates   []interface{}
+	enabled        bool
+	adjustErr      error
+	periodicErr    error
+	disabledErr    error
+}
+
+type capturedMetric struct {
+	key      string
+	val      int64
+	emitType metrics.MetricTypeName
+	tags     []metrics.MetricTag
+}
+
+type capturingEmitter struct {
+	records []capturedMetric
+}
+
+func (e *capturingEmitter) StoreInt64(key string, val int64, emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	e.records = append(e.records, capturedMetric{
+		key:      key,
+		val:      val,
+		emitType: emitType,
+		tags:     append([]metrics.MetricTag(nil), tags...),
+	})
+	return nil
+}
+
+func (e *capturingEmitter) StoreFloat64(string, float64, metrics.MetricTypeName, ...metrics.MetricTag) error {
+	return nil
+}
+
+func (e *capturingEmitter) WithTags(string, ...metrics.MetricTag) metrics.MetricEmitter {
+	return e
+}
+
+func (e *capturingEmitter) Run(context.Context) {}
+
+func (p *fakePlugin) Name() string { return p.name }
+
+func (p *fakePlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	p.enableStates = append(p.enableStates, in.State)
+	return p.enabled
+}
+
+func (p *fakePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.HandlerContext) error {
+	p.adjustViews = append(p.adjustViews, in.View)
+	return p.adjustErr
+}
+
+func (p *fakePlugin) PeriodicalHandler(
+	_ context.Context,
+	in bulkheadapi.PeriodicalHandlerContext,
+) error {
+	p.periodicCalls++
+	if in.EffectiveEnabled == nil {
+		p.periodicStates = append(p.periodicStates, nil)
+	} else {
+		p.periodicStates = append(p.periodicStates, *in.EffectiveEnabled)
+	}
+	return p.periodicErr
+}
+
+func (p *fakePlugin) CPUSetAdjustmentDisabledHandler(_ context.Context, _ bulkheadapi.HandlerContext) error {
+	p.disabledCalls++
+	return p.disabledErr
+}
+
+func TestRunCPUSetAdjustmentHandlersCallsEnabledPluginEveryRun(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("first run failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("second run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("manager should not skip enabled plugin, got %d calls", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersReconcilesWhenNonReclaimPoolMinSizeChanges(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	topology := &machine.CPUTopology{
+		NumCPUs:      4,
+		NumCores:     4,
+		NumSockets:   2,
+		NumNUMANodes: 2,
+		CPUDetails: machine.CPUDetails{
+			0: {NUMANodeID: 0, SocketID: 0, CoreID: 0},
+			1: {NUMANodeID: 0, SocketID: 0, CoreID: 1},
+			2: {NUMANodeID: 1, SocketID: 1, CoreID: 2},
+			3: {NUMANodeID: 1, SocketID: 1, CoreID: 3},
+		},
+	}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConfWithMinSize(true, 0),
+		State:       state,
+		Topology:    topology,
+	}); err != nil {
+		t.Fatalf("first run failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConfWithMinSize(true, 2),
+		State:       state,
+		Topology:    topology,
+	}); err != nil {
+		t.Fatalf("second run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("min size change should trigger plugin, got %d calls", got)
+	}
+	assertCPUSet(t, "first non reclaim", plugin.adjustViews[0].NonReclaimPool, "")
+	assertCPUSet(t, "second non reclaim", plugin.adjustViews[1].NonReclaimPool, "1-2")
+}
+
+func TestRunCPUSetAdjustmentHandlersUsesDefaultNonReclaimPoolMinSize(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{
+		plugins:                      []bulkheadapi.Plugin{plugin},
+		defaultNonReclaimPoolMinSize: 2,
+	}
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	topology := &machine.CPUTopology{
+		NumCPUs:      4,
+		NumCores:     4,
+		NumSockets:   2,
+		NumNUMANodes: 2,
+		CPUDetails: machine.CPUDetails{
+			0: {NUMANodeID: 0, SocketID: 0, CoreID: 0},
+			1: {NUMANodeID: 0, SocketID: 0, CoreID: 1},
+			2: {NUMANodeID: 1, SocketID: 1, CoreID: 2},
+			3: {NUMANodeID: 1, SocketID: 1, CoreID: 3},
+		},
+	}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConfWithMinSize(true, 0),
+		State:       state,
+		Topology:    topology,
+	}); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 1 {
+		t.Fatalf("adjust calls = %d, want 1", got)
+	}
+	assertCPUSet(t, "non reclaim", plugin.adjustViews[0].NonReclaimPool, "1-2")
+	assertCPUSet(t, "reclaim effective", plugin.adjustViews[0].ReclaimEffective, "3")
+}
+
+func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+	in := cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(true),
+		State:       cpustate.NewCPUPluginState(nil),
+	}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), in); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if len(plugin.enableStates) != 1 {
+		t.Fatalf("Enable calls = %d, want 1", len(plugin.enableStates))
+	}
+	if plugin.enableStates[0] != in.State {
+		t.Fatalf("Enable did not receive handler context state")
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersSkipsAllPluginLogicWhenBulkheadDisabled(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{
+		plugins:                     []bulkheadapi.Plugin{plugin},
+		lastCPUSetAdjustmentEnabled: map[string]bool{plugin.Name(): true},
+	}
+
+	err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(false),
+		State:       cpustate.NewCPUPluginState(nil),
+	})
+	if err != nil {
+		t.Fatalf("RunCPUSetAdjustmentHandlers failed: %v", err)
+	}
+	if len(plugin.enableStates) != 0 {
+		t.Fatalf("plugin Enable calls = %d, want 0", len(plugin.enableStates))
+	}
+	if len(plugin.adjustViews) != 0 {
+		t.Fatalf("adjust calls = %d, want 0", len(plugin.adjustViews))
+	}
+	if plugin.disabledCalls != 0 {
+		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	}
+	if m.lastCPUSetAdjustmentEnabled != nil {
+		t.Fatalf("last enabled state should be cleared when bulkhead is globally disabled")
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersReconcilesAfterBulkheadReenabledWithSameView(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("first enabled run failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(false),
+	}); err != nil {
+		t.Fatalf("disabled bulkhead run failed: %v", err)
+	}
+	if plugin.disabledCalls != 0 {
+		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	}
+	if len(plugin.enableStates) != 1 {
+		t.Fatalf("plugin Enable calls = %d, want 1", len(plugin.enableStates))
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("second enabled run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("adjust calls = %d, want 2", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionWhenPluginDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		pluginEnabled      bool
+		preRunEnabledState bool
+		wantAdjustCalls    int
+		wantDisabledCalls  int
+	}{
+		{
+			name:            "plugin enabled",
+			pluginEnabled:   true,
+			wantAdjustCalls: 1,
+		},
+		{
+			name:              "plugin disabled without previous enabled state",
+			wantDisabledCalls: 1,
+		},
+		{
+			name:               "bulkhead disabled after previous enabled",
+			preRunEnabledState: true,
+			wantDisabledCalls:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			plugin := &fakePlugin{name: "fake", enabled: tt.pluginEnabled}
+			m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+			if tt.preRunEnabledState {
+				m.lastCPUSetAdjustmentEnabled = map[string]bool{plugin.Name(): true}
+			}
+
+			err := m.RunCPUSetAdjustmentHandlers(context.Background(), cpusetutil.CPUSetAdjustmentHandlerCtx{
+				DynamicConf: dynamicBulkheadConf(true),
+			})
+			if err != nil {
+				t.Fatalf("RunCPUSetAdjustmentHandlers failed: %v", err)
+			}
+			if got := len(plugin.adjustViews); got != tt.wantAdjustCalls {
+				t.Fatalf("adjust calls = %d, want %d", got, tt.wantAdjustCalls)
+			}
+			if plugin.disabledCalls != tt.wantDisabledCalls {
+				t.Fatalf("disabled calls = %d, want %d", plugin.disabledCalls, tt.wantDisabledCalls)
+			}
+		})
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersResetsDisabledPluginWhenLastEnabledNil(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: false}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("first disabled run failed: %v", err)
+	}
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("disabled calls = %d, want 1", plugin.disabledCalls)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("stable disabled run failed: %v", err)
+	}
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("stable disabled calls = %d, want 1", plugin.disabledCalls)
+	}
+	if len(plugin.adjustViews) != 0 {
+		t.Fatalf("adjust calls = %d, want 0", len(plugin.adjustViews))
+	}
+	if got := m.lastCPUSetAdjustmentEnabled[plugin.Name()]; got {
+		t.Fatalf("last enabled state = %t, want false", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersDoesNotCacheFailedView(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true, adjustErr: errors.New("boom")}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err == nil {
+		t.Fatal("expected first run to fail")
+	}
+	plugin.adjustErr = nil
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("second run failed: %v", err)
+	}
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("expected failed view not cached, got %d calls", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersDisabledTransitionInvalidatesCache(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("first enabled run failed: %v", err)
+	}
+
+	plugin.enabled = false
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("disabled transition failed: %v", err)
+	}
+
+	plugin.enabled = true
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("second enabled run failed: %v", err)
+	}
+
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("expected second enabled run not to be skipped after disabled transition, got %d calls", got)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersCallsDisabledTransitionOnceForPluginDisable(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("enabled run failed: %v", err)
+	}
+
+	plugin.enabled = false
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("disabled transition failed: %v", err)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("stable disabled run failed: %v", err)
+	}
+
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("disabled transition calls = %d, want 1", plugin.disabledCalls)
+	}
+}
+
+func TestRunCPUSetAdjustmentHandlersReturnsDisabledHandlerError(t *testing.T) {
+	t.Parallel()
+
+	plugin := &fakePlugin{name: "fake", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
+		t.Fatalf("enabled run failed: %v", err)
+	}
+
+	plugin.enabled = false
+	plugin.disabledErr = errors.New("disabled failed")
+	err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx())
+	if err == nil {
+		t.Fatalf("expected disabled transition error")
+	}
+	if got := err.Error(); !strings.Contains(got, "disabled transition failed") {
+		t.Fatalf("error = %q, want disabled transition failed", got)
+	}
+}
+
+func TestRunPeriodicalHandlersContinuesAfterErrors(t *testing.T) {
+	t.Parallel()
+
+	pluginA := &fakePlugin{name: "a", periodicErr: errors.New("a failed")}
+	pluginB := &fakePlugin{name: "b"}
+	m := &Manager{plugins: []bulkheadapi.Plugin{pluginA, pluginB}}
+
+	m.RunPeriodicalHandlers(nil, nil, enabledDynamicAgentConf(), nil, nil)
+	if pluginA.periodicCalls != 1 || pluginB.periodicCalls != 1 {
+		t.Fatalf("expected both plugins to run, got a=%d b=%d", pluginA.periodicCalls, pluginB.periodicCalls)
+	}
+}
+
+func TestRunPeriodicalHandlersSkipsAllPluginLogicWhenBulkheadDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		bulkheadEnabled bool
+		wantCalls       int
+	}{
+		{
+			name: "bulkhead disabled",
+		},
+		{
+			name:            "bulkhead enabled",
+			bulkheadEnabled: true,
+			wantCalls:       1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			plugin := &fakePlugin{name: "fake"}
+			m := &Manager{plugins: []bulkheadapi.Plugin{plugin}}
+			dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
+			dynamicConf.SetDynamicConfiguration(dynamicBulkheadConf(tt.bulkheadEnabled))
+
+			m.RunPeriodicalHandlers(nil, nil, dynamicConf, nil, nil)
+			if plugin.periodicCalls != tt.wantCalls {
+				t.Fatalf("periodic calls = %d, want %d", plugin.periodicCalls, tt.wantCalls)
+			}
+			if len(plugin.periodicStates) != tt.wantCalls {
+				t.Fatalf("periodic states = %d, want %d", len(plugin.periodicStates), tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestEmitBulkheadPluginResultFormatsReasonTag(t *testing.T) {
+	t.Parallel()
+
+	emitter := &capturingEmitter{}
+	rawReason := "apply cpuset failed at kubepods/podabc/container with no such file or directory and many details " + strings.Repeat("x", 200)
+
+	emitBulkheadPluginResult(emitter, "periodical", "cpuset_topology", "failed", rawReason)
+
+	if len(emitter.records) != 1 {
+		t.Fatalf("records = %d, want 1", len(emitter.records))
+	}
+	var gotReason string
+	for _, tag := range emitter.records[0].tags {
+		if tag.Key == "reason" {
+			gotReason = tag.Val
+			break
+		}
+	}
+	wantReason := metricutil.MetricTagValueFormat(rawReason)
+	if gotReason != wantReason {
+		t.Fatalf("reason tag = %q, want formatted %q", gotReason, wantReason)
+	}
+}
+
+func dynamicBulkheadConf(enabled bool) *dynamicconfig.Configuration {
+	conf := dynamicconfig.NewConfiguration()
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable = enabled
+	return conf
+}
+
+func dynamicBulkheadConfWithMinSize(enabled bool, minSize int64) *dynamicconfig.Configuration {
+	conf := dynamicBulkheadConf(enabled)
+	conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize = minSize
+	return conf
+}
+
+func enabledCPUSetAdjustmentCtx() cpusetutil.CPUSetAdjustmentHandlerCtx {
+	return cpusetutil.CPUSetAdjustmentHandlerCtx{
+		DynamicConf: dynamicBulkheadConf(true),
+	}
+}
+
+func enabledDynamicAgentConf() *dynamicconfig.DynamicAgentConfiguration {
+	conf := dynamicconfig.NewDynamicAgentConfiguration()
+	conf.SetDynamicConfiguration(dynamicBulkheadConf(true))
+	return conf
+}
+
+func assertCPUSet(t *testing.T, name string, got machine.CPUSet, want string) {
+	t.Helper()
+	if got.String() != want {
+		t.Fatalf("%s cpuset = %s, want %s", name, got.String(), want)
+	}
+}
+
+func TestNewManagerRegistersDefaultPluginsInOrder(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewManager(nil)
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
+	got := make([]string, 0, len(m.plugins))
+	for _, plugin := range m.plugins {
+		got = append(got, plugin.Name())
+	}
+	want := []string{"cpuset_topology", "cpuset_mems", "workqueue", "system_service"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected plugin names, got %v want %v", got, want)
+	}
+}

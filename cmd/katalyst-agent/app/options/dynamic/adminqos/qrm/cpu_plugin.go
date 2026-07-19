@@ -23,21 +23,62 @@ import (
 )
 
 type CPUPluginOptions struct {
-	PreferUseExistNUMAHintResult bool
+	PreferUseExistNUMAHintResult  bool
+	EnableBypassCPUSetAdjustment  bool
+	DisableSharedCoresRampUp      bool
+	EnableBulkhead                bool
+	EnableBulkheadCpusetTopology  bool
+	EnableBulkheadCpusetMems      bool
+	EnableBulkheadWorkqueue       bool
+	EnableBulkheadSystemService   bool
+	BulkheadNonReclaimPoolMinSize int64
+	BindIRQToReclaimedPool        bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
-	return &CPUPluginOptions{}
+	return &CPUPluginOptions{
+		BulkheadNonReclaimPoolMinSize: 16,
+		EnableBulkheadCpusetMems:      true,
+	}
 }
 
 func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("qrm-cpu-plugin")
 	fs.BoolVar(&o.PreferUseExistNUMAHintResult, "prefer-use-exist-numa-hint-result", o.PreferUseExistNUMAHintResult,
 		"prefer to use existing numa hint results")
+	fs.BoolVar(&o.EnableBypassCPUSetAdjustment, "enable-bypass-cpuset-adjustment", o.EnableBypassCPUSetAdjustment,
+		"if true, GetResourcesAllocation clears CPU AllocationResult for all QoS classes; "+
+			"allocation responses returned by Allocate/AllocateForPod keep their cpuset unchanged.")
+	fs.BoolVar(&o.DisableSharedCoresRampUp, "disable-shared-cores-ramp-up", o.DisableSharedCoresRampUp,
+		"if true, shared_cores pods skip initial RampUp full-pool cpuset binding and are allocated from their target pool directly.")
+	fs.BoolVar(&o.EnableBulkhead, "enable-bulkhead", o.EnableBulkhead,
+		"if true, enable bulkhead.")
+	fs.BoolVar(&o.EnableBulkheadCpusetTopology, "enable-bulkhead-cpuset-topology", o.EnableBulkheadCpusetTopology,
+		"if true, enable bulkhead cpuset topology plugin.")
+	fs.BoolVar(&o.EnableBulkheadCpusetMems, "enable-bulkhead-cpuset-mems", o.EnableBulkheadCpusetMems,
+		"if true, enable bulkhead cpuset_mems plugin.")
+	fs.BoolVar(&o.EnableBulkheadWorkqueue, "enable-bulkhead-workqueue", o.EnableBulkheadWorkqueue,
+		"if true, enable bulkhead workqueue plugin.")
+	fs.BoolVar(&o.EnableBulkheadSystemService, "enable-bulkhead-system-service", o.EnableBulkheadSystemService,
+		"if true, enable bulkhead system_service plugin.")
+	fs.Int64Var(&o.BulkheadNonReclaimPoolMinSize, "bulkhead-non-reclaim-pool-min-size", o.BulkheadNonReclaimPoolMinSize,
+		"minimum CPU count kept in the non-reclaim pool for bulkhead cpuset topology.")
+	fs.BoolVar(&o.BindIRQToReclaimedPool, "bind-irq-to-reclaimed-pool", o.BindIRQToReclaimedPool,
+		"if true and the reclaimed pool is present and non-empty, GetIRQForbiddenCores expands its result to "+
+			"(machine cpuset - reclaimed pool cpuset), effectively pinning network IRQs into the reclaimed pool.")
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.PreferUseExistNUMAHintResult = o.PreferUseExistNUMAHintResult
+	c.EnableBypassCPUSetAdjustment = o.EnableBypassCPUSetAdjustment
+	c.DisableSharedCoresRampUp = o.DisableSharedCoresRampUp
+	c.BulkheadConfig.Enable = o.EnableBulkhead
+	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
+	c.BulkheadConfig.EnableBulkheadCpusetMems = o.EnableBulkheadCpusetMems
+	c.BulkheadConfig.EnableBulkheadWorkqueue = o.EnableBulkheadWorkqueue
+	c.BulkheadConfig.EnableBulkheadSystemService = o.EnableBulkheadSystemService
+	c.BulkheadConfig.NonReclaimPoolMinSize = o.BulkheadNonReclaimPoolMinSize
+	c.BindIRQToReclaimedPool = o.BindIRQToReclaimedPool
 
 	return nil
 }

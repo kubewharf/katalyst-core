@@ -62,6 +62,13 @@ func IsForbiddenPool(name string) bool {
 	return ForbiddenPools.Has(name)
 }
 
+// IsReclaimedPool returns whether the given pool name is the reclaimed pool.
+// It is intended as a filter for GetUnitedPoolsCPUs so callers can pick the
+// reclaimed pool's cpuset out of a PodEntries snapshot.
+func IsReclaimedPool(name string) bool {
+	return name == commonstate.PoolNameReclaim
+}
+
 // GetUnitedPoolsCPUs returns the union of the specified pools' cpus.
 // If filters are provided, only pools that pass at least one of the filters will be considered.
 func GetUnitedPoolsCPUs(entries PodEntries, filters ...func(poolName string) bool) machine.CPUSet {

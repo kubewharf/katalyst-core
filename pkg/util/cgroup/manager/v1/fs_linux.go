@@ -158,7 +158,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 }
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
-	if len(data.CPUs) != 0 {
+	if len(data.CPUs) != 0 || data.WriteEmptyCPUs {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
@@ -177,7 +177,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 		}
 	}
 
-	if len(data.Mems) != 0 {
+	if len(data.Mems) != 0 || data.WriteEmptyMems {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {
@@ -191,6 +191,24 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 
 func (m *manager) ApplyCPUSetPartition(_ string, _ common.CPUSetPartitionFlag) error {
 	return fmt.Errorf("cgroupv1 does not support cpuset partition feature")
+}
+
+// ApplySchedLoadBalance writes cpuset.sched_load_balance under absCgroupPath.
+// The flag toggles whether the kernel scheduler performs load balancing over
+// the cpuset; a zero value opts a cgroup out of balancing so that pinned tasks
+// stay on the CPUs assigned to it.
+func (m *manager) ApplySchedLoadBalance(absCgroupPath string, enabled bool) error {
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.sched_load_balance", value); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV1] apply cpuset.sched_load_balance successfully, cgroupPath: %s, data: %v, old data: %v\n",
+			absCgroupPath, value, oldData)
+	}
+	return nil
 }
 
 func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {

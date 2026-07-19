@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
@@ -49,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	irqtuingcontroller "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -81,6 +83,7 @@ const (
 	syncCPUBurstPeriod            = 10 * time.Second
 	syncSystemExclusivePoolPeriod = 10 * time.Second
 	syncCPUWeightPeriod           = 10 * time.Second
+	syncBulkheadPeriod            = 30 * time.Second
 
 	healthCheckTolerationTimes = 3
 )
@@ -114,18 +117,20 @@ type DynamicPolicy struct {
 	advisorMonitor     *timemonitor.TimeMonitor
 	featureGateManager featuregatenegotiation.FeatureGateManager
 
-	state              state.State
-	residualHitMap     map[string]int64
-	allocationHandlers map[string]util.AllocationHandler
-	hintHandlers       map[string]util.HintHandler
-	allocationHooks    []AllocationHook
+	state                    state.State
+	residualHitMap           map[string]int64
+	allocationHandlers       map[string]util.AllocationHandler
+	hintHandlers             map[string]util.HintHandler
+	allocationHooks          []AllocationHook
+	cpuSetAdjustmentHandlers map[string]cpusetutil.CPUSetAdjustmentHandler
 
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
 
 	resourcePackageManager *resourcepackage.CachedResourcePackageManager
 
-	irqTuner irqtuner.Tuner
+	irqTuner        irqtuner.Tuner
+	bulkheadManager *bulkhead.Manager
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
@@ -197,6 +202,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 			return false, agent.ComponentStub{}, err
 		}
 	}
+	bulkheadManager, err := bulkhead.NewManager(conf)
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy init bulkhead manager failed with error: %v", err)
+	}
 
 	// since the reservedCPUs won't influence stateImpl directly.
 	// so we don't modify stateImpl with reservedCPUs here.
@@ -219,6 +228,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		featureGateManager: featuregatenegotiation.NewFeatureGateManager(conf),
 
 		cpuPressureEviction: cpuPressureEviction,
+		bulkheadManager:     bulkheadManager,
 
 		conf:                          conf,
 		qosConfig:                     conf.QoSConfiguration,
@@ -292,6 +302,10 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	if err := policyImplement.initReclaimPool(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
+	}
+
+	if err := policyImplement.RegisterCPUSetAdjustmentHandler("bulkhead", policyImplement.bulkheadManager.RunCPUSetAdjustmentHandlers); err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy register bulkhead cpuset adjustment handler failed with error: %v", err)
 	}
 
 	if conf.EnableIRQTuner {
@@ -405,6 +419,12 @@ func (p *DynamicPolicy) Start() (err error) {
 		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncSystemExclusivePool, syncSystemExclusivePoolPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.SyncSystemExclusivePool, err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncBulkhead, general.HealthzCheckStateNotReady,
+		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.bulkheadManager.RunPeriodicalHandlers, syncBulkheadPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed,err:%v", cpuconsts.SyncBulkhead, err)
 	}
 
 	// start cpu-idle syncing if needed
@@ -700,6 +720,10 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 		}
 
 		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Warningf("container %s allocation info is nil during GetResourcesAllocation, skip it", containerName)
+				continue
+			}
 			if podResources[podUID].ContainerResources == nil {
 				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
 			}
@@ -721,6 +745,9 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 						Annotations:         general.DeepCopyMap(allocationInfo.Annotations),
 					},
 				},
+			}
+			if p.shouldBypassCPUSetAdjustmentForAllocation(allocationInfo) {
+				clearCPUSetInAllocation(podResources[podUID].ContainerResources[containerName])
 			}
 		}
 	}
@@ -1078,6 +1105,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 		}
+		p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 		return resp, nil
 	}
@@ -1272,7 +1300,11 @@ func (p *DynamicPolicy) cleanPools() error {
 			continue
 		}
 
-		for _, allocationInfo := range entries {
+		for containerName, allocationInfo := range entries {
+			if allocationInfo == nil {
+				general.Warningf("container %s allocation info is nil during cleanPools, skip it", containerName)
+				continue
+			}
 			ownerPool := allocationInfo.GetOwnerPoolName()
 			if ownerPool != commonstate.EmptyOwnerPoolName {
 				remainPools[ownerPool] = true
@@ -1558,4 +1590,41 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 
 	p.state.SetAllocationInfo(podUID, containerName, allocationInfo, persist)
 	return nil
+}
+
+// shouldBypassCPUSetAdjustment reports whether response cpuset backfill should
+// be skipped for shared_cores, reclaimed_cores and system_cores pods.
+func (p *DynamicPolicy) shouldBypassCPUSetAdjustment() bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	return dyn != nil && dyn.EnableBypassCPUSetAdjustment
+}
+
+func (p *DynamicPolicy) shouldBypassCPUSetAdjustmentForAllocation(allocationInfo *state.AllocationInfo) bool {
+	return p.shouldBypassCPUSetAdjustment() &&
+		allocationInfo != nil &&
+		(allocationInfo.CheckShared() || allocationInfo.CheckReclaimed() || allocationInfo.CheckSystem())
+}
+
+// clearCPUSetInAllocation clears the cpuset string on every entry of a
+// *pluginapi.ResourceAllocation in place, leaving TopologyAssignments,
+// AllocatedQuantity, ResourceHints and Annotations untouched. It is a no-op
+// when the input is nil.
+func clearCPUSetInAllocation(alloc *pluginapi.ResourceAllocation) {
+	if alloc == nil {
+		return
+	}
+	info := alloc.ResourceAllocation[string(v1.ResourceCPU)]
+	if info != nil {
+		info.AllocationResult = ""
+	}
+}
+
+func (p *DynamicPolicy) clearCPUSetInAllocationResponseIfNeeded(resp *pluginapi.ResourceAllocationResponse, allocationInfo *state.AllocationInfo) {
+	if resp == nil || !p.shouldBypassCPUSetAdjustmentForAllocation(allocationInfo) {
+		return
+	}
+	clearCPUSetInAllocation(resp.AllocationResult)
 }

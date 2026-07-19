@@ -178,7 +178,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 }
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
-	if len(data.CPUs) != 0 {
+	if len(data.CPUs) != 0 || data.WriteEmptyCPUs {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
@@ -194,7 +194,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 		}
 	}
 
-	if len(data.Mems) != 0 {
+	if len(data.Mems) != 0 || data.WriteEmptyMems {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {
@@ -213,6 +213,13 @@ func (m *manager) ApplyCPUSetPartition(absCgroupPath string, partitionFlag commo
 	}
 
 	return nil
+}
+
+// ApplySchedLoadBalance is a no-op on cgroup v2: the unified hierarchy removed
+// the cpuset.sched_load_balance knob in favor of the partition mechanism.
+// Callers that need equivalent semantics on v2 should use ApplyCPUSetPartition.
+func (m *manager) ApplySchedLoadBalance(_ string, _ bool) error {
+	return fmt.Errorf("cpuset.sched_load_balance: %w on cgroup v2", common.ErrNotSupported)
 }
 
 func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {

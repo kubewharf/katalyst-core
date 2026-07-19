@@ -125,9 +125,46 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, commonstate.FakedContainerName)
 
 			if poolAllocationInfo == nil {
-				general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
-					req.PodNamespace, req.PodName, req.ContainerName)
-				allocationInfo.RampUp = true
+				if p.isSharedCoresRampUpDisabled() {
+					// cold-start bootstrap: the target pool entry is not ready yet, but
+					// DisableSharedCoresRampUp=true forbids binding this pod to the broad
+					// pooledCPUs. Delegate to the assembler pipeline (adjustPoolsAndIsolatedEntries
+					// -> generatePoolsAndIsolation -> reviseReclaimPool) to seed the pool entry
+					// together with this pod's allocation atomically, honoring overlap/pkg/numa
+					// semantics without duplicating the logic here.
+					general.Infof("pod: %s/%s, container: %s cold-start seeding target pool %s under DisableSharedCoresRampUp",
+						req.PodNamespace, req.PodName, req.ContainerName, targetPoolName)
+
+					if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+						return nil, err
+					}
+					checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true, persistCheckpoint)
+					if err != nil {
+						// roll back the freshly-inserted allocation to keep pod entries clean
+						p.state.Delete(allocationInfo.PodUid, allocationInfo.ContainerName, persistCheckpoint)
+						general.Errorf("pod: %s/%s, container: %s cold-start seed pool %s failed: %v",
+							req.PodNamespace, req.PodName, req.ContainerName, targetPoolName, err)
+						return nil, fmt.Errorf("cold-start seed pool %s failed: %v", targetPoolName, err)
+					}
+
+					_ = p.emitter.StoreInt64(util.MetricNameSharedCoresRampUpDisabledSeeded, 1,
+						metrics.MetricTypeNameCount,
+						metrics.MetricTag{Key: "poolName", Val: targetPoolName},
+						metrics.MetricTag{Key: "overlap", Val: strconv.FormatBool(p.state.GetAllowSharedCoresOverlapReclaimedCores())},
+					)
+
+					allocationInfo = checkedAllocationInfo
+					needSet = false
+				} else {
+					general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
+						req.PodNamespace, req.PodName, req.ContainerName)
+					allocationInfo.RampUp = true
+				}
+			} else if p.isSharedCoresRampUpDisabled() {
+				allocationInfo.AllocationResult = poolAllocationInfo.AllocationResult.Clone()
+				allocationInfo.OriginalAllocationResult = poolAllocationInfo.OriginalAllocationResult.Clone()
+				allocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolAllocationInfo.TopologyAwareAssignments)
+				allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolAllocationInfo.OriginalTopologyAwareAssignments)
 			} else {
 				if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 					return nil, err
@@ -205,6 +242,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 	return resp, nil
 }
 
@@ -336,6 +374,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 	return resp, nil
 }
@@ -512,6 +551,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 	return resp, nil
 }
@@ -571,6 +611,7 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 	return resp, nil
 }
 
@@ -611,6 +652,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
 	return resp, nil
 }
@@ -1113,6 +1155,12 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	err = p.cleanPools()
 	if err != nil {
 		return fmt.Errorf("cleanPools failed with error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.runCPUSetAdjustmentHandlers(ctx); err != nil {
+		return fmt.Errorf("runCPUSetAdjustmentHandlers failed with error: %v", err)
 	}
 
 	return nil
@@ -1664,28 +1712,38 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	general.Infof("isolatedTotalQuantity: %d, nonBindingPoolsTotalQuantity: %d, nonBindingAvailableSize: %d",
 		isolatedTotalQuantity, nonBindingPoolsTotalQuantity, nonBindingAvailableSize)
 
+	// preferredCPUsByPool lets a source share pool preferentially reclaim the CPUs it
+	// historically lent to shared_cores isolation and dedicated containers. In overlap mode,
+	// proportional allocation still uses these preferences before reclaim overlap is computed
+	// reversely from the final share-type pools.
+	preferredCPUsByPool := buildIsolationSourcePreferredCPUs(p.state.GetPodEntries())
+	dedicatedPreferredCPUsByPool, preferredCPUsByContainer := buildDedicatedSourcePreferredCPUs(p.state.GetPodEntries())
+	for poolName, cset := range dedicatedPreferredCPUsByPool {
+		preferredCPUsByPool[poolName] = preferredCPUsByPool[poolName].Union(cset)
+	}
+
 	var tErr error
 	if nonBindingPoolsTotalQuantity+isolatedTotalQuantity <= nonBindingAvailableSize {
 		general.Infof("all pools and isolated containers could be allocated")
 
-		isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainers(isolatedQuantityMap, nonBindingAvailableCPUs)
+		isolatedCPUSet, nonBindingAvailableCPUs, tErr = p.takeCPUsForContainersWithPreferred(isolatedQuantityMap, nonBindingAvailableCPUs, preferredCPUsByContainer)
 		if tErr != nil {
 			err = fmt.Errorf("allocate isolated cpus for dedicated_cores failed with error: %v", tErr)
 			return
 		}
 
 		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 			if tErr != nil {
 				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
 				return
 			}
 		} else {
 			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
-			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 
 			if tErr != nil {
-				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlaceWithPreferred pools failed with error: %v", tErr)
 				return
 			}
 		}
@@ -1693,27 +1751,27 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		general.Infof("all pools could be allocated, all isolated containers would be put to pools")
 
 		if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.takeCPUsForPoolsInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 			if tErr != nil {
 				err = fmt.Errorf("allocate cpus for pools failed with error: %v", tErr)
 				return
 			}
 		} else {
 			general.Infof("allowSharedCoresOverlapReclaimedCores is true, take all nonBindingAvailableCPUs for pools")
-			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+			nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 
 			if tErr != nil {
-				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+				err = fmt.Errorf("generateProportionalPoolsCPUSetInPlaceWithPreferred pools failed with error: %v", tErr)
 				return
 			}
 		}
 	} else if nonBindingPoolsTotalQuantity > 0 {
 		general.Infof("can't allocate for all pools")
 
-		nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlace(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs)
+		nonBindingAvailableCPUs, tErr = p.generateProportionalPoolsCPUSetInPlaceWithPreferred(nonBindingPoolsQuantityMap, poolsCPUSet, nonBindingAvailableCPUs, preferredCPUsByPool)
 
 		if tErr != nil {
-			err = fmt.Errorf("generateProportionalPoolsCPUSetInPlace pools failed with error: %v", tErr)
+			err = fmt.Errorf("generateProportionalPoolsCPUSetInPlaceWithPreferred pools failed with error: %v", tErr)
 			return
 		}
 	}
@@ -2010,6 +2068,11 @@ func (p *DynamicPolicy) takeCPUsForContainers(containersQuantityMap map[string]m
 }
 
 func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
+	if p.isSharedCoresRampUpDisabled() {
+		general.Infof("shared cores ramp up is disabled by dynamic config, podUID: %s", podUID)
+		return false
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	pod, err := p.metaServer.GetPod(ctx, podUID)
@@ -2027,6 +2090,14 @@ func (p *DynamicPolicy) shouldSharedCoresRampUp(podUID string) bool {
 		general.Infof("pod: %s/%s isn't active, try to ramp up it", pod.Namespace, pod.Name)
 		return true
 	}
+}
+
+func (p *DynamicPolicy) isSharedCoresRampUpDisabled() bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	return dyn != nil && dyn.DisableSharedCoresRampUp
 }
 
 func (p *DynamicPolicy) doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo *state.AllocationInfo, incrByReq, podInplaceUpdateResizing, persistCheckpoint bool) (*state.AllocationInfo, error) {
@@ -2192,6 +2263,7 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 	return resp, nil
 }
 

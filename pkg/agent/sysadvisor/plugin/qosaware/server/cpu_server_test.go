@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"reflect"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -888,6 +889,105 @@ func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
 		require.Equal(t, shouldExist, exists)
 		require.Equal(t, expectedPoolInfo, actualPoolInfo)
 	}
+}
+
+type lockObservingMetaCache struct {
+	metacache.MetaCache
+	locked int32
+}
+
+func (m *lockObservingMetaCache) Lock() {
+	atomic.StoreInt32(&m.locked, 1)
+	m.MetaCache.Lock()
+}
+
+func (m *lockObservingMetaCache) Unlock() {
+	m.MetaCache.Unlock()
+	atomic.StoreInt32(&m.locked, 0)
+}
+
+type observingPodFetcher struct {
+	*pod.PodFetcherStub
+	onGetPodList func(ctx context.Context)
+}
+
+func (f *observingPodFetcher) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+	if f.onGetPodList != nil {
+		f.onGetPodList(ctx)
+	}
+	return f.PodFetcherStub.GetPodList(ctx, podFilter)
+}
+
+func TestCPUServerUpdateMetaCacheInputSkipsStalePodWithBypassCacheAndWithoutHoldingMetaLock(t *testing.T) {
+	t.Parallel()
+
+	conf := generateTestConfiguration(t)
+	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	baseMetaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+	require.NoError(t, err)
+	metaCache := &lockObservingMetaCache{MetaCache: baseMetaCache}
+
+	var getPodListCalls int32
+	var getPodListSawMetaLock int32
+	var getPodListSawBypass int32
+	podFetcher := &observingPodFetcher{
+		PodFetcherStub: &pod.PodFetcherStub{PodList: []*v1.Pod{}},
+		onGetPodList: func(ctx context.Context) {
+			atomic.AddInt32(&getPodListCalls, 1)
+			if atomic.LoadInt32(&metaCache.locked) != 0 {
+				atomic.StoreInt32(&getPodListSawMetaLock, 1)
+			}
+			if ctx.Value(pod.BypassCacheKey) == pod.BypassCacheTrue {
+				atomic.StoreInt32(&getPodListSawBypass, 1)
+			}
+		},
+	}
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: podFetcher,
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				CPUTopology: &machine.CPUTopology{
+					NumSockets:   2,
+					NumNUMANodes: 2,
+				},
+			},
+		},
+	}
+	cs, err := NewCPUServer(conf, &reporter.DummyHeadroomResourceManager{}, metaCache, metaServer, nil, metrics.DummyMetrics{})
+	require.NoError(t, err)
+
+	require.NoError(t, cs.metaCache.AddContainer("stale-pod", "c1", &types.ContainerInfo{
+		PodUID:              "stale-pod",
+		ContainerName:       "c1",
+		OriginOwnerPoolName: commonstate.PoolNameShare,
+	}))
+
+	req := &cpuadvisor.GetAdviceRequest{
+		Entries: map[string]*cpuadvisor.ContainerAllocationInfoEntries{
+			"stale-pod": {
+				Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
+					"c1": {
+						Metadata: &advisorsvc.ContainerMetadata{
+							PodUid:          "stale-pod",
+							ContainerName:   "c1",
+							QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+							RequestQuantity: 1,
+						},
+						AllocationInfo: &cpuadvisor.AllocationInfo{
+							OwnerPoolName: commonstate.PoolNameShare,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, cs.updateMetaCacheInput(context.Background(), req))
+	require.Equal(t, int32(1), atomic.LoadInt32(&getPodListCalls))
+	require.Equal(t, int32(0), atomic.LoadInt32(&getPodListSawMetaLock))
+	require.Equal(t, int32(1), atomic.LoadInt32(&getPodListSawBypass))
+	_, ok := cs.metaCache.GetContainerInfo("stale-pod", "c1")
+	require.False(t, ok)
 }
 
 func TestCPUServerUpdateMetaCacheInput_InvalidResourcePackageCPUSet(t *testing.T) {

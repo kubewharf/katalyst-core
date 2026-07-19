@@ -544,6 +544,12 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores, true)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.runCPUSetAdjustmentHandlers(ctx); err != nil {
+		return fmt.Errorf("runCPUSetAdjustmentHandlers failed with error: %v", err)
+	}
+
 	return nil
 }
 
@@ -986,8 +992,13 @@ func (p *DynamicPolicy) allocateShareBlocks(
 	rpPinnedCPUSet map[string]machine.CPUSet,
 	allPinnedCPUSets machine.CPUSet,
 	withNUMABinding *bool,
+	sourceBlockByPool map[string]string,
 ) error {
 	machineInfo := p.machineInfo
+	sourceBlockResultByID, err := buildAdvisorSourceBlockResultByID(blocks, sourceBlockByPool)
+	if err != nil {
+		return err
+	}
 	for _, block := range blocks {
 		if block == nil {
 			continue
@@ -1025,6 +1036,17 @@ func (p *DynamicPolicy) allocateShareBlocks(
 			currentAvailableCPUs = currentAvailableCPUs.Intersection(pinnedCPUSets)
 		} else {
 			currentAvailableCPUs = currentAvailableCPUs.Difference(allPinnedCPUSets)
+		}
+
+		carved, err := p.tryCarveAdvisorBlockFromSource(block, sourceBlockByPool, sourceBlockResultByID, blockCPUSet, currentAvailableCPUs, availableCPUs, nodeRemainingCPUs, numaID, blockResult)
+		if err != nil {
+			return err
+		}
+		if carved {
+			if withNUMABinding != nil {
+				*withNUMABinding = true
+			}
+			continue
 		}
 
 		var cpuset machine.CPUSet
@@ -1170,6 +1192,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	if err != nil {
 		return nil, err
 	}
+	sourceBlockByPool := buildAdvisorSourceBlockByPool(numaToBlocks)
 
 	machineInfo := p.machineInfo
 	topology := machineInfo.CPUTopology
@@ -1240,7 +1263,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			"nodeRemainingCPUs", nodeRemainingCPUs.String(),
 			"availableCPUs", availableCPUs.String())
 
-		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod)
+		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod, sourceBlockByPool)
 		if err != nil {
 			return nil, err
 		}
@@ -1275,8 +1298,13 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		}
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
+		err = p.allocateAdvisorSourceBlocksForCarve(reclaimBlocks, shareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, globalNonReclaimableCPUSet, sourceBlockByPool)
+		if err != nil {
+			return nil, err
+		}
+
 		emptyNUMA := machine.NewCPUSet()
-		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil)
+		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil, sourceBlockByPool)
 		if err != nil {
 			return nil, err
 		}

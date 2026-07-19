@@ -102,14 +102,6 @@ func mustParse(str string) *resource.Quantity {
 func TestNodeMetricUpdate(t *testing.T) {
 	t.Parallel()
 
-	regDir, ckDir, statDir, err := tmpDirs()
-	require.NoError(t, err)
-	defer func() {
-		os.RemoveAll(regDir)
-		os.RemoveAll(ckDir)
-		os.RemoveAll(statDir)
-	}()
-
 	type args struct {
 		metricSetter func(f *metric.FakeMetricsFetcher, p *nodeMetricsReporterPlugin)
 		pods         []*corev1.Pod
@@ -443,6 +435,14 @@ func TestNodeMetricUpdate(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			regDir, ckDir, statDir, err := tmpDirs()
+			require.NoError(t, err)
+			defer func() {
+				os.RemoveAll(regDir)
+				os.RemoveAll(ckDir)
+				os.RemoveAll(statDir)
+			}()
 
 			conf := generateTestConfiguration(t, regDir, ckDir, statDir)
 			clientSet := generateTestGenericClientSet(nil, nil)

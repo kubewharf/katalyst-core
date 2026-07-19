@@ -21,15 +21,43 @@ import (
 )
 
 type CPUPluginConfiguration struct {
-	PreferUseExistNUMAHintResult   bool
+	PreferUseExistNUMAHintResult bool
+	// EnableBypassCPUSetAdjustment bypasses cpuset backfill in QRM CPU plugin
+	// responses for shared_cores, reclaimed_cores and system_cores pods.
+	// Dedicated pools are unaffected.
+	EnableBypassCPUSetAdjustment bool
+	BulkheadConfig               DynamicBulkheadConfiguration
+	// DisableSharedCoresRampUp disables initial full-pool cpuset binding for newly
+	// scheduled shared_cores pods.
+	DisableSharedCoresRampUp       bool
 	SystemExclusivePool            map[string]int
 	SystemExclusivePoolShrinkRatio *float64
 	SystemExclusivePoolShrinkMin   *int64
 	SystemExclusivePoolShrinkMax   *int64
+	// BindIRQToReclaimedPool, when true, forces GetIRQForbiddenCores to return
+	// "machine cpuset - reclaimed pool cpuset (still unioned with reservedCPUs
+	// and other unconditional forbidden sources)" so that network IRQs are
+	// effectively pinned into the reclaimed pool. Requires the reclaimed pool
+	// to exist and be non-empty; otherwise the plugin falls back to the
+	// previous behavior.
+	BindIRQToReclaimedPool bool
+}
+
+type DynamicBulkheadConfiguration struct {
+	Enable                       bool
+	EnableBulkheadCpusetTopology bool
+	EnableBulkheadCpusetMems     bool
+	EnableBulkheadWorkqueue      bool
+	EnableBulkheadSystemService  bool
+	NonReclaimPoolMinSize        int64
 }
 
 func NewCPUPluginConfiguration() *CPUPluginConfiguration {
-	return &CPUPluginConfiguration{}
+	return &CPUPluginConfiguration{
+		BulkheadConfig: DynamicBulkheadConfiguration{
+			EnableBulkheadCpusetMems: true,
+		},
+	}
 }
 
 func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
@@ -39,9 +67,38 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		if config.PreferUseExistNUMAHintResult != nil {
 			c.PreferUseExistNUMAHintResult = *config.PreferUseExistNUMAHintResult
 		}
+		if config.EnableBypassCPUSetAdjustment != nil {
+			c.EnableBypassCPUSetAdjustment = *config.EnableBypassCPUSetAdjustment
+		}
+		if config.BulkheadConfig != nil {
+			if config.BulkheadConfig.Enable != nil {
+				c.BulkheadConfig.Enable = *config.BulkheadConfig.Enable
+			}
+			if config.BulkheadConfig.EnableBulkheadCpusetTopology != nil {
+				c.BulkheadConfig.EnableBulkheadCpusetTopology = *config.BulkheadConfig.EnableBulkheadCpusetTopology
+			}
+			if config.BulkheadConfig.EnableBulkheadCpusetMems != nil {
+				c.BulkheadConfig.EnableBulkheadCpusetMems = *config.BulkheadConfig.EnableBulkheadCpusetMems
+			}
+			if config.BulkheadConfig.EnableBulkheadWorkqueue != nil {
+				c.BulkheadConfig.EnableBulkheadWorkqueue = *config.BulkheadConfig.EnableBulkheadWorkqueue
+			}
+			if config.BulkheadConfig.EnableBulkheadSystemService != nil {
+				c.BulkheadConfig.EnableBulkheadSystemService = *config.BulkheadConfig.EnableBulkheadSystemService
+			}
+			if config.BulkheadConfig.NonReclaimPoolMinSize != nil {
+				c.BulkheadConfig.NonReclaimPoolMinSize = *config.BulkheadConfig.NonReclaimPoolMinSize
+			}
+		}
+		if config.DisableSharedCoresRampUp != nil {
+			c.DisableSharedCoresRampUp = *config.DisableSharedCoresRampUp
+		}
 		c.SystemExclusivePool = config.SystemExclusivePool
 		c.SystemExclusivePoolShrinkRatio = config.SystemExclusivePoolShrinkRatio
 		c.SystemExclusivePoolShrinkMin = config.SystemExclusivePoolShrinkMin
 		c.SystemExclusivePoolShrinkMax = config.SystemExclusivePoolShrinkMax
+		if config.BindIRQToReclaimedPool != nil {
+			c.BindIRQToReclaimedPool = *config.BindIRQToReclaimedPool
+		}
 	}
 }

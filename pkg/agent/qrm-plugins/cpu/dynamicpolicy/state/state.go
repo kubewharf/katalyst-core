@@ -221,6 +221,9 @@ func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
+	if len(ce) == 0 {
+		return false
+	}
 	return len(ce) == 1 && ce[commonstate.FakedContainerName] != nil
 }
 
@@ -268,6 +271,10 @@ func (pe PodEntries) Clone() PodEntries {
 
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				clone[podUID][containerName] = nil
+				continue
+			}
 			clone[podUID][containerName] = allocationInfo.Clone()
 		}
 	}
@@ -519,6 +526,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	res := ns.DefaultCPUSet.Clone()
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if excludeWholeNUMA != nil && excludeWholeNUMA(allocationInfo) {
 				return machine.NewCPUSet()
 			} else if excludeEntry != nil && excludeEntry(allocationInfo) {
@@ -533,6 +543,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) bool) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if f(allocationInfo) {
 				return true
 			}
@@ -550,6 +563,9 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 ) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if f(allocationInfo, annotations) {
 				return true
 			}
@@ -561,6 +577,10 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil allocation info for pod %s container %s", podUID, containerName)
 		return
 	}
 
@@ -576,6 +596,10 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 
 func (ns *NUMANodeState) SetPreOccAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil pre-occupation allocation info for pod %s container %s", podUID, containerName)
 		return
 	}
 
@@ -740,6 +764,77 @@ func (nm NUMANodeMap) String() string {
 	return string(contentBytes)
 }
 
+// cpuPluginStateData is a lock-free plain-field container that holds the
+// non-topology portion of the cpu-plugin state. The in-memory cpuPluginState
+// wraps it with an RWMutex and clones on every getter. Grouping the fields into
+// a single value makes it trivial to deep-copy the whole set in one place.
+type cpuPluginStateData struct {
+	podEntries                            PodEntries
+	machineState                          NUMANodeMap
+	numaHeadroom                          map[int]float64
+	allowSharedCoresOverlapReclaimedCores bool
+}
+
+// Clone deep-copies every field of cpuPluginStateData. The caller receives a
+// fresh, fully-owned copy that is safe to hand off to another goroutine
+// without extra synchronization.
+func (d *cpuPluginStateData) Clone() cpuPluginStateData {
+	if d == nil {
+		return cpuPluginStateData{}
+	}
+	return cpuPluginStateData{
+		podEntries:                            d.podEntries.Clone(),
+		machineState:                          d.machineState.Clone(),
+		numaHeadroom:                          general.DeepCopyIntToFloat64Map(d.numaHeadroom),
+		allowSharedCoresOverlapReclaimedCores: d.allowSharedCoresOverlapReclaimedCores,
+	}
+}
+
+// GetMachineState returns the raw machine-state reference held by the data
+// container. Callers that need a mutable copy must Clone() it themselves.
+func (d *cpuPluginStateData) GetMachineState() NUMANodeMap {
+	if d == nil {
+		return nil
+	}
+	return d.machineState
+}
+
+// GetNUMAHeadroom returns the raw NUMA-headroom map reference.
+func (d *cpuPluginStateData) GetNUMAHeadroom() map[int]float64 {
+	if d == nil {
+		return nil
+	}
+	return d.numaHeadroom
+}
+
+// GetPodEntries returns the raw pod-entries reference.
+func (d *cpuPluginStateData) GetPodEntries() PodEntries {
+	if d == nil {
+		return nil
+	}
+	return d.podEntries
+}
+
+// GetAllocationInfo looks up an allocation for the given pod/container using
+// the raw pod-entries map.
+func (d *cpuPluginStateData) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
+	if d == nil {
+		return nil
+	}
+	if entries, ok := d.podEntries[podUID]; ok {
+		return entries[containerName]
+	}
+	return nil
+}
+
+// GetAllowSharedCoresOverlapReclaimedCores returns the flag value.
+func (d *cpuPluginStateData) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	if d == nil {
+		return false
+	}
+	return d.allowSharedCoresOverlapReclaimedCores
+}
+
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
@@ -765,7 +860,7 @@ type writer interface {
 
 // State interface provides methods for tracking and setting pod assignments
 type State interface {
-	reader
+	ReadonlyState
 	writer
 }
 

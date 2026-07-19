@@ -105,9 +105,11 @@ type CPUData struct {
 
 // CPUSetData set cgroup cpuset data
 type CPUSetData struct {
-	CPUs    string
-	Mems    string
-	Migrate string
+	CPUs           string
+	Mems           string
+	Migrate        string
+	WriteEmptyCPUs bool
+	WriteEmptyMems bool
 }
 
 // NetClsData is the net class data.
