@@ -1050,6 +1050,30 @@ func TestApplyDAGDiffConvergesExpectedLeafWithoutDeductingReclaim(t *testing.T) 
 	}
 }
 
+func TestApplyDAGDiffPropagatesProtectedRelToPrimaryAndDeductsReclaim(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1, 2)},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(3, 4)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	effective, err := computeEffectiveTargets(dag, false, machine.NewCPUSet(), map[string]machine.CPUSet{
+		"kubepods/podA": machine.NewCPUSet(2, 3),
+	})
+	if err != nil {
+		t.Fatalf("computeEffectiveTargets: %v", err)
+	}
+	if got := effective["kubepods"].String(); got != "1-3" {
+		t.Fatalf("primary effective target = %s, want protected descendant propagated to 1-3", got)
+	}
+	if got := effective["reclaim"].String(); got != "4" {
+		t.Fatalf("reclaim target = %s, want protected CPU 3 deducted", got)
+	}
+}
+
 func TestApplyDAGDiffWritesEmptyCPUSetOnCgroupV2(t *testing.T) {
 	t.Parallel()
 

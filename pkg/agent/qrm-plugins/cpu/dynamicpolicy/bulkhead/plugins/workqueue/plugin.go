@@ -101,11 +101,14 @@ func (p *WorkqueuePlugin) writeWorkqueueMask(in bulkheadapi.HandlerContext, cpus
 	}
 
 	global := filepath.Join(p.cfg.BulkheadWorkqueueSysfsDir, "cpumask")
-	if _, err := utilfs.WriteStringIfChanged(p.fs, global, mask, 0o644); err != nil {
+	if changed, err := utilfs.WriteStringIfChanged(p.fs, global, mask, 0o644); err != nil {
 		emitBulkheadWorkqueueWriteResult(in.Emitter, "global", "", "failed", err.Error())
 		return fmt.Errorf("write global workqueue cpumask: %w", err)
+	} else if !changed {
+		emitBulkheadWorkqueueWriteResult(in.Emitter, "global", "", "skipped", "unchanged")
+	} else {
+		emitBulkheadWorkqueueWriteResult(in.Emitter, "global", "", "success", "")
 	}
-	emitBulkheadWorkqueueWriteResult(in.Emitter, "global", "", "success", "")
 
 	for _, name := range p.cfg.BulkheadWorkqueueNames {
 		name = strings.TrimSpace(name)
@@ -117,11 +120,14 @@ func (p *WorkqueuePlugin) writeWorkqueueMask(in bulkheadapi.HandlerContext, cpus
 			emitBulkheadWorkqueueWriteResult(in.Emitter, "per_workqueue", name, "skipped", "file_absent")
 			continue
 		}
-		if _, err := utilfs.WriteStringIfChanged(p.fs, file, mask, 0o644); err != nil {
+		if changed, err := utilfs.WriteStringIfChanged(p.fs, file, mask, 0o644); err != nil {
 			emitBulkheadWorkqueueWriteResult(in.Emitter, "per_workqueue", name, "failed", err.Error())
 			return fmt.Errorf("write workqueue %q cpumask: %w", name, err)
+		} else if !changed {
+			emitBulkheadWorkqueueWriteResult(in.Emitter, "per_workqueue", name, "skipped", "unchanged")
+		} else {
+			emitBulkheadWorkqueueWriteResult(in.Emitter, "per_workqueue", name, "success", "")
 		}
-		emitBulkheadWorkqueueWriteResult(in.Emitter, "per_workqueue", name, "success", "")
 	}
 	return nil
 }

@@ -31,11 +31,15 @@ import (
 )
 
 type fakeFS struct {
-	files map[string][]byte
+	files      map[string][]byte
+	writeCount map[string]int
 }
 
 func newFakeFS() *fakeFS {
-	return &fakeFS{files: map[string][]byte{}}
+	return &fakeFS{
+		files:      map[string][]byte{},
+		writeCount: map[string]int{},
+	}
 }
 
 func (f *fakeFS) ReadFile(path string) ([]byte, error) {
@@ -48,6 +52,7 @@ func (f *fakeFS) ReadFile(path string) ([]byte, error) {
 
 func (f *fakeFS) WriteFile(path string, raw []byte, _ os.FileMode) error {
 	f.files[path] = append([]byte(nil), raw...)
+	f.writeCount[path]++
 	return nil
 }
 
@@ -148,5 +153,38 @@ func TestWorkqueuePluginDisabledTransitionResetsMasks(t *testing.T) {
 	}
 	if got := string(f.files[filepath.Join(sysfs, "wq0", "cpumask")]); got != fallbackMask {
 		t.Fatalf("per-workqueue disabled mask = %q, want %q", got, fallbackMask)
+	}
+}
+
+func TestWorkqueuePluginSkipsUnchangedMasks(t *testing.T) {
+	t.Parallel()
+
+	sysfs := "/sys/devices/virtual/workqueue"
+	f := newFakeFS()
+	p := &WorkqueuePlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadWorkqueueSysfsDir: sysfs,
+		},
+		fs: f,
+	}
+	in := bulkheadapi.HandlerContext{
+		View: &bulkheadutils.CPUSetPartitionView{
+			ReclaimEffective: machine.NewCPUSet(0, 1),
+		},
+	}
+	ctx := context.Background()
+	if err := p.CPUSetAdjustmentHandler(ctx, in); err != nil {
+		t.Fatalf("first handler: %v", err)
+	}
+	global := filepath.Join(sysfs, "cpumask")
+	firstWrites := f.writeCount[global]
+	if firstWrites != 1 {
+		t.Fatalf("first run writes = %d, want 1", firstWrites)
+	}
+	if err := p.CPUSetAdjustmentHandler(ctx, in); err != nil {
+		t.Fatalf("second handler: %v", err)
+	}
+	if got := f.writeCount[global]; got != firstWrites {
+		t.Fatalf("unchanged target should not rewrite mask, got %d writes want %d", got, firstWrites)
 	}
 }

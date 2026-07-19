@@ -37,6 +37,8 @@ const (
 	maxEnforceDepth  = 8
 )
 
+var errDepthLimitReached = errors.New("bulkhead cgroup depth limit reached")
+
 type DAGApplyResult struct {
 	Attempted int
 	Applied   int
@@ -61,6 +63,11 @@ type DAGApplyInputs struct {
 	// the primary node's effective target to guarantee the primary cgroup never
 	// shrinks below an allocation that is about to materialize.
 	ProtectedPendingCPUSet machine.CPUSet
+	// ProtectedCPUSetByRel records cgroup rels whose current/pending cpuset must
+	// stay covered during a short runtime creation window. The writer propagates
+	// each protected rel to controlled ancestors, so cgroup v1 parent-superset
+	// constraints hold while kubelet/runc create child cgroups.
+	ProtectedCPUSetByRel map[string]machine.CPUSet
 }
 
 func ApplyDAGDiff(ctx context.Context, in DAGApplyInputs) (DAGApplyResult, error) {
@@ -112,10 +119,9 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 	}
 
 	// A single applyCache is shared by computeEffectiveTargets, shrink follow-up,
-	// and expandDescendants so that every (rel -> children) and
-	// (rel -> expectedDescendantUnion) question is answered at most once per
-	// apply.
-	cache := newApplyCache(cg, kubeRelPrefix, expected)
+	// and expandDescendants so that each safe (rel -> children) lookup is
+	// answered at most once per apply.
+	cache := newApplyCache(cg, kubeRelPrefix)
 
 	// Build the effective target for every controlled node before touching any
 	// cgroup. Pending primary allocations widen the primary target; existing kube
@@ -124,7 +130,7 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 	effectiveTargets := desiredTargets(dag)
 	if !in.SkipObservedRead {
 		var err error
-		effectiveTargets, err = computeEffectiveTargets(dag, allowEmptyTarget, in.ProtectedPendingCPUSet)
+		effectiveTargets, err = computeEffectiveTargets(dag, allowEmptyTarget, in.ProtectedPendingCPUSet, in.ProtectedCPUSetByRel)
 		if err != nil {
 			return err
 		}
@@ -499,7 +505,7 @@ func isCgroupNotFoundError(err error) bool {
 
 func shrinkNodeConverge(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, newSelf machine.CPUSet, mems string, expected map[string]machine.CPUSet, version cgroupclient.CgroupVersion, res *DAGApplyResult, depth int, cache *applyCache) error {
 	if depth >= maxEnforceDepth {
-		return nil
+		return fmt.Errorf("%w: rel=%s depth=%d target=%s", errDepthLimitReached, relPath, depth, newSelf.String())
 	}
 	var lastErr error
 	for attempt := 0; attempt < maxShrinkRetries; attempt++ {
@@ -656,6 +662,9 @@ func formatShrinkBlockers(blockers []shrinkBlocker) string {
 // newly-created child cannot escape clamping and pin the parent shrink open.
 func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, newParent machine.CPUSet, expected map[string]machine.CPUSet, version cgroupclient.CgroupVersion, res *DAGApplyResult, depth int, cache *applyCache, liveChildren bool) {
 	if depth >= maxEnforceDepth {
+		res.Skipped++
+		general.InfofV(4, "topo_dag_writer: skip shrink descent after depth limit, rel=%q depth=%d target=%s",
+			relPath, depth, newParent.String())
 		return
 	}
 	children, err := listShrinkChildren(ctx, cg, relPath, cache, liveChildren)
@@ -666,6 +675,12 @@ func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient
 	convergeChild := func(childRel string, cpus machine.CPUSet) {
 		res.Attempted++
 		if err := shrinkNodeConverge(ctx, cg, childRel, cpus, "", expected, version, res, depth+1, cache); err != nil {
+			if errors.Is(err, errDepthLimitReached) {
+				res.Skipped++
+				general.InfofV(4, "topo_dag_writer: skip deep dynamic cgroup during shrink, rel=%q target=%s err=%v",
+					childRel, cpus.String(), err)
+				return
+			}
 			if isCgroupNotFoundError(err) {
 				res.Skipped++
 				general.InfofV(5, "topo_dag_writer: skip disappeared dynamic cgroup during shrink, rel=%q target=%s err=%v",
@@ -784,8 +799,12 @@ func desiredTargets(dag *TopoDAG) map[string]machine.CPUSet {
 // After pending widening, reclaim targets are deducted by the union of primary
 // effective targets, reclaim parents are widened to contain NUMA buckets, and
 // reclaim NUMA siblings are checked for disjointness.
-func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, protectedPending machine.CPUSet) (map[string]machine.CPUSet, error) {
+func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, protectedPending machine.CPUSet, protectedByRel ...map[string]machine.CPUSet) (map[string]machine.CPUSet, error) {
 	effective := desiredTargets(dag)
+	var protected map[string]machine.CPUSet
+	if len(protectedByRel) > 0 {
+		protected = protectedByRel[0]
+	}
 	for _, n := range dag.Nodes() {
 		if n.Role != TopoNodeRolePrimary {
 			continue
@@ -801,6 +820,12 @@ func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, protectedPendi
 		protectedUnion := machine.NewCPUSet()
 		if !protectedPending.IsEmpty() {
 			protectedUnion = protectedUnion.Union(protectedPending)
+		}
+		for rel, cpus := range protected {
+			if cpus.IsEmpty() || !isRelAtOrUnder(rel, n.Rel) {
+				continue
+			}
+			protectedUnion = protectedUnion.Union(cpus)
 		}
 		if protectedUnion.IsEmpty() {
 			continue
@@ -818,6 +843,15 @@ func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, protectedPendi
 		return nil, err
 	}
 	return effective, nil
+}
+
+func isRelAtOrUnder(rel, ancestor string) bool {
+	rel = strings.Trim(rel, "/")
+	ancestor = strings.Trim(ancestor, "/")
+	if rel == "" || ancestor == "" {
+		return false
+	}
+	return rel == ancestor || strings.HasPrefix(rel, ancestor+"/")
 }
 
 func normalizeReclaimTargetsByPrimary(dag *TopoDAG, effective map[string]machine.CPUSet) {
@@ -970,7 +1004,13 @@ func allowSafeDisjointReplacement(node *TopoNode, target machine.CPUSet, effecti
 }
 
 func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult, firstErr *error, depth int, cache *applyCache) {
-	if depth >= maxEnforceDepth || (parentTarget.IsEmpty() && !allowEmptyTarget) {
+	if depth >= maxEnforceDepth {
+		res.Skipped++
+		general.InfofV(4, "topo_dag_writer: skip expand descent after depth limit, rel=%q depth=%d target=%s",
+			parentRel, depth, parentTarget.String())
+		return
+	}
+	if parentTarget.IsEmpty() && !allowEmptyTarget {
 		return
 	}
 	version := cg.Version(ctx)
@@ -982,6 +1022,12 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 	writeAndDescend := func(childRel string, cpus machine.CPUSet, childInExpected bool) {
 		res.Attempted++
 		if err := shrinkNodeConverge(ctx, cg, childRel, cpus, "", expected, version, res, depth+1, cache); err != nil {
+			if errors.Is(err, errDepthLimitReached) {
+				res.Skipped++
+				general.InfofV(4, "topo_dag_writer: skip deep dynamic cgroup during expand, rel=%q target=%s err=%v",
+					childRel, cpus.String(), err)
+				return
+			}
 			if isCgroupNotFoundError(err) {
 				res.Skipped++
 				general.InfofV(5, "topo_dag_writer: skip disappeared dynamic cgroup during expand, rel=%q target=%s err=%v",
@@ -1058,25 +1104,6 @@ func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parent
 	}
 }
 
-func observedCPUSetDescendantUnion(ctx context.Context, cg cgroupclient.CgroupClient, rel string, depth int, cache *applyCache) machine.CPUSet {
-	out := machine.NewCPUSet()
-	if depth >= maxEnforceDepth {
-		return out
-	}
-	children, err := cache.listChildren(ctx, rel)
-	if err != nil {
-		return out
-	}
-	for _, name := range children {
-		childRel := filepath.Join(rel, name)
-		if cpus, readErr := cg.ReadCPUSet(ctx, childRel); readErr == nil {
-			out = out.Union(cpus)
-		}
-		out = out.Union(observedCPUSetDescendantUnion(ctx, cg, childRel, depth+1, cache))
-	}
-	return out
-}
-
 // applyCache is a per-ApplyDAGDiff memo that eliminates repeated cgroup tree
 // walks within one applyTwoPhase invocation. It must NOT be reused across
 // applies.
@@ -1098,29 +1125,18 @@ func observedCPUSetDescendantUnion(ctx context.Context, cg cgroupclient.CgroupCl
 // cg.ListChildren: the shrink path then has evidence that the cached child view
 // might be incomplete, and it must re-observe a converging tree to catch children
 // created after the cache snapshot.
-//
-// Fields:
-//   - children: memoized cg.ListChildren(rel) result, shared among fail-open
-//     callers and the first shrink convergence attempt.
-//   - expectedDescendantIdx: prefix -> union of every ExpectedCPUSetByRel entry
-//     whose rel equals or lives under prefix. Precomputed once so that
-//     expectedDescendantUnion becomes an O(1) lookup instead of scanning the
-//     entire expected map per call. Independent of live cgroup state.
 type applyCache struct {
-	cg                    cgroupclient.CgroupClient
-	kubeRelPrefix         string
-	children              map[string][]string
-	expectedDescendantIdx map[string]machine.CPUSet
+	cg            cgroupclient.CgroupClient
+	kubeRelPrefix string
+	children      map[string][]string
 }
 
-func newApplyCache(cg cgroupclient.CgroupClient, kubeRelPrefix string, expected map[string]machine.CPUSet) *applyCache {
-	c := &applyCache{
+func newApplyCache(cg cgroupclient.CgroupClient, kubeRelPrefix string) *applyCache {
+	return &applyCache{
 		cg:            cg,
 		kubeRelPrefix: kubeRelPrefix,
 		children:      map[string][]string{},
 	}
-	c.expectedDescendantIdx = buildExpectedDescendantIndex(expected)
-	return c
 }
 
 // listChildren returns the memoized cg.ListChildren(rel). It caches both
@@ -1139,53 +1155,4 @@ func (c *applyCache) listChildren(ctx context.Context, rel string) ([]string, er
 	cp := append([]string(nil), v...)
 	c.children[rel] = cp
 	return cp, nil
-}
-
-// expectedDescendantUnion returns the pre-indexed union of every expected leaf
-// living at or below rel. It is O(1) after the initial index build.
-func (c *applyCache) expectedDescendantUnion(rel string) machine.CPUSet {
-	if c == nil {
-		return machine.NewCPUSet()
-	}
-	prefix := strings.Trim(rel, "/")
-	if prefix == "" {
-		return machine.NewCPUSet()
-	}
-	if v, ok := c.expectedDescendantIdx[prefix]; ok {
-		return v
-	}
-	return machine.NewCPUSet()
-}
-
-// buildExpectedDescendantIndex materializes the prefix -> union map used by
-// expectedDescendantUnion. Cost is O(sum(len(rel)/'/')) which is bounded and
-// paid once per apply; every downstream call becomes O(1).
-func buildExpectedDescendantIndex(expected map[string]machine.CPUSet) map[string]machine.CPUSet {
-	idx := map[string]machine.CPUSet{}
-	if len(expected) == 0 {
-		return idx
-	}
-	for rel, cpus := range expected {
-		trimmed := strings.Trim(rel, "/")
-		if trimmed == "" {
-			continue
-		}
-		// Union cpus into every prefix ancestor (inclusive of the rel itself).
-		for {
-			if existing, ok := idx[trimmed]; ok {
-				idx[trimmed] = existing.Union(cpus)
-			} else {
-				idx[trimmed] = cpus.Clone()
-			}
-			slash := strings.LastIndex(trimmed, "/")
-			if slash < 0 {
-				break
-			}
-			trimmed = trimmed[:slash]
-			if trimmed == "" {
-				break
-			}
-		}
-	}
-	return idx
 }
