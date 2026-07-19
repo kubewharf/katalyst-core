@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/util/errors"
 
@@ -43,11 +44,21 @@ import (
 
 const CPUSetTopologyPluginName = "cpuset_topology"
 
+const defaultPendingPodProtectionTTL = 10 * time.Second
+
 var _ bulkheadapi.Plugin = (*CPUSetTopologyPlugin)(nil)
 
 type CPUSetTopologyPlugin struct {
-	cfg    bulkheadconfig.BulkheadConfiguration
-	cgroup cgroupclient.CgroupClient
+	cfg                bulkheadconfig.BulkheadConfiguration
+	cgroup             cgroupclient.CgroupClient
+	now                func() time.Time
+	pendingProtections map[string]pendingPodProtection
+}
+
+type pendingPodProtection struct {
+	rel          string
+	current      machine.CPUSet
+	protectUntil time.Time
 }
 
 func NewCPUSetTopologyPlugin(conf *config.Configuration) bulkheadapi.Plugin {
@@ -56,8 +67,10 @@ func NewCPUSetTopologyPlugin(conf *config.Configuration) bulkheadapi.Plugin {
 		cfg = *conf.CPUQRMPluginConfig.BulkheadConfiguration
 	}
 	return &CPUSetTopologyPlugin{
-		cfg:    cfg,
-		cgroup: cgroupclient.NewCgroupClient(),
+		cfg:                cfg,
+		cgroup:             cgroupclient.NewCgroupClient(),
+		now:                time.Now,
+		pendingProtections: map[string]pendingPodProtection{},
 	}
 }
 
@@ -75,6 +88,19 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		_, err := p.cgroup.StatDir(ctx, rel)
 		return err
 	}
+	expectedRes, err := p.buildExpectedCPUSetByRel(ctx, in)
+	if err != nil {
+		// Only non-pending resolve failures (illegal rel, cgroup/metaserver
+		// internal error) reach here. Pending containers (admit window, no
+		// container id yet) are classified as protected-pending and do NOT
+		// produce an error, so a normal new-pod admit is never rejected.
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
+		return fmt.Errorf("build expected container cpuset: %w", err)
+	}
+	protectedByRel := p.pendingProtectedCPUSetByRel(ctx, expectedRes.PendingByPod)
+	if protected := unionCPUSetByRel(protectedByRel); !protected.IsEmpty() {
+		bulkheadutils.ApplyTransientProtectedNonReclaim(in.View, in.Topology, protected)
+	}
 	siblings, err := p.discoverBulkheadReclaimSiblings(ctx, in.View)
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "discover_error")
@@ -89,25 +115,16 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")
 		return fmt.Errorf("build bulkhead topology dag: %w", err)
 	}
-
-	expectedRes, err := p.buildExpectedCPUSetByRel(ctx, in)
-	if err != nil {
-		// Only non-pending resolve failures (illegal rel, cgroup/metaserver
-		// internal error) reach here. Pending containers (admit window, no
-		// container id yet) are classified as protected-pending and do NOT
-		// produce an error, so a normal new-pod admit is never rejected.
-		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "container_error")
-		return fmt.Errorf("build expected container cpuset: %w", err)
-	}
-	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s",
+	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s protected_rel_count=%d",
 		len(specs), len(siblings), len(expectedRes.ExpectedByRel), len(expectedRes.PendingByPod),
-		expectedRes.PendingCPUSetUnion().String())
+		expectedRes.PendingCPUSetUnion().String(), len(protectedByRel))
 	_, err = topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
 		DAG:                    dag,
 		Cgroup:                 p.cgroup,
 		ExpectedCPUSetByRel:    expectedRes.ExpectedByRel,
 		KubeManagedRelPrefix:   p.cfg.BulkheadPrimaryRelPath,
 		ProtectedPendingCPUSet: expectedRes.PendingCPUSetUnion(),
+		ProtectedCPUSetByRel:   protectedByRel,
 	})
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")
@@ -121,6 +138,7 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 }
 
 func (p *CPUSetTopologyPlugin) CPUSetAdjustmentDisabledHandler(ctx context.Context, in bulkheadapi.HandlerContext) error {
+	p.pendingProtections = map[string]pendingPodProtection{}
 	return p.resetCPUSetTopology(ctx, in)
 }
 
@@ -373,6 +391,73 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(_ context.Context, in bu
 		return nil, apierrors.NewAggregate(errs)
 	}
 	return out, nil
+}
+
+func (p *CPUSetTopologyPlugin) pendingProtectedCPUSetByRel(ctx context.Context, pendingByPod []pendingContainerCPUSet) map[string]machine.CPUSet {
+	if len(pendingByPod) == 0 {
+		p.pendingProtections = map[string]pendingPodProtection{}
+		return nil
+	}
+	if p.now == nil {
+		p.now = time.Now
+	}
+	if p.pendingProtections == nil {
+		p.pendingProtections = map[string]pendingPodProtection{}
+	}
+	now := p.now()
+	out := make(map[string]machine.CPUSet, len(pendingByPod))
+	active := map[string]struct{}{}
+	seen := map[string]struct{}{}
+	for _, pending := range pendingByPod {
+		if _, ok := seen[pending.PodUID]; ok {
+			continue
+		}
+		seen[pending.PodUID] = struct{}{}
+		active[pending.PodUID] = struct{}{}
+		protection, ok := p.pendingProtections[pending.PodUID]
+		if !ok {
+			protection = pendingPodProtection{
+				protectUntil: now.Add(defaultPendingPodProtectionTTL),
+			}
+		}
+		if now.After(protection.protectUntil) {
+			delete(p.pendingProtections, pending.PodUID)
+			continue
+		}
+		rel, err := cgcommon.GetPodRelativeCgroupPath(pending.PodUID)
+		if err != nil {
+			p.pendingProtections[pending.PodUID] = protection
+			continue
+		}
+		rel = strings.Trim(rel, "/")
+		if rel == "" {
+			p.pendingProtections[pending.PodUID] = protection
+			continue
+		}
+		current, err := p.cgroup.ReadCPUSet(ctx, rel)
+		if err != nil || current.IsEmpty() {
+			p.pendingProtections[pending.PodUID] = protection
+			continue
+		}
+		protection.rel = rel
+		protection.current = current
+		p.pendingProtections[pending.PodUID] = protection
+		out[rel] = protection.current
+	}
+	for podUID := range p.pendingProtections {
+		if _, ok := active[podUID]; !ok {
+			delete(p.pendingProtections, podUID)
+		}
+	}
+	return out
+}
+
+func unionCPUSetByRel(byRel map[string]machine.CPUSet) machine.CPUSet {
+	union := machine.NewCPUSet()
+	for _, cpus := range byRel {
+		union = union.Union(cpus)
+	}
+	return union
 }
 
 func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Context, view *bulkheadutils.CPUSetPartitionView) ([]string, error) {

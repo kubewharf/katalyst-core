@@ -76,22 +76,20 @@ func TestBuildCPUSetPartitionViewAndDeepCopy(t *testing.T) {
 	assertCPUSet(t, "container", view.ContainerCPUSetByPod["pod-1"]["main"], "5")
 
 	copied := view.DeepCopy()
-	if !EqualCPUSetPartitionView(view, copied) {
-		t.Fatalf("deep copy should equal original")
-	}
+	assertCPUSet(t, "copied reserve", copied.Reserve, "0")
+	assertCPUSet(t, "copied share", copied.SharePool, "1,6")
+	assertCPUSet(t, "copied share map default", copied.SharePoolMap[commonstate.PoolNameShare], "1")
+	assertCPUSet(t, "copied share map numa", copied.SharePoolMap["share-NUMA0"], "6")
+	assertCPUSet(t, "copied reclaim raw", copied.ReclaimRaw, "2-3")
+	assertCPUSet(t, "copied dedicated", copied.Dedicated, "5")
+	assertCPUSet(t, "copied non reclaim", copied.NonReclaimPool, "1,4-6")
+	assertCPUSet(t, "copied reclaim effective", copied.ReclaimEffective, "2-3")
+	assertCPUSet(t, "copied reclaim numa 1", copied.ReclaimEffectivePerNUMA[1], "2-3")
+	assertCPUSet(t, "copied container", copied.ContainerCPUSetByPod["pod-1"]["main"], "5")
 	copied.ContainerCPUSetByPod["pod-1"]["main"] = machine.NewCPUSet(6)
-	if !EqualCPUSetPartitionView(view, copied) {
-		t.Fatalf("container cpuset difference should not affect equality")
-	}
 	assertCPUSet(t, "original container unchanged", view.ContainerCPUSetByPod["pod-1"]["main"], "5")
 	copied.SharePoolMap["share-NUMA0"] = machine.NewCPUSet(7)
-	if EqualCPUSetPartitionView(view, copied) {
-		t.Fatalf("share pool map difference should affect equality")
-	}
 	assertCPUSet(t, "original share pool map unchanged", view.SharePoolMap["share-NUMA0"], "6")
-	if EqualCPUSetPartitionView(nil, view) {
-		t.Fatalf("nil and non-nil views must not be equal")
-	}
 }
 
 func TestBuildCPUSetPartitionViewNilInputs(t *testing.T) {
@@ -131,6 +129,56 @@ func TestBuildCPUSetPartitionViewPadsNonReclaimPoolToMinSize(t *testing.T) {
 	assertCPUSet(t, "reclaim effective after padding", view.ReclaimEffective, "3,6-7")
 	assertCPUSet(t, "reclaim numa 0 after padding", view.ReclaimEffectivePerNUMA[0], "3")
 	assertCPUSet(t, "reclaim numa 1 after padding", view.ReclaimEffectivePerNUMA[1], "6-7")
+}
+
+func TestBuildCPUSetPartitionViewAppliesTransientProtectedNonReclaim(t *testing.T) {
+	t.Parallel()
+
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	state.SetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+		AllocationResult: machine.NewCPUSet(1, 2),
+	})
+
+	view := BuildCPUSetPartitionView(state, testTwoNUMATopology(), CPUSetPartitionViewOptions{
+		TransientProtectedNonReclaim: machine.NewCPUSet(3, 4),
+	})
+
+	assertCPUSet(t, "desired non reclaim", view.DesiredNonReclaimPool, "1-2")
+	assertCPUSet(t, "desired reclaim", view.DesiredReclaimEffective, "3-7")
+	assertCPUSet(t, "protected non reclaim", view.TransientProtectedNonReclaim, "3-4")
+	assertCPUSet(t, "applied non reclaim", view.NonReclaimPool, "1-4")
+	assertCPUSet(t, "applied reclaim", view.ReclaimEffective, "5-7")
+	if !view.NonReclaimPool.Intersection(view.ReclaimEffective).IsEmpty() {
+		t.Fatalf("applied non reclaim and reclaim overlap: non=%s reclaim=%s", view.NonReclaimPool.String(), view.ReclaimEffective.String())
+	}
+	assertCPUSet(t, "applied reclaim numa 1", view.ReclaimEffectivePerNUMA[1], "5-7")
+}
+
+func TestApplyTransientProtectedNonReclaimRebuildsReclaimPerNUMA(t *testing.T) {
+	t.Parallel()
+
+	view := &CPUSetPartitionView{
+		Reserve:                        machine.NewCPUSet(),
+		DesiredNonReclaimPool:          machine.NewCPUSet(1, 2),
+		DesiredReclaimEffective:        machine.NewCPUSet(3, 4, 5, 6, 7),
+		NonReclaimPool:                 machine.NewCPUSet(1, 2),
+		ReclaimEffective:               machine.NewCPUSet(3, 4, 5, 6, 7),
+		ReclaimEffectivePerNUMA:        map[int]machine.CPUSet{0: machine.NewCPUSet(3), 1: machine.NewCPUSet(4, 5, 6, 7)},
+		DesiredReclaimEffectivePerNUMA: map[int]machine.CPUSet{0: machine.NewCPUSet(3), 1: machine.NewCPUSet(4, 5, 6, 7)},
+	}
+
+	ApplyTransientProtectedNonReclaim(view, testTwoNUMATopology(), machine.NewCPUSet(3, 4))
+
+	assertCPUSet(t, "applied reclaim", view.ReclaimEffective, "5-7")
+	if _, ok := view.ReclaimEffectivePerNUMA[0]; ok {
+		t.Fatalf("reclaim numa 0 should be removed after protected CPUs are deducted: %s", view.ReclaimEffectivePerNUMA[0].String())
+	}
+	assertCPUSet(t, "applied reclaim numa 1", view.ReclaimEffectivePerNUMA[1], "5-7")
 }
 
 func TestBuildCPUSetPartitionViewPadsNonReclaimPoolReversely(t *testing.T) {

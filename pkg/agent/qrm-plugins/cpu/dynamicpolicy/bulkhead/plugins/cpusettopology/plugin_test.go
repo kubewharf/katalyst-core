@@ -80,6 +80,7 @@ type fakeCgroupClient struct {
 	cpus              map[string]machine.CPUSet
 	children          map[string][]string
 	writes            map[string]string
+	applyCounts       map[string]int
 	cpusetWrites      map[string]cgcommon.CPUSetData
 	pruned            map[string]struct{}
 	schedLoadBalance  map[string]bool
@@ -116,7 +117,11 @@ func (f *fakeCgroupClient) ApplyCPUSet(_ context.Context, rel string, data *cgco
 	if f.cpusetWrites == nil {
 		f.cpusetWrites = map[string]cgcommon.CPUSetData{}
 	}
+	if f.applyCounts == nil {
+		f.applyCounts = map[string]int{}
+	}
 	f.writes[rel] = data.CPUs
+	f.applyCounts[rel]++
 	f.cpusetWrites[rel] = *data
 	if f.cpus == nil {
 		f.cpus = map[string]machine.CPUSet{}
@@ -186,6 +191,80 @@ func TestCPUSetTopologyPluginReconcilesPrimaryWhenReclaimEmpty(t *testing.T) {
 	}
 	if _, ok := cg.pruned["primary"]; !ok {
 		t.Fatalf("primary rel not pruned as active: %#v", cg.pruned)
+	}
+}
+
+func TestCPUSetTopologyPluginSkipsUnchangedApplyTarget(t *testing.T) {
+	t.Parallel()
+
+	cg := &fakeCgroupClient{existing: map[string]bool{
+		"primary": true,
+		"reclaim": true,
+	}}
+	p := &CPUSetTopologyPlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadPrimaryRelPath:  "primary",
+			BulkheadReclaimRelPaths: []string{"reclaim"},
+		},
+		cgroup: cg,
+	}
+	in := bulkheadapi.HandlerContext{
+		View: &bulkheadutils.CPUSetPartitionView{
+			NonReclaimPool:   machine.NewCPUSet(0, 1),
+			ReclaimEffective: machine.NewCPUSet(2, 3),
+		},
+	}
+
+	if err := p.CPUSetAdjustmentHandler(context.Background(), in); err != nil {
+		t.Fatalf("first CPUSetAdjustmentHandler: %v", err)
+	}
+	firstApplyCount := totalApplyCount(cg.applyCounts)
+	if firstApplyCount == 0 {
+		t.Fatalf("first run should apply cpuset, writes=%v", cg.writes)
+	}
+	if err := p.CPUSetAdjustmentHandler(context.Background(), in); err != nil {
+		t.Fatalf("second CPUSetAdjustmentHandler: %v", err)
+	}
+	if got := totalApplyCount(cg.applyCounts); got != firstApplyCount {
+		t.Fatalf("unchanged apply target should not write again, got %d writes want %d", got, firstApplyCount)
+	}
+}
+
+func TestCPUSetTopologyPluginReconcilesExternalCgroupDrift(t *testing.T) {
+	t.Parallel()
+
+	cg := &fakeCgroupClient{existing: map[string]bool{
+		"primary": true,
+		"reclaim": true,
+	}}
+	p := &CPUSetTopologyPlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadPrimaryRelPath:  "primary",
+			BulkheadReclaimRelPaths: []string{"reclaim"},
+		},
+		cgroup: cg,
+	}
+	in := bulkheadapi.HandlerContext{
+		View: &bulkheadutils.CPUSetPartitionView{
+			NonReclaimPool:   machine.NewCPUSet(0, 1),
+			ReclaimEffective: machine.NewCPUSet(2, 3),
+		},
+	}
+
+	if err := p.CPUSetAdjustmentHandler(context.Background(), in); err != nil {
+		t.Fatalf("first CPUSetAdjustmentHandler: %v", err)
+	}
+	firstPrimaryApplyCount := cg.applyCounts["primary"]
+	cg.cpus["primary"] = machine.NewCPUSet(0)
+
+	if err := p.CPUSetAdjustmentHandler(context.Background(), in); err != nil {
+		t.Fatalf("second CPUSetAdjustmentHandler: %v", err)
+	}
+	if got := cg.applyCounts["primary"]; got <= firstPrimaryApplyCount {
+		t.Fatalf("external primary drift was not reconciled, primary apply count=%d want > %d", got, firstPrimaryApplyCount)
+	}
+	if got := cg.writes["primary"]; got != "0-1" {
+		t.Fatalf("primary cpuset after drift = %q, want 0-1", got)
 	}
 }
 
@@ -777,4 +856,12 @@ func keysOf(m map[string]machine.CPUSet) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+func totalApplyCount(counts map[string]int) int {
+	total := 0
+	for _, count := range counts {
+		total += count
+	}
+	return total
 }

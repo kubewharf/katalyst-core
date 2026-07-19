@@ -35,15 +35,16 @@ import (
 )
 
 type fakePlugin struct {
-	name          string
-	adjustViews   []*bulkheadutils.CPUSetPartitionView
-	periodicCalls int
-	disabledCalls int
-	enableStates  []interface{}
-	enabled       bool
-	adjustErr     error
-	periodicErr   error
-	disabledErr   error
+	name           string
+	adjustViews    []*bulkheadutils.CPUSetPartitionView
+	periodicCalls  int
+	periodicStates []interface{}
+	disabledCalls  int
+	enableStates   []interface{}
+	enabled        bool
+	adjustErr      error
+	periodicErr    error
+	disabledErr    error
 }
 
 type capturedMetric struct {
@@ -91,9 +92,14 @@ func (p *fakePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.H
 
 func (p *fakePlugin) PeriodicalHandler(
 	_ context.Context,
-	_ bulkheadapi.PeriodicalHandlerContext,
+	in bulkheadapi.PeriodicalHandlerContext,
 ) error {
 	p.periodicCalls++
+	if in.EffectiveEnabled == nil {
+		p.periodicStates = append(p.periodicStates, nil)
+	} else {
+		p.periodicStates = append(p.periodicStates, *in.EffectiveEnabled)
+	}
 	return p.periodicErr
 }
 
@@ -102,7 +108,7 @@ func (p *fakePlugin) CPUSetAdjustmentDisabledHandler(_ context.Context, _ bulkhe
 	return p.disabledErr
 }
 
-func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersCallsEnabledPluginEveryRun(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: true}
@@ -114,8 +120,8 @@ func TestRunCPUSetAdjustmentHandlersSkipsUnchangedView(t *testing.T) {
 	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), enabledCPUSetAdjustmentCtx()); err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
-	if got := len(plugin.adjustViews); got != 1 {
-		t.Fatalf("expected unchanged view to skip plugin, got %d calls", got)
+	if got := len(plugin.adjustViews); got != 2 {
+		t.Fatalf("manager should not skip enabled plugin, got %d calls", got)
 	}
 }
 
@@ -224,13 +230,12 @@ func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
 	}
 }
 
-func TestRunCPUSetAdjustmentHandlersReturnsEarlyWhenBulkheadDisabled(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersRunsDisabledResetWhenBulkheadDisabled(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: true}
 	m := &Manager{
 		plugins:                     []bulkheadapi.Plugin{plugin},
-		lastCPUSetAdjustmentView:    &bulkheadutils.CPUSetPartitionView{},
 		lastCPUSetAdjustmentEnabled: map[string]bool{plugin.Name(): true},
 	}
 
@@ -247,14 +252,11 @@ func TestRunCPUSetAdjustmentHandlersReturnsEarlyWhenBulkheadDisabled(t *testing.
 	if len(plugin.adjustViews) != 0 {
 		t.Fatalf("adjust calls = %d, want 0", len(plugin.adjustViews))
 	}
-	if plugin.disabledCalls != 0 {
-		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("disabled calls = %d, want 1", plugin.disabledCalls)
 	}
-	if m.lastCPUSetAdjustmentView != nil {
-		t.Fatalf("lastCPUSetAdjustmentView should be cleared")
-	}
-	if m.lastCPUSetAdjustmentEnabled != nil {
-		t.Fatalf("lastCPUSetAdjustmentEnabled should be cleared")
+	if got := m.lastCPUSetAdjustmentEnabled[plugin.Name()]; got {
+		t.Fatalf("last enabled state = %t, want false", got)
 	}
 }
 
@@ -272,8 +274,8 @@ func TestRunCPUSetAdjustmentHandlersReconcilesAfterBulkheadReenabledWithSameView
 	}); err != nil {
 		t.Fatalf("disabled bulkhead run failed: %v", err)
 	}
-	if plugin.disabledCalls != 0 {
-		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
+	if plugin.disabledCalls != 1 {
+		t.Fatalf("disabled calls = %d, want 1", plugin.disabledCalls)
 	}
 	if len(plugin.enableStates) != 1 {
 		t.Fatalf("plugin Enable calls = %d, want 1", len(plugin.enableStates))
@@ -465,21 +467,25 @@ func TestRunPeriodicalHandlersContinuesAfterErrors(t *testing.T) {
 	}
 }
 
-func TestRunPeriodicalHandlersSkipsPluginsWhenBulkheadDisabled(t *testing.T) {
+func TestRunPeriodicalHandlersReportsDisabledStateWhenBulkheadDisabled(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name            string
 		bulkheadEnabled bool
 		wantCalls       int
+		wantState       interface{}
 	}{
 		{
-			name: "bulkhead disabled",
+			name:      "bulkhead disabled",
+			wantCalls: 1,
+			wantState: false,
 		},
 		{
 			name:            "bulkhead enabled",
 			bulkheadEnabled: true,
 			wantCalls:       1,
+			wantState:       nil,
 		},
 	}
 
@@ -496,6 +502,12 @@ func TestRunPeriodicalHandlersSkipsPluginsWhenBulkheadDisabled(t *testing.T) {
 			m.RunPeriodicalHandlers(nil, nil, dynamicConf, nil, nil)
 			if plugin.periodicCalls != tt.wantCalls {
 				t.Fatalf("periodic calls = %d, want %d", plugin.periodicCalls, tt.wantCalls)
+			}
+			if len(plugin.periodicStates) != tt.wantCalls {
+				t.Fatalf("periodic states = %d, want %d", len(plugin.periodicStates), tt.wantCalls)
+			}
+			if tt.wantCalls > 0 && plugin.periodicStates[0] != tt.wantState {
+				t.Fatalf("effective enabled state = %#v, want %#v", plugin.periodicStates[0], tt.wantState)
 			}
 		})
 	}

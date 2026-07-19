@@ -41,7 +41,6 @@ type Manager struct {
 	mu                           sync.Mutex
 	plugins                      []bulkheadapi.Plugin
 	defaultNonReclaimPoolMinSize int64
-	lastCPUSetAdjustmentView     *bulkheadutils.CPUSetPartitionView
 	lastCPUSetAdjustmentEnabled  map[string]bool
 }
 
@@ -71,12 +70,7 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	defer m.mu.Unlock()
 
 	handlerCtx := bulkheadapi.HandlerContext{CPUSetAdjustmentHandlerCtx: in}
-	if !bulkheadEnabled(in.DynamicConf) {
-		m.resetCPUSetAdjustmentCache()
-		emitBulkheadViewChanged(handlerCtx.Emitter, false)
-		return nil
-	}
-	if in.State != nil {
+	if bulkheadEnabled(in.DynamicConf) && in.State != nil {
 		nonReclaimPoolMinSize := bulkheadNonReclaimPoolMinSize(in.DynamicConf)
 		if nonReclaimPoolMinSize <= 0 {
 			nonReclaimPoolMinSize = m.defaultNonReclaimPoolMinSize
@@ -89,14 +83,8 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 		}
 		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology, opts)
 	}
-	currentEnabled := m.buildPluginEnabledState(handlerCtx)
-	if m.lastCPUSetAdjustmentEnabled != nil &&
-		equalPluginEnabledState(m.lastCPUSetAdjustmentEnabled, currentEnabled) &&
-		bulkheadutils.EqualCPUSetPartitionView(m.lastCPUSetAdjustmentView, handlerCtx.View) {
-		emitBulkheadViewChanged(handlerCtx.Emitter, false)
-		return nil
-	}
-	emitBulkheadViewChanged(handlerCtx.Emitter, true)
+	currentEnabled := m.buildPluginEnabledState(handlerCtx, bulkheadEnabled(in.DynamicConf))
+	anyAdjusted := false
 
 	for _, p := range m.plugins {
 		if !currentEnabled[p.Name()] {
@@ -108,6 +96,7 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 				return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
 			}
 			emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "success", "")
+			anyAdjusted = true
 			continue
 		}
 		if err := p.CPUSetAdjustmentHandler(ctx, handlerCtx); err != nil {
@@ -115,20 +104,17 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 			return fmt.Errorf("bulkhead plugin %q cpuset adjustment failed: %w", p.Name(), err)
 		}
 		emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment", p.Name(), "success", "")
+		anyAdjusted = true
 	}
+	emitBulkheadViewChanged(handlerCtx.Emitter, anyAdjusted)
 	m.lastCPUSetAdjustmentEnabled = currentEnabled
-	if handlerCtx.View == nil {
-		m.lastCPUSetAdjustmentView = nil
-		return nil
-	}
-	m.lastCPUSetAdjustmentView = handlerCtx.View.DeepCopy()
 	return nil
 }
 
-func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[string]bool {
+func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext, globalEnabled bool) map[string]bool {
 	out := make(map[string]bool, len(m.plugins))
 	for _, p := range m.plugins {
-		out[p.Name()] = p.Enable(in)
+		out[p.Name()] = globalEnabled && p.Enable(in)
 	}
 	return out
 }
@@ -138,11 +124,6 @@ func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[str
 // prior state (e.g. after restart) and must reset once to converge.
 func (m *Manager) needsDisabledReset(name string) bool {
 	return m.lastCPUSetAdjustmentEnabled == nil || m.lastCPUSetAdjustmentEnabled[name]
-}
-
-func (m *Manager) resetCPUSetAdjustmentCache() {
-	m.lastCPUSetAdjustmentView = nil
-	m.lastCPUSetAdjustmentEnabled = nil
 }
 
 func bulkheadEnabled(conf *dynamicconfig.Configuration) bool {
@@ -157,18 +138,6 @@ func bulkheadNonReclaimPoolMinSize(conf *dynamicconfig.Configuration) int64 {
 		return 0
 	}
 	return conf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize
-}
-
-func equalPluginEnabledState(a, b map[string]bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for name, enabled := range a {
-		if b[name] != enabled {
-			return false
-		}
-	}
-	return true
 }
 
 func (m *Manager) RunPeriodicalHandlers(
@@ -194,9 +163,6 @@ func (m *Manager) RunPeriodicalHandlers(
 	if dynamicConf != nil {
 		conf = dynamicConf.GetDynamicConfiguration()
 	}
-	if !bulkheadEnabled(conf) {
-		return
-	}
 	handlerCtx := bulkheadapi.PeriodicalHandlerContext{
 		CoreConf:    coreConf,
 		ExtraConf:   extraConf,
@@ -207,7 +173,10 @@ func (m *Manager) RunPeriodicalHandlers(
 	var errs []error
 	for _, p := range m.plugins {
 		pluginCtx := handlerCtx
-		if enabled, ok := m.lastCPUSetAdjustmentEnabled[p.Name()]; ok {
+		if !bulkheadEnabled(conf) {
+			disabled := false
+			pluginCtx.EffectiveEnabled = &disabled
+		} else if enabled, ok := m.lastCPUSetAdjustmentEnabled[p.Name()]; ok {
 			pluginCtx.EffectiveEnabled = &enabled
 		}
 		if err := p.PeriodicalHandler(ctx, pluginCtx); err != nil {
