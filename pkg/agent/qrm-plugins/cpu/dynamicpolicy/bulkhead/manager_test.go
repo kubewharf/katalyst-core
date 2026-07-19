@@ -230,7 +230,7 @@ func TestRunCPUSetAdjustmentHandlersPassesHandlerContextToEnable(t *testing.T) {
 	}
 }
 
-func TestRunCPUSetAdjustmentHandlersRunsDisabledResetWhenBulkheadDisabled(t *testing.T) {
+func TestRunCPUSetAdjustmentHandlersSkipsAllPluginLogicWhenBulkheadDisabled(t *testing.T) {
 	t.Parallel()
 
 	plugin := &fakePlugin{name: "fake", enabled: true}
@@ -252,11 +252,11 @@ func TestRunCPUSetAdjustmentHandlersRunsDisabledResetWhenBulkheadDisabled(t *tes
 	if len(plugin.adjustViews) != 0 {
 		t.Fatalf("adjust calls = %d, want 0", len(plugin.adjustViews))
 	}
-	if plugin.disabledCalls != 1 {
-		t.Fatalf("disabled calls = %d, want 1", plugin.disabledCalls)
+	if plugin.disabledCalls != 0 {
+		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
 	}
-	if got := m.lastCPUSetAdjustmentEnabled[plugin.Name()]; got {
-		t.Fatalf("last enabled state = %t, want false", got)
+	if m.lastCPUSetAdjustmentEnabled != nil {
+		t.Fatalf("last enabled state should be cleared when bulkhead is globally disabled")
 	}
 }
 
@@ -274,8 +274,8 @@ func TestRunCPUSetAdjustmentHandlersReconcilesAfterBulkheadReenabledWithSameView
 	}); err != nil {
 		t.Fatalf("disabled bulkhead run failed: %v", err)
 	}
-	if plugin.disabledCalls != 1 {
-		t.Fatalf("disabled calls = %d, want 1", plugin.disabledCalls)
+	if plugin.disabledCalls != 0 {
+		t.Fatalf("disabled calls = %d, want 0", plugin.disabledCalls)
 	}
 	if len(plugin.enableStates) != 1 {
 		t.Fatalf("plugin Enable calls = %d, want 1", len(plugin.enableStates))
@@ -467,25 +467,21 @@ func TestRunPeriodicalHandlersContinuesAfterErrors(t *testing.T) {
 	}
 }
 
-func TestRunPeriodicalHandlersReportsDisabledStateWhenBulkheadDisabled(t *testing.T) {
+func TestRunPeriodicalHandlersSkipsAllPluginLogicWhenBulkheadDisabled(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name            string
 		bulkheadEnabled bool
 		wantCalls       int
-		wantState       interface{}
 	}{
 		{
-			name:      "bulkhead disabled",
-			wantCalls: 1,
-			wantState: false,
+			name: "bulkhead disabled",
 		},
 		{
 			name:            "bulkhead enabled",
 			bulkheadEnabled: true,
 			wantCalls:       1,
-			wantState:       nil,
 		},
 	}
 
@@ -505,9 +501,6 @@ func TestRunPeriodicalHandlersReportsDisabledStateWhenBulkheadDisabled(t *testin
 			}
 			if len(plugin.periodicStates) != tt.wantCalls {
 				t.Fatalf("periodic states = %d, want %d", len(plugin.periodicStates), tt.wantCalls)
-			}
-			if tt.wantCalls > 0 && plugin.periodicStates[0] != tt.wantState {
-				t.Fatalf("effective enabled state = %#v, want %#v", plugin.periodicStates[0], tt.wantState)
 			}
 		})
 	}

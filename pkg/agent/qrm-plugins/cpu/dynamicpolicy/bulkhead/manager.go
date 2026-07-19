@@ -70,7 +70,17 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	defer m.mu.Unlock()
 
 	handlerCtx := bulkheadapi.HandlerContext{CPUSetAdjustmentHandlerCtx: in}
-	if bulkheadEnabled(in.DynamicConf) && in.State != nil {
+	if !bulkheadEnabled(in.DynamicConf) {
+		// The global bulkhead switch is a hard gate: when it is off, do not run
+		// plugin Enable/adjust/disabled handlers. Disabled handlers may write
+		// cgroup or sysfs rollback state, which is still bulkhead-owned behavior
+		// and can introduce unexpected changes after the user explicitly turns
+		// bulkhead off.
+		m.lastCPUSetAdjustmentEnabled = nil
+		emitBulkheadViewChanged(handlerCtx.Emitter, false)
+		return nil
+	}
+	if in.State != nil {
 		nonReclaimPoolMinSize := bulkheadNonReclaimPoolMinSize(in.DynamicConf)
 		if nonReclaimPoolMinSize <= 0 {
 			nonReclaimPoolMinSize = m.defaultNonReclaimPoolMinSize
@@ -83,7 +93,7 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 		}
 		handlerCtx.View = bulkheadutils.BuildCPUSetPartitionView(in.State, in.Topology, opts)
 	}
-	currentEnabled := m.buildPluginEnabledState(handlerCtx, bulkheadEnabled(in.DynamicConf))
+	currentEnabled := m.buildPluginEnabledState(handlerCtx)
 	anyAdjusted := false
 
 	for _, p := range m.plugins {
@@ -111,10 +121,10 @@ func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil
 	return nil
 }
 
-func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext, globalEnabled bool) map[string]bool {
+func (m *Manager) buildPluginEnabledState(in bulkheadapi.HandlerContext) map[string]bool {
 	out := make(map[string]bool, len(m.plugins))
 	for _, p := range m.plugins {
-		out[p.Name()] = globalEnabled && p.Enable(in)
+		out[p.Name()] = p.Enable(in)
 	}
 	return out
 }
@@ -163,6 +173,14 @@ func (m *Manager) RunPeriodicalHandlers(
 	if dynamicConf != nil {
 		conf = dynamicConf.GetDynamicConfiguration()
 	}
+	if !bulkheadEnabled(conf) {
+		// Keep the periodical path behind the same hard global gate as the
+		// cpuset adjustment path. Periodical handlers may reconcile external
+		// resources such as cpuset partitions or workqueue masks, so running them
+		// while bulkhead is globally disabled would still mutate bulkhead-owned
+		// state.
+		return
+	}
 	handlerCtx := bulkheadapi.PeriodicalHandlerContext{
 		CoreConf:    coreConf,
 		ExtraConf:   extraConf,
@@ -173,10 +191,7 @@ func (m *Manager) RunPeriodicalHandlers(
 	var errs []error
 	for _, p := range m.plugins {
 		pluginCtx := handlerCtx
-		if !bulkheadEnabled(conf) {
-			disabled := false
-			pluginCtx.EffectiveEnabled = &disabled
-		} else if enabled, ok := m.lastCPUSetAdjustmentEnabled[p.Name()]; ok {
+		if enabled, ok := m.lastCPUSetAdjustmentEnabled[p.Name()]; ok {
 			pluginCtx.EffectiveEnabled = &enabled
 		}
 		if err := p.PeriodicalHandler(ctx, pluginCtx); err != nil {
