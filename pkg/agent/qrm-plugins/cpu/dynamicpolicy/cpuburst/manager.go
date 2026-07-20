@@ -19,6 +19,7 @@ package cpuburst
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -169,6 +170,12 @@ func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod, main
 		if err != nil {
 			general.Errorf("get container cpu stats failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
 			errList = append(errList, err)
+			continue
+		}
+
+		// Skip setting of cpu quota when cpu quota is max
+		if cpuStats.CpuQuota == math.MaxInt64 {
+			general.Infof("skip updating container burst for max cpu quota, pod: %s, podName: %s, container: %s(%s)", podUID, podName, containerName, containerID)
 			continue
 		}
 
