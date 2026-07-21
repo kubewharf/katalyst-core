@@ -2673,3 +2673,197 @@ func TestVirtualGPUPlugin_Allocate_DisableEnvInjectionAnnotation(t *testing.T) {
 		})
 	}
 }
+
+func TestVirtualGPUPlugin_injectWeightEnvVariable(t *testing.T) {
+	t.Parallel()
+
+	basePlugin := makeTestBasePlugin(t)
+	resourcePlugin := NewVirtualGPUPlugin(basePlugin)
+	plugin, ok := resourcePlugin.(*VirtualGPUPlugin)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	tests := []struct {
+		name              string
+		resName           v1.ResourceName
+		defaultEnvName    string
+		envNames          []string
+		allocatedDevices  []string
+		resQuantityPerGPU float64
+		expected          map[string]string
+	}{
+		{
+			name:              "single list entry receives value",
+			resName:           consts.ResourceGPUMemory,
+			defaultEnvName:    "LEGACY_MEM",
+			envNames:          []string{"FOO"},
+			allocatedDevices:  []string{"gpu-0"},
+			resQuantityPerGPU: 5, // 5 / 10 = 50%
+			expected:          map[string]string{"FOO": "gpu-0:50"},
+		},
+		{
+			name:              "multiple list entries all receive same value",
+			resName:           consts.ResourceMilliGPU,
+			defaultEnvName:    "LEGACY_COMP",
+			envNames:          []string{"FOO", "BAR"},
+			allocatedDevices:  []string{"gpu-0"},
+			resQuantityPerGPU: 250, // 250 / 1000 = 25%
+			expected: map[string]string{
+				"FOO": "gpu-0:25",
+				"BAR": "gpu-0:25",
+			},
+		},
+		{
+			name:              "non-empty list overrides default env name",
+			resName:           consts.ResourceGPUMemory,
+			defaultEnvName:    "LEGACY_MEM",
+			envNames:          []string{"FOO"},
+			allocatedDevices:  []string{"gpu-0"},
+			resQuantityPerGPU: 5,
+			expected:          map[string]string{"FOO": "gpu-0:50"},
+		},
+		{
+			name:              "empty list falls back to default env name",
+			resName:           consts.ResourceGPUMemory,
+			defaultEnvName:    "LEGACY_MEM",
+			envNames:          nil,
+			allocatedDevices:  []string{"gpu-0"},
+			resQuantityPerGPU: 5,
+			expected:          map[string]string{"LEGACY_MEM": "gpu-0:50"},
+		},
+		{
+			name:              "empty list and empty default injects nothing",
+			resName:           consts.ResourceGPUMemory,
+			defaultEnvName:    "",
+			envNames:          nil,
+			allocatedDevices:  []string{"gpu-0"},
+			resQuantityPerGPU: 5,
+			expected:          map[string]string{},
+		},
+		{
+			name:              "empty entries in list are skipped",
+			resName:           consts.ResourceMilliGPU,
+			defaultEnvName:    "LEGACY_COMP",
+			envNames:          []string{"FOO", "", "BAR"},
+			allocatedDevices:  []string{"gpu-0"},
+			resQuantityPerGPU: 250,
+			expected: map[string]string{
+				"FOO": "gpu-0:25",
+				"BAR": "gpu-0:25",
+			},
+		},
+		{
+			name:              "multiple allocated devices skips injection",
+			resName:           consts.ResourceGPUMemory,
+			defaultEnvName:    "LEGACY_MEM",
+			envNames:          []string{"FOO"},
+			allocatedDevices:  []string{"gpu-0", "gpu-1"},
+			resQuantityPerGPU: 5,
+			expected:          map[string]string{},
+		},
+		{
+			name:              "zero allocated devices skips injection",
+			resName:           consts.ResourceGPUMemory,
+			defaultEnvName:    "LEGACY_MEM",
+			envNames:          []string{"FOO"},
+			allocatedDevices:  nil,
+			resQuantityPerGPU: 5,
+			expected:          map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			envs := map[string]string{}
+			plugin.injectWeightEnvVariable(envs, tt.resName, tt.defaultEnvName, tt.envNames, tt.allocatedDevices, tt.resQuantityPerGPU)
+			assert.Equal(t, tt.expected, envs)
+		})
+	}
+}
+
+func TestVirtualGPUPlugin_injectMemoryAndComputeEnvNamesLists(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		memoryEnvName   string
+		memoryEnvNames  []string
+		computeEnvName  string
+		computeEnvNames []string
+		expectedMemory  map[string]string
+		expectedCompute map[string]string
+	}{
+		{
+			name:            "lists take precedence and inject every entry",
+			memoryEnvName:   "LEGACY_MEM",
+			memoryEnvNames:  []string{"MEM_A", "MEM_B"},
+			computeEnvName:  "LEGACY_COMP",
+			computeEnvNames: []string{"COMP_A", "COMP_B"},
+			expectedMemory: map[string]string{
+				"MEM_A": "gpu-0:50",
+				"MEM_B": "gpu-0:50",
+			},
+			expectedCompute: map[string]string{
+				"COMP_A": "gpu-0:25",
+				"COMP_B": "gpu-0:25",
+			},
+		},
+		{
+			name:            "empty lists fall back to legacy single env names",
+			memoryEnvName:   "LEGACY_MEM",
+			memoryEnvNames:  nil,
+			computeEnvName:  "LEGACY_COMP",
+			computeEnvNames: nil,
+			expectedMemory: map[string]string{
+				"LEGACY_MEM": "gpu-0:50",
+			},
+			expectedCompute: map[string]string{
+				"LEGACY_COMP": "gpu-0:25",
+			},
+		},
+		{
+			name:            "memory uses list; compute falls back to legacy",
+			memoryEnvName:   "LEGACY_MEM",
+			memoryEnvNames:  []string{"MEM_A"},
+			computeEnvName:  "LEGACY_COMP",
+			computeEnvNames: nil,
+			expectedMemory: map[string]string{
+				"MEM_A": "gpu-0:50",
+			},
+			expectedCompute: map[string]string{
+				"LEGACY_COMP": "gpu-0:25",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			basePlugin := makeTestBasePlugin(t)
+			basePlugin.Conf.VirtualGPUMemoryWeightEnvName = tt.memoryEnvName
+			basePlugin.Conf.VirtualGPUMemoryWeightEnvNames = tt.memoryEnvNames
+			basePlugin.Conf.VirtualGPUComputeWeightEnvName = tt.computeEnvName
+			basePlugin.Conf.VirtualGPUComputeWeightEnvNames = tt.computeEnvNames
+
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
+			plugin, ok := resourcePlugin.(*VirtualGPUPlugin)
+			if !assert.True(t, ok) {
+				return
+			}
+
+			memoryEnvs := map[string]string{}
+			plugin.injectGPUMemoryEnvVariables(memoryEnvs, []string{"gpu-0"}, 5)
+			assert.Equal(t, tt.expectedMemory, memoryEnvs)
+
+			computeEnvs := map[string]string{}
+			plugin.injectMilliGPUEnvVariables(computeEnvs, []string{"gpu-0"}, 250, "test-pod-uid")
+			assert.Equal(t, tt.expectedCompute, computeEnvs)
+		})
+	}
+}
