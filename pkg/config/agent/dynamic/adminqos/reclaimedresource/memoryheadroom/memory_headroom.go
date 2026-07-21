@@ -20,6 +20,9 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
 type MemoryHeadroomConfiguration struct {
 	*MemoryUtilBasedConfiguration
+	// ReclaimedMemoryMaxRatio is the ratio (in [0, 1]) of the maximum amount of memory
+	// that can be reclaimed per numa at any time. 0 means no limit.
+	ReclaimedMemoryMaxRatio float64
 }
 
 func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
@@ -30,4 +33,12 @@ func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
 
 func (c *MemoryHeadroomConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.MemoryUtilBasedConfiguration.ApplyConfiguration(conf)
+
+	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
+		aqc.Spec.Config.ReclaimedResourceConfig != nil &&
+		aqc.Spec.Config.ReclaimedResourceConfig.MemoryHeadroomConfig != nil {
+		if r := aqc.Spec.Config.ReclaimedResourceConfig.MemoryHeadroomConfig.ReclaimedMemoryMaxRatio; r != nil {
+			c.ReclaimedMemoryMaxRatio = *r
+		}
+	}
 }
