@@ -203,11 +203,17 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 	reclaimMemoryLimit := reclaimedCoresUsed.Value +
 		math.Max(numaFree-criticalWatermark, 0)
 
+	reclaimedMemoryMaxRatio := mg.conf.GetDynamicConfiguration().ReclaimedMemoryMaxRatio
+	if reclaimedMemoryMaxRatio > 0 {
+		reclaimMemoryLimit = math.Min(reclaimMemoryLimit, reclaimedMemoryMaxRatio*numaTotal)
+	}
+
 	general.InfoS("NUMA memory info", "numaID", numaID,
 		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
 		"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed.Value),
 		"numaFree", general.FormatMemoryQuantity(numaFree),
 		"criticalWatermarkScaleFactor", criticalWatermarkScaleFactor,
+		"reclaimedMemoryMaxRatio", reclaimedMemoryMaxRatio,
 		"reclaimMemoryLimit", general.FormatMemoryQuantity(reclaimMemoryLimit),
 		"zoneInfo", zoneInfo, "found", found)
 	return reclaimMemoryLimit, nil

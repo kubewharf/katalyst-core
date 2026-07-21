@@ -36,6 +36,7 @@ type CPUProvisionOptions struct {
 	IndicatorTargetGetters                      map[string]string
 	IndicatorTargetDefaultGetter                string
 	IndicatorTargetMetricThresholdExpandFactors map[string]string
+	ReclaimedCPUMaxRatio                        float64
 }
 
 func NewCPUProvisionOptions() *CPUProvisionOptions {
@@ -52,6 +53,7 @@ func NewCPUProvisionOptions() *CPUProvisionOptions {
 func (o *CPUProvisionOptions) ApplyTo(c *advisor.CPUProvisionConfiguration) error {
 	var errList []error
 	c.AllowSharedCoresOverlapReclaimedCores = o.AllowSharedCoresOverlapReclaimedCores
+	c.ReclaimedCPUMaxRatio = o.ReclaimedCPUMaxRatio
 
 	for regionType, targets := range o.RegionIndicatorTargetOptions {
 		regionIndicatorTarget := make([]v1alpha1.IndicatorTargetConfiguration, 0)
@@ -106,4 +108,6 @@ func (o *CPUProvisionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"default indicator target getter func like spd-avg")
 	fs.StringToStringVar(&o.IndicatorTargetMetricThresholdExpandFactors, "indicator-target-metric-threshold-expand-factors", o.IndicatorTargetMetricThresholdExpandFactors,
 		"indicator target expand factor, in format like cpu_usage_ratio=1.1,cpi=1.2")
+	fs.Float64Var(&o.ReclaimedCPUMaxRatio, "reclaimed-cpu-max-ratio", o.ReclaimedCPUMaxRatio,
+		"the maximum ratio of whole-machine/NUMA CPUs that can be assigned to reclaimed_cores, 0 means no limit")
 }

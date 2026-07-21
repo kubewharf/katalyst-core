@@ -68,6 +68,34 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 	}
 }
 
+// cpuCountInNUMAs returns the total number of CPUs within the given NUMA set.
+// It returns 0 when metaServer or its CPUDetails is not ready, so callers can
+// skip clamping instead of mistakenly capping reclaim to 0.
+func (pa *ProvisionAssemblerCommon) cpuCountInNUMAs(numas machine.CPUSet) int {
+	if pa.metaServer == nil || pa.metaServer.CPUDetails == nil {
+		return 0
+	}
+	return pa.metaServer.CPUDetails.CPUsInNUMANodes(numas.ToSliceInt()...).Size()
+}
+
+// clampByReclaimedCPUMaxRatio caps the reclaim pool size (and quota when it is
+// not the -1 sentinel) by ratio*cpuCount. When ratio<=0 it disables clamping and
+// returns the inputs unchanged; a negative limit (e.g. the -1 "no quota limit"
+// sentinel) is preserved as-is.
+func clampByReclaimedCPUMaxRatio(size int, limit float64, ratio float64, cpuCount int) (int, float64) {
+	if ratio <= 0 {
+		return size, limit
+	}
+	capCores := int(ratio * float64(cpuCount))
+	if size > capCores {
+		size = capCores
+	}
+	if limit >= 0 && limit > float64(capCores) {
+		limit = float64(capCores)
+	}
+	return size, limit
+}
+
 func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	controlKnob, err := r.GetProvision()
 	if err != nil {
@@ -100,6 +128,12 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		}
 	} else {
 		reclaimedCoresSize = general.Max(reservedForReclaim, available-nonReclaimRequirement)
+	}
+
+	if ratio := pa.conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio; ratio > 0 {
+		if cpuCount := pa.cpuCountInNUMAs(r.GetBindingNumas()); cpuCount > 0 {
+			reclaimedCoresSize, reclaimedCoresLimit = clampByReclaimedCPUMaxRatio(reclaimedCoresSize, reclaimedCoresLimit, ratio, cpuCount)
+		}
 	}
 
 	klog.InfoS("assembleDedicatedNUMAExclusive info", "regionName", r.Name(), "reclaimedCoresSize", reclaimedCoresSize,
@@ -432,6 +466,12 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err := pa.calculateReclaimPool(reclaimPoolData, result)
 	if err != nil {
 		return err
+	}
+
+	if ratio := pa.conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio; ratio > 0 {
+		if cpuCount := pa.cpuCountInNUMAs(numaSet); cpuCount > 0 {
+			reclaimedCoresSize, reclaimedCoresQuota = clampByReclaimedCPUMaxRatio(reclaimedCoresSize, reclaimedCoresQuota, ratio, cpuCount)
+		}
 	}
 
 	nonOverlapReclaimedCoresSize := general.Max(reclaimedCoresSize-overlapReclaimedCoresSize, 0)
