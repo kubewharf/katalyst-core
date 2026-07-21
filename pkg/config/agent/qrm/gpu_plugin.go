@@ -54,10 +54,18 @@ type GPUQRMPluginConfig struct {
 	// the allocated GPU memory percentage. The format will be "<deviceID>:<percentage>",
 	// where the percentage is an integer from 1 to 100.
 	VirtualGPUMemoryWeightEnvName string
+	// VirtualGPUMemoryWeightEnvNames is the list of environment variable names injected into the pod
+	// with the allocated GPU memory percentage. Every name in this list receives the same
+	// "<deviceID>:<percentage>" value. When empty, falls back to VirtualGPUMemoryWeightEnvName.
+	VirtualGPUMemoryWeightEnvNames []string
 	// VirtualGPUComputeWeightEnvName is the environment variable name injected into the pod to specify
 	// the allocated Virtual GPU compute percentage. The format will be "<deviceID>:<percentage>",
 	// where the percentage is an integer from 1 to 100.
 	VirtualGPUComputeWeightEnvName string
+	// VirtualGPUComputeWeightEnvNames is the list of environment variable names injected into the pod
+	// with the allocated Virtual GPU compute percentage. Every name in this list receives the same
+	// "<deviceID>:<percentage>" value. When empty, falls back to VirtualGPUComputeWeightEnvName.
+	VirtualGPUComputeWeightEnvNames []string
 	// VirtualGPUTimesliceEnvName is the environment variable name injected into the pod to specify
 	// the timeslice configuration for Virtual GPU isolation.
 	VirtualGPUTimesliceEnvName string
