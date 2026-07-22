@@ -19,56 +19,46 @@ package reclaim
 import (
 	"fmt"
 	"sync"
+
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // ConsumerFactory constructs a concrete ReclaimedConsumer. Implementations
 // close over any configuration they need at the point where they register.
-type ConsumerFactory func() ReclaimedConsumer
+type ConsumerFactory func(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) ReclaimedConsumer
 
-// factories holds the pre-registered ConsumerFactory for each known consumer
-// name. Impls register themselves at agent boot from a config-aware call site
-// (e.g. cmd/katalyst-agent/app/agent.go) rather than in init(), so the
-// factory closure can capture the concrete config values.
 var factories sync.Map
 
 // RegisterFactory registers a ConsumerFactory under name. Overwrites any
-// prior entry with the same name.
+// prior entry with the same name. Intended for out-of-tree consumers.
 func RegisterFactory(name string, f ConsumerFactory) {
 	factories.Store(name, f)
 }
 
-// registerGenericFactory registers the default GenericConsumer factory under
-// GenericConsumerName. It captures the two scalar config values the consumer
-// needs so callers do not have to repeat the closure boilerplate.
-func registerGenericFactory(cgroupPath string, percentage float64) {
-	RegisterFactory(GenericConsumerName, func() ReclaimedConsumer {
-		return NewGenericConsumer(cgroupPath, percentage)
-	})
-}
-
-// SetupConsumers is the one-call convenience path for booting the reclaim
-// registry: it installs the default GenericConsumer factory with the given
-// scalar config, then boots names. Out-of-tree consumers that have registered
-// their own factory via RegisterFactory (typically from an init()) will still
-// be booted if they appear in names.
-func SetupConsumers(cgroupPath string, percentage float64, names []string) error {
-	registerGenericFactory(cgroupPath, percentage)
-	return initConsumers(names)
+// SetupConsumers boots the consumers named in conf.ReclaimConsumers.
+func SetupConsumers(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) error {
+	return initConsumers(conf, machineInfo)
 }
 
 // initConsumers looks up each name's factory, constructs the consumer, and
 // stores it in the runtime registry under that same name. If names is empty
 // it defaults to [GenericConsumerName]. An unknown name is a hard error.
-func initConsumers(names []string) error {
-	if len(names) == 0 {
-		names = []string{GenericConsumerName}
+// Names already present in the registry are skipped, making SetupConsumers
+// idempotent across repeated calls.
+func initConsumers(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) error {
+	if len(conf.ReclaimConsumers) == 0 {
+		conf.ReclaimConsumers = []string{GenericConsumerName}
 	}
-	for _, name := range names {
+	for _, name := range conf.ReclaimConsumers {
+		if _, ok := GetConsumerByName(name); ok {
+			continue
+		}
 		v, ok := factories.Load(name)
 		if !ok {
 			return fmt.Errorf("unknown reclaim consumer %q", name)
 		}
-		if err := registerConsumer(name, v.(ConsumerFactory)()); err != nil {
+		if err := registerConsumer(name, v.(ConsumerFactory)(conf, machineInfo)); err != nil {
 			return fmt.Errorf("registering consumer %q failed: %w", name, err)
 		}
 	}

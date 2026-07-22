@@ -54,8 +54,6 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomAssembler {
-	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
-
 	return &HeadroomAssemblerCommon{
 		conf:               conf,
 		regionMap:          regionMap,
@@ -64,7 +62,7 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 		nonBindingNumas:    nonBindingNumas,
 
 		reclaimRelativeRootCgroupPaths:     reclaim.AggregateCgroupPaths(),
-		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(numaIDs),
+		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -112,7 +110,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 		}
 
 		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, reclaimPaths, ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, general.GetExistingPaths(reclaimPaths), ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -134,7 +132,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			cpuSets = cpuSets.Union(cpuSet)
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, ha.reclaimRelativeRootCgroupPaths, ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, general.GetExistingPaths(ha.reclaimRelativeRootCgroupPaths), ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
@@ -193,7 +191,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		}
 
 		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, reclaimPaths, ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, general.GetExistingPaths(reclaimPaths), ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -224,7 +222,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, ha.reclaimRelativeRootCgroupPaths, ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, general.GetExistingPaths(ha.reclaimRelativeRootCgroupPaths), ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}

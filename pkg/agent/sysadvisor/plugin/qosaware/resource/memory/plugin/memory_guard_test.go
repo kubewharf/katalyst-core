@@ -23,22 +23,32 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestGetAdvices_MultiPath(t *testing.T) {
 	t.Parallel()
-	mg := &memoryGuard{
-		reclaimRelativeRootCgroupEntries: []reclaim.CgroupPathWithPercentage{
-			{Path: "/kubepods/besteffort", Percentage: 100},
-			{Path: "/parentPath/childPath", Percentage: 100},
-		},
-		numaBindingRelativeRootCgroupEntries: map[int][]reclaim.CgroupPathWithPercentage{
-			0: {
-				{Path: "/kubepods/besteffort-0", Percentage: 100},
-				{Path: "/parentPath/childPath-0", Percentage: 100},
+
+	// Register two consumers so both parent paths + NUMA-binding paths land
+	// in the reverse index; GetReclaimedPercentageByPath will resolve each
+	// path to its owner.
+	machineInfo := &machine.KatalystMachineInfo{
+		CPUTopology: &machine.CPUTopology{
+			CPUDetails: machine.CPUDetails{
+				0: machine.CPUTopoInfo{NUMANodeID: 0},
 			},
 		},
+	}
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("guard-primary", newGuardConf("/kubepods/besteffort"), machineInfo))
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer("guard-secondary", newGuardConf("/parentPath/childPath"), machineInfo))
+	t.Cleanup(func() {
+		reclaim.UnregisterConsumer("guard-primary")
+		reclaim.UnregisterConsumer("guard-secondary")
+	})
+
+	mg := &memoryGuard{
 		reclaimRelativeRootCgroupPaths: []string{"/kubepods/besteffort", "/parentPath/childPath"},
 		numaBindingRelativeRootCgroupPaths: map[int][]string{
 			0: {"/kubepods/besteffort-0", "/parentPath/childPath-0"},
@@ -46,6 +56,7 @@ func TestGetAdvices_MultiPath(t *testing.T) {
 		reclaimMemoryLimit:            atomic.NewInt64(1024),
 		numaBindingReclaimMemoryLimit: &atomic.Value{},
 		reconcileStatus:               atomic.NewString(reconcileStatusSucceeded),
+		conf:                          config.NewConfiguration(),
 	}
 	mg.numaBindingReclaimMemoryLimit.Store(map[int]int64{
 		0: 512,
@@ -62,6 +73,12 @@ func TestGetAdvices_MultiPath(t *testing.T) {
 	require.Contains(t, paths, "/parentPath/childPath")
 	require.Contains(t, paths, "/kubepods/besteffort-0")
 	require.Contains(t, paths, "/parentPath/childPath-0")
+}
+
+func newGuardConf(cgroupPath string) *config.Configuration {
+	c := config.NewConfiguration()
+	c.BaseConfiguration.ReclaimRelativeRootCgroupPath = cgroupPath
+	return c
 }
 
 func TestCalculateReclaimedMemoryLimitFor_WatermarkSource(t *testing.T) {

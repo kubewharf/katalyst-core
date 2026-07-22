@@ -44,6 +44,7 @@ type MemoryOptions struct {
 	EnableNUMAAllocationReactor                   bool
 	NUMABindResultResourceAllocationAnnotationKey string
 	ExtraMemoryResources                          []string
+	EnableMemoryHeadroomReporting                 bool
 
 	SockMemOptions
 	LogCacheOptions
@@ -165,7 +166,8 @@ func NewMemoryOptions() *MemoryOptions {
 			MonGroupEnabledClosIDs:                []string{},
 			SkipCleanupClosIDs:                    []string{},
 		},
-		ExtraMemoryResources: []string{},
+		ExtraMemoryResources:          []string{},
+		EnableMemoryHeadroomReporting: true,
 	}
 }
 
@@ -248,6 +250,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.MonGroupMaxCountRatio, "ratio of mon_groups max count")
 	fs.StringSliceVar(&o.ExtraMemoryResources, "extra-memory-resources", o.ExtraMemoryResources,
 		"extra memory resources such as hugepages-*")
+	fs.BoolVar(&o.EnableMemoryHeadroomReporting, "memory-resource-plugin-enable-headroom-reporting",
+		o.EnableMemoryHeadroomReporting, "Whether the memory QRM plugin reports headroom itself; when true, sysadvisor skips memory headroom reporting")
 	fs.StringSliceVar(&o.SkipCleanupClosIDs, "resctrl-skip-cleanup-closids",
 		o.SkipCleanupClosIDs, "a list of resctrl closID directories to skip cleaning")
 }
@@ -290,6 +294,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
 	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
 	conf.ExtraMemoryResources = o.ExtraMemoryResources
+	conf.EnableMemoryHeadroomReporting = o.EnableMemoryHeadroomReporting
 	conf.SkipCleanupClosIDs = sets.NewString(o.SkipCleanupClosIDs...)
 
 	for _, reservation := range o.ReservedNumaMemory {

@@ -119,7 +119,6 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 
 	sc.cache.SetMachineState(generatedResourcesMachineState)
 	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
-	sc.cache.SetTotalHeadroom(checkpoint.TotalHeadroom)
 	sc.cache.SetPodResourceEntries(checkpoint.PodResourceEntries)
 
 	if !reflect.DeepEqual(generatedResourcesMachineState, checkpoint.MachineState) {
@@ -166,7 +165,6 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()
 	checkpoint.NUMAHeadroom = sc.cache.GetNUMAHeadroom()
-	checkpoint.TotalHeadroom = sc.cache.GetTotalHeadroom()
 	checkpoint.PodResourceEntries = sc.cache.GetPodResourceEntries()
 	return checkpoint
 }
@@ -204,13 +202,6 @@ func (sc *stateCheckpoint) GetNUMAHeadroom() map[int]int64 {
 	defer sc.RUnlock()
 
 	return sc.cache.GetNUMAHeadroom()
-}
-
-func (sc *stateCheckpoint) GetTotalHeadroom() int64 {
-	sc.RLock()
-	defer sc.RUnlock()
-
-	return sc.cache.GetTotalHeadroom()
 }
 
 func (sc *stateCheckpoint) GetAllocationInfo(
@@ -258,19 +249,6 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]int64, persist b
 		err := sc.storeState()
 		if err != nil {
 			klog.ErrorS(err, "[memory_plugin] store numa headroom to checkpoint error")
-		}
-	}
-}
-
-func (sc *stateCheckpoint) SetTotalHeadroom(totalHeadroom int64, persist bool) {
-	sc.Lock()
-	defer sc.Unlock()
-
-	sc.cache.SetTotalHeadroom(totalHeadroom)
-	if persist {
-		err := sc.storeState()
-		if err != nil {
-			klog.ErrorS(err, "[memory_plugin] store total headroom to checkpoint error")
 		}
 	}
 }

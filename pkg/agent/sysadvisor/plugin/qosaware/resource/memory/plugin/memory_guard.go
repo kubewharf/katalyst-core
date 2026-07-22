@@ -50,52 +50,30 @@ const (
 )
 
 type memoryGuard struct {
-	metaReader                           metacache.MetaReader
-	metaServer                           *metaserver.MetaServer
-	emitter                              metrics.MetricEmitter
-	reclaimRelativeRootCgroupEntries     []reclaim.CgroupPathWithPercentage
-	numaBindingRelativeRootCgroupEntries map[int][]reclaim.CgroupPathWithPercentage
-	reclaimRelativeRootCgroupPaths       []string
-	numaBindingRelativeRootCgroupPaths   map[int][]string
-	reclaimMemoryLimit                   *atomic.Int64
-	numaBindingReclaimMemoryLimit        *atomic.Value
-	reconcileStatus                      *atomic.String
-	minCriticalWatermark                 int64
-	conf                                 *config.Configuration
+	metaReader                         metacache.MetaReader
+	metaServer                         *metaserver.MetaServer
+	emitter                            metrics.MetricEmitter
+	reclaimRelativeRootCgroupPaths     []string
+	numaBindingRelativeRootCgroupPaths map[int][]string
+	reclaimMemoryLimit                 *atomic.Int64
+	numaBindingReclaimMemoryLimit      *atomic.Value
+	reconcileStatus                    *atomic.String
+	minCriticalWatermark               int64
+	conf                               *config.Configuration
 }
 
 func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
-	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
-
-	reclaimEntries := reclaim.AggregateCgroupPathsWithPercentage()
-	reclaimPaths := make([]string, 0, len(reclaimEntries))
-	for _, e := range reclaimEntries {
-		reclaimPaths = append(reclaimPaths, e.Path)
-	}
-
-	numaEntries := reclaim.AggregateNumaBindingCgroupPathsWithPercentage(numaIDs)
-	numaPaths := make(map[int][]string, len(numaEntries))
-	for numaID, entries := range numaEntries {
-		paths := make([]string, 0, len(entries))
-		for _, e := range entries {
-			paths = append(paths, e.Path)
-		}
-		numaPaths[numaID] = paths
-	}
-
 	return &memoryGuard{
-		metaReader:                           metaReader,
-		metaServer:                           metaServer,
-		emitter:                              emitter,
-		reclaimRelativeRootCgroupEntries:     reclaimEntries,
-		numaBindingRelativeRootCgroupEntries: numaEntries,
-		reclaimRelativeRootCgroupPaths:       reclaimPaths,
-		numaBindingRelativeRootCgroupPaths:   numaPaths,
-		reclaimMemoryLimit:                   atomic.NewInt64(-1),
-		numaBindingReclaimMemoryLimit:        &atomic.Value{},
-		reconcileStatus:                      atomic.NewString(reconcileStatusFailed),
-		minCriticalWatermark:                 conf.MinCriticalWatermark,
-		conf:                                 conf,
+		metaReader:                         metaReader,
+		metaServer:                         metaServer,
+		emitter:                            emitter,
+		reclaimRelativeRootCgroupPaths:     reclaim.AggregateCgroupPaths(),
+		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
+		reclaimMemoryLimit:                 atomic.NewInt64(-1),
+		numaBindingReclaimMemoryLimit:      &atomic.Value{},
+		reconcileStatus:                    atomic.NewString(reconcileStatusFailed),
+		minCriticalWatermark:               conf.MinCriticalWatermark,
+		conf:                               conf,
 	}
 }
 
@@ -145,13 +123,15 @@ func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
 		return max, high
 	}
 
+	d := mg.conf.GetDynamicConfiguration()
 	result := types.InternalMemoryCalculationResult{}
 
 	memoryMax := mg.reclaimMemoryLimit.Load()
-	for _, entry := range mg.reclaimRelativeRootCgroupEntries {
-		max, high := scale(memoryMax, entry.Percentage)
+	for _, path := range mg.reclaimRelativeRootCgroupPaths {
+		pct := reclaim.GetReclaimedPercentageByPath(d, path)
+		max, high := scale(memoryMax, pct)
 		result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
-			CgroupPath: entry.Path,
+			CgroupPath: path,
 			Values: map[string]string{
 				string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(max, 10),
 				string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(high, 10),
@@ -162,15 +142,16 @@ func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
 	numaBindingReclaimMemoryLimitValue := mg.numaBindingReclaimMemoryLimit.Load()
 	if numaBindingReclaimMemoryLimitValue != nil {
 		perNUMA := numaBindingReclaimMemoryLimitValue.(map[int]int64)
-		for numaID, entries := range mg.numaBindingRelativeRootCgroupEntries {
+		for numaID, paths := range mg.numaBindingRelativeRootCgroupPaths {
 			numaMemoryMax, ok := perNUMA[numaID]
 			if !ok {
 				continue
 			}
-			for _, entry := range entries {
-				max, high := scale(numaMemoryMax, entry.Percentage)
+			for _, path := range paths {
+				pct := reclaim.GetReclaimedPercentageByPath(d, path)
+				max, high := scale(numaMemoryMax, pct)
 				result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
-					CgroupPath: entry.Path,
+					CgroupPath: path,
 					Values: map[string]string{
 						string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(max, 10),
 						string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(high, 10),

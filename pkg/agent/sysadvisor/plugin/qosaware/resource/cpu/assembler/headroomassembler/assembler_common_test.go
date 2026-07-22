@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,11 +57,19 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metric_util "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
+
+// hRegistryMu serializes any parallel subtest in this file that mutates the
+// process-global reclaim consumer registry (via UnregisterConsumer +
+// RegisterNamedGenericConsumer). Without it, two parallel subtests can race
+// between one's Unregister and Register, causing "generic is already
+// registered" errors when the intervening subtest re-populates the entry.
+var hRegistryMu sync.Mutex
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -869,6 +878,57 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			},
 			want: *resource.NewQuantity(70, resource.DecimalSI),
 		},
+		{
+			name: "filters non-existing reclaim cgroup paths",
+			fields: fields{
+				entries: map[string]*types.RegionInfo{
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         false,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxOversoldRate:                1.5,
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					for i := 0; i < 10; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+					}
+					// Only the surviving path receives metrics; the filtered-out
+					// ghost path is never asked about by the helper.
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 100000, Time: &now})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-9"),
+						},
+					})
+					require.NoError(t, err)
+				},
+			},
+			want: *resource.NewQuantity(10, resource.DecimalSI),
+		},
 	}
 
 	patches := gomonkey.ApplyFunc(cgroupmgr.GetCPUWithRelativePath, func(relCgroupPath string) (*common.CPUStats, error) {
@@ -879,6 +939,13 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 	})
 	defer t.Cleanup(func() {
 		patches.Reset()
+	})
+
+	existingPathsPatches := gomonkey.ApplyFunc(general.GetExistingPaths, func(paths []string) []string {
+		return paths
+	})
+	defer t.Cleanup(func() {
+		existingPathsPatches.Reset()
 	})
 
 	for _, tt := range tests {
@@ -895,8 +962,12 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			defer os.RemoveAll(sfDir)
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
+			cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
+			require.NoError(t, err)
+			hRegistryMu.Lock()
+			defer hRegistryMu.Unlock()
 			reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, &machine.KatalystMachineInfo{CPUTopology: cpuTopology}))
 			conf.GetDynamicConfiguration().ReclaimedResourceConfiguration = tt.fields.reclaimedResourceConfiguration
 			conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores = tt.fields.allowSharedCoresOverlapReclaimedCores
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})

@@ -20,6 +20,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // testRegistryMu serializes access to the process-global reclaim state
@@ -39,6 +42,7 @@ func resetRegistry() {
 	consumersMu.Lock()
 	defer consumersMu.Unlock()
 	consumers = map[string]ReclaimedConsumer{}
+	pathToConsumerName = map[string]string{}
 }
 
 func TestInitConsumers_Default(t *testing.T) {
@@ -46,13 +50,13 @@ func TestInitConsumers_Default(t *testing.T) {
 	lockGlobalRegistry(t)
 	resetRegistry()
 
-	registerGenericFactory("/kubepods/besteffort", 0)
-	defer factories.Delete(GenericConsumerName)
+	conf := config.NewConfiguration()
+	conf.BaseConfiguration.ReclaimRelativeRootCgroupPath = "/kubepods/besteffort"
 
-	if err := initConsumers(nil); err != nil {
+	if err := initConsumers(conf, nil); err != nil {
 		t.Fatalf("initConsumers(nil): unexpected error: %v", err)
 	}
-	if _, ok := GetReclaimedPercentage(GenericConsumerName); !ok {
+	if _, ok := GetConsumerByName(GenericConsumerName); !ok {
 		t.Fatalf("expected %q to be registered after default initConsumers", GenericConsumerName)
 	}
 }
@@ -62,7 +66,10 @@ func TestInitConsumers_Unknown(t *testing.T) {
 	lockGlobalRegistry(t)
 	resetRegistry()
 
-	err := initConsumers([]string{"does-not-exist"})
+	conf := config.NewConfiguration()
+	conf.BaseConfiguration.ReclaimConsumers = []string{"does-not-exist"}
+
+	err := initConsumers(conf, nil)
 	if err == nil {
 		t.Fatal("initConsumers with unknown name: expected error, got nil")
 	}
@@ -76,22 +83,23 @@ func TestInitConsumers_Multiple(t *testing.T) {
 	lockGlobalRegistry(t)
 	resetRegistry()
 
-	registerGenericFactory("/kubepods/besteffort", 0)
-	defer factories.Delete(GenericConsumerName)
-
-	RegisterFactory("test-second", func() ReclaimedConsumer {
-		return NewGenericConsumer("/kubepods/besteffort", 0)
+	RegisterFactory("test-second", func(c *config.Configuration, machineInfo *machine.KatalystMachineInfo) ReclaimedConsumer {
+		return NewGenericConsumer(c, machineInfo)
 	})
 	defer factories.Delete("test-second")
 
-	if err := initConsumers([]string{GenericConsumerName, "test-second"}); err != nil {
+	conf := config.NewConfiguration()
+	conf.BaseConfiguration.ReclaimRelativeRootCgroupPath = "/kubepods/besteffort"
+	conf.BaseConfiguration.ReclaimConsumers = []string{GenericConsumerName, "test-second"}
+
+	if err := initConsumers(conf, nil); err != nil {
 		t.Fatalf("initConsumers: unexpected error: %v", err)
 	}
 
-	if _, ok := GetReclaimedPercentage(GenericConsumerName); !ok {
+	if _, ok := GetConsumerByName(GenericConsumerName); !ok {
 		t.Fatalf("expected %q in registry", GenericConsumerName)
 	}
-	if _, ok := GetReclaimedPercentage("test-second"); !ok {
+	if _, ok := GetConsumerByName("test-second"); !ok {
 		t.Fatalf("expected %q in registry", "test-second")
 	}
 }

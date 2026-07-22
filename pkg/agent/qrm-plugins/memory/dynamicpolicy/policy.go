@@ -305,8 +305,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryNUMAHeadroom))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom,
-		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryTotalHeadroom))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyDyingMemcgReclaim,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDyingMemcgReclaim))
 
@@ -952,7 +950,7 @@ func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
 
 	var summedPct float64
 	for _, name := range consumerNames {
-		pct, _ := reclaim.GetReclaimedPercentage(name)
+		pct := reclaim.GetReclaimedPercentage(p.dynamicConf.GetDynamicConfiguration(), name)
 		summedPct += pct
 	}
 	if summedPct > 100 {
@@ -960,7 +958,6 @@ func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
 	}
 
 	numaHeadroom := p.state.GetNUMAHeadroom()
-	totalHeadroom := p.state.GetTotalHeadroom()
 
 	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
 	for _, numaNode := range numaNodes {
@@ -969,6 +966,11 @@ func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
 			ResourceValue: scaled,
 			Node:          uint64(numaNode),
 		})
+	}
+
+	var totalHeadroom int64
+	for _, v := range numaHeadroom {
+		totalHeadroom += v
 	}
 	aggregated := float64(totalHeadroom) * summedPct / 100
 

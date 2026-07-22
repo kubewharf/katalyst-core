@@ -67,7 +67,7 @@ func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	// sum reclaim CPU usage across every registered consumer's cgroup subtree for
 	// this NUMA; the subtrees are disjoint and share the same reclaim pool, so
 	// their measured usage sums.
-	reclaimPaths := reclaim.AggregateNumaBindingCgroupPaths([]int{numaID})[numaID]
+	reclaimPaths := reclaim.AggregateNumaBindingCgroupPaths()[numaID]
 	var reclaimCoresCPUUsage float64
 	found := false
 	for _, reclaimPath := range reclaimPaths {

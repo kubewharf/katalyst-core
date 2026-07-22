@@ -21,12 +21,15 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_memory"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func init() {
 	RegisterNegotiationTypeFeatureGatesFinder(feature_cpu.NegotiationFeatureGateQuotaCtrlKnob, &feature_cpu.QuotaCtrlKnob{})
+	RegisterNegotiationTypeFeatureGatesFinder(feature_cpu.NegotiationFeatureGateCPUHeadroomReporting, &feature_cpu.CPUHeadroomReporting{})
+	RegisterNegotiationTypeFeatureGatesFinder(feature_memory.NegotiationFeatureGateMemoryHeadroomReporting, &feature_memory.MemoryHeadroomReporting{})
 }
 
 var negotiationTypeFeatureGatesFinder sync.Map

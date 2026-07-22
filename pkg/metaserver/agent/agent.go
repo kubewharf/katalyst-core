@@ -80,8 +80,12 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		return nil, err
 	}
 
+	if err = reclaim.SetupConsumers(conf, machineInfo); err != nil {
+		return nil, err
+	}
+
 	// init cgroup paths
-	common.InitKubernetesCGroupPath(common.CgroupType(conf.CgroupType), getAllAdditionalK8sCgroupPaths(conf, machineInfo))
+	common.InitKubernetesCGroupPath(common.CgroupType(conf.CgroupType), getAllAdditionalK8sCgroupPaths(conf))
 
 	// init pod fetcher
 	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration,
@@ -202,22 +206,14 @@ func (a *MetaAgent) setComponentImplementation(setter func()) {
 	setter()
 }
 
-func getAllAdditionalK8sCgroupPaths(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) []string {
+func getAllAdditionalK8sCgroupPaths(conf *config.Configuration) []string {
 	// add additional cgroup paths by custom configuration
 	additionalK8sCgroupPaths := make([]string, 0, len(conf.AdditionalK8sCgroupPaths))
 	for _, cgroupPath := range conf.AdditionalK8sCgroupPaths {
 		additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
 	}
 
-	// add reclaim cgroup path
-	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, reclaim.AggregateCgroupPaths()...)
-
-	// if we have multiple numa nodes, we should add numa-binding reclaim cgroup path
-	if machineInfo.CPUTopology != nil {
-		numaIDs := machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()
-		for _, perNUMAPaths := range reclaim.AggregateNumaBindingCgroupPaths(numaIDs) {
-			additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, perNUMAPaths...)
-		}
-	}
+	// add all reclaim cgroup paths
+	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, reclaim.AggregateAllCgroupPaths()...)
 	return additionalK8sCgroupPaths
 }

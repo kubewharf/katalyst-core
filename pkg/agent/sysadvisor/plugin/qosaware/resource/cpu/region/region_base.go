@@ -985,7 +985,7 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 	// across all registered reclaim consumers (multiple disjoint subtrees).
 	var reclaimPaths []string
 	if r.isNumaBinding {
-		reclaimPaths = reclaim.AggregateNumaBindingCgroupPaths([]int{numaID})[numaID]
+		reclaimPaths = reclaim.AggregateNumaBindingCgroupPaths()[numaID]
 	} else {
 		reclaimPaths = reclaim.AggregateCgroupPaths()
 	}

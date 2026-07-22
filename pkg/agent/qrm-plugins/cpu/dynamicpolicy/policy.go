@@ -247,8 +247,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSyncingCPUIdle:           conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                  conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
-		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(
-			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 		podDebugAnnoKeys:                conf.PodDebugAnnoKeys,
 		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:                conf.PodLabelKeptKeys,
@@ -870,7 +869,7 @@ func (p *DynamicPolicy) addReclaimedCPUAllocatable(
 
 	var summedPct float64
 	for _, name := range consumerNames {
-		pct, _ := reclaim.GetReclaimedPercentage(name)
+		pct := reclaim.GetReclaimedPercentage(p.dynamicConfig.GetDynamicConfiguration(), name)
 		summedPct += pct
 	}
 	if summedPct > 100 {
@@ -878,7 +877,6 @@ func (p *DynamicPolicy) addReclaimedCPUAllocatable(
 	}
 
 	numaHeadroom := p.state.GetNUMAHeadroom()
-	totalHeadroom := p.state.GetTotalHeadroom()
 
 	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
 	for _, numaNode := range numaNodes {
@@ -887,6 +885,11 @@ func (p *DynamicPolicy) addReclaimedCPUAllocatable(
 			ResourceValue: scaled,
 			Node:          uint64(numaNode),
 		})
+	}
+
+	var totalHeadroom float64
+	for _, v := range numaHeadroom {
+		totalHeadroom += v
 	}
 	aggregated := totalHeadroom * 1000 * summedPct / 100
 

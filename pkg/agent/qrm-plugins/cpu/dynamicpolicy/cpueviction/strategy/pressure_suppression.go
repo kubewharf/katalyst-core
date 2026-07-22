@@ -59,13 +59,12 @@ type CPUPressureSuppression struct {
 func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, state state.ReadonlyState,
 ) (CPUPressureEviction, error) {
-	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
 	return &CPUPressureSuppression{
 		conf:                           conf,
 		state:                          state,
 		metaServer:                     metaServer,
 		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
-		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(numaIDs),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 	}, nil
 }
 
@@ -153,7 +152,7 @@ func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, fi
 
 	// get reclaim metrics aggregated across every registered reclaim consumer's cgroup subtree
 	reclaimMetrics, err := helper.GetReclaimMetricsMulti(nonActualNUMABindingCPUSet,
-		p.reclaimRelativeRootCgroupPaths, p.metaServer.MetricsFetcher)
+		general.GetExistingPaths(p.reclaimRelativeRootCgroupPaths), p.metaServer.MetricsFetcher)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 	}
@@ -192,7 +191,7 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 
 		// get reclaim metrics aggregated across every registered reclaim consumer for this NUMA
 		reclaimMetrics, err := helper.GetReclaimMetricsMulti(actualNUMABindingCPUSet,
-			existingPaths, p.metaServer.MetricsFetcher)
+			general.GetExistingPaths(existingPaths), p.metaServer.MetricsFetcher)
 		if err != nil {
 			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 		}

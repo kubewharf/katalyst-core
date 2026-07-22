@@ -5646,7 +5646,6 @@ func TestAddReclaimedCPUAllocatable(t *testing.T) {
 		2: 3,
 		3: 4,
 	}, false)
-	dynamicPolicy.state.SetTotalHeadroom(10, false)
 
 	// Register multiple consumers so GetReclaimedPercentage returns each
 	// consumer's own percentage; the single-consumer force-100 rule only
@@ -5654,9 +5653,17 @@ func TestAddReclaimedCPUAllocatable(t *testing.T) {
 	reclaim.UnregisterConsumer("cpu-kcnr-a")
 	reclaim.UnregisterConsumer("cpu-kcnr-b")
 	reclaim.UnregisterConsumer("cpu-kcnr-c")
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-a", "", 50))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-b", "", 30))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-c", "", 20))
+	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"cpu-kcnr-a": 50,
+		"cpu-kcnr-b": 30,
+		"cpu-kcnr-c": 20,
+	}
+	reg := func(name string) {
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil))
+	}
+	reg("cpu-kcnr-a")
+	reg("cpu-kcnr-b")
+	reg("cpu-kcnr-c")
 
 	cpuKey := string(consts.ReclaimedResourceMilliCPU)
 
@@ -6671,8 +6678,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{
-								string(advisorapi.ControlKnobKeyCPUNUMAHeadroom):  `{"0": 10.1, "1": 12.2}`,
-								string(advisorapi.ControlKnobKeyCPUTotalHeadroom): `22.3`,
+								string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0": 10.1, "1": 12.2}`,
 							},
 						},
 					},

@@ -1,0 +1,53 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package feature_cpu
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+)
+
+func TestCPUHeadroomReporting_GetFeatureGate(t *testing.T) {
+	t.Parallel()
+
+	newConf := func(enable bool) *config.Configuration {
+		conf := config.NewConfiguration()
+		conf.EnableCPUHeadroomReporting = enable
+		return conf
+	}
+
+	e := &CPUHeadroomReporting{}
+
+	t.Run("enabled returns feature gate", func(t *testing.T) {
+		t.Parallel()
+		fg := e.GetFeatureGate(newConf(true))
+		if assert.NotNil(t, fg) {
+			assert.Equal(t, NegotiationFeatureGateCPUHeadroomReporting, fg.Name)
+			assert.Equal(t, finders.FeatureGateTypeCPU, fg.Type)
+			assert.False(t, fg.MustMutuallySupported)
+		}
+	})
+
+	t.Run("disabled returns nil", func(t *testing.T) {
+		t.Parallel()
+		assert.Nil(t, e.GetFeatureGate(newConf(false)))
+	})
+}

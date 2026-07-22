@@ -2744,7 +2744,6 @@ func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 		2: 3000,
 		3: 4000,
 	}, false)
-	dynamicPolicy.state.SetTotalHeadroom(10000, false)
 
 	// Register multiple consumers so GetReclaimedPercentage returns each
 	// consumer's own percentage; the single-consumer force-100 rule only
@@ -2752,9 +2751,17 @@ func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 	reclaim.UnregisterConsumer("kcnr-a")
 	reclaim.UnregisterConsumer("kcnr-b")
 	reclaim.UnregisterConsumer("kcnr-c")
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("kcnr-a", "", 50))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("kcnr-b", "", 30))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("kcnr-c", "", 20))
+	dynamicPolicy.dynamicConf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"kcnr-a": 50,
+		"kcnr-b": 30,
+		"kcnr-c": 20,
+	}
+	reg := func(name string) {
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil))
+	}
+	reg("kcnr-a")
+	reg("kcnr-b")
+	reg("kcnr-c")
 
 	memKey := string(consts.ReclaimedResourceMemory)
 
@@ -4031,21 +4038,6 @@ func TestHandleAdvisorResp(t *testing.T) {
 				1: 2048,
 			},
 		},
-		{
-			description:        "apply total headroom",
-			podResourceEntries: nil,
-			lwResp: &advisorsvc.ListAndWatchResponse{
-				ExtraEntries: []*advisorsvc.CalculationInfo{
-					{
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{
-								string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom): "4096",
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -4084,8 +4076,6 @@ func TestHandleAdvisorResp(t *testing.T) {
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryOffloading))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryNUMAHeadroom))
-		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom,
-			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryTotalHeadroom))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, nil, tc.podResourceEntries,
 			nil, resourcesReservedMemory, dynamicPolicy.extraResourceNames)

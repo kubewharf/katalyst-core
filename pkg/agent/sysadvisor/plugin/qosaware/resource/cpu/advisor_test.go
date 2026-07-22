@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
@@ -94,7 +96,7 @@ func (m *testResourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha
 
 func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, profiles map[k8stypes.UID]spd.DummyPodServiceProfile) (*cpuResourceAdvisor, metacache.MetaCache) {
 	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, nil))
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, mf)
 	require.NoError(t, err)
@@ -1447,6 +1449,18 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 		},
 	}
+
+	// The production headroom assembler now filters reclaim cgroup paths
+	// through general.GetExistingPaths, which returns an empty slice for the
+	// fake paths used in tests and causes GetReclaimMetricsMulti to error.
+	// Install a single function-level pass-through patch so all parallel
+	// subtests see it; per-subtest teardown would race with siblings.
+	existingPathsPatches := gomonkey.ApplyFunc(general.GetExistingPaths, func(paths []string) []string {
+		return paths
+	})
+	defer t.Cleanup(func() {
+		existingPathsPatches.Reset()
+	})
 
 	for _, tt := range tests {
 		tt := tt

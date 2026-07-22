@@ -1657,9 +1657,6 @@ func (p *DynamicPolicy) applyHeadroom(resp *advisorapi.ListAndWatchResponse) err
 		if err := p.applyNUMAHeadroom(calculationInfo); err != nil {
 			return err
 		}
-		if err := p.applyTotalHeadroom(calculationInfo); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -1679,23 +1676,6 @@ func (p *DynamicPolicy) applyNUMAHeadroom(calculationInfo *advisorsvc.Calculatio
 
 	p.state.SetNUMAHeadroom(*cpuNUMAHeadroom, true)
 	general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
-	return nil
-}
-
-func (p *DynamicPolicy) applyTotalHeadroom(calculationInfo *advisorsvc.CalculationInfo) error {
-	v, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUTotalHeadroom)]
-	if !ok {
-		return nil
-	}
-
-	var cpuTotalHeadroom float64
-	if err := json.Unmarshal([]byte(v), &cpuTotalHeadroom); err != nil {
-		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
-			advisorapi.ControlKnobKeyCPUTotalHeadroom, v, err)
-	}
-
-	p.state.SetTotalHeadroom(cpuTotalHeadroom, true)
-	general.Infof("cpuTotalHeadroom: %v", cpuTotalHeadroom)
 	return nil
 }
 

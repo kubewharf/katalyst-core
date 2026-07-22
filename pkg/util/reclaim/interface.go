@@ -27,9 +27,8 @@ type ReclaimedConsumer interface {
 	// GetNumaBindingCgroupPaths returns per-NUMA reclaim cgroup paths keyed by
 	// NUMA node id. Semantics match
 	// cgroup/common.GetNUMABindingReclaimRelativeRootCgroupPaths.
-	GetNumaBindingCgroupPaths(numaNodes []int) map[int]string
+	GetNumaBindingCgroupPaths() map[int]string
 
-	// GetReclaimedPercentage returns the fraction (0-100) of the total
-	// reclaimed resource. It is used in both headroom and provision.
-	GetReclaimedPercentage() float64
+	// GetAllCgroupPaths returns all cgroup paths owned by this consumer.
+	GetAllCgroupPaths() []string
 }

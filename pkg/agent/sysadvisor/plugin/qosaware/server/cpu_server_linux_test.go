@@ -41,7 +41,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
@@ -111,7 +113,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -248,7 +250,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -451,7 +453,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -778,7 +780,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -1103,7 +1105,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -1249,7 +1251,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -1394,7 +1396,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cpu_numa_headroom": "{}", "cpu_total_headroom": "0"},
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
 						},
 					},
 					{
@@ -1604,7 +1606,18 @@ func TestCPUServerUpdate(t *testing.T) {
 				serverGlobalRegistryMu.Lock()
 				defer serverGlobalRegistryMu.Unlock()
 				reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-				require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, "/kubepods/besteffort", 100))
+				c := config.NewConfiguration()
+				c.BaseConfiguration.ReclaimRelativeRootCgroupPath = "/kubepods/besteffort"
+				c.BaseConfiguration.GenericReclaimedResourcePercentage = 100
+				machineInfo := &machine.KatalystMachineInfo{
+					CPUTopology: &machine.CPUTopology{
+						CPUDetails: machine.CPUDetails{
+							0: machine.CPUTopoInfo{NUMANodeID: 0},
+							1: machine.CPUTopoInfo{NUMANodeID: 1},
+						},
+					},
+				}
+				require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, c, machineInfo))
 				defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 
 				advisor := &mockCPUResourceAdvisor{

@@ -35,6 +35,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -597,12 +598,23 @@ func TestPolicyNUMAAware(t *testing.T) {
 			},
 		},
 	}
+	testMachineInfo := &machine.KatalystMachineInfo{
+		CPUTopology: &machine.CPUTopology{
+			CPUDetails: machine.CPUDetails{
+				0: machine.CPUTopoInfo{NUMANodeID: 0},
+				1: machine.CPUTopoInfo{NUMANodeID: 1},
+			},
+		},
+	}
 	seedReclaimRegistry := func(paths []string, tag string) []string {
 		names := make([]string, 0, len(paths))
 		for i, p := range paths {
 			name := fmt.Sprintf("policy-numa-aware-test-%s-%d", tag, i)
 			reclaim.UnregisterConsumer(name)
-			require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, p, 0))
+			c := config.NewConfiguration()
+			c.BaseConfiguration.ReclaimRelativeRootCgroupPath = p
+			c.BaseConfiguration.GenericReclaimedResourcePercentage = 0
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, c, testMachineInfo))
 			names = append(names, name)
 		}
 		return names
@@ -611,7 +623,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 	// process-global reclaim consumer registry (generic consumer at L621, plus
 	// per-parent consumers seeded by seedReclaimRegistry). Without this, two
 	// concurrent subtests can see each other's registrations leak into their
-	// AggregateCgroupPathsWithPercentage results, or trip the ">100 total"
+	// GetReclaimedPercentageByPath results, or trip the ">100 total"
 	// validation in registerConsumer.
 	var registryMu sync.Mutex
 	for _, tt := range tests {
@@ -633,7 +645,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 			conf := generateTestConfiguration(t, ckDir, sfDir)
 			conf.GetDynamicConfiguration().MemoryHeadroomConfiguration = tt.fields.memoryHeadroomConfiguration
 			reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, testMachineInfo))
 			defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 			if len(tt.fields.reclaimParents) > 0 {
 				names := seedReclaimRegistry(tt.fields.reclaimParents, tt.name)
