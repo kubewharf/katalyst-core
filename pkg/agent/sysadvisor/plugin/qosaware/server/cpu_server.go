@@ -277,7 +277,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 
 func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
 	// update feature gates in meta cache
-	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
+	err := cs.metaCache.SetSupportedWantedFeatureGates(finders.FeatureGateTypeCPU, featureGates)
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("set feature gates failed: %w", err)
@@ -361,8 +361,9 @@ func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculat
 	for numaID := 0; numaID < cs.metaServer.NumNUMANodes; numaID++ {
 		numaIDs = append(numaIDs, numaID)
 	}
-	parentEntries := reclaim.AggregateCgroupPathsWithPercentage()
-	perNUMAEntries := reclaim.AggregateNumaBindingCgroupPathsWithPercentage(numaIDs)
+	d := cs.conf.GetDynamicConfiguration()
+	parentPaths := reclaim.AggregateCgroupPaths()
+	perNUMAPaths := reclaim.AggregateNumaBindingCgroupPaths()
 
 	// scaleQuota splits the reclaim quota across consumer cgroup paths by the
 	// consumer's reclaimed percentage. The unlimited sentinel (Quota <= 0) is
@@ -400,8 +401,9 @@ func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculat
 	// numaID = -1 (fakeNUMAID) → broadcast to every configured parent cgroup path,
 	// scaling the quota by each consumer's reclaimed percentage.
 	if cpuResource, ok := reclaimEntries[-1]; ok {
-		for _, e := range parentEntries {
-			appendEntry(e.Path, scaleQuota(cpuResource, e.Percentage))
+		for _, path := range parentPaths {
+			pct := reclaim.GetReclaimedPercentageByPath(d, path)
+			appendEntry(path, scaleQuota(cpuResource, pct))
 		}
 	}
 
@@ -412,24 +414,20 @@ func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculat
 		if !ok {
 			continue
 		}
-		for _, e := range perNUMAEntries[numaID] {
-			appendEntry(e.Path, scaleQuota(cpuResource, e.Percentage))
+		for _, path := range perNUMAPaths[numaID] {
+			pct := reclaim.GetReclaimedPercentageByPath(d, path)
+			appendEntry(path, scaleQuota(cpuResource, pct))
 		}
 	}
 	return
 }
 
-// assembleHeadroom emits per-NUMA reclaim CPU headroom and total reclaim
-// CPU headroom (both in fractional cores) on a single CalculationInfo.
+// assembleHeadroom emits per-NUMA reclaim CPU headroom (in fractional cores)
+// on a single CalculationInfo.
 func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
 		klog.Errorf("get numa allocatable failed: %v", err)
-		return nil
-	}
-	totalAllocatable, err := cs.headroomResourceManager.GetAllocatable()
-	if err != nil {
-		klog.Errorf("get total allocatable failed: %v", err)
 		return nil
 	}
 
@@ -443,19 +441,11 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 		return nil
 	}
 
-	totalHeadroom := float64(totalAllocatable.Value()) / 1000.0
-	totalData, err := json.Marshal(totalHeadroom)
-	if err != nil {
-		klog.Errorf("marshal total headroom failed: %v", err)
-		return nil
-	}
-
 	return &advisorsvc.CalculationInfo{
 		CgroupPath: "",
 		CalculationResult: &advisorsvc.CalculationResult{
 			Values: map[string]string{
-				string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom):  string(numaData),
-				string(cpuadvisor.ControlKnobKeyCPUTotalHeadroom): string(totalData),
+				string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(numaData),
 			},
 		},
 	}

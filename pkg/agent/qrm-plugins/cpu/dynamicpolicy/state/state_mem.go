@@ -36,7 +36,6 @@ type cpuPluginState struct {
 	podEntries                            PodEntries
 	machineState                          NUMANodeMap
 	numaHeadroom                          map[int]float64
-	totalHeadroom                         float64
 	allowSharedCoresOverlapReclaimedCores bool
 	socketTopology                        map[int]string
 }
@@ -81,13 +80,6 @@ func (s *cpuPluginState) GetNUMAHeadroom() map[int]float64 {
 	return general.DeepCopyIntToFloat64Map(s.numaHeadroom)
 }
 
-func (s *cpuPluginState) GetTotalHeadroom() float64 {
-	s.RLock()
-	defer s.RUnlock()
-
-	return s.totalHeadroom
-}
-
 func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
 	s.RLock()
 	defer s.RUnlock()
@@ -121,14 +113,6 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
 
 	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
 	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
-}
-
-func (s *cpuPluginState) SetTotalHeadroom(totalHeadroom float64) {
-	s.Lock()
-	defer s.Unlock()
-
-	s.totalHeadroom = totalHeadroom
-	klog.InfoS("[cpu_plugin] Updated cpu plugin total headroom", "totalHeadroom", totalHeadroom)
 }
 
 func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {

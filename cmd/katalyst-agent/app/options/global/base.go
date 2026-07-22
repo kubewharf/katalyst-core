@@ -93,6 +93,7 @@ func NewBaseOptions() *BaseOptions {
 
 		ReclaimRelativeRootCgroupPath:      "/kubepods/besteffort",
 		GenericReclaimedResourcePercentage: 100,
+		ReclaimConsumersForKCNR:            []string{"generic"},
 
 		KubeletReadOnlyPort:      defaultKubeletReadOnlyPort,
 		KubeletSecurePort:        defaultKubeletSecurePort,

@@ -51,10 +51,6 @@ func (f *fakeState) GetNUMAHeadroom() map[int]float64 {
 	return nil
 }
 
-func (f *fakeState) GetTotalHeadroom() float64 {
-	return 0
-}
-
 func (f *fakeState) GetPodEntries() state.PodEntries {
 	return f.podEntries
 }
@@ -75,8 +71,6 @@ func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) {
 }
 
 func (f *fakeState) SetNUMAHeadroom(_ map[int]float64, _ bool) {}
-
-func (f *fakeState) SetTotalHeadroom(_ float64, _ bool) {}
 
 func (f *fakeState) SetPodEntries(podEntries state.PodEntries, _ bool) {
 	f.podEntries = podEntries

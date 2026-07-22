@@ -88,6 +88,14 @@ const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
 
+var reclaimRegistryTestMu sync.Mutex
+
+func lockReclaimRegistryForTest(t *testing.T) {
+	t.Helper()
+	reclaimRegistryTestMu.Lock()
+	t.Cleanup(reclaimRegistryTestMu.Unlock)
+}
+
 type topoTestCase struct {
 	cpuNum      int
 	socketNum   int
@@ -207,6 +215,17 @@ func getTestDynamicPolicyWithInitialization(
 	policyImplement.numaAllocationReactor = reactor.DummyAllocationReactor{}
 
 	return policyImplement, nil
+}
+
+func ensureReclaimConsumerRegistered(t *testing.T, name string) {
+	t.Helper()
+	if _, ok := reclaim.GetConsumerByName(name); ok {
+		return
+	}
+	err := reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil)
+	if err != nil && !strings.Contains(err.Error(), "already registered") {
+		require.NoError(t, err)
+	}
 }
 
 func getTestDynamicPolicyWithExtraResourcesWithInitialization(
@@ -1838,8 +1857,10 @@ func TestGetPodTopologyHints(t *testing.T) {
 
 func TestGetTopologyHints(t *testing.T) {
 	t.Parallel()
+	lockReclaimRegistryForTest(t)
 
 	as := require.New(t)
+	ensureReclaimConsumerRegistered(t, reclaim.GenericConsumerName)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 
@@ -2560,6 +2581,10 @@ func TestGetTopologyHints(t *testing.T) {
 
 			dynamicPolicy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
 			as.Nil(err)
+			dynamicPolicy.reclaimConsumersForKCNR = []string{reclaim.GenericConsumerName}
+			dynamicPolicy.dynamicConf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+				reclaim.GenericConsumerName: 100,
+			}
 
 			if tc.enhancementDefaultValues != nil {
 				dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
@@ -2578,6 +2603,106 @@ func TestGetTopologyHints(t *testing.T) {
 			os.RemoveAll(tmpDir)
 		})
 	}
+}
+
+func TestGetTopologyHints_ReclaimedMemoryHeadroomScaling(t *testing.T) {
+	t.Parallel()
+	lockReclaimRegistryForTest(t)
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 2, 2)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(2, 32)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints_ReclaimedMemoryHeadroomScaling")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.state.SetNUMAHeadroom(map[int]int64{
+		0: 6000,
+		1: 10000,
+	}, true)
+
+	consumerName := "memory-hint-scale-" + string(uuid.NewUUID())
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(consumerName, config.NewConfiguration(), nil))
+	defer reclaim.UnregisterConsumer(consumerName)
+	dynamicPolicy.reclaimConsumersForKCNR = []string{consumerName}
+	dynamicPolicy.dynamicConf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		consumerName: 50,
+	}
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   "test",
+		PodName:        "test",
+		ContainerName:  "test",
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 4000,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelReclaimedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+		},
+	}
+
+	resp, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
+	as.Nil(err)
+	as.Equal(&pluginapi.ListOfTopologyHints{
+		Hints: []*pluginapi.TopologyHint{
+			{Nodes: []uint64{1}, Preferred: true},
+			{Nodes: []uint64{0}, Preferred: false},
+		},
+	}, resp.ResourceHints[string(v1.ResourceMemory)])
+}
+
+func TestGetNUMAHeadroomScalesByConsumers(t *testing.T) {
+	t.Parallel()
+	lockReclaimRegistryForTest(t)
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 2, 2)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(2, 32)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetNUMAHeadroomScalesByConsumers")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.state.SetNUMAHeadroom(map[int]int64{
+		0: 6000,
+		1: 10000,
+	}, true)
+
+	consumerA := "memory-headroom-a-" + string(uuid.NewUUID())
+	consumerB := "memory-headroom-b-" + string(uuid.NewUUID())
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(consumerA, config.NewConfiguration(), nil))
+	defer reclaim.UnregisterConsumer(consumerA)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(consumerB, config.NewConfiguration(), nil))
+	defer reclaim.UnregisterConsumer(consumerB)
+
+	dynamicPolicy.dynamicConf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		consumerA: 50,
+		consumerB: 30,
+	}
+
+	as.Equal(map[int]int64{
+		0: 4800,
+		1: 8000,
+	}, dynamicPolicy.GetNUMAHeadroom([]string{consumerA, consumerB}))
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
@@ -2663,6 +2788,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 
 func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 	t.Parallel()
+	lockReclaimRegistryForTest(t)
 	as := require.New(t)
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint-TestAddReclaimedMemoryAllocatable")
@@ -2686,7 +2812,6 @@ func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 		2: 3000,
 		3: 4000,
 	}, false)
-	dynamicPolicy.state.SetTotalHeadroom(10000, false)
 
 	// Register multiple consumers so GetReclaimedPercentage returns each
 	// consumer's own percentage; the single-consumer force-100 rule only
@@ -2694,11 +2819,25 @@ func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 	reclaim.UnregisterConsumer("kcnr-a")
 	reclaim.UnregisterConsumer("kcnr-b")
 	reclaim.UnregisterConsumer("kcnr-c")
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("kcnr-a", "", 50))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("kcnr-b", "", 30))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("kcnr-c", "", 20))
+	dynamicPolicy.dynamicConf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"kcnr-a": 50,
+		"kcnr-b": 30,
+		"kcnr-c": 20,
+	}
+	reg := func(name string) {
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil))
+	}
+	reg("kcnr-a")
+	reg("kcnr-b")
+	reg("kcnr-c")
 
 	memKey := string(consts.ReclaimedResourceMemory)
+
+	allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
+	dynamicPolicy.addReclaimedMemoryAllocatable(allocatableResources, numaNodes, []string{"kcnr-a"})
+	_, ok := allocatableResources[memKey]
+	as.False(ok, "expected no ReclaimedResourceMemory entry when memory headroom reporting is disabled")
+	dynamicPolicy.enableMemoryHeadroomReporting = true
 
 	newResource := func(pct float64) *pluginapi.AllocatableTopologyAwareResource {
 		list := []*pluginapi.TopologyAwareQuantity{
@@ -3973,21 +4112,6 @@ func TestHandleAdvisorResp(t *testing.T) {
 				1: 2048,
 			},
 		},
-		{
-			description:        "apply total headroom",
-			podResourceEntries: nil,
-			lwResp: &advisorsvc.ListAndWatchResponse{
-				ExtraEntries: []*advisorsvc.CalculationInfo{
-					{
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{
-								string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom): "4096",
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -4026,8 +4150,6 @@ func TestHandleAdvisorResp(t *testing.T) {
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryOffloading))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryNUMAHeadroom))
-		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom,
-			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryTotalHeadroom))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, nil, tc.podResourceEntries,
 			nil, resourcesReservedMemory, dynamicPolicy.extraResourceNames)

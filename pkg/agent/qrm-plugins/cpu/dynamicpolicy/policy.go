@@ -162,6 +162,8 @@ type DynamicPolicy struct {
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
 
 	reclaimConsumersForKCNR []string
+
+	enableCPUHeadroomReporting bool
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -237,8 +239,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSyncingCPUIdle:           conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                  conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
-		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(
-			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 		podDebugAnnoKeys:                conf.PodDebugAnnoKeys,
 		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:                conf.PodLabelKeptKeys,
@@ -249,6 +250,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		transitionPeriod:                30 * time.Second,
 		reservedReclaimedCPUsSize:       general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 		reclaimConsumersForKCNR:         conf.ReclaimConsumersForKCNR,
+		enableCPUHeadroomReporting:      conf.EnableCPUHeadroomReporting,
 	}
 
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
@@ -841,17 +843,13 @@ func (p *DynamicPolicy) addReclaimedCPUAllocatable(
 		return
 	}
 
-	var summedPct float64
-	for _, name := range consumerNames {
-		pct, _ := reclaim.GetReclaimedPercentage(name)
-		summedPct += pct
-	}
-	if summedPct > 100 {
-		summedPct = 100
+	if !p.enableCPUHeadroomReporting {
+		return
 	}
 
+	summedPct := reclaim.GetSummedReclaimedPercentage(p.dynamicConfig.GetDynamicConfiguration(), consumerNames)
+
 	numaHeadroom := p.state.GetNUMAHeadroom()
-	totalHeadroom := p.state.GetTotalHeadroom()
 
 	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
 	for _, numaNode := range numaNodes {
@@ -860,6 +858,11 @@ func (p *DynamicPolicy) addReclaimedCPUAllocatable(
 			ResourceValue: scaled,
 			Node:          uint64(numaNode),
 		})
+	}
+
+	var totalHeadroom float64
+	for _, v := range numaHeadroom {
+		totalHeadroom += v
 	}
 	aggregated := totalHeadroom * 1000 * summedPct / 100
 
@@ -1612,4 +1615,9 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 
 	p.state.SetAllocationInfo(podUID, containerName, allocationInfo, persist)
 	return nil
+}
+
+// GetNUMAHeadroom exposes CPU NUMA headroom scaled by reclaimed consumers.
+func (p *DynamicPolicy) GetNUMAHeadroom(consumers []string) map[int]float64 {
+	return p.getScaledReclaimedNUMAHeadroom(consumers)
 }

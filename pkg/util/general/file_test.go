@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -817,4 +818,36 @@ func TestRegisterSubDirEventWatcher(t *testing.T) {
 			return false
 		}
 	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestFilterExistingPaths(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	existingA := filepath.Join(tmpDir, "a")
+	existingB := filepath.Join(tmpDir, "b")
+	missing := filepath.Join(tmpDir, "does-not-exist")
+
+	for _, p := range []string{existingA, existingB} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+
+	// Order preserved; missing entries filtered out.
+	got := GetExistingPaths([]string{existingA, missing, existingB})
+	want := []string{existingA, existingB}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// All-missing input yields an empty slice.
+	if got := GetExistingPaths([]string{missing, missing + "-2"}); len(got) != 0 {
+		t.Fatalf("all-missing: got %v, want empty", got)
+	}
+
+	// Nil input yields nil (documented contract).
+	if got := GetExistingPaths(nil); got != nil {
+		t.Fatalf("nil input: got %v, want nil", got)
+	}
 }

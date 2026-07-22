@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -61,13 +62,16 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	malachiteRegistryMu.Lock()
 	defer malachiteRegistryMu.Unlock()
 	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, "test", 100))
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+	machineInfo := &machine.KatalystMachineInfo{CPUTopology: cpuTopology}
+	c := config.NewConfiguration()
+	c.BaseConfiguration.ReclaimRelativeRootCgroupPath = "test"
+	c.BaseConfiguration.GenericReclaimedResourcePercentage = 100
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, c, machineInfo))
 	defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 
 	store := utilmetric.NewMetricStore()
-
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-	assert.Nil(t, err)
 
 	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
 		ReclaimRelativeRootCgroupPath: "test",
@@ -76,9 +80,7 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 			OptionalRelativeCgroupPaths: []string{"d3", "d4"},
 		},
 	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
-		&machine.KatalystMachineInfo{
-			CPUTopology: cpuTopology,
-		})
+		machineInfo)
 
 	fakeSystemCompute := &malachitetypes.SystemComputeData{
 		CPU: []malachitetypes.CPU{
@@ -262,8 +264,23 @@ func Test_getCgroupPaths_multiReclaim(t *testing.T) {
 	// (path "/kubesandbox", per-NUMA "/kubesandbox/kubesandbox-<n>").
 	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 	reclaim.UnregisterConsumer("malachite-test-nested")
-	reclaim.RegisterFactory("malachite-test-nested", func() reclaim.ReclaimedConsumer { return &nestedConsumer{} })
-	require.NoError(t, reclaim.SetupConsumers("test", 0, []string{reclaim.GenericConsumerName, "malachite-test-nested"}))
+	machineInfo := &machine.KatalystMachineInfo{CPUTopology: cpuTopology}
+	reclaim.RegisterFactory("malachite-test-nested", func(_ *config.Configuration, machineInfo *machine.KatalystMachineInfo) reclaim.ReclaimedConsumer {
+		c := &nestedConsumer{}
+		if machineInfo == nil || machineInfo.CPUTopology == nil {
+			return c
+		}
+		c.numaBindingCgroupPaths = make(map[int]string)
+		for _, n := range machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+			c.numaBindingCgroupPaths[n] = fmt.Sprintf("/kubesandbox/kubesandbox-%d", n)
+		}
+		return c
+	})
+	conf := config.NewConfiguration()
+	conf.BaseConfiguration.ReclaimRelativeRootCgroupPath = "test"
+	conf.BaseConfiguration.GenericReclaimedResourcePercentage = 0
+	conf.BaseConfiguration.ReclaimConsumers = []string{reclaim.GenericConsumerName, "malachite-test-nested"}
+	require.NoError(t, reclaim.SetupConsumers(conf, machineInfo))
 	defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 	defer reclaim.UnregisterConsumer("malachite-test-nested")
 
@@ -274,7 +291,7 @@ func Test_getCgroupPaths_multiReclaim(t *testing.T) {
 			OptionalRelativeCgroupPaths: []string{"d3"},
 		},
 	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
-		&machine.KatalystMachineInfo{CPUTopology: cpuTopology})
+		machineInfo)
 
 	defer mockey.UnPatchAll()
 	mockey.Mock(general.IsPathExists).To(func(_ string) bool { return true }).Build()
@@ -295,19 +312,25 @@ func Test_getCgroupPaths_multiReclaim(t *testing.T) {
 
 // nestedConsumer is a test-only ReclaimedConsumer that produces the nested "/"
 // per-NUMA shape (parent "/kubesandbox", child "/kubesandbox/kubesandbox-<n>").
-type nestedConsumer struct{}
+type nestedConsumer struct {
+	numaBindingCgroupPaths map[int]string
+}
 
 func (*nestedConsumer) GetCgroupPath() string { return "/kubesandbox" }
 
-func (*nestedConsumer) GetNumaBindingCgroupPaths(numaNodes []int) map[int]string {
-	out := make(map[int]string, len(numaNodes))
-	for _, n := range numaNodes {
-		out[n] = fmt.Sprintf("/kubesandbox/kubesandbox-%d", n)
-	}
-	return out
+func (n *nestedConsumer) GetNumaBindingCgroupPaths() map[int]string {
+	return n.numaBindingCgroupPaths
 }
 
-func (*nestedConsumer) GetReclaimedPercentage() float64 { return 100 }
+func (n *nestedConsumer) GetAllCgroupPaths() []string {
+	paths := []string{n.GetCgroupPath()}
+	for _, path := range n.numaBindingCgroupPaths {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
 
 func Test_getCPI(t *testing.T) {
 	t.Parallel()

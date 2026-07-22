@@ -109,8 +109,13 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metrictypes.MetricsFetcher, plugins []types.MemoryAdvisorPluginName) (*memoryResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
+	conf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		reclaim.GenericConsumerName: 100,
+	}
+	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 4)
+	require.NoError(t, err)
 	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf.BaseConfiguration.ReclaimRelativeRootCgroupPath, conf.BaseConfiguration.GenericReclaimedResourcePercentage))
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, &machine.KatalystMachineInfo{CPUTopology: cpuTopology}))
 	if len(plugins) == 0 {
 		conf.MemoryAdvisorPlugins = []types.MemoryAdvisorPluginName{memadvisorplugin.CacheReaper}
 	} else {
@@ -121,8 +126,6 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 4)
-	require.NoError(t, err)
 	memoryTopology, err := machine.GenerateDummyMemoryTopology(4, 500<<30)
 	require.NoError(t, err)
 	memoryTopology.NormalMemoryCapacity = 1000 << 30

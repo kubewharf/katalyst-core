@@ -53,14 +53,13 @@ type PolicyNUMAAware struct {
 func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
 ) HeadroomPolicy {
-	numaIDs := metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
 	p := PolicyNUMAAware{
 		PolicyBase:                     NewPolicyBase(metaReader, metaServer),
 		numaMemoryHeadroom:             make(map[int]resource.Quantity),
 		updateStatus:                   types.PolicyUpdateFailed,
 		conf:                           conf,
 		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
-		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(numaIDs),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 	}
 
 	return &p

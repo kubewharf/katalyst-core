@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -269,8 +270,21 @@ func TestGetEffectiveReclaimResource(t *testing.T) {
 
 	reclaim.UnregisterConsumer("region-test-a")
 	reclaim.UnregisterConsumer("region-test-b")
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("region-test-a", "/kubepods/besteffort", 0))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("region-test-b", "/kubesandbox", 0))
+	machineInfo := &machine.KatalystMachineInfo{
+		CPUTopology: &machine.CPUTopology{
+			CPUDetails: machine.CPUDetails{
+				0: machine.CPUTopoInfo{NUMANodeID: 1},
+			},
+		},
+	}
+	reg := func(name, path string, pct float64) {
+		c := config.NewConfiguration()
+		c.BaseConfiguration.ReclaimRelativeRootCgroupPath = path
+		c.BaseConfiguration.GenericReclaimedResourcePercentage = pct
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, c, machineInfo))
+	}
+	reg("region-test-a", "/kubepods/besteffort", 0)
+	reg("region-test-b", "/kubesandbox", 0)
 
 	period := uint64(100000)
 	stats := func(cores float64) *common.CPUStats {

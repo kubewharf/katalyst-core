@@ -744,7 +744,6 @@ func (nm NUMANodeMap) String() string {
 type reader interface {
 	GetMachineState() NUMANodeMap
 	GetNUMAHeadroom() map[int]float64
-	GetTotalHeadroom() float64
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
@@ -755,7 +754,6 @@ type reader interface {
 type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
 	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
-	SetTotalHeadroom(totalHeadroom float64, persist bool)
 	SetPodEntries(podEntries PodEntries, writeThrough bool)
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)

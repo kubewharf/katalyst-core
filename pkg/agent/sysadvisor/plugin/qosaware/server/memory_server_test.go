@@ -304,8 +304,7 @@ func TestMemoryServerUpdate(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{
-								"memory_numa_headroom":  "{}",
-								"memory_total_headroom": "0",
+								"memory_numa_headroom": "{}",
 							},
 						},
 					},
@@ -440,31 +439,17 @@ func Test_memoryServer_assembleHeadroom(t *testing.T) {
 
 		vals := got.CalculationResult.Values
 		require.Contains(t, vals, string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom))
-		require.Contains(t, vals, string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom))
 
 		var numa map[int]int64
 		require.NoError(t, json.Unmarshal([]byte(vals[string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom)]), &numa))
 		require.Equal(t, int64(3<<30), numa[0])
 		require.Equal(t, int64(5<<30), numa[1])
-
-		var total int64
-		require.NoError(t, json.Unmarshal([]byte(vals[string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom)]), &total))
-		require.Equal(t, int64(8<<30), total)
 	})
 
 	t.Run("returns nil when GetNumaAllocatable errors", func(t *testing.T) {
 		t.Parallel()
 		ms := newServer(&fakeMemoryHeadroomResourceManager{
 			numaAllocatableErr: fmt.Errorf("boom-numa"),
-		})
-		require.Nil(t, ms.assembleHeadroom())
-	})
-
-	t.Run("returns nil when GetAllocatable errors", func(t *testing.T) {
-		t.Parallel()
-		ms := newServer(&fakeMemoryHeadroomResourceManager{
-			numaAllocatable: map[int]resource.Quantity{0: bytesQty(1024)},
-			allocatableErr:  fmt.Errorf("boom-total"),
 		})
 		require.Nil(t, ms.assembleHeadroom())
 	})

@@ -255,6 +255,13 @@ type memoryInternalResult struct {
 }
 
 func (ms *memoryServer) updateAdvisor(ctx context.Context, supportedWantedFeatureGates map[string]*advisorsvc.FeatureGate) (*memoryInternalResult, error) {
+	// update feature gates in meta cache so downstream consumers (e.g. headroom reporter)
+	// can observe the negotiated set that QRM Memory plugin advertised.
+	if err := ms.metaCache.SetSupportedWantedFeatureGates(finders.FeatureGateTypeMemory, supportedWantedFeatureGates); err != nil {
+		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
+		return nil, fmt.Errorf("set feature gates failed: %w", err)
+	}
+
 	advisorRespRaw, err := ms.resourceAdvisor.UpdateAndGetAdvice(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get memory advice failed: %w", err)
@@ -294,17 +301,12 @@ func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAn
 	return nil
 }
 
-// assembleHeadroom emits per-NUMA reclaim memory headroom and total reclaim
-// memory headroom (both in bytes) on a single CalculationInfo.
+// assembleHeadroom emits per-NUMA reclaim memory headroom (in bytes) on a
+// single CalculationInfo.
 func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
 		general.ErrorS(err, "get numa allocatable failed")
-		return nil
-	}
-	totalAllocatable, err := ms.headroomResourceManager.GetAllocatable()
-	if err != nil {
-		general.ErrorS(err, "get total allocatable failed")
 		return nil
 	}
 
@@ -318,19 +320,11 @@ func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 		return nil
 	}
 
-	totalHeadroom := totalAllocatable.Value()
-	totalData, err := json.Marshal(totalHeadroom)
-	if err != nil {
-		general.ErrorS(err, "marshal total headroom failed")
-		return nil
-	}
-
 	return &advisorsvc.CalculationInfo{
 		CgroupPath: "",
 		CalculationResult: &advisorsvc.CalculationResult{
 			Values: map[string]string{
-				string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom):  string(numaData),
-				string(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom): string(totalData),
+				string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(numaData),
 			},
 		},
 	}

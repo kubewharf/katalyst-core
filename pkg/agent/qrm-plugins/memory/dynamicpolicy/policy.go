@@ -179,6 +179,8 @@ type DynamicPolicy struct {
 	extraResourceNames []string
 
 	reclaimConsumersForKCNR []string
+
+	enableMemoryHeadroomReporting bool
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -254,6 +256,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		topologyAllocationAnnotationKey:               conf.TopologyAllocationAnnotationKey,
 		extraResourceNames:                            conf.ExtraMemoryResources,
 		reclaimConsumersForKCNR:                       conf.ReclaimConsumersForKCNR,
+		enableMemoryHeadroomReporting:                 conf.EnableMemoryHeadroomReporting,
 	}
 
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
@@ -305,8 +308,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryNUMAHeadroom))
-	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryTotalHeadroom,
-		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryTotalHeadroom))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyDyingMemcgReclaim,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDyingMemcgReclaim))
 
@@ -950,17 +951,13 @@ func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
 		return
 	}
 
-	var summedPct float64
-	for _, name := range consumerNames {
-		pct, _ := reclaim.GetReclaimedPercentage(name)
-		summedPct += pct
-	}
-	if summedPct > 100 {
-		summedPct = 100
+	if !p.enableMemoryHeadroomReporting {
+		return
 	}
 
+	summedPct := reclaim.GetSummedReclaimedPercentage(p.dynamicConf.GetDynamicConfiguration(), consumerNames)
+
 	numaHeadroom := p.state.GetNUMAHeadroom()
-	totalHeadroom := p.state.GetTotalHeadroom()
 
 	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
 	for _, numaNode := range numaNodes {
@@ -969,6 +966,11 @@ func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
 			ResourceValue: scaled,
 			Node:          uint64(numaNode),
 		})
+	}
+
+	var totalHeadroom int64
+	for _, v := range numaHeadroom {
+		totalHeadroom += v
 	}
 	aggregated := float64(totalHeadroom) * summedPct / 100
 
@@ -1513,4 +1515,9 @@ func (p *DynamicPolicy) topologyAllocationHook(resourceName v1.ResourceName, old
 	}
 
 	return nil
+}
+
+// GetNUMAHeadroom exposes memory NUMA headroom scaled by reclaimed consumers.
+func (p *DynamicPolicy) GetNUMAHeadroom(consumers []string) map[int]int64 {
+	return p.getScaledReclaimedNUMAHeadroom(consumers)
 }

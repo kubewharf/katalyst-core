@@ -185,7 +185,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 	return adapter, nil
 }
 
-func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*nodev1alpha1.TopologyZone, error) {
+func (p *topologyAdapterImpl) GetTopologyZonesAndResources(parentCtx context.Context) ([]*nodev1alpha1.TopologyZone, *nodev1alpha1.Resources, error) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -196,17 +196,17 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	defer cancel()
 	podList, err := p.metaServer.GetPodList(ctx, nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "get pod list from metaServer failed")
+		return nil, nil, errors.Wrap(err, "get pod list from metaServer failed")
 	}
 
 	listPodResourcesResponse, err := p.client.List(ctx, &podresv1.ListPodResourcesRequest{})
 	if err != nil {
-		return nil, errors.Wrap(err, "list pod from pod resource server failed")
+		return nil, nil, errors.Wrap(err, "list pod from pod resource server failed")
 	}
 
 	allocatableResources, err := p.client.GetAllocatableResources(ctx, &podresv1.AllocatableResourcesRequest{})
 	if err != nil {
-		return nil, errors.Wrap(err, "get allocatable Resources from pod resource server failed")
+		return nil, nil, errors.Wrap(err, "get allocatable Resources from pod resource server failed")
 	}
 
 	listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
@@ -218,8 +218,10 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 
 	// validate pod Resources server response to make sure report topology status is correct
 	if err = p.validatePodResourcesServerResponse(allocatableResources, listPodResourcesResponse); err != nil {
-		return nil, errors.Wrap(err, "validate pod Resources server response failed")
+		return nil, nil, errors.Wrap(err, "validate pod Resources server response failed")
 	}
+
+	nodeResources := aggregateNodeResources(allocatableResources)
 
 	podResources := listPodResourcesResponse.GetPodResources()
 	if len(podResources) == 0 {
@@ -232,53 +234,79 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	// get numa Allocations by pod Resources
 	zoneAllocations, err := p.getZoneAllocations(podList, podResourcesList)
 	if err != nil {
-		return nil, errors.Wrap(err, "get zone allocations failed")
+		return nil, nil, errors.Wrap(err, "get zone allocations failed")
 	}
 
 	// get zone resources by allocatable resources
 	zoneResources, err := p.getZoneResources(allocatableResources)
 	if err != nil {
-		return nil, errors.Wrap(err, "get zone resources failed")
+		return nil, nil, errors.Wrap(err, "get zone resources failed")
 	}
 
 	// get zone attributes by allocatable resources
 	zoneAttributes, err := p.getZoneAttributes(allocatableResources)
 	if err != nil {
-		return nil, errors.Wrap(err, "get zone attributes failed")
+		return nil, nil, errors.Wrap(err, "get zone attributes failed")
 	}
 
 	// get zone siblings by SiblingNumaMap
 	zoneSiblings, err := p.getZoneSiblings()
 	if err != nil {
-		return nil, errors.Wrap(err, "get zone siblings failed")
+		return nil, nil, errors.Wrap(err, "get zone siblings failed")
 	}
 
 	// initialize a topology zone generator by numa socket zone node map
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// add other children zone node of numa or socket into topology zone generator by allocatable resources
 	err = p.addNumaSocketChildrenZoneNodes(topologyZoneGenerator, allocatableResources)
 	if err != nil {
-		return nil, errors.Wrap(err, "get socket and numa zone topology failed")
+		return nil, nil, errors.Wrap(err, "get socket and numa zone topology failed")
 	}
 
 	err = p.addDeviceZoneNodes(topologyZoneGenerator, allocatableResources)
 	if err != nil {
-		return nil, errors.Wrap(err, "get device zone topology failed")
+		return nil, nil, errors.Wrap(err, "get device zone topology failed")
 	}
 
 	// add cache group zone node into topology zone generator by numaCacheGroupZoneNodeMap
 	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
 		err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
 		if err != nil {
-			return nil, errors.Wrap(err, "get cache group zone topology failed")
+			return nil, nil, errors.Wrap(err, "get cache group zone topology failed")
 		}
 	}
 
-	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings, nil, nil), nil
+	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings, nil, nil), nodeResources, nil
+}
+
+// aggregateNodeResources builds node-level Allocatable/Capacity ResourceLists
+// from AllocatableResourcesResponse.Resources aggregated quantities.
+func aggregateNodeResources(resp *podresv1.AllocatableResourcesResponse) *nodev1alpha1.Resources {
+	if resp == nil {
+		return &nodev1alpha1.Resources{}
+	}
+	allocatable := v1.ResourceList{}
+	capacity := v1.ResourceList{}
+	for _, r := range resp.Resources {
+		if r == nil {
+			continue
+		}
+		name := v1.ResourceName(r.ResourceName)
+		if q, err := resource.ParseQuantity(fmt.Sprintf("%.2f", r.AggregatedAllocatableQuantity)); err == nil {
+			allocatable[name] = q
+		}
+		if q, err := resource.ParseQuantity(fmt.Sprintf("%.2f", r.AggregatedCapacityQuantity)); err == nil {
+			capacity[name] = q
+		}
+	}
+	return &nodev1alpha1.Resources{
+		Allocatable: &allocatable,
+		Capacity:    &capacity,
+	}
 }
 
 // GetTopologyPolicy return newest topology policy status

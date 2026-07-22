@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,7 +84,16 @@ const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
 
-var policyTestMutex = advisorTestMutex
+var (
+	policyTestMutex       = advisorTestMutex
+	reclaimRegistryTestMu sync.Mutex
+)
+
+func lockReclaimRegistryForTest(t *testing.T) {
+	t.Helper()
+	reclaimRegistryTestMu.Lock()
+	t.Cleanup(reclaimRegistryTestMu.Unlock)
+}
 
 type cpuTestCase struct {
 	cpuNum      int
@@ -122,6 +132,17 @@ func getTestDynamicPolicyWithInitialization(
 
 	dynamicPolicy.stopCh = make(chan struct{})
 	return dynamicPolicy, nil
+}
+
+func ensureReclaimConsumerRegistered(t *testing.T, name string) {
+	t.Helper()
+	if _, ok := reclaim.GetConsumerByName(name); ok {
+		return
+	}
+	err := reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil)
+	if err != nil && !strings.Contains(err.Error(), "already registered") {
+		require.NoError(t, err)
+	}
 }
 
 func getTestDynamicPolicyWithoutInitialization(
@@ -1720,8 +1741,10 @@ func TestAllocateForPod(t *testing.T) {
 
 func TestGetTopologyHints(t *testing.T) {
 	t.Parallel()
+	lockReclaimRegistryForTest(t)
 
 	as := require.New(t)
+	ensureReclaimConsumerRegistered(t, reclaim.GenericConsumerName)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
 	highDensityCPUTopology, err := machine.GenerateDummyCPUTopology(384, 2, 12)
@@ -5394,6 +5417,10 @@ func TestGetTopologyHints(t *testing.T) {
 
 			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
 			as.Nil(err)
+			dynamicPolicy.reclaimConsumersForKCNR = []string{reclaim.GenericConsumerName}
+			dynamicPolicy.dynamicConfig.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+				reclaim.GenericConsumerName: 100,
+			}
 
 			if tc.enhancementDefaultValues != nil {
 				dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
@@ -5446,6 +5473,100 @@ func TestGetTopologyHints(t *testing.T) {
 			_ = os.RemoveAll(tmpDir)
 		})
 	}
+}
+
+func TestGetTopologyHints_ReclaimedCPUHeadroomScaling(t *testing.T) {
+	t.Parallel()
+	lockReclaimRegistryForTest(t)
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 2, 2)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints_ReclaimedCPUHeadroomScaling")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.state.SetNUMAHeadroom(map[int]float64{
+		0: 6,
+		1: 10,
+	}, true)
+
+	consumerName := "cpu-hint-scale-" + string(uuid.NewUUID())
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(consumerName, config.NewConfiguration(), nil))
+	defer reclaim.UnregisterConsumer(consumerName)
+	dynamicPolicy.reclaimConsumersForKCNR = []string{consumerName}
+	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		consumerName: 50,
+	}
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   "test",
+		PodName:        "test",
+		ContainerName:  "test",
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 4,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelReclaimedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+		},
+	}
+
+	resp, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
+	as.Nil(err)
+	as.Equal(&pluginapi.ListOfTopologyHints{
+		Hints: []*pluginapi.TopologyHint{
+			{Nodes: []uint64{1}, Preferred: true},
+			{Nodes: []uint64{0}, Preferred: false},
+		},
+	}, resp.ResourceHints[string(v1.ResourceCPU)])
+}
+
+func TestGetNUMAHeadroomScalesByConsumers(t *testing.T) {
+	t.Parallel()
+	lockReclaimRegistryForTest(t)
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 2, 2)
+	as.Nil(err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetNUMAHeadroomScalesByConsumers")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.state.SetNUMAHeadroom(map[int]float64{
+		0: 6,
+		1: 10,
+	}, true)
+
+	consumerA := "cpu-headroom-a-" + string(uuid.NewUUID())
+	consumerB := "cpu-headroom-b-" + string(uuid.NewUUID())
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(consumerA, config.NewConfiguration(), nil))
+	defer reclaim.UnregisterConsumer(consumerA)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(consumerB, config.NewConfiguration(), nil))
+	defer reclaim.UnregisterConsumer(consumerB)
+
+	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		consumerA: 50,
+		consumerB: 30,
+	}
+
+	as.Equal(map[int]float64{
+		0: 4.8,
+		1: 8,
+	}, dynamicPolicy.GetNUMAHeadroom([]string{consumerA, consumerB}))
 }
 
 func TestGetPodTopologyHints(t *testing.T) {
@@ -5520,6 +5641,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 
 func TestAddReclaimedCPUAllocatable(t *testing.T) {
 	t.Parallel()
+	lockReclaimRegistryForTest(t)
 	as := require.New(t)
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint-TestAddReclaimedCPUAllocatable")
@@ -5541,7 +5663,6 @@ func TestAddReclaimedCPUAllocatable(t *testing.T) {
 		2: 3,
 		3: 4,
 	}, false)
-	dynamicPolicy.state.SetTotalHeadroom(10, false)
 
 	// Register multiple consumers so GetReclaimedPercentage returns each
 	// consumer's own percentage; the single-consumer force-100 rule only
@@ -5549,11 +5670,25 @@ func TestAddReclaimedCPUAllocatable(t *testing.T) {
 	reclaim.UnregisterConsumer("cpu-kcnr-a")
 	reclaim.UnregisterConsumer("cpu-kcnr-b")
 	reclaim.UnregisterConsumer("cpu-kcnr-c")
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-a", "", 50))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-b", "", 30))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("cpu-kcnr-c", "", 20))
+	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"cpu-kcnr-a": 50,
+		"cpu-kcnr-b": 30,
+		"cpu-kcnr-c": 20,
+	}
+	reg := func(name string) {
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil))
+	}
+	reg("cpu-kcnr-a")
+	reg("cpu-kcnr-b")
+	reg("cpu-kcnr-c")
 
 	cpuKey := string(consts.ReclaimedResourceMilliCPU)
+
+	allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
+	dynamicPolicy.addReclaimedCPUAllocatable(allocatableResources, numaNodes, []string{"cpu-kcnr-a"})
+	_, ok := allocatableResources[cpuKey]
+	as.False(ok, "expected no ReclaimedResourceMilliCPU entry when CPU headroom reporting is disabled")
+	dynamicPolicy.enableCPUHeadroomReporting = true
 
 	newResource := func(pct float64) *pluginapi.AllocatableTopologyAwareResource {
 		list := []*pluginapi.TopologyAwareQuantity{
@@ -6237,8 +6372,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{
-								string(advisorapi.ControlKnobKeyCPUNUMAHeadroom):  `{"0": 10.1, "1": 12.2}`,
-								string(advisorapi.ControlKnobKeyCPUTotalHeadroom): `22.3`,
+								string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0": 10.1, "1": 12.2}`,
 							},
 						},
 					},

@@ -76,6 +76,7 @@ type baseServer struct {
 	resourceLimitName   string
 
 	qosConf *generic.QoSConfiguration
+	conf    *config.Configuration
 
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -96,6 +97,7 @@ func newBaseServer(
 		name:            name,
 		period:          conf.QoSAwarePluginConfiguration.SyncPeriod,
 		qosConf:         conf.QoSConfiguration,
+		conf:            conf,
 		stopCh:          make(chan struct{}),
 		metaCache:       metaCache,
 		metaServer:      metaServer,

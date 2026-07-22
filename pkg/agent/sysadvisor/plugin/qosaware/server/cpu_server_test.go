@@ -934,12 +934,23 @@ func Test_cpuServer_assembleCgroupConfig_multiReclaim(t *testing.T) {
 	defer serverGlobalRegistryMu.Unlock()
 
 	cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
-	cs.metaServer.KatalystMachineInfo.CPUTopology.NumNUMANodes = 4
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+	cs.metaServer.KatalystMachineInfo.CPUTopology = cpuTopology
 	reclaim.UnregisterConsumer("test-multi-a")
 	reclaim.UnregisterConsumer("test-multi-b")
 	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("test-multi-a", "/kubepods/besteffort", 60))
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer("test-multi-b", "/kubesandbox", 40))
+	cs.conf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"test-multi-a": 60,
+		"test-multi-b": 40,
+	}
+	reg := func(name, path string) {
+		c := config.NewConfiguration()
+		c.BaseConfiguration.ReclaimRelativeRootCgroupPath = path
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, c, cs.metaServer.KatalystMachineInfo))
+	}
+	reg("test-multi-a", "/kubepods/besteffort")
+	reg("test-multi-b", "/kubesandbox")
 	t.Cleanup(func() {
 		reclaim.UnregisterConsumer("test-multi-a")
 		reclaim.UnregisterConsumer("test-multi-b")
@@ -1030,7 +1041,7 @@ func Test_cpuServer_assembleHeadroom(t *testing.T) {
 		return *resource.NewQuantity(v, resource.DecimalSI)
 	}
 
-	t.Run("emits both keys with correct cores conversion", func(t *testing.T) {
+	t.Run("emits numa key with correct cores conversion", func(t *testing.T) {
 		t.Parallel()
 		cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
 		cs.headroomResourceManager = &fakeHeadroomResourceManager{
@@ -1048,16 +1059,11 @@ func Test_cpuServer_assembleHeadroom(t *testing.T) {
 
 		vals := got.CalculationResult.Values
 		require.Contains(t, vals, string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom))
-		require.Contains(t, vals, string(cpuadvisor.ControlKnobKeyCPUTotalHeadroom))
 
 		var numa map[int]float64
 		require.NoError(t, json.Unmarshal([]byte(vals[string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom)]), &numa))
 		require.InDelta(t, 1.5, numa[0], 1e-9)
 		require.InDelta(t, 1.7, numa[1], 1e-9)
-
-		var total float64
-		require.NoError(t, json.Unmarshal([]byte(vals[string(cpuadvisor.ControlKnobKeyCPUTotalHeadroom)]), &total))
-		require.InDelta(t, 3.2, total, 1e-9)
 	})
 
 	t.Run("returns nil when GetNumaAllocatable errors", func(t *testing.T) {
@@ -1070,17 +1076,7 @@ func Test_cpuServer_assembleHeadroom(t *testing.T) {
 		require.Nil(t, cs.assembleHeadroom())
 	})
 
-	t.Run("returns nil when GetAllocatable errors", func(t *testing.T) {
-		t.Parallel()
-		cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
-		cs.headroomResourceManager = &fakeHeadroomResourceManager{
-			numaAllocatable: map[int]resource.Quantity{0: millicores(1000)},
-			allocatableErr:  fmt.Errorf("boom-total"),
-		}
-		require.Nil(t, cs.assembleHeadroom())
-	})
-
-	t.Run("empty per-NUMA still emits total", func(t *testing.T) {
+	t.Run("empty per-NUMA still emits map", func(t *testing.T) {
 		t.Parallel()
 		cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
 		cs.headroomResourceManager = &fakeHeadroomResourceManager{
@@ -1093,9 +1089,5 @@ func Test_cpuServer_assembleHeadroom(t *testing.T) {
 		var numa map[int]float64
 		require.NoError(t, json.Unmarshal([]byte(got.CalculationResult.Values[string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom)]), &numa))
 		require.Empty(t, numa)
-
-		var total float64
-		require.NoError(t, json.Unmarshal([]byte(got.CalculationResult.Values[string(cpuadvisor.ControlKnobKeyCPUTotalHeadroom)]), &total))
-		require.InDelta(t, 4.0, total, 1e-9)
 	})
 }

@@ -133,8 +133,11 @@ type MetaWriter interface {
 	// SetModelInput sets model input, the dimension of model input is : "container", "numa", "node"
 	SetModelInput(metricDimension string, metric map[string]interface{}) error
 
-	// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates
-	SetSupportedWantedFeatureGates(featureGates map[string]*advisorsvc.FeatureGate) error
+	// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates for the given
+	// featureGateType. Existing entries of the same type that are not present in the incoming
+	// map are removed (they are no longer wanted/supported). Entries of other types are left
+	// alone, so CPU and Memory servers can each refresh their own slice independently.
+	SetSupportedWantedFeatureGates(featureGateType string, featureGates map[string]*advisorsvc.FeatureGate) error
 	// SetResourcePackageConfig overwrites resource package configurations organized by NUMA node.
 	// The input will be deep-copied before being stored.
 	SetResourcePackageConfig(config types.ResourcePackageConfig) error
@@ -354,12 +357,22 @@ func (mc *MetaCacheImp) GetModelInput(metricDimension string) (map[string]interf
 	return mc.modelInput[metricDimension], nil
 }
 
-// GetSupportedWantedFeatureGates gets supported and wanted FeatureGates
+// GetSupportedWantedFeatureGates gets supported and wanted FeatureGates.
+// The returned map is a copy so callers can read it without holding the mutex,
+// while SetSupportedWantedFeatureGates may concurrently mutate the internal map.
 func (mc *MetaCacheImp) GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error) {
 	mc.featureGatesMutex.RLock()
 	defer mc.featureGatesMutex.RUnlock()
 
-	return mc.featureGates, nil
+	featureGates := make(map[string]*advisorsvc.FeatureGate, len(mc.featureGates))
+	for name, fg := range mc.featureGates {
+		if fg == nil {
+			continue
+		}
+		fgCopy := *fg
+		featureGates[name] = &fgCopy
+	}
+	return featureGates, nil
 }
 
 func (mc *MetaCacheImp) RangeRegionInfo(f func(regionName string, regionInfo *types.RegionInfo) bool) {
@@ -600,12 +613,25 @@ func (mc *MetaCacheImp) SetModelInput(metricDimension string, metric map[string]
 	return nil
 }
 
-// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates
-func (mc *MetaCacheImp) SetSupportedWantedFeatureGates(featureGates map[string]*advisorsvc.FeatureGate) error {
+// SetSupportedWantedFeatureGates refreshes the entries whose Type matches featureGateType.
+// Entries of that same type that are not in the incoming map are removed (they are no longer
+// wanted/supported by the current QRM <-> sysadvisor negotiation). Entries of other types are
+// untouched, so CPU and Memory servers can each refresh their own slice independently.
+func (mc *MetaCacheImp) SetSupportedWantedFeatureGates(featureGateType string, featureGates map[string]*advisorsvc.FeatureGate) error {
 	mc.featureGatesMutex.Lock()
 	defer mc.featureGatesMutex.Unlock()
 
-	mc.featureGates = featureGates
+	if mc.featureGates == nil {
+		mc.featureGates = make(map[string]*advisorsvc.FeatureGate)
+	}
+	for name, fg := range mc.featureGates {
+		if fg != nil && fg.Type == featureGateType {
+			delete(mc.featureGates, name)
+		}
+	}
+	for name, fg := range featureGates {
+		mc.featureGates[name] = fg
+	}
 	return nil
 }
 

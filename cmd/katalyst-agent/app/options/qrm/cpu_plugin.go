@@ -59,6 +59,7 @@ type CPUDynamicPolicyOptions struct {
 	IRQForbiddenPinnedResourcePackageAttributeSelector string
 	EnableSystemExclusivePool                          bool
 	EnableCPUWeight                                    bool
+	EnableCPUHeadroomReporting                         bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -74,13 +75,14 @@ func NewCPUOptions() *CPUOptions {
 		ReservedCPUCores:       0,
 		SkipCPUStateCorruption: false,
 		CPUDynamicPolicyOptions: CPUDynamicPolicyOptions{
-			EnableCPUAdvisor:          false,
-			AdvisorGetAdviceInterval:  5 * time.Second,
-			EnableCPUPressureEviction: false,
-			EnableSyncingCPUIdle:      false,
-			EnableCPUIdle:             false,
-			EnableCPUBurst:            false,
-			EnableCPUWeight:           false,
+			EnableCPUAdvisor:           false,
+			AdvisorGetAdviceInterval:   5 * time.Second,
+			EnableCPUPressureEviction:  false,
+			EnableSyncingCPUIdle:       false,
+			EnableCPUIdle:              false,
+			EnableCPUBurst:             false,
+			EnableCPUWeight:            false,
+			EnableCPUHeadroomReporting: true,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -156,6 +158,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSystemExclusivePool, "if set true, it will enable exclusive cpu binding for pool of system cores")
 	fs.BoolVar(&o.EnableCPUWeight, "enable-cpu-weight", o.EnableCPUWeight,
 		"This is a flag that enables the cpu weight handler to sync periodically.")
+	fs.BoolVar(&o.EnableCPUHeadroomReporting, "cpu-resource-plugin-enable-headroom-reporting",
+		o.EnableCPUHeadroomReporting, "Whether the cpu QRM plugin reports headroom itself; when true, sysadvisor skips CPU headroom reporting")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -188,6 +192,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
 	conf.EnableSystemExclusivePool = o.EnableSystemExclusivePool
 	conf.EnableCPUWeight = o.EnableCPUWeight
+	conf.EnableCPUHeadroomReporting = o.EnableCPUHeadroomReporting
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}

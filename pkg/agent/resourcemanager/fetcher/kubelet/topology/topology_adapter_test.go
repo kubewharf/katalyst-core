@@ -1655,7 +1655,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 	}
 }
 
-func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopology(t *testing.T) {
+func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZonesAndResources_ReportRDMATopology(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -1945,9 +1945,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 				},
 			}
 
-			got, err := p.GetTopologyZones(context.TODO())
+			got, _, err := p.GetTopologyZonesAndResources(context.TODO())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetTopologyZones() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetTopologyZonesAndResources() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			assert.Equal(t, true, apiequality.Semantic.DeepEqual(tt.want, got))
@@ -1955,7 +1955,7 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 	}
 }
 
-func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
+func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZonesAndResources(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -3026,9 +3026,9 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 				},
 			}
 
-			got, err := p.GetTopologyZones(context.TODO())
+			got, _, err := p.GetTopologyZonesAndResources(context.TODO())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetTopologyZones() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetTopologyZonesAndResources() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			assert.Equal(t, true, apiequality.Semantic.DeepEqual(tt.want, got))
@@ -3368,4 +3368,75 @@ func Test_topologyAdapterImpl_syncMemoryBandwidthWithUnknownCPUCodeName(t *testi
 
 	assert.Equal(t, expectedCapacityMap, adapter.numaMBWCapacityMap, "numaMBWCapacityMap mismatch")
 	assert.Equal(t, expectedAllocatableMap, adapter.numaMBWAllocatableMap, "numaMBWAllocatableMap mismatch")
+}
+
+func TestAggregateNodeResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		resp            *podresv1.AllocatableResourcesResponse
+		wantNilLists    bool
+		wantAllocatable v1.ResourceList
+		wantCapacity    v1.ResourceList
+	}{
+		{
+			name:         "nil response returns zero-value pointer",
+			resp:         nil,
+			wantNilLists: true,
+		},
+		{
+			name:            "empty resources yields empty non-nil lists",
+			resp:            &podresv1.AllocatableResourcesResponse{},
+			wantAllocatable: v1.ResourceList{},
+			wantCapacity:    v1.ResourceList{},
+		},
+		{
+			name: "aggregates per-resource quantities",
+			resp: &podresv1.AllocatableResourcesResponse{
+				Resources: []*podresv1.AllocatableTopologyAwareResource{
+					{
+						ResourceName:                  "cpu",
+						AggregatedAllocatableQuantity: 8,
+						AggregatedCapacityQuantity:    16,
+					},
+					{
+						ResourceName:                  "nvidia.com/gpu",
+						AggregatedAllocatableQuantity: 3.5,
+						AggregatedCapacityQuantity:    4,
+					},
+					nil,
+				},
+			},
+			wantAllocatable: v1.ResourceList{
+				v1.ResourceName("cpu"):            resource.MustParse("8.00"),
+				v1.ResourceName("nvidia.com/gpu"): resource.MustParse("3.50"),
+			},
+			wantCapacity: v1.ResourceList{
+				v1.ResourceName("cpu"):            resource.MustParse("16.00"),
+				v1.ResourceName("nvidia.com/gpu"): resource.MustParse("4.00"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := aggregateNodeResources(tt.resp)
+			assert.NotNil(t, got)
+
+			if tt.wantNilLists {
+				assert.Nil(t, got.Allocatable)
+				assert.Nil(t, got.Capacity)
+				return
+			}
+
+			assert.NotNil(t, got.Allocatable)
+			assert.NotNil(t, got.Capacity)
+			assert.True(t, apiequality.Semantic.DeepEqual(tt.wantAllocatable, *got.Allocatable))
+			assert.True(t, apiequality.Semantic.DeepEqual(tt.wantCapacity, *got.Capacity))
+		})
+	}
 }

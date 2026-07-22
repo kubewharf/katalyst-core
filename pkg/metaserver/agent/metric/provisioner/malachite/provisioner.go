@@ -193,14 +193,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
 	cgroupPaths := []string{common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
 
-	cgroupPaths = append(cgroupPaths, reclaim.AggregateCgroupPaths()...)
-	numaIDs := m.machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()
-	perNUMA := reclaim.AggregateNumaBindingCgroupPaths(numaIDs)
-	for _, numaID := range numaIDs {
-		for _, p := range perNUMA[numaID] {
-			cgroupPaths = append(cgroupPaths, p)
-		}
-	}
+	cgroupPaths = append(cgroupPaths, reclaim.AggregateAllCgroupPaths()...)
 
 	for _, path := range m.baseConf.OptionalRelativeCgroupPaths {
 		absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)

@@ -17,8 +17,14 @@ limitations under the License.
 package reclaim
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+func init() {
+	RegisterFactory(GenericConsumerName, NewGenericConsumer)
+}
 
 // GenericConsumerName is the registry key used for the default GenericConsumer.
 const GenericConsumerName = "generic"
@@ -27,13 +33,19 @@ const GenericConsumerName = "generic"
 // only the scalar values it needs, so it does not couple the reclaim package
 // to any wider agent configuration type.
 type GenericConsumer struct {
-	cgroupPath string
-	percentage float64
+	cgroupPath             string
+	numaBindingCgroupPaths map[int]string
 }
 
-// NewGenericConsumer constructs a GenericConsumer from the two values it needs.
-func NewGenericConsumer(cgroupPath string, percentage float64) *GenericConsumer {
-	return &GenericConsumer{cgroupPath: cgroupPath, percentage: percentage}
+// NewGenericConsumer constructs a GenericConsumer from the agent config.
+func NewGenericConsumer(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) ReclaimedConsumer {
+	g := &GenericConsumer{cgroupPath: conf.BaseConfiguration.ReclaimRelativeRootCgroupPath}
+	if g.cgroupPath == "" || machineInfo == nil || machineInfo.CPUTopology == nil {
+		return g
+	}
+	numaIDs := machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()
+	g.numaBindingCgroupPaths = common.GetNUMABindingReclaimRelativeRootCgroupPaths(g.cgroupPath, numaIDs)
+	return g
 }
 
 var _ ReclaimedConsumer = (*GenericConsumer)(nil)
@@ -42,13 +54,19 @@ func (g *GenericConsumer) GetCgroupPath() string {
 	return g.cgroupPath
 }
 
-func (g *GenericConsumer) GetNumaBindingCgroupPaths(numaNodes []int) map[int]string {
-	if g.cgroupPath == "" {
-		return nil
-	}
-	return common.GetNUMABindingReclaimRelativeRootCgroupPaths(g.cgroupPath, numaNodes)
+func (g *GenericConsumer) GetNumaBindingCgroupPaths() map[int]string {
+	return g.numaBindingCgroupPaths
 }
 
-func (g *GenericConsumer) GetReclaimedPercentage() float64 {
-	return g.percentage
+func (g *GenericConsumer) GetAllCgroupPaths() []string {
+	paths := make([]string, 0, 1+len(g.numaBindingCgroupPaths))
+	if g.cgroupPath != "" {
+		paths = append(paths, g.cgroupPath)
+	}
+	for _, path := range g.numaBindingCgroupPaths {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
