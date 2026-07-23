@@ -82,6 +82,8 @@ const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
 )
 
+var policyTestMutex = advisorTestMutex
+
 type cpuTestCase struct {
 	cpuNum      int
 	socketNum   int
@@ -7553,6 +7555,8 @@ func TestCheckCPUSet(t *testing.T) {
 func TestSchedIdle(t *testing.T) {
 	// this test is used to verify the sched idle support status
 	t.Parallel()
+	policyTestMutex.Lock()
+	defer policyTestMutex.Unlock()
 
 	as := require.New(t)
 

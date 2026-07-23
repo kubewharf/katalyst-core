@@ -45,6 +45,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+var irqTunerTestMutex = advisorTestMutex
+
 type dummyIRQTuner struct{}
 
 func (t *dummyIRQTuner) Run(_ <-chan struct{}) {}
@@ -264,6 +266,8 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 
 func TestDynamicPolicy_GetIRQForbiddenCores(t *testing.T) {
 	t.Parallel()
+	irqTunerTestMutex.Lock()
+	defer irqTunerTestMutex.Unlock()
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetIRQForbiddenCores")
 	require.NoError(t, err)

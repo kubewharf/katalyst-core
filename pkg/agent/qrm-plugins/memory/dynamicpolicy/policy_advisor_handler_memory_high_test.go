@@ -20,7 +20,6 @@ limitations under the License.
 package dynamicpolicy
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/bytedance/mockey"
@@ -34,7 +33,7 @@ import (
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 )
 
-var memoryHighTestMutex sync.Mutex
+var memoryHighTestMutex = dyingMemcgReclaimTestMutex
 
 func TestDynamicPolicy_handleAdvisorMemoryHigh(t *testing.T) {
 	t.Parallel()

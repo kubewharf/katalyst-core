@@ -2486,13 +2486,6 @@ func TestVirtualGPUPlugin_calculateEnvVariables(t *testing.T) {
 func TestVirtualGPUPlugin_shouldSkipEnvInjection(t *testing.T) {
 	t.Parallel()
 
-	basePlugin := makeTestBasePlugin(t)
-	resourcePlugin := NewVirtualGPUPlugin(basePlugin)
-	plugin, ok := resourcePlugin.(*VirtualGPUPlugin)
-	if !assert.True(t, ok) {
-		return
-	}
-
 	annotationKey := "example.com/disable-gpu-envs"
 
 	tests := []struct {
@@ -2545,6 +2538,13 @@ func TestVirtualGPUPlugin_shouldSkipEnvInjection(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			basePlugin := makeTestBasePlugin(t)
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
+			plugin, ok := resourcePlugin.(*VirtualGPUPlugin)
+			if !assert.True(t, ok) {
+				return
+			}
 
 			plugin.Conf.VirtualGPUDisableEnvsInjectionAnnotationKey = tt.configured
 

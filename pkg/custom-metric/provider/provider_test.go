@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -236,6 +237,11 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 
 	err = r.Start()
 	assert.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		_, err := r.ListMetricMeta(ctx, false)
+		return err == nil
+	}, 5*time.Second, 100*time.Millisecond)
 
 	p := NewMetricProviderImp(ctx, baseCtx, r)
 	testProvider(t, p, r, ctx, baseCtx, genericConf, storeConf)

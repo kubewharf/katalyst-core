@@ -34,7 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var dyingMemcgReclaimTestMutex sync.Mutex
+var dyingMemcgReclaimTestMutex = &sync.Mutex{}
 
 func TestDynamicPolicy_handleAdvisorDyingMemcgReclaim(t *testing.T) {
 	t.Parallel()

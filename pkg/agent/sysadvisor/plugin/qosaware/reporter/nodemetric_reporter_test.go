@@ -102,14 +102,6 @@ func mustParse(str string) *resource.Quantity {
 func TestNodeMetricUpdate(t *testing.T) {
 	t.Parallel()
 
-	regDir, ckDir, statDir, err := tmpDirs()
-	require.NoError(t, err)
-	defer func() {
-		os.RemoveAll(regDir)
-		os.RemoveAll(ckDir)
-		os.RemoveAll(statDir)
-	}()
-
 	type args struct {
 		metricSetter func(f *metric.FakeMetricsFetcher, p *nodeMetricsReporterPlugin)
 		pods         []*corev1.Pod
@@ -444,6 +436,14 @@ func TestNodeMetricUpdate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			regDir, ckDir, statDir, err := tmpDirs()
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = os.RemoveAll(regDir)
+				_ = os.RemoveAll(ckDir)
+				_ = os.RemoveAll(statDir)
+			})
+
 			conf := generateTestConfiguration(t, regDir, ckDir, statDir)
 			clientSet := generateTestGenericClientSet(nil, nil)
 			metaServer := generateTestMetaServer(clientSet, conf, tt.args.pods...)
@@ -473,10 +473,19 @@ func TestNodeMetricUpdate(t *testing.T) {
 				reporter.Run(ctx)
 			}()
 
-			time.Sleep(2 * time.Second)
+			var (
+				resp   *v1alpha1.GetReportContentResponse
+				gotErr error
+			)
+			require.Eventually(t, func() bool {
+				resp, gotErr = plugin.GetReportContent(context.TODO(), nil)
+				if tt.wantErr {
+					return gotErr != nil
+				}
+				return gotErr == nil && resp != nil && len(resp.Content) > 0
+			}, 5*time.Second, 100*time.Millisecond)
 
-			resp, err := plugin.GetReportContent(context.TODO(), nil)
-			if err != nil {
+			if gotErr != nil {
 				require.True(t, tt.wantErr)
 			} else {
 				require.False(t, tt.wantErr)
