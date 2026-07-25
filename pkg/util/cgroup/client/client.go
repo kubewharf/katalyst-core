@@ -30,6 +30,7 @@ import (
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgmanager "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"k8s.io/klog/v2"
 )
 
 // CgroupVersion tags the cgroup hierarchy layout the current host is booted into.
@@ -78,6 +79,12 @@ type CgroupClient interface {
 
 type coreCgroupClient struct{}
 
+const slowAttachPIDThreshold = 200 * time.Millisecond
+
+func isSlowAttachPID(elapsed time.Duration) bool {
+	return elapsed >= slowAttachPIDThreshold
+}
+
 // NewCgroupClient returns a core cgroup client wrapped by a write-if-change cache.
 func NewCgroupClient() CgroupClient {
 	return NewCachedCgroupClient(coreCgroupClient{})
@@ -119,8 +126,17 @@ func (coreCgroupClient) AttachPID(_ context.Context, rel string, pid int) error 
 		return fmt.Errorf("open cgroup.procs @ %s: %w", rel, err)
 	}
 	defer func() { _ = f.Close() }()
+	writeStart := time.Now()
 	if _, err := fmt.Fprintf(f, "%d", pid); err != nil {
+		elapsed := time.Since(writeStart)
+		if isSlowAttachPID(elapsed) {
+			klog.V(2).Infof("AttachPID slow cgroup.procs write: rel=%q pid=%d elapsed=%s", rel, pid, elapsed)
+		}
 		return fmt.Errorf("write pid %d @ %s: %w", pid, rel, err)
+	}
+	elapsed := time.Since(writeStart)
+	if isSlowAttachPID(elapsed) {
+		klog.V(2).Infof("AttachPID slow cgroup.procs write: rel=%q pid=%d elapsed=%s", rel, pid, elapsed)
 	}
 	return nil
 }
