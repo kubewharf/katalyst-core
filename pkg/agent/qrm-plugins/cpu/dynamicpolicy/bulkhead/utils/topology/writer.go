@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 
@@ -32,27 +31,35 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-const (
-	maxShrinkRetries = 4
-	maxEnforceDepth  = 8
-)
+const maxEnforceDepth = 8
 
 var errDepthLimitReached = errors.New("bulkhead cgroup depth limit reached")
 
+type ApplyMode string
+
+const (
+	ApplyModeNormalAdjustment ApplyMode = "normal_adjustment"
+	ApplyModeResetExpandOnly  ApplyMode = "reset_expand_only"
+)
+
 type DAGApplyResult struct {
-	Attempted int
-	Applied   int
-	Skipped   int
-	Failed    int
+	Attempted         int
+	Applied           int
+	Skipped           int
+	Failed            int
+	FullyConverged    bool
+	ConvergenceReport ConvergenceReport
 }
 
 type DAGApplyInputs struct {
 	DAG    *TopoDAG
 	Cgroup cgroupclient.CgroupClient
 	Mems   string
-	// SkipObservedRead treats all non-empty target nodes as expand-only writes.
-	// Callers should only use it when the input is already known to be monotonic.
-	SkipObservedRead    bool
+	// Mode selects the semantic apply path. Empty mode preserves normal
+	// adjustment behavior for callers that omit the mode.
+	Mode                ApplyMode
+	CPUDetails          machine.CPUDetails
+	ReservedCPUSet      machine.CPUSet
 	ExpectedCPUSetByRel map[string]machine.CPUSet
 	// KubeManagedRelPrefix scopes Kubernetes-managed subtree handling to the
 	// configured primary rel path. Empty prefix falls back to the DAG primary rel.
@@ -61,7 +68,9 @@ type DAGApplyInputs struct {
 	// exist in QRM state but whose cgroup leaf has not been created yet (pod
 	// admit window). These have no resolvable rel, so the writer folds them into
 	// the primary node's effective target to guarantee the primary cgroup never
-	// shrinks below an allocation that is about to materialize.
+	// shrinks below an allocation that is about to materialize. Unresolved leaves
+	// cannot be written directly, so this ancestor protection preserves cgroup v1
+	// parent-superset validity while kubelet/runc create the leaf.
 	ProtectedPendingCPUSet machine.CPUSet
 	// ProtectedCPUSetByRel records cgroup rels whose current/pending cpuset must
 	// stay covered during a short runtime creation window. The writer propagates
@@ -82,389 +91,160 @@ func ApplyDAGDiff(ctx context.Context, in DAGApplyInputs) (DAGApplyResult, error
 	return res, err
 }
 
-type nodeDiff struct {
-	grow          bool
-	shrink        bool
-	bridge        bool
-	bridgeTarget  machine.CPUSet
-	target        machine.CPUSet
-	shrinkTarget  machine.CPUSet
-	observed      machine.CPUSet
-	observedKnown bool
-}
-
-type siblingTransition struct {
-	node                *TopoNode
-	observed            machine.CPUSet
-	target              machine.CPUSet
-	leavingToSibling    machine.CPUSet
-	enteringFromSibling machine.CPUSet
-	preShrinkTarget     machine.CPUSet
-}
-
 func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) error {
 	dag := in.DAG
 	cg := in.Cgroup
-	expected := in.ExpectedCPUSetByRel
+	// Normal adjustment needs CPUDetails to construct a topology-safe transfer
+	// plan. Validate it before querying cgroups so a transient topology outage
+	// cannot partially mutate the hierarchy; this function returns before any
+	// cgroup write when CPUDetails is unavailable.
+	if in.Mode != ApplyModeResetExpandOnly && len(in.CPUDetails) == 0 {
+		return errors.New("ApplyDAGDiff: empty CPUDetails in normal mode")
+	}
 	kubeRelPrefix := in.KubeManagedRelPrefix
 	version := cg.Version(ctx)
 	allowEmptyTarget := version == cgroupclient.CgroupVersionV2
-	diffs := map[string]nodeDiff{}
-	controlledRels := map[string]struct{}{}
-	for _, n := range dag.Nodes() {
-		controlledRels[n.Rel] = struct{}{}
-	}
 	if strings.Trim(kubeRelPrefix, "/") == "" {
 		kubeRelPrefix = primaryRelPath(dag)
 	}
 
-	// A single applyCache is shared by computeEffectiveTargets, shrink follow-up,
-	// and expandDescendants so that each safe (rel -> children) lookup is
-	// answered at most once per apply.
 	cache := newApplyCache(cg, kubeRelPrefix)
-
-	// Build the effective target for every controlled node before touching any
-	// cgroup. Pending primary allocations widen the primary target; existing kube
-	// leaves and stale runtime residuals are converged by the shrink/expand
-	// descendant pass rather than by effective-target widening.
 	effectiveTargets := desiredTargets(dag)
-	if !in.SkipObservedRead {
-		var err error
-		effectiveTargets, err = computeEffectiveTargets(dag, allowEmptyTarget, in.ProtectedPendingCPUSet, in.ProtectedCPUSetByRel)
-		if err != nil {
+	// Reset does not depend on normal topology planning. It applies reset targets
+	// to controlled and discovered descendants to recover stale cpusets.
+	if in.Mode == ApplyModeResetExpandOnly {
+		if err := applyResetExpandOnly(ctx, in, effectiveTargets, allowEmptyTarget, res); err != nil {
 			return err
 		}
+		report := verifyResetConvergence(ctx, cg, dag, effectiveTargets)
+		res.ConvergenceReport = report
+		res.FullyConverged = report.FullyConverged
+		return nil
 	}
 
-	for _, n := range dag.Nodes() {
-		target := effectiveTargets[n.Rel]
-		var observed machine.CPUSet
-		observedKnown := false
-		if !in.SkipObservedRead {
-			if cs, readErr := cg.ReadCPUSet(ctx, n.Rel); readErr == nil {
-				observed = cs
-				observedKnown = true
-			}
-		}
-		if target.IsEmpty() && !allowEmptyTarget {
-			if observedKnown && !observed.IsEmpty() {
-				diffs[n.Rel] = nodeDiff{target: target, observed: observed, observedKnown: true}
-			}
-			res.Skipped++
-			continue
-		}
-		if observedKnown && observed.Equals(target) {
-			res.Skipped++
-			continue
-		}
-		d := nodeDiff{target: target, observed: observed, observedKnown: observedKnown}
-		if in.SkipObservedRead || !observedKnown || observed.IsEmpty() {
-			d.grow = true
-		} else {
-			if !target.IsSubsetOf(observed) {
-				d.grow = true
-			}
-			if !observed.IsSubsetOf(target) {
-				d.shrink = true
-				d.shrinkTarget = target
-			}
-			if d.grow && d.shrink {
-				intersection := observed.Intersection(target)
-				if intersection.IsEmpty() {
-					if ok, reason := allowSafeDisjointReplacement(n, target, effectiveTargets); ok {
-						d.shrinkTarget = target
-						d.bridge = true
-						d.bridgeTarget = observed.Union(target)
-						general.InfofV(4, "topo_dag_writer: allow safe reclaim numa disjoint replacement, rel=%q observed=%s target=%s reason=%s",
-							n.Rel, observed.String(), target.String(), reason)
-					} else {
-						return fmt.Errorf("ApplyDAGDiff: disjoint cpuset change @ %s observed=%s target=%s reason=%s", n.Rel, observed.String(), target.String(), reason)
-					}
-				} else {
-					d.shrinkTarget = intersection
-				}
-			}
-		}
-		diffs[n.Rel] = d
+	effectiveTargets, err := computeEffectiveTargets(dag, allowEmptyTarget, in.CPUDetails, in.ProtectedPendingCPUSet, in.ProtectedCPUSetByRel)
+	if err != nil {
+		return err
+	}
+	pipeline := newDomainPhasePipeline(dag, cg, effectiveTargets, in.CPUDetails, in.ReservedCPUSet, cache)
+	if err := pipeline.executeTransferCycle(ctx, in.Mems, res); err != nil {
+		return err
+	}
+	if err := convergeControlledNodes(ctx, in, effectiveTargets, allowEmptyTarget, res); err != nil {
+		return err
+	}
+	report, err := buildConvergenceReport(ctx, cg, dag, effectiveTargets, in.CPUDetails, in.ReservedCPUSet, allowEmptyTarget, cache)
+	if err != nil {
+		return err
+	}
+	res.ConvergenceReport = report
+	res.FullyConverged = report.FullyConverged
+	return nil
+}
+
+func applyResetExpandOnly(ctx context.Context, in DAGApplyInputs, targets map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult) error {
+	writer := newSafeCPUSetWriter(ctx, in.Cgroup, in.Mems, res)
+	controlled := map[string]struct{}{}
+	for _, n := range in.DAG.Nodes() {
+		controlled[n.Rel] = struct{}{}
 	}
 	var firstErr error
-	failedSiblingLeaving := machine.NewCPUSet()
-	if !in.SkipObservedRead {
-		transitions := buildSiblingTransitions(dag, diffs, effectiveTargets)
-		failedSiblingLeaving = applySiblingPreShrink(ctx, cg, in, diffs, transitions, version, res, cache)
-	}
-	// sched_load_balance disabled cpuset domains must not overlap transiently.
-	// Apply changes in two phases: shrink in post-order first, then expand in
-	// pre-order. Overlap replacements are decomposed as observed->intersection
-	// then intersection->target; disjoint jumps are rejected above.
-	_ = dag.ForEachShrink(func(n *TopoNode) error {
-		d, ok := diffs[n.Rel]
-		if !ok || !d.shrink || d.bridge {
+	_ = in.DAG.ForEachExpand(func(n *TopoNode) error {
+		target := targets[n.Rel]
+		if target.IsEmpty() && !allowEmptyTarget {
+			res.Skipped++
 			return nil
 		}
-		res.Attempted++
-		if err := applyCPUSet(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, in.Mems)); err == nil {
-			res.Applied++
-			return nil
+		if err := writer.growNodeWithParentBridge(n, target); err != nil && firstErr == nil {
+			firstErr = err
 		}
-		if err := shrinkNodeConverge(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, in.Mems), expected, version, res, 0, cache); err != nil {
-			res.Failed++
-			if firstErr == nil {
-				firstErr = err
-			}
-			return nil
-		}
-		res.Applied++
-		return nil
-	})
-	if firstErr != nil {
-		return firstErr
-	}
-	_ = dag.ForEachExpand(func(n *TopoNode) error {
-		effTarget := effectiveTargets[n.Rel]
-		if d, ok := diffs[n.Rel]; ok && d.grow {
-			target := d.target
-			if d.bridge {
-				target = d.bridgeTarget
-			}
-			target = safeSiblingGrowTarget(n, target, failedSiblingLeaving)
-			if target.IsEmpty() && !allowEmptyTarget {
-				res.Skipped++
-				general.InfofV(5, "topo_dag_writer: skip empty v1 sibling grow target, rel=%q original_target=%s failed_leaving=%s",
-					n.Rel, d.target.String(), failedSiblingLeaving.String())
-				return nil
-			}
-			res.Attempted++
-			if err := applyCPUSet(ctx, cg, n.Rel, target, memsForNode(n, in.Mems)); err != nil {
-				res.Failed++
-				if firstErr == nil {
-					firstErr = fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", target.String(), n.Rel, err)
-				}
-				// The node's own grow write failed, so its cpuset is still at the
-				// smaller observed value. Descending now would write children to
-				// the (larger) effective target and violate the cgroup v1
-				// parent-superset invariant, mirroring the fail-fast guard in
-				// writeAndDescend. Skip this subtree; the next round retries.
-				general.InfofV(5, "topo_dag_writer: skip expand descent after node grow failure, rel=%q target=%s", n.Rel, target.String())
-				return nil
-			}
-			res.Applied++
-			if !d.bridge && !target.Equals(d.target) {
-				effTarget = target
-			}
-		}
-		if !effTarget.IsEmpty() || allowEmptyTarget {
-			expandDescendants(ctx, cg, n.Rel, effTarget, false, controlledRels, expected, allowEmptyTarget, res, &firstErr, 0, cache)
-		}
-		return nil
-	})
-	if firstErr != nil {
-		return firstErr
-	}
-	// Bridged nodes were expanded to observed union target first. After their
-	// children are safely inside the final target, shrink the bridged parent to
-	// the requested cpuset to restore the desired hierarchy.
-	_ = dag.ForEachShrink(func(n *TopoNode) error {
-		d, ok := diffs[n.Rel]
-		if !ok || !d.bridge {
-			return nil
-		}
-		for _, child := range n.children {
-			childDiff, childOK := diffs[child.Rel]
-			if !childOK {
-				continue
-			}
-			childTarget := childDiff.target
-			if current, err := cg.ReadCPUSet(ctx, child.Rel); err == nil && current.Equals(childTarget) {
-				continue
-			}
-			res.Attempted++
-			if err := applyCPUSet(ctx, cg, child.Rel, childTarget, memsForNode(child, in.Mems)); err != nil {
-				res.Failed++
-				if firstErr == nil {
-					firstErr = fmt.Errorf("apply bridged child cpuset.cpus=%s @ %s: %w", childTarget.String(), child.Rel, err)
-				}
-				return nil
-			}
-			res.Applied++
-		}
-		if firstErr != nil {
-			return nil
-		}
-		res.Attempted++
-		if err := applyCPUSet(ctx, cg, n.Rel, d.shrinkTarget, memsForNode(n, in.Mems)); err != nil {
-			res.Failed++
-			if firstErr == nil {
-				firstErr = fmt.Errorf("apply bridged cpuset.cpus=%s @ %s: %w", d.shrinkTarget.String(), n.Rel, err)
-			}
-			return nil
-		}
-		res.Applied++
+		propagateResetTarget(ctx, in.Cgroup, n.Rel, target, controlled, in.ExpectedCPUSetByRel, res, &firstErr, 0)
 		return nil
 	})
 	return firstErr
 }
 
-func isSiblingDomainNode(n *TopoNode) bool {
-	if n == nil {
-		return false
+func propagateResetTarget(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, controlled map[string]struct{}, expected map[string]machine.CPUSet, res *DAGApplyResult, firstErr *error, depth int) {
+	if depth >= maxEnforceDepth {
+		res.Skipped++
+		return
 	}
-	switch n.Role {
-	case TopoNodeRolePrimary, TopoNodeRoleReclaim, TopoNodeRoleReclaimSibling:
-		return true
-	default:
-		return false
+	children, err := cg.ListChildren(ctx, parentRel)
+	if err != nil {
+		return
 	}
-}
-
-func siblingDomainNodes(dag *TopoDAG) []*TopoNode {
-	if dag == nil {
-		return nil
-	}
-	nodes := make([]*TopoNode, 0)
-	for _, n := range dag.Nodes() {
-		if isSiblingDomainNode(n) {
-			nodes = append(nodes, n)
-		}
-	}
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].Rel < nodes[j].Rel
-	})
-	return nodes
-}
-
-func buildSiblingTransitions(dag *TopoDAG, diffs map[string]nodeDiff, effectiveTargets map[string]machine.CPUSet) map[string]siblingTransition {
-	nodes := siblingDomainNodes(dag)
-	if len(nodes) <= 1 {
-		return nil
-	}
-
-	transitions := map[string]siblingTransition{}
-	for _, n := range nodes {
-		d, ok := diffs[n.Rel]
-		if !ok || !d.observedKnown {
+	for _, name := range children {
+		childRel := filepath.Join(parentRel, name)
+		if _, ok := controlled[childRel]; ok {
 			continue
 		}
-
-		otherObservedUnion := machine.NewCPUSet()
-		otherTargetUnion := machine.NewCPUSet()
-		for _, other := range nodes {
-			if other.Rel == n.Rel {
-				continue
-			}
-			if od, ok := diffs[other.Rel]; ok && od.observedKnown {
-				otherObservedUnion = otherObservedUnion.Union(od.observed)
-			}
-			if target, ok := effectiveTargets[other.Rel]; ok {
-				otherTargetUnion = otherTargetUnion.Union(target)
-			}
+		target, hasExpected := expected[childRel]
+		if !hasExpected {
+			target = parentTarget
 		}
-
-		target := effectiveTargets[n.Rel]
-		leaving := d.observed.Difference(target)
-		entering := target.Difference(d.observed)
-		t := siblingTransition{
-			node:                n,
-			observed:            d.observed,
-			target:              target,
-			leavingToSibling:    leaving.Intersection(otherTargetUnion),
-			enteringFromSibling: entering.Intersection(otherObservedUnion),
-		}
-		t.preShrinkTarget = t.observed.Difference(t.leavingToSibling)
-		if !t.leavingToSibling.IsEmpty() || !t.enteringFromSibling.IsEmpty() {
-			transitions[n.Rel] = t
-		}
-	}
-	return transitions
-}
-
-func applySiblingPreShrink(
-	ctx context.Context,
-	cg cgroupclient.CgroupClient,
-	in DAGApplyInputs,
-	diffs map[string]nodeDiff,
-	transitions map[string]siblingTransition,
-	version cgroupclient.CgroupVersion,
-	res *DAGApplyResult,
-	cache *applyCache,
-) machine.CPUSet {
-	failedLeaving := machine.NewCPUSet()
-	if len(transitions) == 0 {
-		return failedLeaving
-	}
-
-	rels := make([]string, 0, len(transitions))
-	for rel := range transitions {
-		rels = append(rels, rel)
-	}
-	sort.Strings(rels)
-
-	for _, rel := range rels {
-		t := transitions[rel]
-		if t.leavingToSibling.IsEmpty() || t.preShrinkTarget.Equals(t.observed) {
-			continue
-		}
-		if t.preShrinkTarget.IsEmpty() && version == cgroupclient.CgroupVersionV1 {
-			failedLeaving = failedLeaving.Union(t.leavingToSibling)
-			general.InfofV(4, "topo_dag_writer: guard sibling grow after empty v1 pre-shrink, rel=%q leaving=%s",
-				rel, t.leavingToSibling.String())
-			continue
-		}
-
+		// Reset recursively applies an expected target to a child when supplied;
+		// otherwise the child inherits its parent target. It fails open to restore
+		// legacy stale cpuset state without promising expansion in a single pass.
 		res.Attempted++
-		err := applyCPUSet(ctx, cg, rel, t.preShrinkTarget, memsForNode(t.node, in.Mems))
-		if err != nil {
-			err = shrinkNodeConverge(ctx, cg, rel, t.preShrinkTarget, memsForNode(t.node, in.Mems),
-				in.ExpectedCPUSetByRel, version, res, 0, cache)
-		}
-		if err != nil {
+		if err := applyCPUSet(ctx, cg, childRel, target, ""); err != nil {
 			res.Failed++
-			failedLeaving = failedLeaving.Union(t.leavingToSibling)
-			general.InfofV(4, "topo_dag_writer: guard sibling grow after pre-shrink failure, rel=%q target=%s leaving=%s err=%v",
-				rel, t.preShrinkTarget.String(), t.leavingToSibling.String(), err)
+			if *firstErr == nil {
+				*firstErr = err
+			}
 			continue
 		}
-
 		res.Applied++
-		if d, ok := diffs[rel]; ok {
-			diffs[rel] = recomputeNodeDiffWithObserved(d, t.preShrinkTarget)
-		}
+		propagateResetTarget(ctx, cg, childRel, target, controlled, expected, res, firstErr, depth+1)
 	}
-	return failedLeaving
 }
 
-func recomputeNodeDiffWithObserved(d nodeDiff, observed machine.CPUSet) nodeDiff {
-	d.observed = observed
-	d.observedKnown = true
-	d.grow = false
-	d.shrink = false
-	d.shrinkTarget = machine.NewCPUSet()
-	d.bridgeTarget = machine.NewCPUSet()
-	if !d.target.IsSubsetOf(observed) {
-		d.grow = true
-	}
-	if !observed.IsSubsetOf(d.target) {
-		d.shrink = true
-		d.shrinkTarget = d.target
-	}
-	if d.grow && d.shrink {
-		intersection := observed.Intersection(d.target)
-		if !intersection.IsEmpty() {
-			d.shrinkTarget = intersection
-			d.bridge = false
-		} else if d.bridge {
-			d.shrinkTarget = d.target
-			d.bridgeTarget = observed.Union(d.target)
+func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult) error {
+	writer := newSafeCPUSetWriter(ctx, in.Cgroup, in.Mems, res)
+	var firstErr error
+	_ = in.DAG.ForEachShrink(func(n *TopoNode) error {
+		target := targets[n.Rel]
+		if target.IsEmpty() && !allowEmptyTarget {
+			res.Skipped++
+			return nil
 		}
+		observed, err := in.Cgroup.ReadCPUSet(ctx, n.Rel)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("read cpuset before shrink, rel=%s: %w", n.Rel, err)
+			}
+			return nil
+		}
+		if !observed.IsSubsetOf(target) {
+			if err := writer.shrinkParentWithLiveChildUnion(n, target); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return nil
+	})
+	if firstErr != nil {
+		return firstErr
 	}
-	return d
-}
-
-func safeSiblingGrowTarget(n *TopoNode, target machine.CPUSet, failedLeaving machine.CPUSet) machine.CPUSet {
-	if !isSiblingDomainNode(n) || failedLeaving.IsEmpty() {
-		return target
-	}
-	return target.Difference(failedLeaving)
+	_ = in.DAG.ForEachExpand(func(n *TopoNode) error {
+		target := targets[n.Rel]
+		if target.IsEmpty() && !allowEmptyTarget {
+			res.Skipped++
+			return nil
+		}
+		observed, err := in.Cgroup.ReadCPUSet(ctx, n.Rel)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("read cpuset before grow, rel=%s: %w", n.Rel, err)
+			}
+			return nil
+		}
+		if !target.IsSubsetOf(observed) {
+			if err := writer.growNodeWithParentBridge(n, target); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return nil
+	})
+	return firstErr
 }
 
 func memsForNode(n *TopoNode, defaultMems string) string {
@@ -503,628 +283,25 @@ func isCgroupNotFoundError(err error) bool {
 		strings.Contains(errText, "not a directory")
 }
 
-func shrinkNodeConverge(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, newSelf machine.CPUSet, mems string, expected map[string]machine.CPUSet, version cgroupclient.CgroupVersion, res *DAGApplyResult, depth int, cache *applyCache) error {
-	if depth >= maxEnforceDepth {
-		return fmt.Errorf("%w: rel=%s depth=%d target=%s", errDepthLimitReached, relPath, depth, newSelf.String())
-	}
-	var lastErr error
-	for attempt := 0; attempt < maxShrinkRetries; attempt++ {
-		liveChildren := attempt > 0
-		if !newSelf.IsEmpty() {
-			cur, readErr := cg.ReadCPUSet(ctx, relPath)
-			if readErr != nil {
-				general.InfofV(5, "topo_dag_writer: read cpuset before shrink failed, rel=%q target=%s err=%v",
-					relPath, newSelf.String(), readErr)
-			} else if !newSelf.IsSubsetOf(cur) {
-				widened := cur.Union(newSelf)
-				if err := applyCPUSet(ctx, cg, relPath, widened, ""); err != nil {
-					general.InfofV(5, "topo_dag_writer: expand intermediate before shrink failed, rel=%q cur=%s target=%s widened=%s err=%v",
-						relPath, cur.String(), newSelf.String(), widened.String(), err)
-				} else {
-					general.InfofV(5, "topo_dag_writer: expand intermediate before shrink, rel=%q cur=%s target=%s widened=%s",
-						relPath, cur.String(), newSelf.String(), widened.String())
-				}
-			}
-		}
-		shrinkDescendantsToParent(ctx, cg, relPath, newSelf, expected, version, res, depth+1, cache, liveChildren)
-		err := applyCPUSet(ctx, cg, relPath, newSelf, mems)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-		// A child sitting on a cpuset disjoint from the new parent target cannot
-		// be clamped into the parent, so retrying will keep hitting the same
-		// kernel rejection. Surface the blocking children immediately instead of
-		// exhausting the retry budget (which keeps healthz red for longer).
-		blockers := collectShrinkBlockers(ctx, cg, relPath, newSelf, expected, maxShrinkBlockers, 0, cache, true)
-		if hasDisjointBlocker(blockers) {
-			general.InfofV(4, "topo_dag_writer: shrink blocked by disjoint child, rel=%q newSelf=%s blockers=%s", relPath, newSelf.String(), formatShrinkBlockers(blockers))
-			return fmt.Errorf("shrink blocked @ %s target=%s blockers=%s: %w", relPath, newSelf.String(), formatShrinkBlockers(blockers), lastErr)
-		}
-	}
-	blockers := collectShrinkBlockers(ctx, cg, relPath, newSelf, expected, maxShrinkBlockers, 0, cache, true)
-	general.InfofV(4, "topo_dag_writer: shrink converge exhausted, rel=%q newSelf=%s blockers=%s err=%v", relPath, newSelf.String(), formatShrinkBlockers(blockers), lastErr)
-	if len(blockers) > 0 {
-		return fmt.Errorf("shrink converge exhausted @ %s target=%s blockers=%s: %w", relPath, newSelf.String(), formatShrinkBlockers(blockers), lastErr)
-	}
-	return fmt.Errorf("shrink converge exhausted @ %s: %w", relPath, lastErr)
-}
-
-type shrinkBlocker struct {
-	Rel      string
-	Current  machine.CPUSet
-	Expected *machine.CPUSet
-	Reason   string
-}
-
-const (
-	shrinkBlockerReasonDisjoint        = "current_disjoint_parent"
-	shrinkBlockerReasonExpectedOutside = "expected_outside_parent"
-	shrinkBlockerReasonCurrentOutside  = "current_outside_parent"
-	shrinkBlockerReasonReadError       = "read_error"
-	maxShrinkBlockers                  = 8
-)
-
-func hasDisjointBlocker(blockers []shrinkBlocker) bool {
-	for _, b := range blockers {
-		if b.Reason == shrinkBlockerReasonDisjoint {
-			return true
-		}
-	}
-	return false
-}
-
-func listShrinkChildren(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, cache *applyCache, liveChildren bool) ([]string, error) {
-	if !liveChildren && cache != nil {
-		return cache.listChildren(ctx, relPath)
-	}
-	return cg.ListChildren(ctx, relPath)
-}
-
-// collectShrinkBlockers walks the descendants of relPath and records children
-// whose current (or expected) cpuset prevents relPath from shrinking to
-// newParent. It stops once limit blockers are collected to bound log size.
-//
-// The first shrink attempt may use the per-apply children memo for speed. Once
-// the parent write fails, callers switch liveChildren to true so diagnostics
-// re-list live children and can see cgroups created after the cache snapshot.
-func collectShrinkBlockers(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, newParent machine.CPUSet, expected map[string]machine.CPUSet, limit, depth int, cache *applyCache, liveChildren bool) []shrinkBlocker {
-	if depth >= maxEnforceDepth || limit <= 0 {
-		return nil
-	}
-	children, err := listShrinkChildren(ctx, cg, relPath, cache, liveChildren)
-	if err != nil {
-		return nil
-	}
-	var blockers []shrinkBlocker
-	for _, name := range children {
-		if len(blockers) >= limit {
-			break
-		}
-		childRel := filepath.Join(relPath, name)
-		cur, readErr := cg.ReadCPUSet(ctx, childRel)
-		if readErr != nil {
-			// A child we cannot read is itself a potential blocker: if it holds a
-			// cpuset outside newParent the shrink will keep failing, so surface it
-			// rather than silently dropping it.
-			blockers = append(blockers, shrinkBlocker{Rel: childRel, Reason: shrinkBlockerReasonReadError})
-			continue
-		}
-		if cur.IsEmpty() || cur.IsSubsetOf(newParent) {
-			blockers = append(blockers, collectShrinkBlockers(ctx, cg, childRel, newParent, expected, limit-len(blockers), depth+1, cache, liveChildren)...)
-			continue
-		}
-		b := shrinkBlocker{Rel: childRel, Current: cur}
-		if exp, ok := expected[childRel]; ok {
-			expCopy := exp.Clone()
-			b.Expected = &expCopy
-			if !exp.IsSubsetOf(newParent) {
-				b.Reason = shrinkBlockerReasonExpectedOutside
-			}
-		}
-		if cur.Intersection(newParent).IsEmpty() {
-			b.Reason = shrinkBlockerReasonDisjoint
-		} else if b.Reason == "" {
-			// current overlaps but is not fully inside newParent, and there is no
-			// expected entry pulling it out: the live cpuset itself straddles the
-			// parent boundary.
-			b.Reason = shrinkBlockerReasonCurrentOutside
-		}
-		blockers = append(blockers, b)
-	}
-	return blockers
-}
-
-func formatShrinkBlockers(blockers []shrinkBlocker) string {
-	if len(blockers) == 0 {
-		return "[]"
-	}
-	var sb strings.Builder
-	sb.WriteString("[")
-	for i, b := range blockers {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(fmt.Sprintf("rel=%s current=%s", b.Rel, b.Current.String()))
-		if b.Expected != nil {
-			sb.WriteString(fmt.Sprintf(" expected=%s", b.Expected.String()))
-		}
-		sb.WriteString(fmt.Sprintf(" reason=%s", b.Reason))
-	}
-	sb.WriteString("]")
-	return sb.String()
-}
-
-// shrinkDescendantsToParent clamps live descendants into newParent before the
-// parent itself shrinks, so the cgroup v1 parent-superset invariant holds at
-// each write. The first shrink attempt may use the per-apply children memo for
-// speed; after a parent write fails, callers retry with liveChildren=true so a
-// newly-created child cannot escape clamping and pin the parent shrink open.
-func shrinkDescendantsToParent(ctx context.Context, cg cgroupclient.CgroupClient, relPath string, newParent machine.CPUSet, expected map[string]machine.CPUSet, version cgroupclient.CgroupVersion, res *DAGApplyResult, depth int, cache *applyCache, liveChildren bool) {
-	if depth >= maxEnforceDepth {
-		res.Skipped++
-		general.InfofV(4, "topo_dag_writer: skip shrink descent after depth limit, rel=%q depth=%d target=%s",
-			relPath, depth, newParent.String())
-		return
-	}
-	children, err := listShrinkChildren(ctx, cg, relPath, cache, liveChildren)
-	if err != nil {
-		general.InfofV(5, "topo_dag_writer: list children failed during shrink follow, rel=%q err=%v", relPath, err)
-		return
-	}
-	convergeChild := func(childRel string, cpus machine.CPUSet) {
-		res.Attempted++
-		if err := shrinkNodeConverge(ctx, cg, childRel, cpus, "", expected, version, res, depth+1, cache); err != nil {
-			if errors.Is(err, errDepthLimitReached) {
-				res.Skipped++
-				general.InfofV(4, "topo_dag_writer: skip deep dynamic cgroup during shrink, rel=%q target=%s err=%v",
-					childRel, cpus.String(), err)
-				return
-			}
-			if isCgroupNotFoundError(err) {
-				res.Skipped++
-				general.InfofV(5, "topo_dag_writer: skip disappeared dynamic cgroup during shrink, rel=%q target=%s err=%v",
-					childRel, cpus.String(), err)
-				return
-			}
-			res.Failed++
-			general.InfofV(5, "topo_dag_writer: shrink child converge failed, rel=%q err=%v", childRel, err)
-			return
-		}
-		res.Applied++
-	}
-	for _, name := range children {
-		childRel := filepath.Join(relPath, name)
-		if exp, ok := expected[childRel]; ok && !exp.IsEmpty() && exp.IsSubsetOf(newParent) {
-			convergeChild(childRel, exp)
-			continue
-		}
-		cur, readErr := cg.ReadCPUSet(ctx, childRel)
-		if readErr != nil {
-			continue
-		}
-		if version == cgroupclient.CgroupVersionV2 && cur.IsEmpty() {
-			shrinkDescendantsToParent(ctx, cg, childRel, newParent, expected, version, res, depth+1, cache, liveChildren)
-			continue
-		}
-		if !newParent.IsEmpty() && isUnderRelPrefix(childRel, cache.kubeRelPrefix) {
-			convergeChild(childRel, newParent)
-			continue
-		}
-		if cur.IsSubsetOf(newParent) {
-			shrinkDescendantsToParent(ctx, cg, childRel, cur, expected, version, res, depth+1, cache, liveChildren)
-			continue
-		}
-		clamped := cur.Intersection(newParent)
-		if clamped.IsEmpty() {
-			if version == cgroupclient.CgroupVersionV1 && !newParent.IsEmpty() &&
-				!hasLiveTaskInSubtree(ctx, cg, childRel, depth+1, cache, liveChildren) {
-				general.InfofV(5, "topo_dag_writer: park disjoint child inside shrinking parent, rel=%q cur=%s newParent=%s",
-					childRel, cur.String(), newParent.String())
-				convergeChild(childRel, newParent)
-				continue
-			}
-			general.InfofV(5, "topo_dag_writer: shrink follow skipped disjoint child, rel=%q cur=%s newParent=%s", childRel, cur.String(), newParent.String())
-			continue
-		}
-		convergeChild(childRel, clamped)
-	}
-}
-
-func isUnderRelPrefix(rel, prefix string) bool {
-	rel = strings.Trim(rel, "/")
-	prefix = strings.Trim(prefix, "/")
-	if rel == "" || prefix == "" {
-		return false
-	}
-	return rel != prefix && strings.HasPrefix(rel, prefix+"/")
-}
-
-func hasLiveTaskInSubtree(ctx context.Context, cg cgroupclient.CgroupClient, rel string, depth int, cache *applyCache, liveChildren bool) bool {
-	if depth >= maxEnforceDepth {
-		return false
-	}
-	for _, file := range []string{"tasks", "cgroup.procs"} {
-		raw, err := cg.ReadCgroupFile(ctx, rel, file)
-		if err != nil {
-			continue
-		}
-		if strings.TrimSpace(string(raw)) != "" {
-			return true
-		}
-	}
-	children, err := listShrinkChildren(ctx, cg, rel, cache, liveChildren)
-	if err != nil {
-		return false
-	}
-	for _, name := range children {
-		if hasLiveTaskInSubtree(ctx, cg, filepath.Join(rel, name), depth+1, cache, liveChildren) {
-			return true
-		}
-	}
-	return false
-}
-
 func primaryRelPath(dag *TopoDAG) string {
 	if dag == nil {
 		return ""
 	}
 	for _, n := range dag.Nodes() {
-		if n.Role == TopoNodeRolePrimary {
+		if isPrimaryRole(n.Role) {
 			return n.Rel
 		}
 	}
 	return ""
 }
 
-func desiredTargets(dag *TopoDAG) map[string]machine.CPUSet {
-	effective := map[string]machine.CPUSet{}
-	for _, n := range dag.Nodes() {
-		effective[n.Rel] = n.CPUs
-	}
-	return effective
-}
-
-// computeEffectiveTargets returns, per controlled node, the cpuset that must be
-// enforced so the cgroup v1 parent-superset invariant holds while expected kube
-// cgroups and reclaim NUMA buckets converge:
-//
-//	effective(primary) = desired(primary) ∪ protectedPending (allocations with no leaf yet)
-//	effective(reclaim parent) includes its reclaim NUMA bucket targets
-//
-// Existing kube leaves under a primary rel are expected to converge through the
-// shrink/expand descendant pass instead of widening the primary effective
-// target with inherited full-machine cpusets.
-//
-// After pending widening, reclaim targets are deducted by the union of primary
-// effective targets, reclaim parents are widened to contain NUMA buckets, and
-// reclaim NUMA siblings are checked for disjointness.
-func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, protectedPending machine.CPUSet, protectedByRel ...map[string]machine.CPUSet) (map[string]machine.CPUSet, error) {
-	effective := desiredTargets(dag)
-	var protected map[string]machine.CPUSet
-	if len(protectedByRel) > 0 {
-		protected = protectedByRel[0]
-	}
-	for _, n := range dag.Nodes() {
-		if n.Role != TopoNodeRolePrimary {
-			continue
-		}
-		// On cgroup v2, an empty cpuset.cpus is a valid explicit target and
-		// means the node inherits its effective CPUs from ancestors. Do not widen
-		// an intentionally empty target with protected current/pending CPUs; otherwise
-		// we would erase the empty-target semantics before expandDescendants has a
-		// chance to propagate it.
-		if allowEmptyTarget && n.CPUs.IsEmpty() {
-			continue
-		}
-		protectedUnion := machine.NewCPUSet()
-		if !protectedPending.IsEmpty() {
-			protectedUnion = protectedUnion.Union(protectedPending)
-		}
-		for rel, cpus := range protected {
-			if cpus.IsEmpty() || !isRelAtOrUnder(rel, n.Rel) {
-				continue
-			}
-			protectedUnion = protectedUnion.Union(cpus)
-		}
-		if protectedUnion.IsEmpty() {
-			continue
-		}
-		effective[n.Rel] = n.CPUs.Union(protectedUnion)
-		general.InfofV(5, "topo_dag_writer: widen primary effective target for pending allocations, rel=%q desired=%s pending=%s effective=%s",
-			n.Rel, n.CPUs.String(), protectedUnion.String(), effective[n.Rel].String())
-	}
-	normalizeReclaimTargetsByPrimary(dag, effective)
-	normalizeReclaimParentContainsNUMABuckets(dag, effective)
-	if err := validateNoPrimaryReclaimOverlap(dag, effective); err != nil {
-		return nil, err
-	}
-	if err := validateReclaimNUMABucketSiblingsDisjoint(dag, effective); err != nil {
-		return nil, err
-	}
-	return effective, nil
-}
-
-func isRelAtOrUnder(rel, ancestor string) bool {
-	rel = strings.Trim(rel, "/")
-	ancestor = strings.Trim(ancestor, "/")
-	if rel == "" || ancestor == "" {
-		return false
-	}
-	return rel == ancestor || strings.HasPrefix(rel, ancestor+"/")
-}
-
-func normalizeReclaimTargetsByPrimary(dag *TopoDAG, effective map[string]machine.CPUSet) {
-	primaryUnion := machine.NewCPUSet()
-	for _, n := range dag.Nodes() {
-		if n.Role == TopoNodeRolePrimary {
-			primaryUnion = primaryUnion.Union(effective[n.Rel])
-		}
-	}
-	if primaryUnion.IsEmpty() {
-		return
-	}
-	for _, n := range dag.Nodes() {
-		switch n.Role {
-		case TopoNodeRoleReclaim, TopoNodeRoleReclaimNUMABucket, TopoNodeRoleReclaimSibling:
-			original := effective[n.Rel]
-			deducted := original.Difference(primaryUnion)
-			if !deducted.Equals(original) {
-				general.InfofV(5, "topo_dag_writer: deduct primary effective cpuset from reclaim target, rel=%q original=%s primary=%s effective=%s",
-					n.Rel, original.String(), primaryUnion.String(), deducted.String())
-				effective[n.Rel] = deducted
-			}
-		}
-	}
-}
-
-func normalizeReclaimParentContainsNUMABuckets(dag *TopoDAG, effective map[string]machine.CPUSet) {
-	for _, n := range dag.Nodes() {
-		if n.Role != TopoNodeRoleReclaimNUMABucket {
-			continue
-		}
-		parent := parentNodeOf(n)
-		if parent == nil {
-			continue
-		}
-		childTarget := effective[n.Rel]
-		parentTarget := effective[parent.Rel]
-		if childTarget.IsSubsetOf(parentTarget) {
-			continue
-		}
-		widened := parentTarget.Union(childTarget)
-		general.InfofV(5, "topo_dag_writer: widen reclaim parent target for numa bucket, parent=%q child=%q parentTarget=%s childTarget=%s effective=%s",
-			parent.Rel, n.Rel, parentTarget.String(), childTarget.String(), widened.String())
-		effective[parent.Rel] = widened
-	}
-}
-
-// validateNoPrimaryReclaimOverlap rejects the apply if any primary/non-reclaim
-// effective target overlaps a reclaim target. The overlap is reported per rel so
-// the operator can see the conflicting partition and the offending cpus.
-func validateNoPrimaryReclaimOverlap(dag *TopoDAG, effective map[string]machine.CPUSet) error {
-	var reclaims []*TopoNode
-	for _, n := range dag.Nodes() {
-		switch n.Role {
-		case TopoNodeRoleReclaim, TopoNodeRoleReclaimNUMABucket, TopoNodeRoleReclaimSibling:
-			reclaims = append(reclaims, n)
-		}
-	}
-	if len(reclaims) == 0 {
-		return nil
-	}
-	for _, n := range dag.Nodes() {
-		if n.Role != TopoNodeRolePrimary {
-			continue
-		}
-		primaryTarget := effective[n.Rel]
-		for _, r := range reclaims {
-			overlap := primaryTarget.Intersection(effective[r.Rel])
-			if !overlap.IsEmpty() {
-				return fmt.Errorf("ApplyDAGDiff: partition cpuset overlap: primary=%s target=%s reclaim=%s target=%s overlap=%s",
-					n.Rel, primaryTarget.String(), r.Rel, effective[r.Rel].String(), overlap.String())
-			}
-		}
-	}
-	return nil
-}
-
-func validateReclaimNUMABucketSiblingsDisjoint(dag *TopoDAG, effective map[string]machine.CPUSet) error {
-	for _, parent := range dag.Nodes() {
-		if parent.Role != TopoNodeRoleReclaim {
-			continue
-		}
-		var buckets []*TopoNode
-		for _, child := range parent.children {
-			if child.Role == TopoNodeRoleReclaimNUMABucket {
-				buckets = append(buckets, child)
-			}
-		}
-		for i := range buckets {
-			for j := i + 1; j < len(buckets); j++ {
-				left := buckets[i]
-				right := buckets[j]
-				overlap := effective[left.Rel].Intersection(effective[right.Rel])
-				if !overlap.IsEmpty() {
-					return fmt.Errorf("ApplyDAGDiff: reclaim numa bucket overlap: parent=%s left=%s target=%s right=%s target=%s overlap=%s",
-						parent.Rel,
-						left.Rel, effective[left.Rel].String(),
-						right.Rel, effective[right.Rel].String(),
-						overlap.String())
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// allowSafeDisjointReplacement reports whether a disjoint cpuset replacement can
-// be applied through a temporary bridge target.
-//
-// node is the topology node being replaced, target is its final desired cpuset,
-// and effective contains normalized target cpusets keyed by node rel. The check
-// only allows replacements that keep children within their parent target and do
-// not overlap sibling effective targets.
-func allowSafeDisjointReplacement(node *TopoNode, target machine.CPUSet, effective map[string]machine.CPUSet) (bool, string) {
-	if node == nil {
-		return false, "role_not_allowed"
-	}
-	if node.Role == TopoNodeRolePrimary || node.Role == TopoNodeRoleReclaim {
-		if len(node.children) == 0 {
-			return false, "no_descendants"
-		}
-		for _, child := range node.children {
-			if !effective[child.Rel].IsSubsetOf(target) {
-				return false, fmt.Sprintf("descendant_not_subset_of_target child=%s", child.Rel)
-			}
-		}
-		return true, "ancestor_bridge"
-	}
-	if node.Role != TopoNodeRoleReclaimNUMABucket && node.Role != TopoNodeRoleReclaimSibling {
-		return false, "role_not_allowed"
-	}
-	parent := parentNodeOf(node)
-	if parent == nil {
-		return false, "missing_reclaim_parent"
-	}
-	parentTarget := effective[parent.Rel]
-	if !target.IsSubsetOf(parentTarget) {
-		return false, fmt.Sprintf("target_not_subset_of_parent parent=%s parentTarget=%s", parent.Rel, parentTarget.String())
-	}
-	for _, sibling := range parent.children {
-		if sibling.Rel == node.Rel {
-			continue
-		}
-		overlap := target.Intersection(effective[sibling.Rel])
-		if !overlap.IsEmpty() {
-			return false, fmt.Sprintf("sibling_overlap sibling=%s overlap=%s", sibling.Rel, overlap.String())
-		}
-	}
-	return true, "reclaim_numa_bucket_parent_contains_target"
-}
-
-func expandDescendants(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, parentInExpected bool, controlledRels map[string]struct{}, expected map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult, firstErr *error, depth int, cache *applyCache) {
-	if depth >= maxEnforceDepth {
-		res.Skipped++
-		general.InfofV(4, "topo_dag_writer: skip expand descent after depth limit, rel=%q depth=%d target=%s",
-			parentRel, depth, parentTarget.String())
-		return
-	}
-	if parentTarget.IsEmpty() && !allowEmptyTarget {
-		return
-	}
-	version := cg.Version(ctx)
-	children, err := cache.listChildren(ctx, parentRel)
-	if err != nil {
-		general.InfofV(5, "topo_dag_writer: list children failed during expand descent, rel=%q err=%v", parentRel, err)
-		return
-	}
-	writeAndDescend := func(childRel string, cpus machine.CPUSet, childInExpected bool) {
-		res.Attempted++
-		if err := shrinkNodeConverge(ctx, cg, childRel, cpus, "", expected, version, res, depth+1, cache); err != nil {
-			if errors.Is(err, errDepthLimitReached) {
-				res.Skipped++
-				general.InfofV(4, "topo_dag_writer: skip deep dynamic cgroup during expand, rel=%q target=%s err=%v",
-					childRel, cpus.String(), err)
-				return
-			}
-			if isCgroupNotFoundError(err) {
-				res.Skipped++
-				general.InfofV(5, "topo_dag_writer: skip disappeared dynamic cgroup during expand, rel=%q target=%s err=%v",
-					childRel, cpus.String(), err)
-				return
-			}
-			res.Failed++
-			if *firstErr == nil {
-				*firstErr = err
-			}
-			// Do NOT recurse: the parent write failed, so the subtree's assumed
-			// parent target is not actually in effect. Continuing to write
-			// descendants against that target could violate the v1 parent-superset
-			// invariant or narrow leaves below their real parent.
-			general.InfofV(5, "topo_dag_writer: skip subtree descent after apply failure, rel=%q target=%s err=%v",
-				childRel, cpus.String(), err)
-			return
-		}
-		res.Applied++
-		expandDescendants(ctx, cg, childRel, cpus, childInExpected, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
-	}
-	for _, name := range children {
-		childRel := filepath.Join(parentRel, name)
-		if _, isControlled := controlledRels[childRel]; isControlled {
-			continue
-		}
-		if exp, ok := expected[childRel]; ok {
-			if !exp.IsEmpty() || allowEmptyTarget {
-				writeAndDescend(childRel, exp, true)
-			}
-			continue
-		}
-		// Runtime-managed descendants are also converged by bulkhead. They are
-		// not used to widen parent targets with inherited full-machine cpusets;
-		// instead this expand/shrink pass recursively propagates the parent
-		// target unless a more specific expected target was supplied above.
-		if parentInExpected {
-			cur, readErr := cg.ReadCPUSet(ctx, childRel)
-			if readErr != nil {
-				// Under an expected parent we have no ground truth for the
-				// child's current cpuset. Writing parentTarget here would
-				// blindly widen an unmanaged child (e.g. a live pod leaf) or
-				// clobber an inherited v2 empty target. Skip and let the next
-				// round retry once the read is healthy again.
-				general.InfofV(5, "topo_dag_writer: read cpuset failed under expected parent, skip child, rel=%q err=%v", childRel, readErr)
-				res.Skipped++
-				continue
-			}
-			if allowEmptyTarget && cur.IsEmpty() {
-				expandDescendants(ctx, cg, childRel, parentTarget, true, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
-				continue
-			}
-			if cur.IsSubsetOf(parentTarget) {
-				if !cur.IsEmpty() {
-					expandDescendants(ctx, cg, childRel, cur, true, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
-				}
-				continue
-			}
-			clamped := cur.Intersection(parentTarget)
-			if clamped.IsEmpty() {
-				general.InfofV(5, "topo_dag_writer: expand descent skipped disjoint subset-only child, rel=%q cur=%s parent=%s", childRel, cur.String(), parentTarget.String())
-				continue
-			}
-			writeAndDescend(childRel, clamped, true)
-			continue
-		}
-		if allowEmptyTarget {
-			if obs, obsErr := cg.ReadCPUSet(ctx, childRel); obsErr == nil && obs.IsEmpty() {
-				expandDescendants(ctx, cg, childRel, parentTarget, false, controlledRels, expected, allowEmptyTarget, res, firstErr, depth+1, cache)
-				continue
-			}
-		}
-		writeAndDescend(childRel, parentTarget, false)
-	}
-}
-
 // applyCache is a per-ApplyDAGDiff memo that eliminates repeated cgroup tree
 // walks within one applyTwoPhase invocation. It must NOT be reused across
 // applies.
 //
-// IMPORTANT - staleness boundary: container cgroups are created out-of-band by
-// kubelet/containerd, so the child set of a rel CAN change during a single
-// apply (a new pod/container leaf may be mkdir'd between two syscalls). The
-// cache therefore only backs code paths where a stale (slightly-too-old)
-// children view is SAFE:
-//   - effective-target computation only folds in QRM state known pending
-//     allocations and does not depend on a complete live child list.
-//   - the expand descent is a single forward fail-open pass: missing a child
-//     just skips it this round.
-//   - the first shrink convergence attempt can use the cached children view as
-//     a fast path, because a successful parent write proves no hidden child is
-//     violating the target at that moment.
-//
-// Once a shrink parent write fails, retry and diagnostics MUST fall back to live
-// cg.ListChildren: the shrink path then has evidence that the cached child view
-// might be incomplete, and it must re-observe a converging tree to catch children
-// created after the cache snapshot.
+// The cache is only used for snapshot/diagnostic reads. Safe writer shrink paths
+// intentionally re-list live children before final parent shrink so new runtime
+// descendants cannot escape convergence.
 type applyCache struct {
 	cg            cgroupclient.CgroupClient
 	kubeRelPrefix string

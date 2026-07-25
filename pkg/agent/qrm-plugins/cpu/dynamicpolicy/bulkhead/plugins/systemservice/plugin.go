@@ -25,7 +25,9 @@ limitations under the License.
 //   - Everything goes through a single unified path: PID lookup from the
 //     cgroup ROOT's cgroup.procs, per-PID classification via /proc/<pid>/stat
 //     (see procfscommon.ProcInfo.IsKThread which reads PF_KTHREAD), and
-//     CgroupClient.AttachPID into the target "system" cgroup.
+//     CgroupClient.AttachPID into the target "system" cgroup. AttachPID changes
+//     cgroup membership only; it does not set or otherwise guarantee a PID's
+//     scheduler affinity.
 //   - Kernel threads (info.IsKThread == true) are migrated only when their
 //     comm contains one of the whitelisted substrings
 //     (BulkheadSystemKThreadCommSubstrs). This is a positive-list to guard
@@ -37,9 +39,10 @@ limitations under the License.
 //
 // When the plugin's dynamic switch transitions from enabled to disabled
 // (or the first PeriodicalHandler tick after restart observes disabled),
-// a one-shot inverse migration reads targetRel/cgroup.procs and reattaches
-// every PID into the cpuset root, so state converges without operator
-// intervention. Subsequent ticks while disabled are no-ops.
+// a one-shot inverse migration reads every PID currently listed in
+// targetRel/cgroup.procs and reattaches it to the cpuset root. It does not
+// recurse into child cgroups or filter PIDs by managed status. Subsequent ticks
+// while disabled are no-ops.
 //
 // Every migration is logged at V(2) so operators can audit.
 package systemservice
@@ -51,6 +54,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/util/errors"
 
@@ -69,6 +73,15 @@ import (
 const SystemServicePluginName = "system_service"
 
 const defaultProcfsPath = "/proc"
+
+const slowAttachThreshold = 200 * time.Millisecond
+
+func migrateSweepLogLevel(elapsed time.Duration) int {
+	if elapsed >= slowAttachThreshold {
+		return 2
+	}
+	return 4
+}
 
 var _ bulkheadapi.Plugin = (*SystemServicePlugin)(nil)
 
@@ -152,8 +165,10 @@ func (p *SystemServicePlugin) CPUSetAdjustmentDisabledHandler(context.Context, b
 // cgroup via CgroupClient.AttachPID when the plugin's dynamic switch is
 // enabled. When the switch transitions from enabled to disabled (or the
 // first tick after restart observes disabled), it runs a one-shot reset
-// that reattaches every PID under targetRel back into the cpuset root.
-// Subsequent ticks while disabled are no-ops.
+// that reads every PID currently listed in targetRel/cgroup.procs and
+// reattaches it to the cpuset root. The reset does not recurse into child
+// cgroups or filter PIDs by managed status. Subsequent ticks while disabled
+// are no-ops.
 func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
 	enabled := enableBulkheadSystemService(in.DynamicConf)
 
@@ -187,6 +202,13 @@ func (p *SystemServicePlugin) PeriodicalHandler(ctx context.Context, in bulkhead
 // subset. Ineligible / racing PIDs are logged at V(4) and skipped without
 // aborting the sweep.
 func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
+	migrateStart := time.Now()
+	defer func() {
+		migrateElapsed := time.Since(migrateStart)
+		general.InfofV(migrateSweepLogLevel(migrateElapsed),
+			"system_service: migrate sweep elapsed=%s", migrateElapsed)
+	}()
+
 	// Target cgroup not created yet — bail early, cpuset_topology owns
 	// creation. Next tick will retry.
 	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
@@ -205,7 +227,6 @@ func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.Per
 		return fmt.Errorf("list root cgroup pids: %w", err)
 	}
 
-	moved := 0
 	for _, pid := range pids {
 		if ctx.Err() != nil {
 			emitBulkheadSystemServiceResult(in.Emitter, "migrate", "failed", "context_canceled")
@@ -219,7 +240,16 @@ func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.Per
 		if !p.shouldMigrate(info) {
 			continue
 		}
-		if err := p.cgroup.AttachPID(ctx, p.targetRel, pid); err != nil {
+		attachStart := time.Now()
+		// AttachPID moves the task's cgroup membership only; it does not set or
+		// guarantee the task's scheduler affinity.
+		err = p.cgroup.AttachPID(ctx, p.targetRel, pid)
+		attachElapsed := time.Since(attachStart)
+		if attachElapsed >= slowAttachThreshold {
+			general.InfofV(2, "system_service: slow cgroup attach, pid=%d comm=%q kthread=%v elapsed=%s err=%v",
+				pid, info.Comm, info.IsKThread, attachElapsed, err)
+		}
+		if err != nil {
 			// PID may have exited, or the kernel may refuse to migrate a
 			// per-CPU / non-movable kthread. Log and move on — retries next tick.
 			general.InfofV(4, "system_service: cgroup migration failed, pid=%d comm=%q kthread=%v err=%v",
@@ -228,10 +258,8 @@ func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.Per
 		}
 		general.InfofV(2, "system_service: migrated process, pid=%d comm=%q kthread=%v",
 			pid, info.Comm, info.IsKThread)
-		moved++
 	}
 	emitBulkheadSystemServiceResult(in.Emitter, "migrate", "success", "")
-	general.InfofV(4, "system_service: migrate complete, scanned=%d moved=%d", len(pids), moved)
 	return nil
 }
 
@@ -241,6 +269,9 @@ func (p *SystemServicePlugin) runMigrate(ctx context.Context, in bulkheadapi.Per
 // targetRel/cgroup.procs and re-attaches it into the cpuset root (rel="")
 // via CgroupClient.AttachPID. Any per-PID failure is returned so the disabled
 // transition remains pending and a later tick retries the incomplete reset.
+// Returning PIDs currently in the target cgroup to root before topology-disabled
+// state converges avoids leaving stale system-cgroup ownership behind after the
+// feature is disabled.
 func (p *SystemServicePlugin) resetTargetToRoot(ctx context.Context, in bulkheadapi.PeriodicalHandlerContext) error {
 	if _, err := p.cgroup.StatDir(ctx, p.targetRel); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {

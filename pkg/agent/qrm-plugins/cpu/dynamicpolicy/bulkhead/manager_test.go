@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
@@ -527,6 +528,30 @@ func TestEmitBulkheadPluginResultFormatsReasonTag(t *testing.T) {
 	wantReason := metricutil.MetricTagValueFormat(rawReason)
 	if gotReason != wantReason {
 		t.Fatalf("reason tag = %q, want formatted %q", gotReason, wantReason)
+	}
+}
+
+func TestBulkheadSlowHandlerThreshold(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		elapsed time.Duration
+		want    bool
+	}{
+		{name: "below threshold", elapsed: bulkheadSlowHandlerThreshold - time.Nanosecond, want: false},
+		{name: "at threshold", elapsed: bulkheadSlowHandlerThreshold, want: true},
+		{name: "above threshold", elapsed: bulkheadSlowHandlerThreshold + time.Nanosecond, want: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.elapsed >= bulkheadSlowHandlerThreshold
+			if got != tt.want {
+				t.Fatalf("slow classification for %s = %t, want %t", tt.elapsed, got, tt.want)
+			}
+		})
 	}
 }
 

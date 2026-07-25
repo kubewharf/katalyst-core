@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/util/errors"
 
@@ -45,8 +46,9 @@ type Manager struct {
 }
 
 const (
-	metricBulkheadHandlerResult = "bulkhead_handler_result"
-	metricBulkheadViewChanged   = "bulkhead_view_changed"
+	metricBulkheadHandlerResult  = "bulkhead_handler_result"
+	metricBulkheadViewChanged    = "bulkhead_view_changed"
+	bulkheadSlowHandlerThreshold = 500 * time.Millisecond
 )
 
 func NewManager(conf *config.Configuration) (*Manager, error) {
@@ -157,11 +159,16 @@ func (m *Manager) RunPeriodicalHandlers(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 ) {
+	started := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var err error
 	defer func() {
+		elapsed := time.Since(started)
+		if elapsed >= bulkheadSlowHandlerThreshold {
+			general.InfofV(2, "bulkhead periodical handlers slow elapsed=%s", elapsed)
+		}
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncBulkhead, err)
 		if err != nil {
 			general.ErrorS(err, "bulkhead periodical handlers failed")
@@ -194,10 +201,16 @@ func (m *Manager) RunPeriodicalHandlers(
 		if enabled, ok := m.lastCPUSetAdjustmentEnabled[p.Name()]; ok {
 			pluginCtx.EffectiveEnabled = &enabled
 		}
-		if err := p.PeriodicalHandler(ctx, pluginCtx); err != nil {
-			wrapped := fmt.Errorf("bulkhead plugin %q periodical failed: %w", p.Name(), err)
+		handlerStarted := time.Now()
+		pluginErr := p.PeriodicalHandler(ctx, pluginCtx)
+		handlerElapsed := time.Since(handlerStarted)
+		if handlerElapsed >= bulkheadSlowHandlerThreshold {
+			general.InfofV(2, "bulkhead periodical slow plugin=%s elapsed=%s", p.Name(), handlerElapsed)
+		}
+		if pluginErr != nil {
+			wrapped := fmt.Errorf("bulkhead plugin %q periodical failed: %w", p.Name(), pluginErr)
 			general.ErrorS(wrapped, "bulkhead periodical handler failed")
-			emitBulkheadPluginResult(emitter, "periodical", p.Name(), "failed", err.Error())
+			emitBulkheadPluginResult(emitter, "periodical", p.Name(), "failed", pluginErr.Error())
 			errs = append(errs, wrapped)
 			continue
 		}

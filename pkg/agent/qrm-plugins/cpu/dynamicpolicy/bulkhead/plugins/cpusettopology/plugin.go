@@ -99,6 +99,9 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 	}
 	protectedByRel := p.pendingProtectedCPUSetByRel(ctx, expectedRes.PendingByPod)
 	if protected := unionCPUSetByRel(protectedByRel); !protected.IsEmpty() {
+		// Pending allocations have no leaf cgroup to update yet. Keep their CPUs
+		// protected in controlled ancestors so those ancestors do not shrink during
+		// the admission creation window before the leaf becomes available.
 		bulkheadutils.ApplyTransientProtectedNonReclaim(in.View, in.Topology, protected)
 	}
 	siblings, err := p.discoverBulkheadReclaimSiblings(ctx, in.View)
@@ -118,9 +121,21 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s protected_rel_count=%d",
 		len(specs), len(siblings), len(expectedRes.ExpectedByRel), len(expectedRes.PendingByPod),
 		expectedRes.PendingCPUSetUnion().String(), len(protectedByRel))
-	_, err = topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
+	var cpuDetails machine.CPUDetails
+	if in.Topology != nil {
+		cpuDetails = in.Topology.CPUDetails
+	}
+	reservedCPUSet := in.View.Reserve
+	// Normal adjustment passes the topology explicitly so ApplyDAGDiff can
+	// derive its allowed CPUs from this round's machine view. Any apply error is
+	// returned to the bulkhead manager through this handler; this plugin does
+	// not attempt a local retry or partial recovery.
+	res, err := topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
 		DAG:                    dag,
 		Cgroup:                 p.cgroup,
+		Mode:                   topology.ApplyModeNormalAdjustment,
+		CPUDetails:             cpuDetails,
+		ReservedCPUSet:         reservedCPUSet,
 		ExpectedCPUSetByRel:    expectedRes.ExpectedByRel,
 		KubeManagedRelPrefix:   p.cfg.BulkheadPrimaryRelPath,
 		ProtectedPendingCPUSet: expectedRes.PendingCPUSetUnion(),
@@ -129,6 +144,11 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "dag_error")
 		return fmt.Errorf("apply bulkhead topology dag: %w", err)
+	}
+	if !res.FullyConverged {
+		general.InfofV(4, "cpuset_topology: apply not fully converged, report=%+v", res.ConvergenceReport)
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "not_converged")
+		return nil
 	}
 
 	activeRels := bulkheadutils.CollectActiveRels(p.cfg, in.View, in.MetaServer, siblings, relExists)
@@ -197,12 +217,12 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(ctx context.Context, in bulkh
 		return err
 	}
 
-	// Reset (disabled transition) widens leaves back towards the machine/root
-	// cpuset. It must stay fail-open: if a live container rel cannot be resolved
-	// we still want to relax the (possibly polluted) leaf, otherwise a leaf stuck
-	// on a stale transient-pool cpuset can never recover. For the same reason we
-	// do NOT protect kube pod leaves here - widening a leaf is always safe.
-	// Any classification error is intentionally ignored: reset must never be
+	// Reset (disabled transition) applies reset targets back towards the
+	// machine/root cpuset. Pending allocations whose leaves cannot be resolved
+	// are not protected here: protection addresses ancestor shrink during normal
+	// adjustment in the admission creation window, while reset cannot directly
+	// protect a leaf that does not exist. Any classification error is intentionally
+	// ignored so reset can relax a stale transient-pool cpuset instead of being
 	// blocked by a transient resolve failure.
 	expectedRes, _ := p.buildExpectedCPUSetByRel(ctx, in)
 	var expected map[string]machine.CPUSet
@@ -223,12 +243,17 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(ctx context.Context, in bulkh
 	res, err := topology.ApplyDAGDiff(ctx, topology.DAGApplyInputs{
 		DAG:                 dag,
 		Cgroup:              p.cgroup,
-		SkipObservedRead:    true,
+		Mode:                topology.ApplyModeResetExpandOnly,
 		ExpectedCPUSetByRel: expected,
 	})
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", res.Applied, "dag_error")
 		return fmt.Errorf("apply disabled reset topology dag: %w", err)
+	}
+	if !res.FullyConverged {
+		general.InfofV(4, "cpuset_topology: disabled reset not fully converged, report=%+v", res.ConvergenceReport)
+		emitBulkheadPruneResult(in.Emitter, "skipped", res.Applied, "reset_not_converged")
+		return nil
 	}
 
 	emitBulkheadPruneResult(in.Emitter, "success", res.Applied, "")
@@ -287,9 +312,9 @@ func (p *CPUSetTopologyPlugin) applyBulkheadPartitionFlag(ctx context.Context, f
 
 // pendingContainerCPUSet records a container whose allocation already exists in
 // QRM state but whose cgroup rel cannot be resolved yet (typically the pod
-// admit window before kubelet/containerd creates the container). Its cpuset
-// must still be treated as a protected descendant so the parent effective
-// target never shrinks below it, but its leaf must NOT be written.
+// admit window before kubelet/containerd creates the container). With no leaf
+// available to write, its cpuset protects the controlled ancestors' effective
+// targets from shrinking below the allocation; the absent leaf is not written.
 type pendingContainerCPUSet struct {
 	PodUID        string
 	ContainerName string

@@ -234,6 +234,26 @@ func dynConf(enabled bool) *dynamicconfig.Configuration {
 	return conf
 }
 
+func TestMigrateSweepLogLevel_ThresholdBoundary(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		elapsed time.Duration
+		want    int
+	}{
+		{name: "below threshold", elapsed: slowAttachThreshold - time.Nanosecond, want: 4},
+		{name: "at threshold", elapsed: slowAttachThreshold, want: 2},
+		{name: "above threshold", elapsed: slowAttachThreshold + time.Nanosecond, want: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := migrateSweepLogLevel(tt.elapsed); got != tt.want {
+				t.Fatalf("migrateSweepLogLevel(%s) = V(%d), want V(%d)", tt.elapsed, got, tt.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Enable / Name
 // ---------------------------------------------------------------------------
