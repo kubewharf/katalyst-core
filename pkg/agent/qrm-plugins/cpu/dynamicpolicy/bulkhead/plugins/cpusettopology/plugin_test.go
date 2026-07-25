@@ -19,6 +19,7 @@ package cpusettopology
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,8 @@ type fakeCgroupClient struct {
 	partitionWrites   map[string]cgcommon.CPUSetPartitionFlag
 	partitionErrByRel map[string]error
 	listErr           error
+	afterApply        func(rel string, data *cgcommon.CPUSetData)
+	readOverride      func(rel string) (machine.CPUSet, bool)
 }
 
 func (f *fakeCgroupClient) StatDir(_ context.Context, rel string) (time.Time, error) {
@@ -104,6 +107,11 @@ func (f *fakeCgroupClient) Version(context.Context) cgroupclient.CgroupVersion {
 }
 
 func (f *fakeCgroupClient) ReadCPUSet(_ context.Context, rel string) (machine.CPUSet, error) {
+	if f.readOverride != nil {
+		if cpus, ok := f.readOverride(rel); ok {
+			return cpus.Clone(), nil
+		}
+	}
 	if cpus, ok := f.cpus[rel]; ok {
 		return cpus.Clone(), nil
 	}
@@ -128,6 +136,9 @@ func (f *fakeCgroupClient) ApplyCPUSet(_ context.Context, rel string, data *cgco
 	}
 	if data.CPUs != "" || data.WriteEmptyCPUs {
 		f.cpus[rel] = machine.MustParse(data.CPUs)
+	}
+	if f.afterApply != nil {
+		f.afterApply(rel, data)
 	}
 	return nil
 }
@@ -178,6 +189,16 @@ func TestCPUSetTopologyPluginReconcilesPrimaryWhenReclaimEmpty(t *testing.T) {
 	}
 
 	err := p.CPUSetAdjustmentHandler(context.Background(), bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
+			Topology: &machine.CPUTopology{
+				CPUDetails: machine.CPUDetails{
+					0: {},
+					1: {},
+					2: {},
+					3: {},
+				},
+			},
+		},
 		View: &bulkheadutils.CPUSetPartitionView{
 			NonReclaimPool:   machine.NewCPUSet(0, 1, 2, 3),
 			ReclaimEffective: machine.NewCPUSet(),
@@ -191,6 +212,35 @@ func TestCPUSetTopologyPluginReconcilesPrimaryWhenReclaimEmpty(t *testing.T) {
 	}
 	if _, ok := cg.pruned["primary"]; !ok {
 		t.Fatalf("primary rel not pruned as active: %#v", cg.pruned)
+	}
+}
+
+func TestCPUSetTopologyPluginNormalEmptyTopologyReturnsErrorWithoutWrites(t *testing.T) {
+	t.Parallel()
+
+	cg := &fakeCgroupClient{existing: map[string]bool{
+		"primary": true,
+		"reclaim": true,
+	}}
+	p := &CPUSetTopologyPlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadPrimaryRelPath:  "primary",
+			BulkheadReclaimRelPaths: []string{"reclaim"},
+		},
+		cgroup: cg,
+	}
+
+	err := p.CPUSetAdjustmentHandler(context.Background(), bulkheadapi.HandlerContext{
+		View: &bulkheadutils.CPUSetPartitionView{
+			NonReclaimPool:   machine.NewCPUSet(0, 1),
+			ReclaimEffective: machine.NewCPUSet(2, 3),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "empty CPUDetails") {
+		t.Fatalf("expected empty CPUDetails error, got %v", err)
+	}
+	if len(cg.writes) != 0 {
+		t.Fatalf("normal empty topology must not write cgroups, writes=%#v", cg.writes)
 	}
 }
 
@@ -209,6 +259,11 @@ func TestCPUSetTopologyPluginSkipsUnchangedApplyTarget(t *testing.T) {
 		cgroup: cg,
 	}
 	in := bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
+			Topology: &machine.CPUTopology{CPUDetails: machine.CPUDetails{
+				0: {}, 1: {}, 2: {}, 3: {},
+			}},
+		},
 		View: &bulkheadutils.CPUSetPartitionView{
 			NonReclaimPool:   machine.NewCPUSet(0, 1),
 			ReclaimEffective: machine.NewCPUSet(2, 3),
@@ -245,6 +300,11 @@ func TestCPUSetTopologyPluginReconcilesExternalCgroupDrift(t *testing.T) {
 		cgroup: cg,
 	}
 	in := bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
+			Topology: &machine.CPUTopology{CPUDetails: machine.CPUDetails{
+				0: {}, 1: {}, 2: {}, 3: {},
+			}},
+		},
 		View: &bulkheadutils.CPUSetPartitionView{
 			NonReclaimPool:   machine.NewCPUSet(0, 1),
 			ReclaimEffective: machine.NewCPUSet(2, 3),

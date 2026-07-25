@@ -5856,6 +5856,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 	_, err = dynamicPolicy.Allocate(context.Background(), req)
 	as.Nil(err)
 
+	time.Sleep(dynamicPolicy.transitionPeriod * 2)
 	resp1, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
 
