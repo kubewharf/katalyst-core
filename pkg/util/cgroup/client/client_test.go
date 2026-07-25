@@ -21,6 +21,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
@@ -80,6 +81,27 @@ func TestCoreCgroupClient_AttachPID_InvalidPIDRejected(t *testing.T) {
 		if err := c.AttachPID(context.Background(), "kubepods", pid); err == nil {
 			t.Fatalf("AttachPID(%d) must fail", pid)
 		}
+	}
+}
+
+func TestIsSlowAttachPID_Boundary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		elapsed time.Duration
+		want    bool
+	}{
+		{name: "below threshold", elapsed: slowAttachPIDThreshold - time.Nanosecond, want: false},
+		{name: "at threshold", elapsed: slowAttachPIDThreshold, want: true},
+		{name: "above threshold", elapsed: slowAttachPIDThreshold + time.Nanosecond, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSlowAttachPID(tt.elapsed); got != tt.want {
+				t.Fatalf("isSlowAttachPID(%s) = %t, want %t", tt.elapsed, got, tt.want)
+			}
+		})
 	}
 }
 
