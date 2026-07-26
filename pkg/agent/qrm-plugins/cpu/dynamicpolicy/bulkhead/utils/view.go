@@ -136,7 +136,20 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 	if allowOverlap {
 		view.ReclaimEffective = view.ReclaimRaw.Clone()
 	} else {
+		// ReclaimRaw is the affinity budget produced by SysAdvisor after applying
+		// reclaimed-cpu-max-ratio. QRM must never widen it when deriving the
+		// cgroup target: every CPU outside the effective reclaim set belongs to
+		// the non-reclaim domain instead.
 		view.ReclaimEffective = topology.CPUDetails.CPUs().Difference(view.NonReclaimPool).Difference(view.Reserve)
+		view.ReclaimEffective = view.ReclaimEffective.Intersection(view.ReclaimRaw)
+		view.NonReclaimPool = topology.CPUDetails.CPUs().Difference(view.ReclaimEffective).Difference(view.Reserve)
+		if view.SharePool.IsEmpty() {
+			spareShare := view.NonReclaimPool.Difference(view.Dedicated).Difference(view.Isolation)
+			if !spareShare.IsEmpty() {
+				view.SharePool = spareShare
+				view.SharePoolMap[commonstate.PoolNameShare] = spareShare.Clone()
+			}
+		}
 		padNonReclaimPoolToMinSize(view, topology, opts)
 	}
 	view.DesiredNonReclaimPool = view.NonReclaimPool.Clone()
