@@ -716,6 +716,36 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		alignedAvailableCPUs = alignedAvailableCPUs.Union(availableCPUs)
 	}
 
+	// Prefer reclaim-free cpus so dedicated_cores avoid landing on cpus currently held by
+	// the live reclaim pool: doing so would force a non-atomic reclaim-child shrink in the
+	// topology writer and can transiently break the parent-superset invariant
+	// (current_disjoint_parent).
+	//
+	// This only applies to the non-exclusive path. numaExclusive dedicated_cores must own
+	// the WHOLE hint NUMA, so subtracting reclaim would break whole-NUMA exclusivity; for
+	// exclusive, the reclaim pool is instead vacated from these NUMAs by the topology
+	// writer's sibling pre-shrink before the dedicated cgroup grows into them.
+	//
+	// We only compute the reclaim-free ("preferred") view here; the ordered selection is
+	// centralized in takeByTopologyPreferring.
+	preferredAvailableCPUs := machine.NewCPUSet()
+	var preferredAvailableCPUsPerNUMA map[uint64]machine.CPUSet
+	if !numaExclusive {
+		reclaimCPUs := machine.NewCPUSet()
+		if reclaimInfo := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName); reclaimInfo != nil {
+			// GetAllocationInfo already returns a deep copy, so the result can be used directly.
+			reclaimCPUs = reclaimInfo.AllocationResult
+		}
+
+		if !reclaimCPUs.IsEmpty() {
+			preferredAvailableCPUsPerNUMA = make(map[uint64]machine.CPUSet, len(alignedAvailableCPUsPerNUMA))
+			for numaNode, cpus := range alignedAvailableCPUsPerNUMA {
+				preferredAvailableCPUsPerNUMA[numaNode] = cpus.Difference(reclaimCPUs)
+			}
+			preferredAvailableCPUs = alignedAvailableCPUs.Difference(reclaimCPUs)
+		}
+	}
+
 	var alignedCPUs machine.CPUSet
 
 	if numaExclusive {
@@ -725,14 +755,15 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	} else {
 		var err error
 
-		// Evenly allocate cpus for distribute_evenly_across_numa
+		// Both branches select cpus via takeByTopologyPreferring (directly, or per-NUMA
+		// inside allocateEvenlyAcrossNUMAs), which prefers the reclaim-free set first.
 		if distributeEvenlyAcrossNuma {
-			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, alignedAvailableCPUsPerNUMA)
+			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, alignedAvailableCPUsPerNUMA, preferredAvailableCPUsPerNUMA)
 			if err != nil {
 				return machine.NewCPUSet(), fmt.Errorf("allocateEvenlyAcrossNUMA failed with error: %v", err)
 			}
 		} else {
-			alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs, true)
+			alignedCPUs, err = p.takeByTopologyPreferring(alignedAvailableCPUs, preferredAvailableCPUs, numCPUs)
 			if err != nil {
 				general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
 					"hints", hintNodes,
@@ -763,8 +794,12 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 }
 
 // allocateEvenlyAcrossNUMAs distributes the cpu request evenly across NUMA nodes.
+// preferredCPUsPerNUMA, when non-nil, holds each NUMA's preferred (reclaim-free) subset:
+// every NUMA takes its per-NUMA share from its preferred set first and only borrows the
+// remainder from the full available set when the preferred set is short. A nil/empty
+// preferred set for a NUMA degrades to a plain topology-aware take on the full set.
 func (p *DynamicPolicy) allocateEvenlyAcrossNUMAs(numCPUs int, hintNodes []uint64,
-	availableCPUsPerNUMA map[uint64]machine.CPUSet,
+	availableCPUsPerNUMA, preferredCPUsPerNUMA map[uint64]machine.CPUSet,
 ) (machine.CPUSet, error) {
 	// First check if it is possible to evenly distribute cpus across NUMA nodes
 	if numCPUs%len(hintNodes) != 0 {
@@ -777,8 +812,8 @@ func (p *DynamicPolicy) allocateEvenlyAcrossNUMAs(numCPUs int, hintNodes []uint6
 	for _, numaNode := range hintNodes {
 		availableCPUs := availableCPUsPerNUMA[numaNode]
 
-		// Allocate the CPUs in current numa
-		allocatedCPUsInNUMA, err := calculator.TakeByTopology(p.machineInfo, availableCPUs, cpusReqPerNuma, true)
+		// Allocate the CPUs in current numa, preferring this NUMA's reclaim-free subset.
+		allocatedCPUsInNUMA, err := p.takeByTopologyPreferring(availableCPUs, preferredCPUsPerNUMA[numaNode], cpusReqPerNuma)
 		if err != nil {
 			return machine.NewCPUSet(), fmt.Errorf("take cpu for distribute_evenly_across_numa container failed with err: %v", err)
 		}
@@ -786,6 +821,46 @@ func (p *DynamicPolicy) allocateEvenlyAcrossNUMAs(numCPUs int, hintNodes []uint6
 	}
 
 	return allocated, nil
+}
+
+// takeByTopologyPreferring takes numCPUs from available in a topology-aware way while
+// preferring cpus in the preferred subset. It takes from preferred first and borrows the
+// remainder from the rest of available only when preferred cannot fully satisfy the
+// request. When preferred is empty it degrades to calculator.TakeByTopology over available.
+// preferred is expected to be a subset of available.
+func (p *DynamicPolicy) takeByTopologyPreferring(
+	available, preferred machine.CPUSet, numCPUs int,
+) (machine.CPUSet, error) {
+	// Keep the preference advisory: reclaim state can be stale or may contain CPUs
+	// outside the current resource-package/NUMA-filtered available set.
+	preferred = preferred.Intersection(available)
+	if preferred.IsEmpty() {
+		return calculator.TakeByTopology(p.machineInfo, available, numCPUs, true)
+	}
+
+	// Take (at most) the requested count from the preferred set first.
+	takenPreferred := preferred
+	if preferred.Size() > numCPUs {
+		var err error
+		takenPreferred, err = calculator.TakeByTopology(p.machineInfo, preferred, numCPUs, true)
+		if err != nil {
+			return machine.NewCPUSet(), fmt.Errorf("take preferred cpus failed with error: %v", err)
+		}
+	}
+
+	remainingReq := numCPUs - takenPreferred.Size()
+	if remainingReq <= 0 {
+		return takenPreferred, nil
+	}
+
+	// Borrow the remainder from the non-preferred cpus of the available set.
+	remainingAvailable := available.Difference(takenPreferred)
+	takenRemaining, err := calculator.TakeByTopology(p.machineInfo, remainingAvailable, remainingReq, true)
+	if err != nil {
+		return machine.NewCPUSet(), fmt.Errorf("take remaining cpus failed with error: %v", err)
+	}
+
+	return takenPreferred.Union(takenRemaining), nil
 }
 
 func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceRequest,
@@ -1721,6 +1796,10 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	for poolName, cset := range dedicatedPreferredCPUsByPool {
 		preferredCPUsByPool[poolName] = preferredCPUsByPool[poolName].Union(cset)
 	}
+	historicalPoolPreferredCPUs := buildHistoricalPoolEntryPreferredCPUs(p.state.GetPodEntries(), commonstate.PoolNameReclaim)
+	for poolName, cset := range historicalPoolPreferredCPUs {
+		preferredCPUsByPool[poolName] = preferredCPUsByPool[poolName].Union(cset)
+	}
 
 	var tErr error
 	if nonBindingPoolsTotalQuantity+isolatedTotalQuantity <= nonBindingAvailableSize {
@@ -1787,13 +1866,17 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		return
 	}
 
-	// deal with reclaim pool
-	poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(availableCPUs)
+	enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
+	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	if !enableReclaim {
+		// Reclaim disabled keeps the legacy downgrade behavior: use leftover CPUs as a
+		// temporary reclaim bucket, then apportion them back to non-binding pools.
+		poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(availableCPUs)
+	}
 
 	general.Infof("poolsCPUSet: %+v", poolsCPUSet)
 
-	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-		enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
+	if !allowOverlap {
 		if !enableReclaim && poolsCPUSet[commonstate.PoolNameReclaim].Size() > p.reservedReclaimedCPUsSize {
 			poolsCPUSet[commonstate.PoolNameReclaim] = p.apportionReclaimedPool(
 				poolsCPUSet, poolsCPUSet[commonstate.PoolNameReclaim].Clone(), nonBindingPoolsQuantityMap)
@@ -1802,6 +1885,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		}
 	} else {
 		// p.state.GetAllowSharedCoresOverlapReclaimedCores() == true
+		poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(availableCPUs)
 		for poolName, cset := range poolsCPUSet {
 			if ratio, found := reclaimOverlapShareRatio[poolName]; found && ratio > 0 {
 
@@ -1823,6 +1907,8 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 			}
 		}
 	}
+
+	general.Infof("poolsCPUSet: %+v", poolsCPUSet)
 
 	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
