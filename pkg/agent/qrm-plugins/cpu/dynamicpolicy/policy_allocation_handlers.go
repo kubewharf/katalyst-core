@@ -1910,6 +1910,27 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 
 	general.Infof("poolsCPUSet: %+v", poolsCPUSet)
 
+	currentPodEntries := p.state.GetPodEntries()
+	if enableReclaim && !allowOverlap && poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
+		if cset, cErr := currentPodEntries.GetCPUSetForPool(commonstate.PoolNameReclaim); cErr == nil && !cset.IsEmpty() {
+			allocatedNonReclaimCPUs := machine.NewCPUSet()
+			for poolName, poolCPUSet := range poolsCPUSet {
+				if poolName == commonstate.PoolNameReclaim {
+					continue
+				}
+				allocatedNonReclaimCPUs = allocatedNonReclaimCPUs.Union(poolCPUSet)
+			}
+			for _, containerCPUSetByName := range isolatedCPUSet {
+				for _, containerCPUSet := range containerCPUSetByName {
+					allocatedNonReclaimCPUs = allocatedNonReclaimCPUs.Union(containerCPUSet)
+				}
+			}
+			poolsCPUSet[commonstate.PoolNameReclaim] = cset.Difference(allocatedNonReclaimCPUs)
+			general.Infof("preserve current %s pool after deducting non-reclaim allocations, previous: %s, deducted: %s, current: %s",
+				commonstate.PoolNameReclaim, cset.String(), allocatedNonReclaimCPUs.String(), poolsCPUSet[commonstate.PoolNameReclaim].String())
+		}
+	}
+
 	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 		general.Infof("fallback takeByNUMABalance in generatePoolsAndIsolation for reclaimedCPUSet: %s", p.reservedReclaimedCPUSet.String())
@@ -1917,7 +1938,6 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	}
 
 	// deal with forbidden pools
-	currentPodEntries := p.state.GetPodEntries()
 	for _, poolName := range state.ForbiddenPools.List() {
 		cset, err := currentPodEntries.GetCPUSetForPool(poolName)
 		if err != nil {
