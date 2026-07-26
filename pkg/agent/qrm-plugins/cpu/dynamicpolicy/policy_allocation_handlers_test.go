@@ -357,6 +357,9 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 		hint           *pluginapi.TopologyHint
 		machineState   state.NUMANodeMap
 		reqAnnotations map[string]string
+		// reclaimCPUs, when non-empty, is written into the reclaim pool before the
+		// call so that dedicated allocation can prefer reclaim-free cpus.
+		reclaimCPUs machine.CPUSet
 	}
 	tests := []struct {
 		name    string
@@ -533,6 +536,155 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 			want:    machine.NewCPUSet(2, 4),
 			wantErr: false,
 		},
+		{
+			// Case 1: reclaim-free set can fully satisfy the request, so dedicated
+			// allocation must avoid the reclaim cpus entirely.
+			name: "prefer reclaim-free cpus when sufficient",
+			args: args{
+				numCPUs: 2,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				reclaimCPUs: machine.NewCPUSet(0, 1),
+			},
+			want:    machine.NewCPUSet(2, 3),
+			wantErr: false,
+		},
+		{
+			// Case 2: reclaim-free set is insufficient, so allocate reclaim-free
+			// CPUs first and then borrow the minimum remaining CPUs from reclaim.
+			name: "prefer reclaim-free first when insufficient",
+			args: args{
+				numCPUs: 3,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				// only 0,1 reclaim-free => size 2 < 3, must borrow one reclaim CPU.
+				reclaimCPUs: machine.NewCPUSet(2, 3),
+			},
+			want:    machine.NewCPUSet(0, 1, 2),
+			wantErr: false,
+		},
+		{
+			name: "prefer reclaim-free first instead of full-set topology order",
+			args: args{
+				numCPUs: 3,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				reclaimCPUs: machine.NewCPUSet(0, 1),
+			},
+			want:    machine.NewCPUSet(0, 2, 3),
+			wantErr: false,
+		},
+		{
+			// Case 5: distribute-evenly across NUMA must also avoid reclaim cpus
+			// on every NUMA when the reclaim-free set is sufficient per NUMA.
+			name: "distribute evenly avoids reclaim cpus",
+			args: args{
+				numCPUs: 2,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0, 1},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+					1: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(4, 5, 6, 7),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding:             apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					apiconsts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
+					apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+				// reclaim occupies the lowest cpu of each NUMA => allocation must skip them.
+				reclaimCPUs: machine.NewCPUSet(0, 4),
+			},
+			want:    machine.NewCPUSet(1, 5),
+			wantErr: false,
+		},
+		{
+			// Case 5b (regression): distribute-evenly where the GLOBAL reclaim-free set
+			// is sufficient (>= numCPUs) but one NUMA cannot meet its per-NUMA share from
+			// reclaim-free cpus alone. Allocation must succeed by borrowing the remainder
+			// on that NUMA instead of failing on a global reclaim-free shortcut.
+			name: "distribute evenly borrows reclaim when a numa is short",
+			args: args{
+				numCPUs: 4,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0, 1},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+					1: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(4, 5, 6, 7),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding:             apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					apiconsts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
+					apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+				// NUMA0 fully reclaim-free (4 cpus); NUMA1 reclaim-free only {4}.
+				// Global reclaim-free {0,1,2,3,4} size 5 >= 4, but NUMA1 needs 2 and has
+				// only 1 reclaim-free cpu, so it must borrow one cpu from {5,6,7}.
+				reclaimCPUs: machine.NewCPUSet(5, 6, 7),
+			},
+			want:    machine.NewCPUSet(0, 1, 4, 5),
+			wantErr: false,
+		},
+		{
+			// Case 4c: numaExclusive keeps whole-NUMA exclusivity and must NOT
+			// subtract reclaim cpus, otherwise the exclusive dedicated_cores would
+			// no longer own the full NUMA.
+			name: "numa exclusive keeps whole numa despite reclaim overlap",
+			args: args{
+				numCPUs: 4,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding:   apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
+				reclaimCPUs: machine.NewCPUSet(0, 1),
+			},
+			want:    machine.NewCPUSet(0, 1, 2, 3),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -549,6 +701,14 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 			p.reservedCPUs = machine.NewCPUSet()
 			t.Logf("Reserved: %s", p.reservedCPUs.String())
 
+			// Explicitly control the reclaim pool so allocation's reclaim-avoidance
+			// only sees the cpus declared by this case (the default init would
+			// otherwise seed an unrelated reclaim pool).
+			p.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult: tt.args.reclaimCPUs.Clone(),
+			}, false)
+
 			got, err := p.allocateNumaBindingCPUs(tt.args.numCPUs, tt.args.hint, tt.args.machineState, tt.args.reqAnnotations)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("allocateNumaBindingCPUs() error = %v, wantErr %v", err, tt.wantErr)
@@ -559,6 +719,124 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDynamicPolicy_takeByTopologyPreferring_invariants(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+	require.NoError(t, err)
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_takeByTopologyPreferring_invariants")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		available machine.CPUSet
+		preferred machine.CPUSet
+		numCPUs   int
+		want      machine.CPUSet
+	}{
+		{
+			name:      "preferred is clipped to available",
+			available: machine.NewCPUSet(1, 2),
+			preferred: machine.NewCPUSet(0, 1),
+			numCPUs:   1,
+			want:      machine.NewCPUSet(1),
+		},
+		{
+			name:      "empty preferred falls back to available",
+			available: machine.NewCPUSet(2, 3),
+			preferred: machine.NewCPUSet(),
+			numCPUs:   1,
+			want:      machine.NewCPUSet(2),
+		},
+		{
+			name:      "full reclaim falls back to all available",
+			available: machine.NewCPUSet(4, 5),
+			preferred: machine.NewCPUSet(),
+			numCPUs:   2,
+			want:      machine.NewCPUSet(4, 5),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := p.takeByTopologyPreferring(tt.available, tt.preferred, tt.numCPUs)
+			require.NoError(t, err)
+			require.True(t, got.IsSubsetOf(tt.available), "got=%s available=%s", got.String(), tt.available.String())
+			require.Equal(t, tt.numCPUs, got.Size())
+			require.True(t, got.Equals(tt.want), "got=%s want=%s", got.String(), tt.want.String())
+		})
+	}
+}
+
+func TestDynamicPolicy_allocateNumaBindingCPUs_reclaimPreferenceRespectsResourcePackageOrder(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+	require.NoError(t, err)
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_allocateNumaBindingCPUs_resource_package_order")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(0),
+	}, false)
+
+	machineState := state.NUMANodeMap{
+		0: &state.NUMANodeState{
+			DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+			ResourcePackageStates: map[string]*state.ResourcePackageState{
+				"pkg1": {PinnedCPUSet: machine.NewCPUSet(0, 1, 2)},
+			},
+		},
+	}
+	got, err := p.allocateNumaBindingCPUs(2, &pluginapi.TopologyHint{Nodes: []uint64{0}}, machineState, map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		apiconsts.PodAnnotationResourcePackageKey:           "pkg1",
+	})
+	require.NoError(t, err)
+	require.True(t, got.Equals(machine.NewCPUSet(1, 2)), "got=%s", got.String())
+	require.True(t, got.IsSubsetOf(machine.NewCPUSet(0, 1, 2)), "got=%s", got.String())
+	require.Equal(t, 2, got.Size())
+}
+
+func TestDynamicPolicy_allocateNumaBindingCPUs_fullReclaimFallsBackToAvailable(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+	require.NoError(t, err)
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_allocateNumaBindingCPUs_full_reclaim")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+	}, false)
+
+	available := machine.NewCPUSet(0, 1, 2, 3)
+	machineState := state.NUMANodeMap{
+		0: &state.NUMANodeState{DefaultCPUSet: available},
+	}
+	got, err := p.allocateNumaBindingCPUs(2, &pluginapi.TopologyHint{Nodes: []uint64{0}}, machineState, map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, got.Size())
+	require.True(t, got.IsSubsetOf(available), "got=%s available=%s", got.String(), available.String())
 }
 
 // TestDynamicPolicy_generateNUMABindingPoolsCPUSetInPlace verifies the logic of generating CPU sets for NUMA-binding pools.
@@ -684,6 +962,116 @@ func TestDynamicPolicy_generateNUMABindingPoolsCPUSetInPlace(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDynamicPolicy_generatePoolsAndIsolation_reclaimLeftoverOnlyWhenReclaimDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		enableReclaim bool
+		wantReclaim   machine.CPUSet
+		wantShare     machine.CPUSet
+	}{
+		{
+			name:          "enable reclaim respects existing reclaim pool and leaves leftover out",
+			enableReclaim: true,
+			wantReclaim:   machine.NewCPUSet(0, 4),
+			wantShare:     machine.NewCPUSet(1, 5),
+		},
+		{
+			name:          "disable reclaim keeps legacy leftover apportion path",
+			enableReclaim: false,
+			wantReclaim:   machine.NewCPUSet(2, 3, 4, 5),
+			wantShare:     machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+			require.NoError(t, err)
+
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generatePoolsAndIsolation_reclaim_leftover")
+			require.NoError(t, err)
+			defer os.RemoveAll(tmpDir)
+
+			p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+			require.NoError(t, err)
+
+			p.reservedCPUs = machine.NewCPUSet()
+			p.reservedReclaimedCPUsSize = 0
+			p.dynamicConfig.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
+			p.state.SetAllowSharedCoresOverlapReclaimedCores(false, true)
+			p.state.SetPodEntries(state.PodEntries{}, false)
+
+			poolsCPUSet, _, err := p.generatePoolsAndIsolation(
+				map[string]map[int]int{
+					commonstate.PoolNameShare:   {commonstate.FakedNUMAID: 2},
+					commonstate.PoolNameReclaim: {commonstate.FakedNUMAID: 2},
+				},
+				map[string]map[string]int{},
+				machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7),
+				map[string]float64{},
+			)
+			require.NoError(t, err)
+
+			require.True(t, poolsCPUSet[commonstate.PoolNameReclaim].Equals(tt.wantReclaim),
+				"reclaim=%s want=%s", poolsCPUSet[commonstate.PoolNameReclaim].String(), tt.wantReclaim.String())
+			require.True(t, poolsCPUSet[commonstate.PoolNameShare].Equals(tt.wantShare),
+				"share=%s want=%s", poolsCPUSet[commonstate.PoolNameShare].String(), tt.wantShare.String())
+		})
+	}
+}
+
+func TestDynamicPolicy_generatePoolsAndIsolation_prefersHistoricalReclaimPool(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_generatePoolsAndIsolation_prefers_reclaim")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	p.reservedCPUs = machine.NewCPUSet()
+	p.reservedReclaimedCPUSet = machine.NewCPUSet()
+	p.reservedReclaimedCPUsSize = 0
+	p.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	p.state.SetAllowSharedCoresOverlapReclaimedCores(false, true)
+	p.state.SetPodEntries(state.PodEntries{
+		commonstate.PoolNameReclaim: {
+			commonstate.FakedContainerName: &state.AllocationInfo{
+				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult: machine.NewCPUSet(10, 11, 12, 13),
+			},
+		},
+	}, false)
+
+	poolsCPUSet, _, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{
+			commonstate.PoolNameReclaim: {commonstate.FakedNUMAID: 4},
+			commonstate.PoolNameShare:   {commonstate.FakedNUMAID: 4},
+		},
+		map[string]map[string]int{},
+		machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11, 12, 13),
+		map[string]float64{},
+	)
+	require.NoError(t, err)
+
+	historicalReclaim := machine.NewCPUSet(10, 11, 12, 13)
+	require.True(t, poolsCPUSet[commonstate.PoolNameReclaim].Intersection(historicalReclaim).Equals(historicalReclaim),
+		"reclaim pool should include its historical cpuset when still available, got %s",
+		poolsCPUSet[commonstate.PoolNameReclaim].String())
+	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Intersection(historicalReclaim).IsEmpty(),
+		"share pool should not take historical reclaim cpuset, got %s",
+		poolsCPUSet[commonstate.PoolNameShare].String())
 }
 
 func TestDynamicPolicy_adjustPoolsAndIsolatedEntries_Pinned(t *testing.T) {

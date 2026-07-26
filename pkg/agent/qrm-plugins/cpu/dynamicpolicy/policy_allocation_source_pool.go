@@ -64,23 +64,6 @@ func deriveIsolationSourceSharePool(allocationInfo *state.AllocationInfo) (strin
 	return sourcePool, true
 }
 
-// deriveDedicatedSourceSharePool treats dedicated_cores without NUMA binding as sourced
-// from the default share pool. dedicated_cores currently has no declared source share pool
-// semantics, so phase 2 only covers this conservative non-NUMA-binding default source.
-// NUMA-binding dedicated allocations keep the legacy path.
-func deriveDedicatedSourceSharePool(allocationInfo *state.AllocationInfo) (string, bool) {
-	if allocationInfo == nil {
-		return "", false
-	}
-	if allocationInfo.QoSLevel != apiconsts.PodAnnotationQoSLevelDedicatedCores {
-		return "", false
-	}
-	if allocationInfo.CheckNUMABinding() {
-		return "", false
-	}
-	return commonstate.PoolNameShare, true
-}
-
 // takeByTieredPreferredCPUs allocates cpuRequirement cpus from availableCPUs, preferring
 // cpus from the ordered preferred tiers first (each intersected with availableCPUs), and
 // only spilling to the remaining availableCPUs (via NUMA-balanced take) when the tiers are
@@ -177,15 +160,20 @@ func buildIsolationSourcePreferredCPUs(entries state.PodEntries) map[string]mach
 	return preferred
 }
 
-// buildDedicatedSourcePreferredCPUs collects historical cpusets for dedicated_cores without
-// NUMA binding:
-//  1. source-pool preferred cpus help the share pool reclaim CPUs first when dedicated shrinks,
-//     disappears, or returns to share;
-//  2. container preferred cpus let still-active dedicated containers reuse their own historical
-//     cpuset and reduce churn.
-func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (map[string]machine.CPUSet, map[string]map[string]machine.CPUSet) {
-	poolPreferred := make(map[string]machine.CPUSet)
-	containerPreferred := make(map[string]map[string]machine.CPUSet)
+// buildDedicatedSourcePreferredCPUs scans the current pod entries and records
+// non-NUMA-binding dedicated_cores allocations as soft preferences for the next
+// recompute. The container preference lets an unchanged dedicated container reuse
+// its historical cpuset, while the share-pool preference lets those CPUs flow back
+// to the default share pool first when the dedicated container shrinks or disappears.
+//
+// NUMA-binding dedicated allocations keep the legacy path for now because their
+// source pool semantics are NUMA-scoped and need a separate design.
+func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (
+	map[string]machine.CPUSet,
+	map[string]map[string]machine.CPUSet,
+) {
+	preferredByPool := make(map[string]machine.CPUSet)
+	preferredByContainer := make(map[string]map[string]machine.CPUSet)
 
 	for podUID, containerEntries := range entries {
 		if containerEntries.IsPoolEntry() {
@@ -196,21 +184,38 @@ func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (map[string]mac
 			if allocationInfo == nil {
 				continue
 			}
-
-			sourcePool, ok := deriveDedicatedSourceSharePool(allocationInfo)
-			if !ok {
+			if !allocationInfo.CheckDedicated() || allocationInfo.CheckNUMABinding() {
+				continue
+			}
+			if allocationInfo.AllocationResult.IsEmpty() {
 				continue
 			}
 
-			poolPreferred[sourcePool] = poolPreferred[sourcePool].Union(allocationInfo.AllocationResult)
-			if containerPreferred[podUID] == nil {
-				containerPreferred[podUID] = make(map[string]machine.CPUSet)
+			preferredByPool[commonstate.PoolNameShare] =
+				preferredByPool[commonstate.PoolNameShare].Union(allocationInfo.AllocationResult)
+			if preferredByContainer[podUID] == nil {
+				preferredByContainer[podUID] = make(map[string]machine.CPUSet)
 			}
-			containerPreferred[podUID][containerName] = allocationInfo.AllocationResult.Clone()
+			preferredByContainer[podUID][containerName] = allocationInfo.AllocationResult.Clone()
 		}
 	}
 
-	return poolPreferred, containerPreferred
+	return preferredByPool, preferredByContainer
+}
+
+func buildHistoricalPoolEntryPreferredCPUs(entries state.PodEntries, poolNames ...string) map[string]machine.CPUSet {
+	preferred := make(map[string]machine.CPUSet)
+	for _, poolName := range poolNames {
+		if entries[poolName] == nil {
+			continue
+		}
+		allocationInfo := entries[poolName][commonstate.FakedContainerName]
+		if allocationInfo == nil || allocationInfo.AllocationResult.IsEmpty() {
+			continue
+		}
+		preferred[poolName] = allocationInfo.AllocationResult.Clone()
+	}
+	return preferred
 }
 
 // takeCPUsForPoolsInPlaceWithPreferred behaves like takeCPUsForPoolsInPlace, but for pools
@@ -227,12 +232,22 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 
 	sortedPoolNames := general.GetSortedMapKeys(poolsQuantityMap)
 	sort.SliceStable(sortedPoolNames, func(i, j int) bool {
-		leftPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[sortedPoolNames[i]].IsEmpty()
-		rightPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[sortedPoolNames[j]].IsEmpty()
+		leftPoolName := sortedPoolNames[i]
+		rightPoolName := sortedPoolNames[j]
+		leftPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[leftPoolName].IsEmpty()
+		rightPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[rightPoolName].IsEmpty()
 		if leftPreferred != rightPreferred {
 			return leftPreferred
 		}
-		return sortedPoolNames[i] < sortedPoolNames[j]
+		if leftPreferred && rightPreferred {
+			if leftPoolName == commonstate.PoolNameReclaim && rightPoolName != commonstate.PoolNameReclaim {
+				return true
+			}
+			if rightPoolName == commonstate.PoolNameReclaim && leftPoolName != commonstate.PoolNameReclaim {
+				return false
+			}
+		}
+		return leftPoolName < rightPoolName
 	})
 	for _, poolName := range sortedPoolNames {
 		if _, found := poolsCPUSet[poolName]; found {
