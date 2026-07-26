@@ -125,10 +125,11 @@ func TestBuildCPUSetPartitionViewPadsNonReclaimPoolToMinSize(t *testing.T) {
 	})
 
 	assertCPUSet(t, "reserve", view.Reserve, "0")
-	assertCPUSet(t, "original share preserved and padded", view.NonReclaimPool, "1-2,4-5")
-	assertCPUSet(t, "reclaim effective after padding", view.ReclaimEffective, "3,6-7")
-	assertCPUSet(t, "reclaim numa 0 after padding", view.ReclaimEffectivePerNUMA[0], "3")
-	assertCPUSet(t, "reclaim numa 1 after padding", view.ReclaimEffectivePerNUMA[1], "6-7")
+	assertCPUSet(t, "non reclaim absorbs CPUs without raw reclaim", view.NonReclaimPool, "1-7")
+	assertCPUSet(t, "reclaim effective is empty without raw reclaim", view.ReclaimEffective, "")
+	if len(view.ReclaimEffectivePerNUMA) != 0 {
+		t.Fatalf("reclaim per NUMA should be empty without raw reclaim: %v", view.ReclaimEffectivePerNUMA)
+	}
 }
 
 func TestBuildCPUSetPartitionViewAppliesTransientProtectedNonReclaim(t *testing.T) {
@@ -148,15 +149,17 @@ func TestBuildCPUSetPartitionViewAppliesTransientProtectedNonReclaim(t *testing.
 		TransientProtectedNonReclaim: machine.NewCPUSet(3, 4),
 	})
 
-	assertCPUSet(t, "desired non reclaim", view.DesiredNonReclaimPool, "1-2")
-	assertCPUSet(t, "desired reclaim", view.DesiredReclaimEffective, "3-7")
+	assertCPUSet(t, "desired non reclaim", view.DesiredNonReclaimPool, "1-7")
+	assertCPUSet(t, "desired reclaim", view.DesiredReclaimEffective, "")
 	assertCPUSet(t, "protected non reclaim", view.TransientProtectedNonReclaim, "3-4")
-	assertCPUSet(t, "applied non reclaim", view.NonReclaimPool, "1-4")
-	assertCPUSet(t, "applied reclaim", view.ReclaimEffective, "5-7")
+	assertCPUSet(t, "applied non reclaim", view.NonReclaimPool, "1-7")
+	assertCPUSet(t, "applied reclaim", view.ReclaimEffective, "")
 	if !view.NonReclaimPool.Intersection(view.ReclaimEffective).IsEmpty() {
 		t.Fatalf("applied non reclaim and reclaim overlap: non=%s reclaim=%s", view.NonReclaimPool.String(), view.ReclaimEffective.String())
 	}
-	assertCPUSet(t, "applied reclaim numa 1", view.ReclaimEffectivePerNUMA[1], "5-7")
+	if len(view.ReclaimEffectivePerNUMA) != 0 {
+		t.Fatalf("reclaim per NUMA should be empty without raw reclaim: %v", view.ReclaimEffectivePerNUMA)
+	}
 }
 
 func TestApplyTransientProtectedNonReclaimRebuildsReclaimPerNUMA(t *testing.T) {
@@ -195,10 +198,11 @@ func TestBuildCPUSetPartitionViewPadsNonReclaimPoolReversely(t *testing.T) {
 		ReserveCPUReversely:   true,
 	})
 
-	assertCPUSet(t, "reverse padded non reclaim", view.NonReclaimPool, "2-3,6-7")
-	assertCPUSet(t, "reverse reclaim effective", view.ReclaimEffective, "1,4-5")
-	assertCPUSet(t, "reverse reclaim numa 0", view.ReclaimEffectivePerNUMA[0], "1")
-	assertCPUSet(t, "reverse reclaim numa 1", view.ReclaimEffectivePerNUMA[1], "4-5")
+	assertCPUSet(t, "reverse non reclaim absorbs CPUs without raw reclaim", view.NonReclaimPool, "1-7")
+	assertCPUSet(t, "reverse reclaim effective is empty without raw reclaim", view.ReclaimEffective, "")
+	if len(view.ReclaimEffectivePerNUMA) != 0 {
+		t.Fatalf("reclaim per NUMA should be empty without raw reclaim: %v", view.ReclaimEffectivePerNUMA)
+	}
 }
 
 func TestBuildCPUSetPartitionViewDoesNotPadWhenOverlapAllowed(t *testing.T) {
@@ -221,6 +225,29 @@ func TestBuildCPUSetPartitionViewDoesNotPadWhenOverlapAllowed(t *testing.T) {
 
 	assertCPUSet(t, "non reclaim remains empty", view.NonReclaimPool, "")
 	assertCPUSet(t, "reclaim effective remains raw", view.ReclaimEffective, "1-3")
+}
+
+func TestBuildCPUSetPartitionViewBoundsReclaimEffectiveByReclaimRaw(t *testing.T) {
+	t.Parallel()
+
+	state := cpustate.NewCPUPluginState(nil)
+	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
+		AllocationResult: machine.NewCPUSet(0),
+	})
+	state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(3, 4),
+	})
+
+	view := BuildCPUSetPartitionView(state, testTwoNUMATopology(), CPUSetPartitionViewOptions{})
+
+	assertCPUSet(t, "reclaim effective is bounded by raw", view.ReclaimEffective, "3-4")
+	assertCPUSet(t, "non reclaim absorbs CPUs outside raw", view.NonReclaimPool, "1-2,5-7")
+	if excess := view.ReclaimEffective.Difference(view.ReclaimRaw); !excess.IsEmpty() {
+		t.Fatalf("reclaim effective exceeds reclaim raw: effective=%s raw=%s excess=%s",
+			view.ReclaimEffective.String(), view.ReclaimRaw.String(), excess.String())
+	}
 }
 
 func TestBuildCPUSetPartitionViewCapsPaddingToCandidates(t *testing.T) {

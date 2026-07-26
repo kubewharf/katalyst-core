@@ -19,6 +19,7 @@ package provisionassembler
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -474,6 +475,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 	}
 
+	overlapReclaimedCoresSize = clampReclaimOverlapMetadata(result, numaID, reclaimedCoresSize)
 	nonOverlapReclaimedCoresSize := general.Max(reclaimedCoresSize-overlapReclaimedCoresSize, 0)
 	result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, nonOverlapReclaimedCoresSize, reclaimedCoresQuota)
 
@@ -486,6 +488,85 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		"reclaimedCoresQuota", reclaimedCoresQuota)
 
 	return nil
+}
+
+// clampReclaimOverlapMetadata bounds generated reclaim-overlap metadata by the
+// aggregate reclaim budget. calculateReclaimPool builds the overlap metadata
+// before ratio-based clamping may shrink the aggregate size; this keeps both
+// outputs from describing conflicting reclaim capacity.
+func clampReclaimOverlapMetadata(result *types.InternalCPUCalculationResult, numaID, budget int) int {
+	if result == nil {
+		return 0
+	}
+	if budget <= 0 {
+		if byNUMA := result.PoolOverlapInfo[commonstate.PoolNameReclaim]; byNUMA != nil {
+			delete(byNUMA, numaID)
+		}
+		if byNUMA := result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim]; byNUMA != nil {
+			delete(byNUMA, numaID)
+		}
+		return 0
+	}
+
+	remaining := budget
+	actual := 0
+	if byNUMA := result.PoolOverlapInfo[commonstate.PoolNameReclaim]; byNUMA != nil {
+		if overlaps := byNUMA[numaID]; overlaps != nil {
+			names := make([]string, 0, len(overlaps))
+			for name := range overlaps {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				size := overlaps[name]
+				if size <= 0 || remaining == 0 {
+					delete(overlaps, name)
+					continue
+				}
+				if size > remaining {
+					size = remaining
+					overlaps[name] = size
+				}
+				remaining -= size
+				actual += size
+			}
+		}
+	}
+
+	if byNUMA := result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim]; byNUMA != nil {
+		if pods := byNUMA[numaID]; pods != nil {
+			podUIDs := make([]string, 0, len(pods))
+			for podUID := range pods {
+				podUIDs = append(podUIDs, podUID)
+			}
+			sort.Strings(podUIDs)
+			for _, podUID := range podUIDs {
+				containers := pods[podUID]
+				containerNames := make([]string, 0, len(containers))
+				for containerName := range containers {
+					containerNames = append(containerNames, containerName)
+				}
+				sort.Strings(containerNames)
+				for _, containerName := range containerNames {
+					size := containers[containerName]
+					if size <= 0 || remaining == 0 {
+						delete(containers, containerName)
+						continue
+					}
+					if size > remaining {
+						size = remaining
+						containers[containerName] = size
+					}
+					remaining -= size
+					actual += size
+				}
+				if len(containers) == 0 {
+					delete(pods, podUID)
+				}
+			}
+		}
+	}
+	return actual
 }
 
 type reclaimPoolCalculationData struct {

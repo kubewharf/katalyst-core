@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -1238,4 +1239,57 @@ func generateTestConf(t *testing.T, enableReclaim bool, disableReclaimSelector s
 		conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = disableReclaimSelector
 	}
 	return conf
+}
+
+func TestClampReclaimOverlapMetadata(t *testing.T) {
+	t.Parallel()
+
+	result := &types.InternalCPUCalculationResult{
+		PoolOverlapInfo: map[string]map[int]map[string]int{
+			commonstate.PoolNameReclaim: {
+				0: {
+					"share-a": 5,
+					"share-b": 3,
+				},
+			},
+		},
+		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+			commonstate.PoolNameReclaim: {
+				0: {
+					"pod-a": {
+						"main": 4,
+					},
+				},
+			},
+		},
+	}
+
+	got := clampReclaimOverlapMetadata(result, 0, 3)
+
+	require.Equal(t, 3, got)
+	require.Equal(t, map[string]int{"share-a": 3}, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+}
+
+func TestClampReclaimOverlapMetadataClearsZeroBudget(t *testing.T) {
+	t.Parallel()
+
+	result := &types.InternalCPUCalculationResult{
+		PoolOverlapInfo: map[string]map[int]map[string]int{
+			commonstate.PoolNameReclaim: {
+				0: {"share": 2},
+			},
+		},
+		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+			commonstate.PoolNameReclaim: {
+				0: {"pod": {"main": 1}},
+			},
+		},
+	}
+
+	got := clampReclaimOverlapMetadata(result, 0, 0)
+
+	require.Zero(t, got)
+	require.Empty(t, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
 }
