@@ -240,6 +240,9 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 	minAffinitySize := len(numaNodes)
 	var hints []*pluginapi.TopologyHint
 
+	selectedDevices := gpuutil.ParseGPUSelection(resReq.Annotations, p.Conf.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey)
+	matched := false
+
 	// Iterate through all combinations of NUMA Nodes and build hints from them.
 	machine.IterateBitMasks(numaNodes, len(numaNodes), func(mask machine.BitMask) {
 		// Fast Path: Check to see if all of the reusable devices are part of the bitmask.
@@ -313,20 +316,26 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 			minAffinitySize = mask.Count()
 		}
 
-		// Add it to the list of hints. We set all hint preferences to 'false' on the first pass through.
-		hints = append(hints, &pluginapi.TopologyHint{
+		// Add it to the list of hints. Preferred stays false unless this mask's
+		// allocated devices match the scheduler's selection exactly.
+		hint := &pluginapi.TopologyHint{
 			Nodes:     nodes,
 			Preferred: false,
-		})
+		}
+		if selectedDevices != nil && !matched && sets.NewString(result.AllocatedDevices...).Equal(selectedDevices) {
+			hint.Preferred = true
+			matched = true
+		}
+		hints = append(hints, hint)
 	})
 
-	// Loop back through all hints and update the 'Preferred' field based on
-	// counting the number of bits sets in the affinity mask and comparing it
-	// to the minAffinity. Only those with an equal number of bits set will be
-	// considered preferred.
-	for i := range hints {
-		if len(hints[i].Nodes) == minAffinitySize {
-			hints[i].Preferred = true
+	// If no hint matched the scheduler's selection, fall back to preferring hints
+	// with the minimum affinity mask size.
+	if !matched {
+		for i := range hints {
+			if len(hints[i].Nodes) == minAffinitySize {
+				hints[i].Preferred = true
+			}
 		}
 	}
 

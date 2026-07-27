@@ -19,6 +19,7 @@ package util
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	pkgerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,29 @@ import (
 )
 
 var ErrNoAvailableVirtualGPUHints = pkgerrors.New("no available virtual gpu hints")
+
+// ParseGPUSelection returns the set of GPU device IDs the control-plane scheduler
+// has pre-selected for this pod, or nil if no usable selection annotation is present.
+// The annotation value is a comma-separated list of device IDs.
+func ParseGPUSelection(annotations map[string]string, key string) sets.String {
+	if key == "" {
+		return nil
+	}
+	raw, ok := annotations[key]
+	if !ok || raw == "" {
+		return nil
+	}
+	selected := sets.NewString()
+	for _, id := range strings.Split(raw, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			selected.Insert(id)
+		}
+	}
+	if selected.Len() == 0 {
+		return nil
+	}
+	return selected
+}
 
 func GetNUMANodesCountToFitGPUReq(
 	gpuReq float64, cpuTopology *machine.CPUTopology, gpuTopology *machine.DeviceTopology,

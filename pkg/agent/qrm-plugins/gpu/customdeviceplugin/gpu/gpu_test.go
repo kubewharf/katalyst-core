@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/deviceaffinity"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/virtual_gpu"
+	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -483,6 +485,7 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 		deviceReq                         *pluginapi.AssociatedDeviceRequest
 		deviceTopology                    *machine.DeviceTopology
 		requiredDeviceAffinity            bool
+		gpuSelectionAnnotationKey         string
 		expectedErr                       bool
 		expectedResp                      *pluginapi.AssociatedDeviceHintsResponse
 	}{
@@ -1249,6 +1252,150 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:                      "scheduler selection annotation matches one hint, only that hint preferred",
+			podUID:                    "test-uid",
+			containerName:             "test-container",
+			gpuSelectionAnnotationKey: "gpu-selection",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+				},
+			},
+			deviceReq: &pluginapi.AssociatedDeviceRequest{
+				ResourceRequest: &pluginapi.ResourceRequest{
+					PodUid:        "test-uid",
+					ContainerName: "test-container",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						"gpu-selection":                 "test-gpu-0",
+					},
+					Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				},
+				DeviceName: "test-gpu",
+				DeviceRequest: []*pluginapi.DeviceRequest{
+					{
+						DeviceName:       "test-gpu",
+						AvailableDevices: []string{"test-gpu-0", "test-gpu-1"},
+						DeviceRequest:    1,
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceHintsResponse{
+				PodUid:        "test-uid",
+				ContainerName: "test-container",
+				DeviceName:    "test-gpu",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					"gpu-selection":                 "test-gpu-0",
+				},
+				Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				DeviceHints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						{Nodes: []uint64{0}, Preferred: true},
+						{Nodes: []uint64{1}, Preferred: false},
+						{Nodes: []uint64{0, 1}, Preferred: false},
+					},
+				},
+			},
+		},
+		{
+			name:                      "scheduler selection annotation matches nothing, falls back to minAffinitySize preferred",
+			podUID:                    "test-uid",
+			containerName:             "test-container",
+			gpuSelectionAnnotationKey: "gpu-selection",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+				},
+			},
+			deviceReq: &pluginapi.AssociatedDeviceRequest{
+				ResourceRequest: &pluginapi.ResourceRequest{
+					PodUid:        "test-uid",
+					ContainerName: "test-container",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						"gpu-selection":                 "nonexistent-gpu",
+					},
+					Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				},
+				DeviceName: "test-gpu",
+				DeviceRequest: []*pluginapi.DeviceRequest{
+					{
+						DeviceName:       "test-gpu",
+						AvailableDevices: []string{"test-gpu-0", "test-gpu-1"},
+						DeviceRequest:    1,
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceHintsResponse{
+				PodUid:        "test-uid",
+				ContainerName: "test-container",
+				DeviceName:    "test-gpu",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					"gpu-selection":                 "nonexistent-gpu",
+				},
+				Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				DeviceHints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						{Nodes: []uint64{0}, Preferred: true},
+						{Nodes: []uint64{1}, Preferred: true},
+						{Nodes: []uint64{0, 1}, Preferred: false},
+					},
+				},
+			},
+		},
+		{
+			name:                      "scheduler selection annotation is empty, falls back to minAffinitySize preferred",
+			podUID:                    "test-uid",
+			containerName:             "test-container",
+			gpuSelectionAnnotationKey: "gpu-selection",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+				},
+			},
+			deviceReq: &pluginapi.AssociatedDeviceRequest{
+				ResourceRequest: &pluginapi.ResourceRequest{
+					PodUid:        "test-uid",
+					ContainerName: "test-container",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						"gpu-selection":                 "",
+					},
+					Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				},
+				DeviceName: "test-gpu",
+				DeviceRequest: []*pluginapi.DeviceRequest{
+					{
+						DeviceName:       "test-gpu",
+						AvailableDevices: []string{"test-gpu-0", "test-gpu-1"},
+						DeviceRequest:    1,
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceHintsResponse{
+				PodUid:        "test-uid",
+				ContainerName: "test-container",
+				DeviceName:    "test-gpu",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					"gpu-selection":                 "",
+				},
+				Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				DeviceHints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						{Nodes: []uint64{0}, Preferred: true},
+						{Nodes: []uint64{1}, Preferred: true},
+						{Nodes: []uint64{0, 1}, Preferred: false},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1295,6 +1442,11 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 					}
 					basePlugin.Conf.GPUQRMPluginConfig.CustomAllocationStrategy["test-gpu"] = testDeviceAffinityAllocation
 				}
+			}
+
+			if tt.gpuSelectionAnnotationKey != "" {
+				basePlugin.Conf.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey = tt.gpuSelectionAnnotationKey
+				basePlugin.PodAnnotationKeptKeys = append(basePlugin.PodAnnotationKeptKeys, tt.gpuSelectionAnnotationKey)
 			}
 
 			resp, err := devicePlugin.GetAssociatedDeviceTopologyHints(context.Background(), tt.deviceReq)
@@ -1448,6 +1600,67 @@ func TestFilterOccupiedDevicesFromRequest(t *testing.T) {
 			filterOccupiedDevicesFromRequest(req, tt.allocationResourcesMap)
 			assert.Equal(t, tt.expectedAvailableDevices, req.AvailableDevices)
 			assert.Equal(t, tt.expectedReusableDevices, req.ReusableDevices)
+		})
+	}
+}
+
+func TestParseGPUSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		key         string
+		expected    sets.String
+	}{
+		{
+			name:        "empty key returns nil",
+			annotations: map[string]string{"gpu-selection": "gpu-0,gpu-1"},
+			key:         "",
+			expected:    nil,
+		},
+		{
+			name:        "missing annotation returns nil",
+			annotations: map[string]string{"other": "gpu-0"},
+			key:         "gpu-selection",
+			expected:    nil,
+		},
+		{
+			name:        "empty annotation value returns nil",
+			annotations: map[string]string{"gpu-selection": ""},
+			key:         "gpu-selection",
+			expected:    nil,
+		},
+		{
+			name:        "annotation with only whitespace and commas returns nil",
+			annotations: map[string]string{"gpu-selection": "  ,  ,"},
+			key:         "gpu-selection",
+			expected:    nil,
+		},
+		{
+			name:        "single device",
+			annotations: map[string]string{"gpu-selection": "gpu-0"},
+			key:         "gpu-selection",
+			expected:    sets.NewString("gpu-0"),
+		},
+		{
+			name:        "multiple devices with whitespace trimmed",
+			annotations: map[string]string{"gpu-selection": " gpu-0 , gpu-1 ,  , gpu-2 "},
+			key:         "gpu-selection",
+			expected:    sets.NewString("gpu-0", "gpu-1", "gpu-2"),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := gpuutil.ParseGPUSelection(tt.annotations, tt.key)
+			if tt.expected == nil {
+				assert.Nil(t, got)
+			} else {
+				assert.True(t, got.Equal(tt.expected), "got=%v want=%v", got, tt.expected)
+			}
 		})
 	}
 }
