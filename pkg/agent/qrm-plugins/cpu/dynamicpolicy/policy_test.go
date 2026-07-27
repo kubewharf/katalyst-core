@@ -1762,6 +1762,18 @@ func TestAllocate(t *testing.T) {
 				dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true, true)
 			}
 
+			// TestAllocate's dedicated_cores expectations cover baseline NUMA
+			// allocation shapes; reclaim-free preference is covered by
+			// TestDynamicPolicy_allocateNumaBindingCPUs with explicit reclaim
+			// inputs. Keep this fixture independent from the default reclaim pool.
+			if tc.req.Labels[consts.PodAnnotationQoSLevelKey] == consts.PodAnnotationQoSLevelDedicatedCores {
+				dynamicPolicy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+					AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+					AllocationResult:         machine.NewCPUSet(),
+					OriginalAllocationResult: machine.NewCPUSet(),
+				}, false)
+			}
+
 			resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
 			if tc.wantError {
 				as.NotNil(err)
