@@ -99,10 +99,18 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 	}
 	protectedByRel := p.pendingProtectedCPUSetByRel(ctx, expectedRes.PendingByPod)
 	if protected := unionCPUSetByRel(protectedByRel); !protected.IsEmpty() {
+		general.InfofV(5, "bulkhead: applying transient pending protection, pending_count=%d protected_rel_count=%d protected_union=%s protected_by_rel=%s desired_reclaim=%s desired_reclaim_per_numa=%s reclaim_before=%s reclaim_per_numa_before=%s",
+			len(expectedRes.PendingByPod), len(protectedByRel), protected.String(), formatCPUSetByRel(protectedByRel),
+			in.View.DesiredReclaimEffective.String(), formatCPUSetByNUMA(in.View.DesiredReclaimEffectivePerNUMA),
+			in.View.ReclaimEffective.String(), formatCPUSetByNUMA(in.View.ReclaimEffectivePerNUMA))
 		// Pending allocations have no leaf cgroup to update yet. Keep their CPUs
 		// protected in controlled ancestors so those ancestors do not shrink during
 		// the admission creation window before the leaf becomes available.
 		bulkheadutils.ApplyTransientProtectedNonReclaim(in.View, in.Topology, protected)
+		general.InfofV(5, "bulkhead: transient pending protection applied, protected_union=%s transient_per_numa=%s reclaim_after=%s reclaim_per_numa_after=%s non_reclaim_after=%s",
+			protected.String(), formatCPUSetByNUMA(in.View.TransientProtectedNonReclaimPerNUMA),
+			in.View.ReclaimEffective.String(), formatCPUSetByNUMA(in.View.ReclaimEffectivePerNUMA),
+			in.View.NonReclaimPool.String())
 	}
 	siblings, err := p.discoverBulkheadReclaimSiblings(ctx, in.View)
 	if err != nil {
@@ -461,13 +469,27 @@ func (p *CPUSetTopologyPlugin) pendingProtectedCPUSetByRel(ctx context.Context, 
 		}
 		current, err := p.cgroup.ReadCPUSet(ctx, rel)
 		if err != nil || current.IsEmpty() {
+			general.InfofV(6, "bulkhead: pending protected rel skipped, pod=%q container=%q rel=%q allocation=%s current=%s err=%v reason=missing_or_empty_pod_cgroup",
+				pending.PodUID, pending.ContainerName, rel, pending.CPUs.String(), current.String(), err)
 			p.pendingProtections[pending.PodUID] = protection
 			continue
 		}
 		protection.rel = rel
 		protection.current = current
 		p.pendingProtections[pending.PodUID] = protection
-		out[rel] = protection.current
+		// Only protect the pending allocation itself, never the pod cgroup
+		// current. The pod cgroup current of a pending pod frequently inherits a
+		// much wider cpuset (e.g. the kubepods primary set) before its own
+		// allocation is applied. Protecting that wide current would let the
+		// transient protected union swallow the reclaim pool and drive
+		// ReclaimEffective(PerNUMA) to empty. current is kept for diagnostics
+		// only.
+		protected := pending.CPUs
+		out[rel] = protected
+		general.InfofV(5, "bulkhead: pending protected rel, pod=%q container=%q rel=%q allocation=%s current=%s protected=%s overlap=%s dropped_extra=%s protect_until=%s",
+			pending.PodUID, pending.ContainerName, rel, pending.CPUs.String(), current.String(),
+			protected.String(), current.Intersection(pending.CPUs).String(), current.Difference(pending.CPUs).String(),
+			protection.protectUntil.Format(time.RFC3339Nano))
 	}
 	for podUID := range p.pendingProtections {
 		if _, ok := active[podUID]; !ok {
@@ -483,6 +505,38 @@ func unionCPUSetByRel(byRel map[string]machine.CPUSet) machine.CPUSet {
 		union = union.Union(cpus)
 	}
 	return union
+}
+
+func formatCPUSetByRel(byRel map[string]machine.CPUSet) string {
+	if len(byRel) == 0 {
+		return "{}"
+	}
+	rels := make([]string, 0, len(byRel))
+	for rel := range byRel {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	parts := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		parts = append(parts, fmt.Sprintf("%s=%s", rel, byRel[rel].String()))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func formatCPUSetByNUMA(byNUMA map[int]machine.CPUSet) string {
+	if len(byNUMA) == 0 {
+		return "{}"
+	}
+	numaIDs := make([]int, 0, len(byNUMA))
+	for numaID := range byNUMA {
+		numaIDs = append(numaIDs, numaID)
+	}
+	sort.Ints(numaIDs)
+	parts := make([]string, 0, len(numaIDs))
+	for _, numaID := range numaIDs {
+		parts = append(parts, fmt.Sprintf("%d=%s", numaID, byNUMA[numaID].String()))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 func (p *CPUSetTopologyPlugin) discoverBulkheadReclaimSiblings(ctx context.Context, view *bulkheadutils.CPUSetPartitionView) ([]string, error) {

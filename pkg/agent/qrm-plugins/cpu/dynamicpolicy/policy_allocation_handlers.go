@@ -1874,7 +1874,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(availableCPUs)
 	}
 
-	general.Infof("poolsCPUSet: %+v", poolsCPUSet)
+	general.Infof("poolsCPUSet before reclaim apportion/overlap: %+v", poolsCPUSet)
 
 	if !allowOverlap {
 		if !enableReclaim && poolsCPUSet[commonstate.PoolNameReclaim].Size() > p.reservedReclaimedCPUsSize {
@@ -1908,7 +1908,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		}
 	}
 
-	general.Infof("poolsCPUSet: %+v", poolsCPUSet)
+	general.Infof("poolsCPUSet after reclaim apportion/overlap: %+v", poolsCPUSet)
 
 	currentPodEntries := p.state.GetPodEntries()
 	if enableReclaim && !allowOverlap && poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {

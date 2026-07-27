@@ -159,10 +159,13 @@ func (m *Manager) RunPeriodicalHandlers(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 ) {
-	started := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Start timing after acquiring m.mu so the slow-handler log reflects the
+	// actual handler execution time rather than lock-contention wait, which
+	// would otherwise inflate elapsed and produce misleading slow warnings.
+	started := time.Now()
 	var err error
 	defer func() {
 		elapsed := time.Since(started)
