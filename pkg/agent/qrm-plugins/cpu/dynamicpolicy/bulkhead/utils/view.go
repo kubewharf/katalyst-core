@@ -139,10 +139,21 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 		// ReclaimRaw is the affinity budget produced by SysAdvisor after applying
 		// reclaimed-cpu-max-ratio. QRM must never widen it when deriving the
 		// cgroup target: every CPU outside the effective reclaim set belongs to
-		// the non-reclaim domain instead.
+		// the non-reclaim domain instead. The effective reclaim set is therefore
+		// derived in three steps, each of which can only shrink it:
+		//   1. start from all machine CPUs minus the non-reclaim pool and reserve
+		//      (the CPUs structurally available to reclaim);
+		//   2. intersect with ReclaimRaw so we never exceed SysAdvisor's budget;
+		//   3. recompute NonReclaimPool as the complement so the two domains stay
+		//      mutually exclusive and jointly cover every non-reserved CPU.
 		view.ReclaimEffective = topology.CPUDetails.CPUs().Difference(view.NonReclaimPool).Difference(view.Reserve)
 		view.ReclaimEffective = view.ReclaimEffective.Intersection(view.ReclaimRaw)
 		view.NonReclaimPool = topology.CPUDetails.CPUs().Difference(view.ReclaimEffective).Difference(view.Reserve)
+		// Step 3 may leave CPUs in NonReclaimPool that no share/dedicated/isolation
+		// pool claims (e.g. reclaim was clamped below its structural budget). When
+		// the share pool is otherwise empty, seed it with these spare CPUs so they
+		// are not left unassigned; this only fills a gap and never overrides an
+		// existing share allocation.
 		if view.SharePool.IsEmpty() {
 			spareShare := view.NonReclaimPool.Difference(view.Dedicated).Difference(view.Isolation)
 			if !spareShare.IsEmpty() {
