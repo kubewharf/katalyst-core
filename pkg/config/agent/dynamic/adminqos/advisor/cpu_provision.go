@@ -17,12 +17,30 @@ limitations under the License.
 package advisor
 
 import (
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
+
+// clampReclaimedMaxRatio bounds a reclaimed-resource max ratio into [0, 1]. A
+// value >1 would amplify rather than limit reclaim (contradicting the MaxRatio
+// semantics), and a negative value is meaningless; both are corrected with a
+// warning so a misconfigured CRD/flag cannot silently take effect.
+func clampReclaimedMaxRatio(name string, ratio float64) float64 {
+	if ratio < 0 {
+		klog.Warningf("%s=%.4f is out of range [0,1], clamping to 0", name, ratio)
+		return 0
+	}
+	if ratio > 1 {
+		klog.Warningf("%s=%.4f is out of range [0,1], clamping to 1", name, ratio)
+		return 1
+	}
+	return ratio
+}
 
 type CPUProvisionConfiguration struct {
 	AllowSharedCoresOverlapReclaimedCores       bool
@@ -79,7 +97,7 @@ func (c *CPUProvisionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCR
 				c.RegionIndicatorTargetConfiguration[utils.CompatibleLegacyRegionType(regionIndicator.RegionType)] = regionIndicator.Targets
 			}
 			if cfg := aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.CPUProvisionConfig; cfg.ReclaimedCPUMaxRatio != nil {
-				c.ReclaimedCPUMaxRatio = *cfg.ReclaimedCPUMaxRatio
+				c.ReclaimedCPUMaxRatio = clampReclaimedMaxRatio("ReclaimedCPUMaxRatio", *cfg.ReclaimedCPUMaxRatio)
 			}
 		}
 		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.AllowSharedCoresOverlapReclaimedCores != nil {

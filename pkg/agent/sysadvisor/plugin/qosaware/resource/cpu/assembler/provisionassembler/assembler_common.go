@@ -83,11 +83,19 @@ func (pa *ProvisionAssemblerCommon) cpuCountInNUMAs(numas machine.CPUSet) int {
 // not the -1 sentinel) by ratio*cpuCount. When ratio<=0 it disables clamping and
 // returns the inputs unchanged; a negative limit (e.g. the -1 "no quota limit"
 // sentinel) is preserved as-is.
+//
+// The cap is rounded to the nearest integer (rather than truncated) and floored
+// at 1 whenever ratio>0 and cpuCount>0. This avoids the pitfall where a small
+// ratio*cpuCount (e.g. 0.1*8=0.8) would truncate to 0 and silently zero out the
+// reclaim pool: a positive ratio expresses "limit reclaim", never "disable it".
 func clampByReclaimedCPUMaxRatio(size int, limit float64, ratio float64, cpuCount int) (int, float64) {
 	if ratio <= 0 {
 		return size, limit
 	}
-	capCores := int(ratio * float64(cpuCount))
+	capCores := int(math.Round(ratio * float64(cpuCount)))
+	if cpuCount > 0 && capCores < 1 {
+		capCores = 1
+	}
 	if size > capCores {
 		size = capCores
 	}
