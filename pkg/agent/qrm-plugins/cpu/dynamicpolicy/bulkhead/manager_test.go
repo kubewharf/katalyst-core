@@ -136,6 +136,13 @@ func TestRunCPUSetAdjustmentHandlersReconcilesWhenNonReclaimPoolMinSizeChanges(t
 		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
 		AllocationResult: machine.NewCPUSet(0),
 	})
+	// SysAdvisor emits a reclaim affinity budget (ReclaimRaw). QRM bounds the
+	// effective reclaim set by this budget and derives non-reclaim from the
+	// remainder, so the min-size padding pulls CPUs back out of advisor reclaim.
+	state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(1, 2, 3),
+	})
 	topology := &machine.CPUTopology{
 		NumCPUs:      4,
 		NumCores:     4,
@@ -182,6 +189,12 @@ func TestRunCPUSetAdjustmentHandlersUsesDefaultNonReclaimPoolMinSize(t *testing.
 	state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, &cpustate.AllocationInfo{
 		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
 		AllocationResult: machine.NewCPUSet(0),
+	})
+	// Advisor reclaim budget: effective reclaim is bounded by this set and the
+	// default min-size pads non-reclaim back out of it.
+	state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(1, 2, 3),
 	})
 	topology := &machine.CPUTopology{
 		NumCPUs:      4,

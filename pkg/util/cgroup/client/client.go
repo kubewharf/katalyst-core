@@ -27,10 +27,11 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgmanager "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"k8s.io/klog/v2"
 )
 
 // CgroupVersion tags the cgroup hierarchy layout the current host is booted into.
@@ -127,16 +128,13 @@ func (coreCgroupClient) AttachPID(_ context.Context, rel string, pid int) error 
 	}
 	defer func() { _ = f.Close() }()
 	writeStart := time.Now()
-	if _, err := fmt.Fprintf(f, "%d", pid); err != nil {
-		elapsed := time.Since(writeStart)
-		if isSlowAttachPID(elapsed) {
+	defer func() {
+		if elapsed := time.Since(writeStart); isSlowAttachPID(elapsed) {
 			klog.V(2).Infof("AttachPID slow cgroup.procs write: rel=%q pid=%d elapsed=%s", rel, pid, elapsed)
 		}
+	}()
+	if _, err := fmt.Fprintf(f, "%d", pid); err != nil {
 		return fmt.Errorf("write pid %d @ %s: %w", pid, rel, err)
-	}
-	elapsed := time.Since(writeStart)
-	if isSlowAttachPID(elapsed) {
-		klog.V(2).Infof("AttachPID slow cgroup.procs write: rel=%q pid=%d elapsed=%s", rel, pid, elapsed)
 	}
 	return nil
 }
