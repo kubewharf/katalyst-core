@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -318,5 +319,483 @@ func TestSafeCPUSetWriterShrinksParentAfterLiveChildren(t *testing.T) {
 	}
 	if got, want := cg.cpus[child.Rel], machine.NewCPUSet(1); !got.Equals(want) {
 		t.Fatalf("child cpuset = %s, want %s", got.String(), want.String())
+	}
+}
+
+func TestSafeCPUSetWriterNormalizesEmptyReclaimBucketChildWithMems(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(29, 30, 31, 73, 74, 75), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	bucket := dag.index["kubesandbox/reclaimed-1"]
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus[bucket.Rel] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+	cg.children[bucket.Rel] = []string{"sandbox022"}
+	res := DAGApplyResult{}
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &res)
+	if err := writer.shrinkParentWithLiveChildUnion(bucket, machine.NewCPUSet(29, 30, 31, 73, 74, 75)); err != nil {
+		t.Fatalf("shrinkParentWithLiveChildUnion: %v writes=%#v", err, cg.writes)
+	}
+
+	wantWrites := []cpusetWrite{
+		{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "29-31,73-75", mems: "1"},
+		{rel: "kubesandbox/reclaimed-1", cpus: "29-31,73-75", mems: "1"},
+	}
+	if !reflect.DeepEqual(cg.writes, wantWrites) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, wantWrites)
+	}
+	if got, want := cg.cpus["kubesandbox/reclaimed-1/sandbox022"], machine.NewCPUSet(29, 30, 31, 73, 74, 75); !got.Equals(want) {
+		t.Fatalf("sandbox cpuset = %s, want %s", got.String(), want.String())
+	}
+}
+
+// TestSafeCPUSetWriterGrowsParentBeforeReclaimBucketBridgeExpansion reproduces
+// the converge_shrink drain scenario where a reclaim NUMA bucket must be
+// bridged to a net-expanded target (it gains CPUs entering from a sibling NUMA
+// node) while the real parent (kubesandbox) does not yet contain those CPUs.
+// cgroup v1 rejects writing a child cpuset outside its parent, so the parent
+// must be grown to a superset of the bridge target first. Before the fix the
+// reclaim-bucket bridge path skipped that parent grow and the write failed with
+// EACCES ("permission denied") on kubesandbox/reclaimed-0/cpuset.cpus.
+func TestSafeCPUSetWriterGrowsParentBeforeReclaimBucketBridgeExpansion(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 6, 7, 50, 51, 52, 53, 54, 55), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-0", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(3, 4, 5, 6, 7, 8, 9, 50, 51, 52, 53, 54, 55, 56, 57), Mems: "0", Metadata: map[string]string{"numa": "0"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	bucket := dag.index["kubesandbox/reclaimed-0"]
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	// Parent lacks 3,4,8,9,56,57 that the bucket bridge target introduces.
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 50, 51, 52, 53, 54, 55)
+	cg.cpus[bucket.Rel] = machine.NewCPUSet(5, 6, 7, 50, 51, 52, 53, 54, 55)
+	cg.cpus["kubesandbox/reclaimed-0/sandbox022"] = machine.NewCPUSet(5, 6, 7, 50, 51, 52, 53, 54, 55)
+	cg.children["kubesandbox"] = []string{"reclaimed-0"}
+	cg.children[bucket.Rel] = []string{"sandbox022"}
+	res := DAGApplyResult{}
+
+	target := machine.NewCPUSet(3, 4, 5, 6, 7, 8, 9, 50, 51, 52, 53, 54, 55, 56, 57)
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &res)
+	if err := writer.shrinkParentWithLiveChildUnion(bucket, target); err != nil {
+		t.Fatalf("shrinkParentWithLiveChildUnion: %v writes=%#v", err, cg.writes)
+	}
+
+	// The parent must have been grown to a superset of the bridge target before
+	// the reclaim-bucket bridge write.
+	parentGrow, bucketBridge := -1, -1
+	for i, write := range cg.writes {
+		if write.rel == "kubesandbox" {
+			cpus := machine.MustParse(write.cpus)
+			if target.IsSubsetOf(cpus) && parentGrow < 0 {
+				parentGrow = i
+			}
+		}
+		if write.rel == bucket.Rel && write.cpus == "3-9,50-57" && bucketBridge < 0 {
+			bucketBridge = i
+		}
+	}
+	if parentGrow < 0 {
+		t.Fatalf("parent kubesandbox was not grown to superset of bridge target; writes=%#v", cg.writes)
+	}
+	if bucketBridge < 0 {
+		t.Fatalf("reclaim bucket bridge write to 3-9,50-57 not observed; writes=%#v", cg.writes)
+	}
+	if parentGrow >= bucketBridge {
+		t.Fatalf("parent grow (idx %d) must precede reclaim bucket bridge write (idx %d); writes=%#v",
+			parentGrow, bucketBridge, cg.writes)
+	}
+	if got := cg.cpus[bucket.Rel]; !got.Equals(target) {
+		t.Fatalf("reclaim bucket cpuset = %s, want %s; writes=%#v", got.String(), target.String(), cg.writes)
+	}
+	if got := cg.cpus["kubesandbox"]; !target.IsSubsetOf(got) {
+		t.Fatalf("parent kubesandbox cpuset = %s, want superset of %s; writes=%#v", got.String(), target.String(), cg.writes)
+	}
+}
+
+// TestSafeCPUSetWriterGrowsIntermediateParentBeforeReclaimDescendantLeafExpansion
+// reproduces the production NUMA drain where a reclaim NUMA bucket shifts to a
+// new NUMA range and a two-level dynamic descendant (per-container sandbox ->
+// kata leaf) must move with it. normalizeReclaimBucketDescendants recurses
+// post-order (leaf first), so before the fix it wrote the leaf into the new
+// range 33-39,81-87 while the intermediate sandbox parent still held the old
+// range 29-31,73-79. cgroup v1 rejects a child cpuset outside its parent, so the
+// leaf apply failed with EACCES ("permission denied") and blocked the advisor
+// loop. The fix grows every uncontrolled intermediate parent to a superset of
+// the child target before the leaf write.
+func TestSafeCPUSetWriterGrowsIntermediateParentBeforeReclaimDescendantLeafExpansion(t *testing.T) {
+	t.Parallel()
+
+	oldRange := machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	newRange := machine.NewCPUSet(33, 34, 35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 86, 87)
+	// The bucket bridge during the drain must cover both the outgoing and the
+	// incoming NUMA range so live descendants can move.
+	bucketBridge := oldRange.Union(newRange)
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: bucketBridge, Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: newRange, Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	bucket := dag.index["kubesandbox/reclaimed-1"]
+	sandboxRel := "kubesandbox/reclaimed-1/sandbox9b"
+	leafRel := "kubesandbox/reclaimed-1/sandbox9b/kata54"
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	// Everything currently sits on the old NUMA range.
+	cg.cpus["kubesandbox"] = bucketBridge
+	cg.cpus[bucket.Rel] = oldRange
+	cg.cpus[sandboxRel] = oldRange
+	cg.cpus[leafRel] = oldRange
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+	cg.children[bucket.Rel] = []string{"sandbox9b"}
+	cg.children[sandboxRel] = []string{"kata54"}
+	res := DAGApplyResult{}
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &res)
+	if err := writer.shrinkParentWithLiveChildUnion(bucket, newRange); err != nil {
+		t.Fatalf("shrinkParentWithLiveChildUnion: %v writes=%#v", err, cg.writes)
+	}
+
+	// The intermediate sandbox parent must be grown to a superset of the leaf
+	// target strictly before the leaf itself is written into the new range.
+	sandboxGrow, leafWrite := -1, -1
+	for i, write := range cg.writes {
+		if write.rel == sandboxRel {
+			cpus := machine.MustParse(write.cpus)
+			if newRange.IsSubsetOf(cpus) && sandboxGrow < 0 {
+				sandboxGrow = i
+			}
+		}
+		if write.rel == leafRel && machine.MustParse(write.cpus).Equals(newRange) && leafWrite < 0 {
+			leafWrite = i
+		}
+	}
+	if sandboxGrow < 0 {
+		t.Fatalf("intermediate sandbox parent was not grown to superset of leaf target; writes=%#v", cg.writes)
+	}
+	if leafWrite < 0 {
+		t.Fatalf("leaf write to new NUMA range not observed; writes=%#v", cg.writes)
+	}
+	if sandboxGrow >= leafWrite {
+		t.Fatalf("sandbox grow (idx %d) must precede leaf write (idx %d); writes=%#v",
+			sandboxGrow, leafWrite, cg.writes)
+	}
+	if got := cg.cpus[leafRel]; !got.Equals(newRange) {
+		t.Fatalf("leaf cpuset = %s, want %s; writes=%#v", got.String(), newRange.String(), cg.writes)
+	}
+	if got := cg.cpus[sandboxRel]; !got.Equals(newRange) {
+		t.Fatalf("sandbox cpuset = %s, want %s; writes=%#v", got.String(), newRange.String(), cg.writes)
+	}
+	if got := cg.cpus[bucket.Rel]; !got.Equals(newRange) {
+		t.Fatalf("reclaim bucket cpuset = %s, want %s; writes=%#v", got.String(), newRange.String(), cg.writes)
+	}
+}
+
+func TestDynamicDescendantPolicyClampsLiveReclaimChildToBucketTarget(t *testing.T) {
+	t.Parallel()
+
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5)
+	cg.files["kubesandbox/reclaimed-1/sandbox022"] = map[string][]byte{
+		"tasks":        []byte("123\n"),
+		"cgroup.procs": []byte("123\n"),
+	}
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &DAGApplyResult{})
+	writer.controlledByRel["kubesandbox/reclaimed-1"] = &TopoNode{
+		Rel:      "kubesandbox/reclaimed-1",
+		Role:     TopoNodeRoleReclaimNUMABucket,
+		CPUs:     machine.NewCPUSet(29, 30, 31, 73, 74, 75),
+		Mems:     "1",
+		Metadata: map[string]string{"numa": "1"},
+	}
+	writer.targetByRel["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+
+	target, mems, guarded := writer.dynamicPolicy.Resolve(
+		"kubesandbox/reclaimed-1/sandbox022",
+		machine.NewCPUSet(5, 6, 7, 53, 54, 55),
+	)
+
+	if !guarded {
+		t.Fatalf("guarded = false, want true")
+	}
+	if !target.Equals(machine.NewCPUSet(29, 30, 31, 73, 74, 75)) {
+		t.Fatalf("target = %s, want 29-31,73-75", target.String())
+	}
+	if mems != "1" {
+		t.Fatalf("mems = %q, want 1", mems)
+	}
+}
+
+func TestSafeCPUSetWriterClampsLiveReclaimBucketChildOutsideNUMA(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(29, 30, 31, 73, 74, 75), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	bucket := dag.index["kubesandbox/reclaimed-1"]
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus[bucket.Rel] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+	cg.children[bucket.Rel] = []string{"sandbox022"}
+	cg.files["kubesandbox/reclaimed-1/sandbox022"] = map[string][]byte{
+		"tasks":        []byte("123\n"),
+		"cgroup.procs": []byte("123\n"),
+	}
+	res := DAGApplyResult{}
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &res)
+	if err := writer.shrinkParentWithLiveChildUnion(bucket, machine.NewCPUSet(29, 30, 31, 73, 74, 75)); err != nil {
+		t.Fatalf("shrinkParentWithLiveChildUnion: %v writes=%#v", err, cg.writes)
+	}
+	wantWrites := []cpusetWrite{
+		{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "29-31,73-75", mems: "1"},
+		{rel: "kubesandbox/reclaimed-1", cpus: "29-31,73-75", mems: "1"},
+	}
+	if !reflect.DeepEqual(cg.writes, wantWrites) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, wantWrites)
+	}
+}
+
+func TestSafeCPUSetWriterWriteDynamicRelClampsReclaimDescendant(t *testing.T) {
+	t.Parallel()
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	res := DAGApplyResult{}
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &res)
+	writer.controlledByRel["kubesandbox/reclaimed-1"] = &TopoNode{
+		Rel:      "kubesandbox/reclaimed-1",
+		Role:     TopoNodeRoleReclaimNUMABucket,
+		CPUs:     machine.NewCPUSet(29, 30, 31, 73, 74, 75),
+		Mems:     "1",
+		Metadata: map[string]string{"numa": "1"},
+	}
+	writer.targetByRel["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+
+	if err := writer.writeDynamicRel("kubesandbox/reclaimed-1/sandbox022", machine.NewCPUSet(5, 6, 7, 53, 54, 55), ""); err != nil {
+		t.Fatalf("writeDynamicRel: %v", err)
+	}
+	want := []cpusetWrite{{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "29-31,73-75", mems: "1"}}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, want)
+	}
+}
+
+func TestSafeCPUSetWriterWriteDynamicRelFallsBackToBucketCurrentWhenTargetDisjoint(t *testing.T) {
+	t.Parallel()
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5)
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &DAGApplyResult{})
+	writer.controlledByRel["kubesandbox/reclaimed-1"] = &TopoNode{
+		Rel:      "kubesandbox/reclaimed-1",
+		Role:     TopoNodeRoleReclaimNUMABucket,
+		CPUs:     machine.NewCPUSet(29, 30, 31, 73, 74, 75),
+		Mems:     "1",
+		Metadata: map[string]string{"numa": "1"},
+	}
+	writer.targetByRel["kubesandbox/reclaimed-1"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+
+	if err := writer.writeDynamicRel("kubesandbox/reclaimed-1/sandbox022", machine.NewCPUSet(5, 6, 7, 53, 54, 55), ""); err != nil {
+		t.Fatalf("writeDynamicRel: %v", err)
+	}
+	want := []cpusetWrite{{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "29-31,73-75", mems: "1"}}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, want)
+	}
+}
+
+func TestSafeCPUSetWriterWriteDynamicRelUsesPhysicalReclaimBucketWhenDAGMissesBucket(t *testing.T) {
+	t.Parallel()
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(0, 1, 2, 3, 4, 5)
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &DAGApplyResult{})
+
+	if err := writer.writeDynamicRel("kubesandbox/reclaimed-1/sandbox022", machine.NewCPUSet(5, 6, 7, 53, 54, 55), ""); err != nil {
+		t.Fatalf("writeDynamicRel: %v", err)
+	}
+	want := []cpusetWrite{{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "29-31,73-75", mems: "1"}}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, want)
+	}
+}
+
+// TestSafeCPUSetWriterParksUncontrolledPhysicalReclaimBucketCrossNUMA verifies
+// the NUMA-drain transient where the parent (kubesandbox) is targeted to a
+// single NUMA node while an uncontrolled physical reclaim bucket from the other
+// NUMA node still owns CPUs. Clamping that bucket to the parent target would
+// inject foreign-NUMA CPUs, so it must be parked (left untouched) rather than
+// corrupted. Parking must NOT fail the apply (a hard error fails Pod admission
+// with UnexpectedAdmissionError); instead the parent retains the parked CPUs as
+// a temporary cgroup v1 superset until a later advisor round drains the bucket
+// through its own controlled transition. Reproduces the production failure
+// parent=kubesandbox child=kubesandbox/reclaimed-0 numa=0 (here reclaimed-1 on
+// numa=1 is the parked cross-NUMA bucket).
+func TestSafeCPUSetWriterParksUncontrolledPhysicalReclaimBucketCrossNUMA(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 6, 7, 53, 54, 55), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-0", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(5, 6, 7, 53, 54, 55), Mems: "0", Metadata: map[string]string{"numa": "0"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-0"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.children["kubesandbox"] = []string{"reclaimed-0", "reclaimed-1"}
+
+	cpuDetails := machine.CPUDetails{}
+	for _, cpu := range []int{5, 6, 7, 53, 54, 55} {
+		cpuDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: 0}
+	}
+	for _, cpu := range []int{29, 30, 31, 73, 74, 75} {
+		cpuDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: 1}
+	}
+
+	if _, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:        dag,
+		Cgroup:     cg,
+		Mems:       "0-1",
+		CPUDetails: cpuDetails,
+	}); err != nil {
+		t.Fatalf("ApplyDAGDiff should park the cross-NUMA bucket, not fail; err=%v writes=%#v", err, cg.writes)
+	}
+	for _, write := range cg.writes {
+		if write.rel == "kubesandbox/reclaimed-1" {
+			t.Fatalf("uncontrolled cross-NUMA reclaim bucket must not be written; writes=%#v", cg.writes)
+		}
+	}
+	if got, want := cg.cpus["kubesandbox/reclaimed-1"], machine.NewCPUSet(29, 30, 31, 73, 74, 75); !got.Equals(want) {
+		t.Fatalf("reclaimed-1 cpuset = %s, want unchanged %s; writes=%#v", got.String(), want.String(), cg.writes)
+	}
+	// The parent must retain the parked NUMA1 CPUs as a superset; it cannot be
+	// shrunk below target(NUMA0) ∪ parked(NUMA1) while the bucket still lives.
+	if got := cg.cpus["kubesandbox"]; !got.Contains(29) || !got.Contains(73) {
+		t.Fatalf("parent kubesandbox = %s, must retain parked NUMA1 CPUs; writes=%#v", got.String(), cg.writes)
+	}
+}
+
+func TestSafeCPUSetWriterShrinkDynamicRelClampsReclaimDescendant(t *testing.T) {
+	t.Parallel()
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	res := DAGApplyResult{}
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0-1", &res)
+	writer.controlledByRel["kubesandbox/reclaimed-1"] = &TopoNode{
+		Rel:      "kubesandbox/reclaimed-1",
+		Role:     TopoNodeRoleReclaimNUMABucket,
+		CPUs:     machine.NewCPUSet(29, 30, 31, 73, 74, 75),
+		Mems:     "1",
+		Metadata: map[string]string{"numa": "1"},
+	}
+	writer.targetByRel["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+
+	if _, err := writer.shrinkDynamicRelToParent("kubesandbox/reclaimed-1/sandbox022", machine.NewCPUSet(5, 6, 7, 53, 54, 55), 0); err != nil {
+		t.Fatalf("shrinkDynamicRelToParent: %v", err)
+	}
+	want := []cpusetWrite{{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "29-31,73-75", mems: "1"}}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, want)
+	}
+}
+
+func TestApplyCPUSetWritesRequestedTargetWithoutTopologyPolicy(t *testing.T) {
+	t.Parallel()
+
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(29, 30, 31)
+
+	if err := applyCPUSet(context.Background(), cg, "kubesandbox/reclaimed-1/sandbox022", machine.NewCPUSet(5, 6, 7, 53, 54, 55), ""); err != nil {
+		t.Fatalf("applyCPUSet: %v", err)
+	}
+	want := []cpusetWrite{{rel: "kubesandbox/reclaimed-1/sandbox022", cpus: "5-7,53-55", mems: ""}}
+	if !reflect.DeepEqual(cg.writes, want) {
+		t.Fatalf("writes = %#v, want %#v", cg.writes, want)
+	}
+}
+
+func TestSafeCPUSetWriterDoesNotPenetrateControlledChildren(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(29, 30, 31, 73, 74, 75), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75, 80)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(29, 30, 31, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+	cg.children["kubesandbox/reclaimed-1"] = []string{"sandbox022"}
+	cpuDetails := machine.CPUDetails{}
+	for _, cpu := range []int{5, 6, 7, 53, 54, 55, 80} {
+		cpuDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: 0}
+	}
+	for _, cpu := range []int{29, 30, 31, 73, 74, 75} {
+		cpuDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: 1}
+	}
+
+	if _, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:        dag,
+		Cgroup:     cg,
+		Mems:       "0-1",
+		CPUDetails: cpuDetails,
+	}); err != nil {
+		t.Fatalf("ApplyDAGDiff: %v writes=%#v", err, cg.writes)
+	}
+
+	for _, write := range cg.writes {
+		if strings.HasPrefix(write.rel, "kubesandbox/reclaimed-1/sandbox022") {
+			t.Fatalf("parent-level shrink should not penetrate controlled child descendants, writes=%#v", cg.writes)
+		}
 	}
 }

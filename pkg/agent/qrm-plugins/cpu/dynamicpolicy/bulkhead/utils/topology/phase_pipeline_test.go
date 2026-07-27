@@ -82,6 +82,77 @@ func TestDomainPhasePipelineRebuildsPlanFromFreshSnapshot(t *testing.T) {
 	}
 }
 
+func TestDomainPhaseExecutorDrainReclaimNUMABucketRemovesOnlyCrossDomainLeaving(t *testing.T) {
+	t.Parallel()
+
+	// A reclaim NUMA bucket that is shrinking to hand CPUs to the primary
+	// domain while also being scheduled to receive new CPUs later. The drain
+	// phase must only drop crossDomainLeaving CPUs and must never pull in the
+	// crossDomainEntering CPUs (33-39,81-87), which the parent kubesandbox does
+	// not yet contain at drain time. Writing the final target here would exceed
+	// the parent and fail with EACCES on cgroup v1.
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(5, 6, 7, 33, 34, 35, 36, 37, 38, 39, 53, 54, 55, 81, 82, 83, 84, 85, 86, 87), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(33, 34, 35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 86, 87), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	bucket := dag.index["kubesandbox/reclaimed-1"]
+	observed := machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	target := machine.NewCPUSet(33, 34, 35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 86, 87)
+	transition := nodeTransition{
+		node:                bucket,
+		domain:              cpusetDomainReclaim,
+		observed:            observed,
+		target:              target,
+		entering:            target.Difference(observed),
+		leaving:             observed.Difference(target),
+		crossDomainEntering: machine.NewCPUSet(33, 34, 35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 86, 87),
+		crossDomainLeaving:  machine.NewCPUSet(29, 30, 31, 73, 74, 75),
+	}
+
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	// Parent is still mid-shrink: it holds the observed union but not the
+	// entering CPUs that will be transferred from the primary domain later.
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(5, 6, 7, 29, 30, 31, 53, 54, 55, 73, 74, 75)
+	cg.cpus["kubesandbox/reclaimed-1"] = observed
+	// A live (dynamic) child pins CPUs that survive the drain.
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	cg.children["kubesandbox/reclaimed-1"] = []string{"sandbox022"}
+
+	res := DAGApplyResult{}
+	executor := newDomainPhaseExecutor(newSafeCPUSetWriterForDAG(context.Background(), cg, dag, map[string]machine.CPUSet{
+		"kubesandbox":             machine.NewCPUSet(5, 6, 7, 33, 34, 35, 36, 37, 38, 39, 53, 54, 55, 81, 82, 83, 84, 85, 86, 87),
+		"kubesandbox/reclaimed-1": target,
+	}, "0-1", &res))
+
+	drain, err := executor.executeDrainPhase(cpusetDomainReclaim, []nodeTransition{transition})
+	if err != nil {
+		t.Fatalf("executeDrainPhase: %v writes=%#v", err, cg.writes)
+	}
+	if got, want := drain.release, machine.NewCPUSet(29, 30, 31, 73, 74, 75); !got.Equals(want) {
+		t.Fatalf("drain release = %s, want %s", got.String(), want.String())
+	}
+	// The bucket must end up at observed minus crossDomainLeaving, keeping the
+	// live child union and never introducing the entering CPUs.
+	wantBucket := machine.NewCPUSet(5, 6, 7, 53, 54, 55)
+	if got := cg.cpus["kubesandbox/reclaimed-1"]; !got.Equals(wantBucket) {
+		t.Fatalf("bucket cpuset after drain = %s, want %s", got.String(), wantBucket.String())
+	}
+	// No write may include the cross-domain entering CPUs during drain.
+	entering := machine.NewCPUSet(33, 34, 35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 86, 87)
+	for _, w := range cg.writes {
+		if w.cpus == "" {
+			continue
+		}
+		if !machine.MustParse(w.cpus).Intersection(entering).IsEmpty() {
+			t.Fatalf("drain wrote entering CPUs into rel=%s cpus=%s; writes=%#v", w.rel, w.cpus, cg.writes)
+		}
+	}
+}
+
 func TestDomainPhaseExecutorFiltersExpandTargetThroughGate(t *testing.T) {
 	t.Parallel()
 
