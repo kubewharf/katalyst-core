@@ -25,6 +25,8 @@ import (
 	"strings"
 	"syscall"
 
+	"k8s.io/klog/v2"
+
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -143,7 +145,7 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 }
 
 func applyResetExpandOnly(ctx context.Context, in DAGApplyInputs, targets map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult) error {
-	writer := newSafeCPUSetWriter(ctx, in.Cgroup, in.Mems, res)
+	writer := newSafeCPUSetWriterForDAG(ctx, in.Cgroup, in.DAG, targets, in.Mems, res)
 	controlled := map[string]struct{}{}
 	for _, n := range in.DAG.Nodes() {
 		controlled[n.Rel] = struct{}{}
@@ -155,21 +157,30 @@ func applyResetExpandOnly(ctx context.Context, in DAGApplyInputs, targets map[st
 			res.Skipped++
 			return nil
 		}
-		if err := writer.growNodeWithParentBridge(n, target); err != nil && firstErr == nil {
-			firstErr = err
+		logApplyNodeTarget("reset", n, target, targets, in.Cgroup, ctx)
+		if n.Role == TopoNodeRoleReclaimNUMABucket {
+			if err := writer.shrinkParentWithLiveChildUnion(n, target); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			if err := writer.growNodeWithParentBridge(n, target); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
-		propagateResetTarget(ctx, in.Cgroup, n.Rel, target, controlled, in.ExpectedCPUSetByRel, res, &firstErr, 0)
+		writer.propagateResetTarget(n.Rel, target, controlled, in.ExpectedCPUSetByRel, &firstErr, 0)
 		return nil
 	})
 	return firstErr
 }
 
-func propagateResetTarget(ctx context.Context, cg cgroupclient.CgroupClient, parentRel string, parentTarget machine.CPUSet, controlled map[string]struct{}, expected map[string]machine.CPUSet, res *DAGApplyResult, firstErr *error, depth int) {
+func (w safeCPSetWriter) propagateResetTarget(parentRel string, parentTarget machine.CPUSet, controlled map[string]struct{}, expected map[string]machine.CPUSet, firstErr *error, depth int) {
 	if depth >= maxEnforceDepth {
-		res.Skipped++
+		if w.res != nil {
+			w.res.Skipped++
+		}
 		return
 	}
-	children, err := cg.ListChildren(ctx, parentRel)
+	children, err := w.cg.ListChildren(w.ctx, parentRel)
 	if err != nil {
 		return
 	}
@@ -185,21 +196,18 @@ func propagateResetTarget(ctx context.Context, cg cgroupclient.CgroupClient, par
 		// Reset recursively applies an expected target to a child when supplied;
 		// otherwise the child inherits its parent target. It fails open to restore
 		// legacy stale cpuset state without promising expansion in a single pass.
-		res.Attempted++
-		if err := applyCPUSet(ctx, cg, childRel, target, ""); err != nil {
-			res.Failed++
+		if err := w.writeDynamicRel(childRel, target, ""); err != nil {
 			if *firstErr == nil {
 				*firstErr = err
 			}
 			continue
 		}
-		res.Applied++
-		propagateResetTarget(ctx, cg, childRel, target, controlled, expected, res, firstErr, depth+1)
+		w.propagateResetTarget(childRel, target, controlled, expected, firstErr, depth+1)
 	}
 }
 
 func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult) error {
-	writer := newSafeCPUSetWriter(ctx, in.Cgroup, in.Mems, res)
+	writer := newSafeCPUSetWriterForDAG(ctx, in.Cgroup, in.DAG, targets, in.Mems, res).withCPUDetails(in.CPUDetails)
 	var firstErr error
 	_ = in.DAG.ForEachShrink(func(n *TopoNode) error {
 		target := targets[n.Rel]
@@ -215,6 +223,7 @@ func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map
 			return nil
 		}
 		if !observed.IsSubsetOf(target) {
+			logApplyNodeTarget("converge_shrink", n, target, targets, in.Cgroup, ctx)
 			if err := writer.shrinkParentWithLiveChildUnion(n, target); err != nil && firstErr == nil {
 				firstErr = err
 			}
@@ -238,6 +247,7 @@ func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map
 			return nil
 		}
 		if !target.IsSubsetOf(observed) {
+			logApplyNodeTarget("converge_expand", n, target, targets, in.Cgroup, ctx)
 			if err := writer.growNodeWithParentBridge(n, target); err != nil && firstErr == nil {
 				firstErr = err
 			}
@@ -245,6 +255,26 @@ func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map
 		return nil
 	})
 	return firstErr
+}
+
+func logApplyNodeTarget(phase string, node *TopoNode, target machine.CPUSet, targetByRel map[string]machine.CPUSet, cg cgroupclient.CgroupClient, ctx context.Context) {
+	if node == nil || !klog.V(4).Enabled() {
+		return
+	}
+	current := "<read_error>"
+	if cur, err := cg.ReadCPUSet(ctx, node.Rel); err == nil {
+		current = cur.String()
+	}
+	targetByRelValue := "<missing>"
+	if value, ok := targetByRel[node.Rel]; ok {
+		targetByRelValue = value.String()
+	}
+	parentRel := ""
+	if parent := parentNodeOf(node); parent != nil {
+		parentRel = parent.Rel
+	}
+	general.InfofV(4, "topo_dag_writer: apply_node phase=%s rel=%q role=%v parent=%q current=%s target=%s targetByRel=%s nodeCPUs=%s mems=%q metadata=%v",
+		phase, node.Rel, node.Role, parentRel, current, target.String(), targetByRelValue, node.CPUs.String(), memsForNode(node, ""), node.Metadata)
 }
 
 func memsForNode(n *TopoNode, defaultMems string) string {
@@ -264,7 +294,11 @@ func applyCPUSet(ctx context.Context, cg cgroupclient.CgroupClient, rel string, 
 	}
 	general.InfofV(6, "topo_dag_writer: cpuset_write start rel=%q target=%s mems=%q", rel, cpus.String(), mems)
 	if err := cg.ApplyCPUSet(ctx, rel, data); err != nil {
-		general.InfofV(4, "topo_dag_writer: cpuset_write failed rel=%q target=%s mems=%q err=%v", rel, cpus.String(), mems, err)
+		current := "<read_error>"
+		if cur, readErr := cg.ReadCPUSet(ctx, rel); readErr == nil {
+			current = cur.String()
+		}
+		general.InfofV(4, "topo_dag_writer: cpuset_write failed rel=%q current=%s target=%s mems=%q err=%v", rel, current, cpus.String(), mems, err)
 		return fmt.Errorf("apply cpuset.cpus=%s @ %s: %w", cpus.String(), rel, err)
 	}
 	general.InfofV(6, "topo_dag_writer: cpuset_write done rel=%q target=%s mems=%q", rel, cpus.String(), mems)

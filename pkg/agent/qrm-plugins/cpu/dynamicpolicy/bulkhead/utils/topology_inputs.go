@@ -90,6 +90,7 @@ func BuildTopologyNodeSpecsFromView(
 				Rel:       rel,
 				Role:      topology.TopoNodeRoleReclaimNUMABucket,
 				CPUs:      cpus,
+				Mems:      strconv.Itoa(numaID),
 				ParentRel: parentRelForReclaimNUMA(reclaimRel, rel),
 				Metadata: map[string]string{
 					"numa":          strconv.Itoa(numaID),

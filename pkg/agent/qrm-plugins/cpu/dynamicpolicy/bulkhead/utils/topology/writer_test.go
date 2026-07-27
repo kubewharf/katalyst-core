@@ -1724,6 +1724,54 @@ func TestApplyDAGDiffReturnsErrorWhenStaleReclaimSandboxConvergeFails(t *testing
 	}
 }
 
+func TestApplyDAGDiffResetExpandOnlyClampsReclaimDynamicChild(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1, 2, 3, 25, 26, 27), Mems: "0-1"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(25, 26, 27), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(1, 2, 3, 25, 26, 27)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(25, 26, 27)
+	cg.cpus["kubesandbox/reclaimed-1/sandbox022"] = machine.NewCPUSet(0, 1, 2, 3)
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+	cg.children["kubesandbox/reclaimed-1"] = []string{"sandbox022"}
+	cg.onApply = func(rel string, data *cgcommon.CPUSetData) {
+		cpus, err := machine.Parse(data.CPUs)
+		if err == nil {
+			cg.cpus[rel] = cpus
+		}
+	}
+
+	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:    dag,
+		Cgroup: cg,
+		Mems:   "0-1",
+		Mode:   ApplyModeResetExpandOnly,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff reset: %v writes=%#v", err, cg.writes)
+	}
+
+	found := false
+	for _, write := range cg.writes {
+		if write.rel == "kubesandbox/reclaimed-1/sandbox022" {
+			found = true
+			if write.cpus != "25-27" || write.mems != "1" {
+				t.Fatalf("sandbox write = %#v, want cpus=25-27 mems=1", write)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no sandbox write found, writes=%#v", cg.writes)
+	}
+}
+
 func TestApplyDAGDiffConvergesStaleReclaimSandboxWhenItOverlapsPrimary(t *testing.T) {
 	t.Parallel()
 
