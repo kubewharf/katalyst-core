@@ -1266,14 +1266,14 @@ func TestDynamicPolicyPlanBlocks(t *testing.T) {
 		"reclaim-block":   machine.NewCPUSet(4, 5),
 	}
 
-	before := policy.state.GetCommittedStateSnapshot()
-	target, err := policy.planBlocks(before, blocks, resp)
+	before := cloneAdvisorState(policy.state)
+	target, err := policy.planBlocks(before.PodEntries, before.MachineState, blocks, resp)
 	require.NoError(t, err)
 	require.Equal(t, before.PodEntries, policy.state.GetPodEntries())
 	require.Equal(t, before.MachineState, policy.state.GetMachineState())
 
 	require.NoError(t, policy.applyBlocks(blocks, resp))
-	after := policy.state.GetCommittedStateSnapshot()
+	after := cloneAdvisorState(policy.state)
 	require.Equal(t, target.PodEntries, after.PodEntries)
 	require.Equal(t, target.MachineState, after.MachineState)
 }
@@ -1351,6 +1351,13 @@ func TestDynamicPolicyApplyBlocksEmitsPoolMetricsBeforeFailingHook(t *testing.T)
 	require.ElementsMatch(t, []int64{2, 2}, emitter.storedInt64[util.MetricNamePoolSize])
 }
 
+func cloneAdvisorState(s state.State) *state.TargetState {
+	return &state.TargetState{
+		PodEntries:   s.GetPodEntries(),
+		MachineState: s.GetMachineState(),
+	}
+}
+
 func TestDynamicPolicyPlanBlocksUsesSnapshotMachineStateForSystemNUMAFallback(t *testing.T) {
 	topo, err := machine.GenerateDummyCPUTopology(8, 1, 1)
 	require.NoError(t, err)
@@ -1366,25 +1373,22 @@ func TestDynamicPolicyPlanBlocksUsesSnapshotMachineStateForSystemNUMAFallback(t 
 
 	snapshotMachineState := currentMachineState.Clone()
 	snapshotMachineState[0].DefaultCPUSet = machine.NewCPUSet(2, 3)
-	snapshot := state.CommittedStateSnapshot{
-		PodEntries: state.PodEntries{
-			"system-pod": {
-				"container": {
-					AllocationMeta: commonstate.AllocationMeta{
-						PodUid:        "system-pod",
-						ContainerName: "container",
-						QoSLevel:      apiconsts.PodAnnotationQoSLevelSystemCores,
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-						},
+	curEntries := state.PodEntries{
+		"system-pod": {
+			"container": {
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "system-pod",
+					ContainerName: "container",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSystemCores,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 					},
 				},
 			},
 		},
-		MachineState: snapshotMachineState,
 	}
 
-	target, err := policy.planBlocks(snapshot, advisorapi.BlockCPUSet{}, &advisorapi.ListAndWatchResponse{
+	target, err := policy.planBlocks(curEntries, snapshotMachineState, advisorapi.BlockCPUSet{}, &advisorapi.ListAndWatchResponse{
 		Entries: map[string]*advisorapi.CalculationEntries{},
 	})
 	require.NoError(t, err)
@@ -1400,24 +1404,21 @@ func TestDynamicPolicyPlanBlocksMissingPoolDoesNotEmitMetric(t *testing.T) {
 	emitter := NewMockMetricsEmitter()
 	policy.emitter = emitter
 
-	snapshot := state.CommittedStateSnapshot{
-		PodEntries: state.PodEntries{
-			"shared-pod": {
-				"container": {
-					RequestQuantity: 1,
-					AllocationMeta: commonstate.AllocationMeta{
-						PodUid:        "shared-pod",
-						ContainerName: "container",
-						OwnerPoolName: "missing-pool",
-						QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
-					},
+	curEntries := state.PodEntries{
+		"shared-pod": {
+			"container": {
+				RequestQuantity: 1,
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "shared-pod",
+					ContainerName: "container",
+					OwnerPoolName: "missing-pool",
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
 				},
 			},
 		},
-		MachineState: policy.state.GetMachineState(),
 	}
 
-	_, err = policy.planBlocks(snapshot, advisorapi.BlockCPUSet{}, &advisorapi.ListAndWatchResponse{
+	_, err = policy.planBlocks(curEntries, policy.state.GetMachineState(), advisorapi.BlockCPUSet{}, &advisorapi.ListAndWatchResponse{
 		Entries: map[string]*advisorapi.CalculationEntries{},
 	})
 	require.Error(t, err)
@@ -1488,11 +1489,9 @@ func TestDynamicPolicyResolveAdvisorCPUSetTargetsIncludesOnlyChangedMainContaine
 			},
 		},
 	}
-	snapshot := state.CommittedStateSnapshot{
-		PodEntries: state.PodEntries{
-			"pod-a": {"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(0)}},
-			"pod-b": {"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(1)}},
-		},
+	curEntries := state.PodEntries{
+		"pod-a": {"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(0)}},
+		"pod-b": {"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(1)}},
 	}
 	target := &state.TargetState{
 		PodEntries: state.PodEntries{
@@ -1511,7 +1510,7 @@ func TestDynamicPolicyResolveAdvisorCPUSetTargetsIncludesOnlyChangedMainContaine
 			}},
 		},
 	}
-	snapshot.PodEntries["unchanged"] = state.ContainerEntries{
+	curEntries["unchanged"] = state.ContainerEntries{
 		"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(4)},
 	}
 
@@ -1523,7 +1522,7 @@ func TestDynamicPolicyResolveAdvisorCPUSetTargetsIncludesOnlyChangedMainContaine
 			return "cg/" + podUID, nil
 		}).Build()
 
-		targets, err := policy.resolveAdvisorCPUSetTargets(snapshot, target)
+		targets, err := policy.resolveAdvisorCPUSetTargets(curEntries, target)
 		require.NoError(t, err)
 		require.Equal(t, []state.CPUSetCgroupTarget{
 			{Key: "pod-a/main", RelativePath: "cg/pod-a", CPUSet: machine.NewCPUSet(2)},
@@ -1715,7 +1714,7 @@ func TestDynamicPolicyApplyBlocksDirect(t *testing.T) {
 		require.NoError(t, policy.applyBlocks(blocks, resp))
 	})
 
-	committed := policy.state.GetCommittedStateSnapshot()
+	committed := cloneAdvisorState(policy.state)
 	require.Equal(t, "persisted", committed.PodEntries["pod-dedicated"]["container"].Annotations["hook.example/committed-state"])
 	require.Equal(t, machine.NewCPUSet(6, 7), committed.PodEntries["pod-dedicated"]["container"].AllocationResult)
 	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, policy.cgroupClient.(*recordingAdvisorCgroupClient).applied)
@@ -1724,7 +1723,7 @@ func TestDynamicPolicyApplyBlocksDirect(t *testing.T) {
 
 func TestDynamicPolicyApplyBlocksCommitFailureKeepsCommittedState(t *testing.T) {
 	policy, stateDir, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
-	before := policy.state.GetCommittedStateSnapshot()
+	before := cloneAdvisorState(policy.state)
 	setCheckpointStoreStateHookForTest(t, policy.state, func() error {
 		return errors.New("injected persist failure")
 	})
@@ -1743,7 +1742,7 @@ func TestDynamicPolicyApplyBlocksCommitFailureKeepsCommittedState(t *testing.T) 
 		require.ErrorContains(t, err, "injected persist failure")
 	})
 
-	require.Equal(t, before, policy.state.GetCommittedStateSnapshot())
+	require.Equal(t, before, cloneAdvisorState(policy.state))
 	cgroup := policy.cgroupClient.(*recordingAdvisorCgroupClient)
 	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, cgroup.applied)
 	require.Equal(t, []string{"cg/pod-dedicated"}, cgroup.read)
@@ -1754,12 +1753,12 @@ func TestDynamicPolicyApplyBlocksCommitFailureKeepsCommittedState(t *testing.T) 
 		state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{},
 	)
 	require.NoError(t, err)
-	require.Equal(t, before, restored.GetCommittedStateSnapshot())
+	require.Equal(t, before, cloneAdvisorState(restored))
 }
 
 func TestDynamicPolicyApplyBlocksHookFailureDoesNotCommitStateOrApplyCgroupTargets(t *testing.T) {
 	policy, _, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
-	before := policy.state.GetCommittedStateSnapshot()
+	before := cloneAdvisorState(policy.state)
 	policy.RegisterAllocationHook(func(_, _ *state.AllocationInfo) error {
 		return errors.New("hook failed")
 	})
@@ -1775,7 +1774,7 @@ func TestDynamicPolicyApplyBlocksHookFailureDoesNotCommitStateOrApplyCgroupTarge
 		require.ErrorContains(t, err, "hook failed")
 	})
 
-	require.Equal(t, before, policy.state.GetCommittedStateSnapshot())
+	require.Equal(t, before, cloneAdvisorState(policy.state))
 	require.Empty(t, policy.cgroupClient.(*recordingAdvisorCgroupClient).applied)
 }
 
@@ -1783,7 +1782,7 @@ func TestDynamicPolicyApplyBlocksCgroupApplyFailureKeepsCommittedState(t *testin
 	policy, _, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
 	cgroup := policy.cgroupClient.(*recordingAdvisorCgroupClient)
 	cgroup.applyErr = errors.New("cgroup apply failed")
-	before := policy.state.GetCommittedStateSnapshot()
+	before := cloneAdvisorState(policy.state)
 
 	advisorTestMutex.Lock()
 	defer advisorTestMutex.Unlock()
@@ -1796,7 +1795,7 @@ func TestDynamicPolicyApplyBlocksCgroupApplyFailureKeepsCommittedState(t *testin
 		require.ErrorContains(t, err, "cgroup apply failed")
 	})
 
-	require.Equal(t, before, policy.state.GetCommittedStateSnapshot())
+	require.Equal(t, before, cloneAdvisorState(policy.state))
 	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, cgroup.applied)
 	require.Empty(t, cgroup.read)
 }
@@ -1807,7 +1806,7 @@ func TestDynamicPolicyApplyBlocksReadBackMismatchKeepsCommittedState(t *testing.
 	cgroup.readOverrides = map[string]machine.CPUSet{
 		"cg/pod-dedicated": machine.NewCPUSet(0, 1),
 	}
-	before := policy.state.GetCommittedStateSnapshot()
+	before := cloneAdvisorState(policy.state)
 
 	advisorTestMutex.Lock()
 	defer advisorTestMutex.Unlock()
@@ -1820,7 +1819,7 @@ func TestDynamicPolicyApplyBlocksReadBackMismatchKeepsCommittedState(t *testing.
 		require.ErrorContains(t, err, "does not match expected value")
 	})
 
-	require.Equal(t, before, policy.state.GetCommittedStateSnapshot())
+	require.Equal(t, before, cloneAdvisorState(policy.state))
 	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, cgroup.applied)
 	require.Equal(t, []string{"cg/pod-dedicated"}, cgroup.read)
 }

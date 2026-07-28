@@ -20,20 +20,19 @@ import (
 	"encoding/json"
 
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
 )
 
 var _ checkpointmanager.Checkpoint = &CPUPluginCheckpoint{}
 
 type CPUPluginCheckpoint struct {
-	PolicyName                                 string          `json:"policyName"`
-	MachineState                               NUMANodeMap     `json:"machineState"`
-	NUMAHeadroom                               map[int]float64 `json:"numa_headroom"`
-	PodEntries                                 PodEntries      `json:"pod_entries"`
-	AllowSharedCoresOverlapReclaimedCores      bool            `json:"allow_shared_cores_overlap_reclaimed_cores"`
-	DisableDedicatedCoresOverlapReclaimedCores bool            `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
-	StateRevision                              uint64          `json:"state_revision"`
-	AdvisorEpoch                               uint64          `json:"advisor_epoch"`
-	AdviceSequence                             uint64          `json:"advice_sequence"`
+	PolicyName                                 string            `json:"policyName"`
+	MachineState                               NUMANodeMap       `json:"machineState"`
+	NUMAHeadroom                               map[int]float64   `json:"numa_headroom"`
+	PodEntries                                 PodEntries        `json:"pod_entries"`
+	AllowSharedCoresOverlapReclaimedCores      bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
+	DisableDedicatedCoresOverlapReclaimedCores bool              `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
+	Checksum                                   checksum.Checksum `json:"checksum"`
 }
 
 func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
@@ -46,7 +45,10 @@ func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
 
 // MarshalCheckpoint returns marshaled checkpoint
 func (cp *CPUPluginCheckpoint) MarshalCheckpoint() ([]byte, error) {
-	return json.Marshal(cp)
+	// make sure checksum wasn't set before, so it doesn't affect output checksum
+	cp.Checksum = 0
+	cp.Checksum = checksum.New(cp)
+	return json.Marshal(*cp)
 }
 
 // UnmarshalCheckpoint tries to unmarshal passed bytes to checkpoint
@@ -56,5 +58,12 @@ func (cp *CPUPluginCheckpoint) UnmarshalCheckpoint(blob []byte) error {
 
 // VerifyChecksum verifies that current checksum of checkpoint is valid
 func (cp *CPUPluginCheckpoint) VerifyChecksum() error {
-	return nil
+	ck := cp.Checksum
+	if ck == 0 {
+		return nil
+	}
+	cp.Checksum = 0
+	err := ck.Verify(cp)
+	cp.Checksum = ck
+	return err
 }

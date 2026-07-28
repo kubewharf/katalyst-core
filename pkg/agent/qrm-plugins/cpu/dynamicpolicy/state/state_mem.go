@@ -17,7 +17,6 @@ limitations under the License.
 package state
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 
@@ -45,9 +44,6 @@ type cpuPluginState struct {
 	cpuPluginStateData
 
 	socketTopology map[int]string
-	stateRevision  uint64
-	advisorEpoch   uint64
-	adviceSequence uint64
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
@@ -78,25 +74,6 @@ func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 	}
 }
 
-func (s *cpuPluginState) GetStateRevision() uint64 {
-	s.RLock()
-	defer s.RUnlock()
-	return s.stateRevision
-}
-
-func (s *cpuPluginState) GetCommittedStateSnapshot() CommittedStateSnapshot {
-	s.RLock()
-	defer s.RUnlock()
-	return CommittedStateSnapshot{
-		StateRevision:                         s.stateRevision,
-		MachineState:                          s.machineState.Clone(),
-		NUMAHeadroom:                          general.DeepCopyIntToFloat64Map(s.numaHeadroom),
-		PodEntries:                            s.podEntries.Clone(),
-		AllowSharedCoresOverlapReclaimedCores: s.allowSharedCoresOverlapReclaimedCores,
-		DisableDedicatedCoresOverlapReclaimedCores: s.disableDedicatedCoresOverlapReclaimedCores,
-	}
-}
-
 func (s *cpuPluginState) mutateCommittedState(mutator func()) {
 	s.Lock()
 	defer s.Unlock()
@@ -110,9 +87,6 @@ func (s *cpuPluginState) checkpointLocked() *CPUPluginCheckpoint {
 	checkpoint.PodEntries = s.podEntries.Clone()
 	checkpoint.AllowSharedCoresOverlapReclaimedCores = s.allowSharedCoresOverlapReclaimedCores
 	checkpoint.DisableDedicatedCoresOverlapReclaimedCores = s.disableDedicatedCoresOverlapReclaimedCores
-	checkpoint.StateRevision = s.stateRevision
-	checkpoint.AdvisorEpoch = s.advisorEpoch
-	checkpoint.AdviceSequence = s.adviceSequence
 	return checkpoint
 }
 
@@ -122,8 +96,6 @@ func (s *cpuPluginState) applyCheckpointLocked(checkpoint *CPUPluginCheckpoint) 
 	s.podEntries = checkpoint.PodEntries.Clone()
 	s.allowSharedCoresOverlapReclaimedCores = checkpoint.AllowSharedCoresOverlapReclaimedCores
 	s.disableDedicatedCoresOverlapReclaimedCores = checkpoint.DisableDedicatedCoresOverlapReclaimedCores
-	s.advisorEpoch = checkpoint.AdvisorEpoch
-	s.adviceSequence = checkpoint.AdviceSequence
 }
 
 func (s *cpuPluginState) GetMachineState() NUMANodeMap {
@@ -166,7 +138,6 @@ func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
 		return
 	}
 	s.machineState = numaNodeMap.Clone()
-	s.stateRevision++
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
 	}
@@ -180,7 +151,6 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
 		return
 	}
 	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
-	s.stateRevision++
 	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
 }
 
@@ -200,7 +170,6 @@ func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, 
 	}
 
 	s.podEntries[podUID][containerName] = allocationInfo.Clone()
-	s.stateRevision++
 	klog.InfoS("[cpu_plugin] updated cpu plugin pod entries",
 		"podUID", podUID,
 		"containerName", containerName,
@@ -215,7 +184,6 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 		return
 	}
 	s.podEntries = podEntries.Clone()
-	s.stateRevision++
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
 			"podEntries", podEntries.String())
@@ -226,20 +194,16 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 // Persistence and rollback are owned by stateCheckpoint, which delegates this
 // single in-memory mutation before storing its checkpoint.
 func (s *cpuPluginState) CommitState(
-	podEntries PodEntries, machineState NUMANodeMap, expectedRevision uint64, _ bool,
+	podEntries PodEntries, machineState NUMANodeMap, _ bool,
 ) error {
 	s.Lock()
 	defer s.Unlock()
 
-	if s.stateRevision != expectedRevision {
-		return fmt.Errorf("%w: expected %d, current %d", ErrStateRevisionConflict, expectedRevision, s.stateRevision)
-	}
 	if reflect.DeepEqual(s.podEntries, podEntries) && reflect.DeepEqual(s.machineState, machineState) {
 		return nil
 	}
 	s.podEntries = podEntries.Clone()
 	s.machineState = machineState.Clone()
-	s.stateRevision++
 	return nil
 }
 
@@ -254,7 +218,6 @@ func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCor
 		return
 	}
 	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
-	s.stateRevision++
 }
 
 func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
@@ -275,7 +238,6 @@ func (s *cpuPluginState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDe
 		return
 	}
 	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
-	s.stateRevision++
 }
 
 func (s *cpuPluginState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
@@ -300,7 +262,6 @@ func (s *cpuPluginState) Delete(podUID string, containerName string) {
 	if len(s.podEntries[podUID]) == 0 {
 		delete(s.podEntries, podUID)
 	}
-	s.stateRevision++
 	klog.V(2).InfoS("[cpu_plugin] deleted container entry",
 		"podUID", podUID,
 		"containerName", containerName)
@@ -317,6 +278,5 @@ func (s *cpuPluginState) ClearState() {
 	s.machineState = defaultMachineState
 	s.socketTopology = s.cpuTopology.GetSocketTopology()
 	s.podEntries = make(PodEntries)
-	s.stateRevision++
 	klog.V(2).InfoS("[cpu_plugin] cleared state")
 }

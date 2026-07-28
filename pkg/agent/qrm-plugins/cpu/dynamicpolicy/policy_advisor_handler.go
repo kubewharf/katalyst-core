@@ -1336,13 +1336,14 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 }
 
 func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *advisorapi.ListAndWatchResponse) error {
-	snapshot := p.state.GetCommittedStateSnapshot()
-	target, err := p.planBlocks(snapshot, blockCPUSet, resp)
+	curEntries := p.state.GetPodEntries()
+	curMachineState := p.state.GetMachineState()
+	target, err := p.planBlocks(curEntries, curMachineState, blockCPUSet, resp)
 	if err != nil {
 		return err
 	}
 	p.emitPoolSizeMetrics(resp, target.PodEntries)
-	if err := p.invokeAllocationHooksForPodEntries(snapshot.PodEntries, target.PodEntries); err != nil {
+	if err := p.invokeAllocationHooksForPodEntries(curEntries, target.PodEntries); err != nil {
 		return err
 	}
 	target.MachineState, err = generateMachineStateFromPodEntries(
@@ -1351,14 +1352,14 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	if err != nil {
 		return fmt.Errorf("recalculate target machine state after allocation hooks: %w", err)
 	}
-	targets, err := p.resolveAdvisorCPUSetTargets(snapshot, target)
+	targets, err := p.resolveAdvisorCPUSetTargets(curEntries, target)
 	if err != nil {
 		return err
 	}
 	if err := p.applyAndVerifyAdvisorCPUSetTargets(targets); err != nil {
 		return err
 	}
-	if err := p.state.CommitState(target.PodEntries, target.MachineState, snapshot.StateRevision, true); err != nil {
+	if err := p.state.CommitState(target.PodEntries, target.MachineState, true); err != nil {
 		return fmt.Errorf("commit advisor target state: %w", err)
 	}
 	return nil
@@ -1368,7 +1369,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 // for an advisor state transition. Pool entries and sidecars do not have a
 // container cgroup target.
 func (p *DynamicPolicy) resolveAdvisorCPUSetTargets(
-	snapshot state.CommittedStateSnapshot, target *state.TargetState,
+	curEntries state.PodEntries, target *state.TargetState,
 ) ([]state.CPUSetCgroupTarget, error) {
 	if target == nil {
 		return nil, fmt.Errorf("advisor target state is nil")
@@ -1386,7 +1387,7 @@ func (p *DynamicPolicy) resolveAdvisorCPUSetTargets(
 			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 				continue
 			}
-			current := snapshot.PodEntries[podUID][containerName]
+			current := curEntries[podUID][containerName]
 			if current != nil && current.AllocationResult.Equals(allocationInfo.AllocationResult) {
 				continue
 			}
@@ -1434,7 +1435,8 @@ func (p *DynamicPolicy) applyAndVerifyAdvisorCPUSetTargets(targets []state.CPUSe
 
 // planBlocks calculates the target state for the advisor response without mutating state or invoking side effects.
 func (p *DynamicPolicy) planBlocks(
-	snapshot state.CommittedStateSnapshot,
+	curEntries state.PodEntries,
+	curMachineState state.NUMANodeMap,
 	blockCPUSet advisorapi.BlockCPUSet,
 	resp *advisorapi.ListAndWatchResponse,
 ) (*state.TargetState, error) {
@@ -1442,13 +1444,12 @@ func (p *DynamicPolicy) planBlocks(
 		return nil, fmt.Errorf("applyBlocks got nil resp")
 	}
 
-	curEntries := snapshot.PodEntries
 	newEntries := make(state.PodEntries)
 	dedicatedCPUSet := machine.NewCPUSet()
 	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
 
 	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := snapshot.MachineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	nonReclaimActualBindingNUMAs := curMachineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
 
 	// deal with blocks of dedicated_cores and pools
 	for entryName, entry := range resp.Entries {
@@ -1614,7 +1615,7 @@ func (p *DynamicPolicy) planBlocks(
 				return nil, fmt.Errorf(errMsg)
 			case consts.PodAnnotationQoSLevelSystemCores:
 				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignmentsForMachineState(
-					newEntries, snapshot.MachineState, allocationInfo,
+					newEntries, curMachineState, allocationInfo,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("pod: %s/%s, container: %s is system_cores, "+
@@ -1687,7 +1688,7 @@ func (p *DynamicPolicy) planBlocks(
 		}
 	}
 
-	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries, snapshot.MachineState)
+	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries, curMachineState)
 	if err != nil {
 		return nil, fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}

@@ -80,7 +80,7 @@ func (f *fakeState) SetPodEntries(podEntries state.PodEntries, _ bool) {
 	f.podEntries = podEntries
 }
 
-func (f *fakeState) CommitState(podEntries state.PodEntries, machineState state.NUMANodeMap, _ uint64, _ bool) error {
+func (f *fakeState) CommitState(podEntries state.PodEntries, machineState state.NUMANodeMap, _ bool) error {
 	f.podEntries = podEntries
 	f.machineState = machineState
 	return nil
@@ -116,12 +116,6 @@ func (f *fakeState) ClearState() {
 
 func (f *fakeState) StoreState() error {
 	return nil
-}
-
-func (f *fakeState) GetStateRevision() uint64 { return 0 }
-
-func (f *fakeState) GetCommittedStateSnapshot() state.CommittedStateSnapshot {
-	return state.CommittedStateSnapshot{}
 }
 
 func newTestOptimizer(ratio float64, machineState state.NUMANodeMap) *cpuTotalRequestThresholdHintOptimizer {

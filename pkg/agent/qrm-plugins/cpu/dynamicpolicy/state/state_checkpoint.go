@@ -112,19 +112,13 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
 	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(checkpoint.AllowSharedCoresOverlapReclaimedCores)
 	sc.cache.SetDisableDedicatedCoresOverlapReclaimedCores(checkpoint.DisableDedicatedCoresOverlapReclaimedCores)
-	sc.cache.Lock()
-	sc.cache.stateRevision = checkpoint.StateRevision
-	sc.cache.advisorEpoch = checkpoint.AdvisorEpoch
-	sc.cache.adviceSequence = checkpoint.AdviceSequence
 
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
-		sc.cache.Unlock()
 		klog.Warningf("[cpu_plugin] machine state changed: generatedMachineState: %s; checkpointMachineState: %s",
 			generatedMachineState.String(), checkpoint.MachineState.String())
 
 		return true, nil
 	}
-	sc.cache.Unlock()
 
 	return false, nil
 }
@@ -169,24 +163,7 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	checkpoint.PodEntries = sc.cache.GetPodEntries()
 	checkpoint.AllowSharedCoresOverlapReclaimedCores = sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 	checkpoint.DisableDedicatedCoresOverlapReclaimedCores = sc.cache.GetDisableDedicatedCoresOverlapReclaimedCores()
-	checkpoint.StateRevision = sc.cache.GetStateRevision()
-	sc.cache.RLock()
-	checkpoint.AdvisorEpoch = sc.cache.advisorEpoch
-	checkpoint.AdviceSequence = sc.cache.adviceSequence
-	sc.cache.RUnlock()
 	return checkpoint
-}
-
-func (sc *stateCheckpoint) GetStateRevision() uint64 {
-	sc.RLock()
-	defer sc.RUnlock()
-	return sc.cache.GetStateRevision()
-}
-
-func (sc *stateCheckpoint) GetCommittedStateSnapshot() CommittedStateSnapshot {
-	sc.RLock()
-	defer sc.RUnlock()
-	return sc.cache.GetCommittedStateSnapshot()
 }
 
 func (sc *stateCheckpoint) snapshotCacheLocked() *CPUPluginCheckpoint {
@@ -199,7 +176,6 @@ func (sc *stateCheckpoint) restoreCacheLocked(checkpoint *CPUPluginCheckpoint) {
 	sc.cache.Lock()
 	defer sc.cache.Unlock()
 	sc.cache.applyCheckpointLocked(checkpoint)
-	sc.cache.stateRevision = checkpoint.StateRevision
 }
 
 func (sc *stateCheckpoint) GetMachineState() NUMANodeMap {
@@ -238,7 +214,6 @@ func (sc *stateCheckpoint) SetMachineState(numaNodeMap NUMANodeMap, persist bool
 	sc.cache.mutateCommittedState(func() {
 		if !reflect.DeepEqual(sc.cache.machineState, numaNodeMap) {
 			sc.cache.machineState = numaNodeMap.Clone()
-			sc.cache.stateRevision++
 		}
 	})
 	if persist {
@@ -258,7 +233,6 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64, persist bool) {
 	sc.cache.mutateCommittedState(func() {
 		if !reflect.DeepEqual(sc.cache.numaHeadroom, m) {
 			sc.cache.numaHeadroom = general.DeepCopyIntToFloat64Map(m)
-			sc.cache.stateRevision++
 		}
 	})
 	if persist {
@@ -288,7 +262,6 @@ func (sc *stateCheckpoint) SetAllocationInfo(
 			sc.cache.podEntries[podUID] = make(ContainerEntries)
 		}
 		sc.cache.podEntries[podUID][containerName] = allocationInfo.Clone()
-		sc.cache.stateRevision++
 	})
 	if persist {
 		err := sc.storeState()
@@ -307,7 +280,6 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	sc.cache.mutateCommittedState(func() {
 		if !reflect.DeepEqual(sc.cache.podEntries, podEntries) {
 			sc.cache.podEntries = podEntries.Clone()
-			sc.cache.stateRevision++
 		}
 	})
 	if persist {
@@ -323,13 +295,13 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 // A persistence failure restores the complete checkpoint snapshot so callers
 // never observe only one side of the state transition.
 func (sc *stateCheckpoint) CommitState(
-	podEntries PodEntries, machineState NUMANodeMap, expectedRevision uint64, persist bool,
+	podEntries PodEntries, machineState NUMANodeMap, persist bool,
 ) error {
 	sc.Lock()
 	defer sc.Unlock()
 
 	before := sc.snapshotCacheLocked()
-	if err := sc.cache.CommitState(podEntries, machineState, expectedRevision, false); err != nil {
+	if err := sc.cache.CommitState(podEntries, machineState, false); err != nil {
 		return err
 	}
 	if !persist {
@@ -350,7 +322,6 @@ func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedC
 	sc.cache.mutateCommittedState(func() {
 		if sc.cache.allowSharedCoresOverlapReclaimedCores != allowSharedCoresOverlapReclaimedCores {
 			sc.cache.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
-			sc.cache.stateRevision++
 		}
 	})
 	if persist {
@@ -377,7 +348,6 @@ func (sc *stateCheckpoint) SetDisableDedicatedCoresOverlapReclaimedCores(disable
 	sc.cache.mutateCommittedState(func() {
 		if sc.cache.disableDedicatedCoresOverlapReclaimedCores != disableDedicatedCoresOverlapReclaimedCores {
 			sc.cache.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
-			sc.cache.stateRevision++
 		}
 	})
 	if persist {
@@ -409,7 +379,6 @@ func (sc *stateCheckpoint) Delete(podUID string, containerName string, persist b
 		if len(sc.cache.podEntries[podUID]) == 0 {
 			delete(sc.cache.podEntries, podUID)
 		}
-		sc.cache.stateRevision++
 	})
 	if persist {
 		err := sc.storeState()
@@ -433,7 +402,6 @@ func (sc *stateCheckpoint) ClearState() {
 		sc.cache.machineState = defaultMachineState
 		sc.cache.socketTopology = sc.cache.cpuTopology.GetSocketTopology()
 		sc.cache.podEntries = make(PodEntries)
-		sc.cache.stateRevision++
 	})
 	err := sc.storeState()
 	if err != nil {

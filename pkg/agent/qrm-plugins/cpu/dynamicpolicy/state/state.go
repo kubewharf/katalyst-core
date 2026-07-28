@@ -65,16 +65,6 @@ type ResourcePackageState struct {
 	PinnedCPUSet machine.CPUSet    `json:"pinned_cpuset,omitempty"`
 }
 
-// CommittedStateSnapshot is a read-only, deep-copied view of committed state.
-type CommittedStateSnapshot struct {
-	StateRevision                              uint64
-	MachineState                               NUMANodeMap
-	NUMAHeadroom                               map[int]float64
-	PodEntries                                 PodEntries
-	AllowSharedCoresOverlapReclaimedCores      bool
-	DisableDedicatedCoresOverlapReclaimedCores bool
-}
-
 func (r *ResourcePackageState) GetAttributes() map[string]string {
 	if r == nil {
 		return nil
@@ -874,9 +864,7 @@ type writer interface {
 	// CommitState atomically replaces pod entries and machine state. When
 	// persist is true, it returns an error and restores the prior complete
 	// snapshot if the checkpoint cannot be stored.
-	// CommitState atomically replaces pod entries and machine state only when
-	// the committed state still has expectedRevision.
-	CommitState(podEntries PodEntries, machineState NUMANodeMap, expectedRevision uint64, persist bool) error
+	CommitState(podEntries PodEntries, machineState NUMANodeMap, persist bool) error
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
 	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool)
@@ -895,8 +883,6 @@ type State interface {
 // ReadonlyState interface only provides methods for tracking pod assignments
 type ReadonlyState interface {
 	reader
-	GetStateRevision() uint64
-	GetCommittedStateSnapshot() CommittedStateSnapshot
 }
 
 type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error)

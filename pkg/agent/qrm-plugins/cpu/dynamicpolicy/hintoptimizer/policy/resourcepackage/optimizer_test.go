@@ -62,7 +62,7 @@ func (m *MockState) GetDisableDedicatedCoresOverlapReclaimedCores() bool        
 func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool)  {}
 func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)   {}
 func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) {}
-func (m *MockState) CommitState(state.PodEntries, state.NUMANodeMap, uint64, bool) error {
+func (m *MockState) CommitState(state.PodEntries, state.NUMANodeMap, bool) error {
 	return nil
 }
 func (m *MockState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, persist bool) {
@@ -75,10 +75,6 @@ func (m *MockState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicat
 func (m *MockState) Delete(podUID string, containerName string, persist bool) {}
 func (m *MockState) ClearState()                                              {}
 func (m *MockState) StoreState() error                                        { return nil }
-func (m *MockState) GetStateRevision() uint64                                 { return 0 }
-func (m *MockState) GetCommittedStateSnapshot() state.CommittedStateSnapshot {
-	return state.CommittedStateSnapshot{}
-}
 
 type resourcePackageManagerStub struct {
 	nodeResourcePackagesMap pkgutil.NUMAResourcePackageItems

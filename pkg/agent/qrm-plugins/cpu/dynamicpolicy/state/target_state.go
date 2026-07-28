@@ -16,13 +16,7 @@ limitations under the License.
 
 package state
 
-import (
-	"errors"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-)
-
-var ErrStateRevisionConflict = errors.New("state revision conflict")
+import "github.com/kubewharf/katalyst-core/pkg/util/machine"
 
 // TargetState is the calculated committed state for an advisor update.
 type TargetState struct {
