@@ -45,10 +45,15 @@ const (
 )
 
 type DAGApplyResult struct {
-	Attempted         int
-	Applied           int
-	Skipped           int
-	Failed            int
+	Attempted int
+	Applied   int
+	Skipped   int
+	Failed    int
+	// Deferred counts controlled nodes whose final generational shrink could not
+	// land this pass but left the parent as a valid cgroup v1 superset. These are
+	// not failures: the next periodical reconcile finishes the shrink. A non-zero
+	// Deferred implies FullyConverged is false.
+	Deferred          int
 	FullyConverged    bool
 	ConvergenceReport ConvergenceReport
 }
@@ -224,8 +229,15 @@ func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map
 		}
 		if !observed.IsSubsetOf(target) {
 			logApplyNodeTarget("converge_shrink", n, target, targets, in.Cgroup, ctx)
-			if err := writer.shrinkParentWithLiveChildUnion(n, target); err != nil && firstErr == nil {
-				firstErr = err
+			// A deferred generational shrink is not a failure: the parent is still
+			// a valid superset of every live child, and the next reconcile finishes
+			// the narrowing. Count it and keep applying other nodes.
+			if err := writer.shrinkParentWithLiveChildUnion(n, target); err != nil {
+				if IsDeferConvergenceError(err) {
+					res.Deferred++
+				} else if firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
 		return nil

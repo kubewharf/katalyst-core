@@ -1083,6 +1083,17 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 	machineInfo := p.machineInfo
 	topology := machineInfo.CPUTopology
 
+	// Preferred reuse: read the previous reclaim pool cpuset so this recompute can
+	// keep reclaim on its prior cores whenever they are still available, instead of
+	// re-selecting from scratch. Re-selecting from scratch makes the advisor-side
+	// reclaim jump to a near-disjoint region across recomputes, which is the
+	// amplifier that drives the parent-shrink EBUSY. An empty previous set (first
+	// allocation / pool just created) falls back to the legacy from-scratch take.
+	prevReclaim, err := p.state.GetPodEntries().GetCPUSetForPool(commonstate.PoolNameReclaim)
+	if err != nil {
+		prevReclaim = machine.NewCPUSet()
+	}
+
 	// 1. Process NUMA-aware reclaim blocks
 	for numaID, blocks := range reclaimBlocksMap {
 		if numaID == commonstate.FakedNUMAID || len(blocks) == 0 {
@@ -1115,7 +1126,18 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
 				"currentAvailableCPUs", currentAvailableCPUs.String())
 
-			cpuset, err := calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
+			// Prefer this NUMA node's slice of the previous reclaim cpuset so reclaim
+			// stays in place across recomputes; only spill to fresh cores when the
+			// prior cores were taken by dedicated/share or the requirement grew.
+			// When there is no prior reclaim on this NUMA node, keep the legacy
+			// topology-aware take so first-allocation core shape is unchanged.
+			prevOnNUMA := prevReclaim.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
+			var cpuset machine.CPUSet
+			if prevOnNUMA.IsEmpty() {
+				cpuset, err = calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
+			} else {
+				cpuset, _, err = p.takeByTieredPreferredCPUs(currentAvailableCPUs, []machine.CPUSet{prevOnNUMA}, blockResult)
+			}
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for NUMA Aware reclaim block: %s in NUMA: %d failed with error: %v", blockID, numaID, err)
 			}
@@ -1160,7 +1182,10 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
 				"currentAvailableCPUs", currentAvailableCPUs.String())
 
-			cpuset, _, err := calculator.TakeByNUMABalance(machineInfo, currentAvailableCPUs, blockResult)
+			// Prefer the whole previous reclaim cpuset as the first tier so non-NUMA
+			// reclaim also stays in place across recomputes; spill to NUMA-balanced
+			// fresh cores only when the prior cores are no longer available.
+			cpuset, _, err := p.takeByTieredPreferredCPUs(currentAvailableCPUs, []machine.CPUSet{prevReclaim}, blockResult)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for non NUMA Aware reclaim block: %s failed with error: %v", blockID, err)
 			}

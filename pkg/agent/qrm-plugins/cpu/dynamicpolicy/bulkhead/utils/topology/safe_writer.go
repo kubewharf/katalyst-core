@@ -32,7 +32,28 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-const maxSafeCPUSetWriteAttempts = 3
+const (
+	maxSafeCPUSetWriteAttempts = 3
+	maxCPUSetFailureDumpNodes  = 64
+	maxCPUSetFailureDumpDepth  = 3
+	maxCgroupFileLogFields     = 16
+)
+
+// errDeferConvergence marks a generational parent shrink that could not narrow
+// to its final target within the bounded retries this pass (a child reclaim
+// bucket still holds a near-disjoint previous generation), yet the parent was
+// kept as a valid cgroup v1 superset of every live child. It is non-fatal: the
+// next periodical reconcile re-runs the same shrink path and converges once the
+// advisor has moved the child bucket to the new segment. Callers must never use
+// it to mask a genuine parent-below-child illegal state.
+var errDeferConvergence = errors.New("bulkhead cpuset convergence deferred to next reconcile")
+
+// IsDeferConvergenceError reports whether err (or any wrapped error) is the
+// deferred-convergence sentinel. It is exported so the admission path can
+// distinguish a transient topology lag from a real allocation failure.
+func IsDeferConvergenceError(err error) bool {
+	return errors.Is(err, errDeferConvergence)
+}
 
 type safeCPSetWriter struct {
 	ctx             context.Context
@@ -191,7 +212,11 @@ func (w safeCPSetWriter) shrinkParentWithLiveChildUnion(node *TopoNode, target m
 	if current.Equals(effectiveTarget) {
 		return nil
 	}
-	return w.writeNode(node, effectiveTarget)
+	// Defer instead of failing hard when only the final narrowing cannot land:
+	// the parent already covers every live child (checked above), so a persistent
+	// EBUSY here means a child bucket still holds a previous generation that a
+	// later reconcile will drain.
+	return w.finalParentShrink(node, effectiveTarget)
 }
 
 func (w safeCPSetWriter) shrinkControlledChildrenToTargets(parentRel string) error {
@@ -273,7 +298,10 @@ func (w safeCPSetWriter) shrinkReclaimBucketWithDescendants(node *TopoNode, targ
 	if current.Equals(target) {
 		return nil
 	}
-	return w.writeNode(node, target)
+	// The bucket already covers every live descendant (checked above); a
+	// persistent EBUSY on the final narrowing is deferred to the next reconcile
+	// rather than failing the caller.
+	return w.finalParentShrink(node, target)
 }
 
 func (w safeCPSetWriter) hasChildren(rel string) (bool, error) {
@@ -601,6 +629,47 @@ func findPhysicalReclaimBucketRel(rel string) (string, int, bool) {
 	return "", 0, false
 }
 
+// parentSupersetHeld reports whether the parent node's current cgroup cpuset
+// already covers the union of every live child. This is the safety precondition
+// for deferring a final parent shrink: the bridge must have been written so the
+// parent stays a valid cgroup v1 superset, and only the final narrowing to the
+// steady-state target is what could not complete this pass.
+func (w safeCPSetWriter) parentSupersetHeld(node *TopoNode) bool {
+	if node == nil {
+		return false
+	}
+	liveChildUnion, err := w.liveChildUnion(node.Rel)
+	if err != nil {
+		return false
+	}
+	current, err := w.cg.ReadCPUSet(w.ctx, node.Rel)
+	if err != nil {
+		return false
+	}
+	return liveChildUnion.IsSubsetOf(current)
+}
+
+// finalParentShrink performs the last narrowing write of a parent node to its
+// steady-state effectiveTarget. When the write keeps hitting EBUSY because a
+// controlled child bucket still holds a near-disjoint previous generation (RC1
+// downstream lag), it does NOT surface a hard EBUSY that would fail Pod
+// admission. Instead, provided the parent is still a valid superset of every
+// live child, it returns errDeferConvergence so the next periodical reconcile
+// can finish the shrink after the advisor moves the child bucket. Any other
+// error, or an illegal parent-below-child state, is returned unchanged.
+func (w safeCPSetWriter) finalParentShrink(node *TopoNode, effectiveTarget machine.CPUSet) error {
+	err := w.writeNode(node, effectiveTarget)
+	if err == nil {
+		return nil
+	}
+	if isCgroupBusyError(err) && w.parentSupersetHeld(node) {
+		general.Warningf("topo_dag_writer: defer_convergence rel=%q target=%s err=%v",
+			node.Rel, effectiveTarget.String(), err)
+		return errDeferConvergence
+	}
+	return err
+}
+
 func (w safeCPSetWriter) writeNode(node *TopoNode, target machine.CPUSet) error {
 	if node == nil {
 		return nil
@@ -625,6 +694,7 @@ func (w safeCPSetWriter) writeNode(node *TopoNode, target machine.CPUSet) error 
 		if w.res != nil {
 			w.res.Failed++
 		}
+		w.logCPUSetSubtreeOnWriteFailure("write_node", node, target, machine.NewCPUSet(), attempt, err)
 		if !isCgroupBusyError(err) || attempt == maxSafeCPUSetWriteAttempts-1 {
 			return err
 		}
@@ -659,6 +729,7 @@ func (w safeCPSetWriter) writeBridgeNode(node *TopoNode, finalTarget, bridgeTarg
 		if w.res != nil {
 			w.res.Failed++
 		}
+		w.logCPUSetSubtreeOnWriteFailure("write_bridge_node", node, target, finalTarget, attempt, err)
 		if !isCgroupBusyError(err) || attempt == maxSafeCPUSetWriteAttempts-1 {
 			return err
 		}
@@ -695,6 +766,85 @@ func (w safeCPSetWriter) logControlledNodeWrite(stage string, node *TopoNode, ta
 	}
 	general.InfofV(4, "topo_dag_writer: controlled_write stage=%s rel=%q role=%v parent=%q attempt=%d current=%s parentCurrent=%s target=%s finalTarget=%s targetByRel=%s nodeCPUs=%s mems=%q metadata=%v",
 		stage, node.Rel, node.Role, parentRel, attempt, current, parentCurrent, target.String(), finalTarget.String(), targetByRel, node.CPUs.String(), memsForNode(node, w.defaultMems), node.Metadata)
+}
+
+func (w safeCPSetWriter) logCPUSetSubtreeOnWriteFailure(stage string, node *TopoNode, target machine.CPUSet, finalTarget machine.CPUSet, attempt int, writeErr error) {
+	if node == nil {
+		return
+	}
+	entries, truncated := w.collectCPUSetSubtreeSnapshot(node.Rel)
+	general.Warningf("topo_dag_writer: cpuset_write_failed stage=%s rel=%q role=%v attempt=%d retryable=%t target=%s finalTarget=%s mems=%q metadata=%v err=%v subtree_truncated=%v subtree=[%s]",
+		stage, node.Rel, node.Role, attempt, isCgroupBusyError(writeErr), target.String(), finalTarget.String(), memsForNode(node, w.defaultMems), node.Metadata, writeErr, truncated, strings.Join(entries, " ; "))
+}
+
+type cpusetSubtreeSnapshotItem struct {
+	rel   string
+	depth int
+}
+
+func (w safeCPSetWriter) collectCPUSetSubtreeSnapshot(rootRel string) ([]string, bool) {
+	queue := []cpusetSubtreeSnapshotItem{{rel: rootRel, depth: 0}}
+	entries := make([]string, 0, maxCPUSetFailureDumpNodes)
+	truncated := false
+
+	for len(queue) > 0 {
+		item := queue[0]
+		queue = queue[1:]
+		if len(entries) >= maxCPUSetFailureDumpNodes {
+			truncated = true
+			break
+		}
+
+		entries = append(entries, w.formatCPUSetSubtreeSnapshotEntry(item.rel))
+		if item.depth >= maxCPUSetFailureDumpDepth {
+			continue
+		}
+
+		children, err := w.cg.ListChildren(w.ctx, item.rel)
+		if err != nil {
+			entries = append(entries, fmt.Sprintf("rel=%q children=<read_error:%v>", item.rel, err))
+			continue
+		}
+		for _, child := range children {
+			queue = append(queue, cpusetSubtreeSnapshotItem{
+				rel:   filepath.Join(item.rel, child),
+				depth: item.depth + 1,
+			})
+		}
+	}
+
+	return entries, truncated
+}
+
+func (w safeCPSetWriter) formatCPUSetSubtreeSnapshotEntry(rel string) string {
+	return fmt.Sprintf("rel=%q cpus=%q mems=%q slb=%q partition=%q tasks=%q procs=%q",
+		rel,
+		w.readCgroupFileForLog(rel, "cpuset.cpus"),
+		w.readCgroupFileForLog(rel, "cpuset.mems"),
+		w.readCgroupFileForLog(rel, "cpuset.sched_load_balance"),
+		w.readCgroupFileForLog(rel, "cpuset.cpus.partition"),
+		w.readCgroupFileForLog(rel, "tasks"),
+		w.readCgroupFileForLog(rel, "cgroup.procs"),
+	)
+}
+
+func (w safeCPSetWriter) readCgroupFileForLog(rel, file string) string {
+	raw, err := w.cg.ReadCgroupFile(w.ctx, rel, file)
+	if err != nil {
+		return fmt.Sprintf("<read_error:%v>", err)
+	}
+	return summarizeCgroupFileForLog(raw)
+}
+
+func summarizeCgroupFileForLog(raw []byte) string {
+	fields := strings.Fields(string(raw))
+	if len(fields) == 0 {
+		return "<empty>"
+	}
+	if len(fields) > maxCgroupFileLogFields {
+		return fmt.Sprintf("%s...(+%d)", strings.Join(fields[:maxCgroupFileLogFields], ","), len(fields)-maxCgroupFileLogFields)
+	}
+	return strings.Join(fields, ",")
 }
 
 func (w safeCPSetWriter) reconcileLiveChildrenBeforeRetry(parentRel string, parentTarget machine.CPUSet) error {

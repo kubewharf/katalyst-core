@@ -154,8 +154,16 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentHandler(ctx context.Context, in b
 		return fmt.Errorf("apply bulkhead topology dag: %w", err)
 	}
 	if !res.FullyConverged {
-		general.InfofV(4, "cpuset_topology: apply not fully converged, report=%+v", res.ConvergenceReport)
-		emitBulkheadPruneResult(in.Emitter, "skipped", 0, "not_converged")
+		// A deferred generational shrink (res.Deferred>0) is an expected transient:
+		// the parent stayed a valid superset of every live child, so this handler
+		// returns nil (does NOT fail Pod admission) and the next periodical
+		// reconcile finishes the narrowing once the advisor moves the child bucket.
+		general.InfofV(4, "cpuset_topology: apply not fully converged, deferred=%d report=%+v", res.Deferred, res.ConvergenceReport)
+		reason := "not_converged"
+		if res.Deferred > 0 {
+			reason = "deferred_convergence"
+		}
+		emitBulkheadPruneResult(in.Emitter, "skipped", 0, reason)
 		return nil
 	}
 

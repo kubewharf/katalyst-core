@@ -174,9 +174,11 @@ func TestSafeCPUSetWriterLimitsEBUSYRetries(t *testing.T) {
 	if attempts != maxSafeCPUSetWriteAttempts {
 		t.Fatalf("EBUSY attempts = %d, want %d", attempts, maxSafeCPUSetWriteAttempts)
 	}
-	if want := maxSafeCPUSetWriteAttempts - 1; cg.childLists != want || cg.childReads != want {
-		t.Fatalf("fresh child observations after retryable EBUSY = lists:%d reads:%d, want both %d",
-			cg.childLists, cg.childReads, want)
+	retryObservations := maxSafeCPUSetWriteAttempts - 1
+	diagnosticSubtreeLists := maxSafeCPUSetWriteAttempts
+	if wantLists := retryObservations + diagnosticSubtreeLists; cg.childLists != wantLists || cg.childReads != retryObservations {
+		t.Fatalf("fresh child observations after retryable EBUSY = lists:%d reads:%d, want lists:%d reads:%d",
+			cg.childLists, cg.childReads, wantLists, retryObservations)
 	}
 	if res.Attempted != maxSafeCPUSetWriteAttempts || res.Failed != maxSafeCPUSetWriteAttempts {
 		t.Fatalf("result = %+v, want all attempts failed", res)
