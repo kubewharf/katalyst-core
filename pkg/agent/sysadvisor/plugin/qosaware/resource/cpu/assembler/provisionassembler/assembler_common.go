@@ -150,16 +150,18 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		"available", available, "nonReclaimRequirement", nonReclaimRequirement,
 		"reservedForReclaim", reservedForReclaim, "controlKnob", controlKnob)
 
-	// set pool overlap info for dedicated pool
-	for podUID, containerSet := range r.GetPods() {
-		for containerName := range containerSet {
-			general.InfoS("set pool overlap pod container info",
-				"poolName", commonstate.PoolNameReclaim,
-				"numaID", regionNuma,
-				"podUID", podUID,
-				"containerName", containerName,
-				"reclaimSize", reclaimedCoresSize)
-			result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, regionNuma, podUID, containerName, reclaimedCoresSize)
+	if !pa.conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores {
+		// set pool overlap info for dedicated pool
+		for podUID, containerSet := range r.GetPods() {
+			for containerName := range containerSet {
+				general.InfoS("set pool overlap pod container info",
+					"poolName", commonstate.PoolNameReclaim,
+					"numaID", regionNuma,
+					"podUID", podUID,
+					"containerName", containerName,
+					"reclaimSize", reclaimedCoresSize)
+				result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, regionNuma, podUID, containerName, reclaimedCoresSize)
+			}
 		}
 	}
 
@@ -176,11 +178,12 @@ func (pa *ProvisionAssemblerCommon) assembleReserve(result *types.InternalCPUCal
 
 func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalculationResult, error) {
 	calculationResult := types.InternalCPUCalculationResult{
-		PoolEntries:                           make(map[string]map[int]types.CPUResource),
-		PoolOverlapInfo:                       map[string]map[int]map[string]int{},
-		PoolOverlapPodContainerInfo:           map[string]map[int]map[string]map[string]int{},
-		TimeStamp:                             time.Now(),
-		AllowSharedCoresOverlapReclaimedCores: *pa.allowSharedCoresOverlapReclaimedCores,
+		PoolEntries:                                make(map[string]map[int]types.CPUResource),
+		PoolOverlapInfo:                            map[string]map[int]map[string]int{},
+		PoolOverlapPodContainerInfo:                map[string]map[int]map[string]map[string]int{},
+		TimeStamp:                                  time.Now(),
+		AllowSharedCoresOverlapReclaimedCores:      *pa.allowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: pa.conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores,
 	}
 
 	pa.assembleReserve(&calculationResult)
@@ -607,6 +610,7 @@ func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
 ) (int, int, float64, error) {
 	var reclaimedCoresSize, overlapReclaimedCoresSize int
 	reclaimedCoresQuota := float64(-1)
+	disableDedicatedCoresOverlapReclaimedCores := pa.conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores
 
 	isolated := 0
 	poolSizes := make(map[string]int)
@@ -637,11 +641,11 @@ func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
 
 		_, ok = data.dedicatedInfo.requests[poolName]
 		if ok {
-			if data.dedicatedInfo.reclaimEnable[poolName] {
+			poolSizes[poolName] = size
+			if data.dedicatedInfo.reclaimEnable[poolName] && !disableDedicatedCoresOverlapReclaimedCores {
 				reclaimablePoolSizes[poolName] = size
 				reclaimableRequirements[poolName] = data.dedicatedInfo.requirements[poolName]
 			}
-			poolSizes[poolName] = size
 		}
 	}
 
@@ -737,7 +741,7 @@ func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
 			continue
 		}
 
-		if podSet, ok := data.dedicatedInfo.podSet[overlapPoolName]; ok {
+		if podSet, ok := data.dedicatedInfo.podSet[overlapPoolName]; ok && !disableDedicatedCoresOverlapReclaimedCores {
 			// set pool overlap info for dedicated pool
 			for podUID, containerSet := range podSet {
 				for containerName := range containerSet {
@@ -764,10 +768,11 @@ func (pa *ProvisionAssemblerCommon) calculateNonOverlapReclaimPool(
 ) (int, int, float64, error) {
 	var reclaimedCoresSize, overlapReclaimedCoresSize int
 	reclaimedCoresQuota := float64(-1)
+	disableDedicatedCoresOverlapReclaimedCores := pa.conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores
 
 	if data.nodeEnableReclaim {
 		for poolName, size := range data.dedicatedInfo.requests {
-			if data.dedicatedInfo.reclaimEnable[poolName] {
+			if data.dedicatedInfo.reclaimEnable[poolName] && !disableDedicatedCoresOverlapReclaimedCores {
 				reclaimSize := size - data.dedicatedInfo.requirements[poolName]
 				if reclaimSize <= 0 {
 					continue

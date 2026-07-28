@@ -29,10 +29,12 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -59,6 +61,15 @@ type FakeRegion struct {
 	headroomPolicyTopPriority  types.CPUHeadroomPolicyName
 	controlEssentials          types.ControlEssentials
 	essentials                 types.ResourceEssentials
+}
+
+type fakeMetaReader struct {
+	metacache.MetaReader
+	featureGates map[string]*advisorsvc.FeatureGate
+}
+
+func (f fakeMetaReader) GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error) {
+	return f.featureGates, nil
 }
 
 func NewFakeRegion(name string, regionType configapi.QoSRegionType, ownerPoolName string) *FakeRegion {
@@ -1291,5 +1302,190 @@ func TestClampReclaimOverlapMetadataClearsZeroBudget(t *testing.T) {
 
 	require.Zero(t, got)
 	require.Empty(t, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+}
+
+func TestCalculateReclaimPoolDisableDedicatedCoresOverlapReclaimedCores(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name      string
+		calculate func(*ProvisionAssemblerCommon, *reclaimPoolCalculationData, *types.InternalCPUCalculationResult) (int, int, float64, error)
+		data      *reclaimPoolCalculationData
+	}{
+		{
+			name:      "overlap reclaim pool keeps shared overlap only",
+			calculate: (*ProvisionAssemblerCommon).calculateOverlapReclaimPool,
+			data: &reclaimPoolCalculationData{
+				shareInfo: regionInfo{
+					requirements:  map[string]int{"share": 2},
+					requests:      map[string]int{"share": 4},
+					reclaimEnable: map[string]bool{"share": true},
+				},
+				dedicatedInfo: regionInfo{
+					requirements:  map[string]int{"dedicated": 2},
+					requests:      map[string]int{"dedicated": 4},
+					reclaimEnable: map[string]bool{"dedicated": true},
+					podSet: map[string]types.PodSet{
+						"dedicated": {"pod": {"container": {}}},
+					},
+				},
+				shareAndIsolateDedicatedPoolSizes:      map[string]int{"share": 4, "dedicated": 4},
+				dedicatedPoolSizes:                     map[string]int{"dedicated": 4},
+				dedicatedReclaimCoresSize:              2,
+				shareAndIsolatedDedicatedPoolAvailable: 8,
+				nodeEnableReclaim:                      true,
+			},
+		},
+		{
+			name:      "non-overlap reclaim pool does not publish dedicated overlap metadata",
+			calculate: (*ProvisionAssemblerCommon).calculateNonOverlapReclaimPool,
+			data: &reclaimPoolCalculationData{
+				dedicatedInfo: regionInfo{
+					requirements:  map[string]int{"dedicated": 2},
+					requests:      map[string]int{"dedicated": 4},
+					reclaimEnable: map[string]bool{"dedicated": true},
+					podSet: map[string]types.PodSet{
+						"dedicated": {"pod": {"container": {}}},
+					},
+				},
+				dedicatedReclaimCoresSize: 2,
+				nodeEnableReclaim:         true,
+			},
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			conf := generateTestConf(t, true, "")
+			conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+			pa := &ProvisionAssemblerCommon{conf: conf, metaReader: fakeMetaReader{}}
+			result := &types.InternalCPUCalculationResult{
+				PoolOverlapInfo:             map[string]map[int]map[string]int{},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
+			}
+
+			_, _, _, err := tt.calculate(pa, tt.data, result)
+
+			require.NoError(t, err)
+			require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+			if tt.name == "overlap reclaim pool keeps shared overlap only" {
+				require.Equal(t, map[string]int{"share": 2}, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+			}
+		})
+	}
+}
+
+func TestAssembleProvisionDisableDedicatedNUMAExclusiveOverlapMetadata(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+
+	dedicatedRegion := NewFakeRegion("dedicated-numa-exclusive", configapi.QoSRegionTypeDedicated, "dedicated-numa-exclusive")
+	dedicatedRegion.bindingNumas = machine.NewCPUSet(0)
+	dedicatedRegion.isNumaBinding = true
+	dedicatedRegion.isNumaExclusive = true
+	dedicatedRegion.podSets = types.PodSet{"pod": {"container": {}}}
+	dedicatedRegion.controlKnob = types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {Value: 2},
+		configapi.ControlKnobReclaimedCoresCPUQuota:     {Value: 5},
+	}
+
+	regionMap := map[string]region.QoSRegion{dedicatedRegion.Name(): dedicatedRegion}
+	reservedForReclaim := map[int]int{0: 1}
+	numaAvailable := map[int]int{0: 8}
+	nonBindingNumas := machine.NewCPUSet()
+	allowSharedCoresOverlapReclaimedCores := true
+	metaReader := metacache.NewDummyMetaCacheImp()
+	require.NoError(t, metaReader.SetSupportedWantedFeatureGates(map[string]*advisorsvc.FeatureGate{
+		feature_cpu.NegotiationFeatureGateQuotaCtrlKnob: {},
+	}))
+	pa := NewProvisionAssemblerCommon(
+		conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas,
+		&allowSharedCoresOverlapReclaimedCores,
+		metaReader,
+		nil, metrics.DummyMetrics{},
+	)
+
+	result, err := pa.AssembleProvision()
+
+	require.NoError(t, err)
+	require.Equal(t, types.CPUResource{Size: 0, Quota: 5}, result.PoolEntries[commonstate.PoolNameReclaim][0])
+	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+}
+
+func TestCalculateOverlapReclaimPoolDisableDedicatedOverlapKeepsQuotaSemantics(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+	pa := &ProvisionAssemblerCommon{
+		conf: conf,
+		metaReader: fakeMetaReader{featureGates: map[string]*advisorsvc.FeatureGate{
+			feature_cpu.NegotiationFeatureGateQuotaCtrlKnob: {},
+		}},
+	}
+	data := &reclaimPoolCalculationData{
+		dedicatedInfo: regionInfo{
+			requirements:              map[string]int{"dedicated": 2},
+			requests:                  map[string]int{"dedicated": 4},
+			reclaimEnable:             map[string]bool{"dedicated": true},
+			podSet:                    map[string]types.PodSet{"dedicated": {"pod": {"container": {}}}},
+			minReclaimedCoresCPUQuota: 1,
+		},
+		shareAndIsolateDedicatedPoolSizes:      map[string]int{"dedicated": 4},
+		dedicatedPoolSizes:                     map[string]int{"dedicated": 4},
+		dedicatedReclaimCoresSize:              2,
+		shareAndIsolatedDedicatedPoolAvailable: 4,
+		reservedForReclaim:                     1,
+		nodeEnableReclaim:                      true,
+		numaID:                                 0,
+	}
+	result := &types.InternalCPUCalculationResult{
+		PoolOverlapInfo:             map[string]map[int]map[string]int{},
+		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
+	}
+
+	reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err := pa.calculateOverlapReclaimPool(data, result)
+
+	require.NoError(t, err)
+	require.Equal(t, 2, reclaimedCoresSize)
+	require.Zero(t, overlapReclaimedCoresSize)
+	require.Equal(t, float64(1), reclaimedCoresQuota)
+	require.Empty(t, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+}
+
+func TestCalculateOverlapReclaimPoolDisableDedicatedOverlapReservedReclaim(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+	pa := &ProvisionAssemblerCommon{
+		conf: conf,
+		metaReader: fakeMetaReader{featureGates: map[string]*advisorsvc.FeatureGate{
+			feature_cpu.NegotiationFeatureGateQuotaCtrlKnob: {},
+		}},
+	}
+	data := &reclaimPoolCalculationData{
+		dedicatedInfo: regionInfo{
+			requirements:  map[string]int{"dedicated": 2},
+			requests:      map[string]int{"dedicated": 4},
+			reclaimEnable: map[string]bool{"dedicated": true},
+			podSet:        map[string]types.PodSet{"dedicated": {"pod": {"container": {}}}},
+		},
+		shareAndIsolateDedicatedPoolSizes:      map[string]int{"dedicated": 4},
+		dedicatedPoolSizes:                     map[string]int{"dedicated": 4},
+		dedicatedReclaimCoresSize:              2,
+		shareAndIsolatedDedicatedPoolAvailable: 4,
+		reservedForReclaim:                     4,
+		nodeEnableReclaim:                      true,
+		numaID:                                 0,
+	}
+	result := &types.InternalCPUCalculationResult{
+		PoolOverlapInfo:             map[string]map[int]map[string]int{},
+		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
+	}
+
+	reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err := pa.calculateOverlapReclaimPool(data, result)
+
+	require.NoError(t, err)
+	require.Equal(t, 4, reclaimedCoresSize)
+	require.Zero(t, overlapReclaimedCoresSize)
+	require.Equal(t, float64(4), reclaimedCoresQuota)
 	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
 }

@@ -44,6 +44,7 @@ func clampReclaimedMaxRatio(name string, ratio float64) float64 {
 
 type CPUProvisionConfiguration struct {
 	AllowSharedCoresOverlapReclaimedCores       bool
+	DisableDedicatedCoresOverlapReclaimedCores  bool
 	RegionIndicatorTargetConfiguration          map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration
 	IndicatorTargetGetters                      map[string]string
 	IndicatorTargetDefaultGetter                string
@@ -55,7 +56,8 @@ type CPUProvisionConfiguration struct {
 
 func NewCPUProvisionConfiguration() *CPUProvisionConfiguration {
 	return &CPUProvisionConfiguration{
-		AllowSharedCoresOverlapReclaimedCores: false,
+		AllowSharedCoresOverlapReclaimedCores:      false,
+		DisableDedicatedCoresOverlapReclaimedCores: false,
 		RegionIndicatorTargetConfiguration: map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration{
 			v1alpha1.QoSRegionTypeShare: {
 				{
@@ -102,6 +104,9 @@ func (c *CPUProvisionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCR
 		}
 		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.AllowSharedCoresOverlapReclaimedCores != nil {
 			c.AllowSharedCoresOverlapReclaimedCores = *aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.AllowSharedCoresOverlapReclaimedCores
+		}
+		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.DisableDedicatedCoresOverlapReclaimedCores != nil {
+			c.DisableDedicatedCoresOverlapReclaimedCores = *aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.DisableDedicatedCoresOverlapReclaimedCores
 		}
 	}
 }

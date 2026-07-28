@@ -142,8 +142,9 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	resp := &cpuadvisor.GetAdviceResponse{
 		Entries:                               result.Entries,
 		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          result.ExtraEntries,
-		SupportedFeatureGates:                 supportedWantedFeatureGates,
+		DisableDedicatedCoresOverlapReclaimedCores: result.DisableDedicatedCoresOverlapReclaimedCores,
+		ExtraEntries:          result.ExtraEntries,
+		SupportedFeatureGates: supportedWantedFeatureGates,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
 	general.InfoS("get advice", "duration", time.Since(startTime))
@@ -262,7 +263,8 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	lwResp := &cpuadvisor.ListAndWatchResponse{
 		Entries:                               result.Entries,
 		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          result.ExtraEntries,
+		DisableDedicatedCoresOverlapReclaimedCores: result.DisableDedicatedCoresOverlapReclaimedCores,
+		ExtraEntries: result.ExtraEntries,
 	}
 	if err := server.Send(lwResp); err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
@@ -303,9 +305,10 @@ func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]
 }
 
 type cpuInternalResult struct {
-	Entries                               map[string]*cpuadvisor.CalculationEntries
-	AllowSharedCoresOverlapReclaimedCores bool
-	ExtraEntries                          []*advisorsvc.CalculationInfo
+	Entries                                    map[string]*cpuadvisor.CalculationEntries
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+	ExtraEntries                               []*advisorsvc.CalculationInfo
 }
 
 func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuInternalResult {
@@ -347,6 +350,7 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 		Entries:                               calculationEntriesMap,
 		ExtraEntries:                          extraEntries,
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: advisorResp.DisableDedicatedCoresOverlapReclaimedCores,
 	}
 
 	return resp
