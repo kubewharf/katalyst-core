@@ -75,17 +75,9 @@ func (m *MockState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicat
 func (m *MockState) Delete(podUID string, containerName string, persist bool) {}
 func (m *MockState) ClearState()                                              {}
 func (m *MockState) StoreState() error                                        { return nil }
-func (m *MockState) GetDedicatedIsolationMode() state.DedicatedIsolationMode {
-	return state.DedicatedIsolationModeUnknown
-}
-func (m *MockState) SetDedicatedIsolationMode(state.DedicatedIsolationMode, bool) {
-}
-func (m *MockState) GetStateRevision() uint64 { return 0 }
+func (m *MockState) GetStateRevision() uint64                                 { return 0 }
 func (m *MockState) GetCommittedStateSnapshot() state.CommittedStateSnapshot {
 	return state.CommittedStateSnapshot{}
-}
-func (m *MockState) MutateAuxiliaryDesired(func(*state.AdvisorAuxiliaryDesiredState) error, bool) error {
-	return nil
 }
 
 type resourcePackageManagerStub struct {

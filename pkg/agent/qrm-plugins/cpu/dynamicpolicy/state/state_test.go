@@ -609,15 +609,9 @@ func TestNewCheckpointState(t *testing.T) {
 	"numa_headroom": {},
 	"allow_shared_cores_overlap_reclaimed_cores": false,
 	"disable_dedicated_cores_overlap_reclaimed_cores": false,
-	"isolation_mode": 0,
 	"state_revision": 0,
 	"advisor_epoch": 0,
-	"advice_sequence": 0,
-	"auxiliary_desired": {
-		"desired_isolation_mode": 0,
-		"desired_cpuset_by_numa": {},
-		"desired_attributes": {}
-	}
+	"advice_sequence": 0
 }`,
 			"",
 			&cpuPluginState{
@@ -1539,15 +1533,9 @@ func TestNewCheckpointState(t *testing.T) {
 	"numa_headroom": {},
 	"allow_shared_cores_overlap_reclaimed_cores": false,
 	"disable_dedicated_cores_overlap_reclaimed_cores": false,
-	"isolation_mode": 0,
 	"state_revision": 0,
 	"advisor_epoch": 0,
-	"advice_sequence": 0,
-	"auxiliary_desired": {
-		"desired_isolation_mode": 0,
-		"desired_cpuset_by_numa": {},
-		"desired_attributes": {}
-	}
+	"advice_sequence": 0
 }`,
 			"",
 			nil,
@@ -3422,7 +3410,7 @@ func TestNewCPUPluginCheckpoint(t *testing.T) {
 	assert.Equal(t, newCheckpoint, oldCheckpoint)
 }
 
-func TestCPUPluginCheckpointDoesNotPersistCPUSetWAL(t *testing.T) {
+func TestCPUPluginCheckpointDoesNotPersistDeprecatedDedicatedIsolationState(t *testing.T) {
 	t.Parallel()
 
 	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -3437,22 +3425,13 @@ func TestCPUPluginCheckpointDoesNotPersistCPUSetWAL(t *testing.T) {
 		},
 	})
 	assert.False(t, inMemoryState.GetDisableDedicatedCoresOverlapReclaimedCores())
-	assert.Equal(t, DedicatedIsolationModeUnknown, inMemoryState.GetDedicatedIsolationMode())
-	assert.Equal(t, DedicatedIsolationModeUnknown, NewCPUPluginCheckpoint().IsolationMode)
 	inMemoryState.SetDisableDedicatedCoresOverlapReclaimedCores(true)
-	inMemoryState.SetDedicatedIsolationMode(DedicatedIsolationModeIsolated)
 	assert.True(t, inMemoryState.GetDisableDedicatedCoresOverlapReclaimedCores())
-	assert.Equal(t, DedicatedIsolationModeIsolated, inMemoryState.GetDedicatedIsolationMode())
 
 	source := &stateCheckpoint{
 		cache:      inMemoryState,
 		policyName: policyName,
 		topology:   topology,
-	}
-	source.cache.auxiliaryDesired = AdvisorAuxiliaryDesiredState{
-		DesiredIsolationMode: DedicatedIsolationModeIsolated,
-		DesiredCPUSetByNUMA:  map[int]machine.CPUSet{0: machine.NewCPUSet(1, 2)},
-		DesiredAttributes:    map[string]string{"key": "value"},
 	}
 	checkpoint := source.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
 	blob, err := checkpoint.MarshalCheckpoint()
@@ -3464,13 +3443,13 @@ func TestCPUPluginCheckpointDoesNotPersistCPUSetWAL(t *testing.T) {
 	require.NotContains(t, payload, "pending_admission")
 	require.NotContains(t, payload, "pending_ownerships")
 	require.NotContains(t, payload, "transaction_wal_version")
+	require.NotContains(t, payload, "isolation_mode")
+	require.NotContains(t, payload, "auxiliary_desired")
 
 	restoredCheckpoint := NewCPUPluginCheckpoint()
 	require.NoError(t, restoredCheckpoint.UnmarshalCheckpoint(blob))
 	require.Equal(t, checkpoint.PodEntries, restoredCheckpoint.PodEntries)
 	require.Equal(t, checkpoint.MachineState, restoredCheckpoint.MachineState)
-	require.Equal(t, checkpoint.IsolationMode, restoredCheckpoint.IsolationMode)
-	require.Equal(t, checkpoint.AuxiliaryDesired, restoredCheckpoint.AuxiliaryDesired)
 
 	destination := &stateCheckpoint{
 		cache:                              NewCPUPluginState(topology),
@@ -3481,13 +3460,11 @@ func TestCPUPluginCheckpointDoesNotPersistCPUSetWAL(t *testing.T) {
 	_, err = destination.RestoreState(restoredCheckpoint)
 	require.NoError(t, err)
 	assert.True(t, destination.GetDisableDedicatedCoresOverlapReclaimedCores())
-	assert.Equal(t, DedicatedIsolationModeIsolated, destination.GetDedicatedIsolationMode())
 }
 
-func TestNewCPUPluginCheckpointInitializesCurrentMaps(t *testing.T) {
+func TestNewCPUPluginCheckpointInitializesCurrentState(t *testing.T) {
 	checkpoint := NewCPUPluginCheckpoint()
 
-	assert.NotNil(t, checkpoint.AuxiliaryDesired.DesiredCPUSetByNUMA)
 	assert.Zero(t, checkpoint.StateRevision)
 	assert.Zero(t, checkpoint.AdvisorEpoch)
 	assert.Zero(t, checkpoint.AdviceSequence)
@@ -3525,12 +3502,6 @@ func TestStateCheckpointRestoresCommittedStateWhenPersistFails(t *testing.T) {
 			},
 		})
 		cache.SetNUMAHeadroom(map[int]float64{0: 1})
-		cache.MutateAuxiliaryDesired(func(desired *AdvisorAuxiliaryDesiredState) error {
-			desired.DesiredIsolationMode = DedicatedIsolationModeIsolated
-			desired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(1)
-			desired.DesiredAttributes["committed"] = "value"
-			return nil
-		}, false)
 
 		return &stateCheckpoint{
 			cache:          cache,
@@ -3622,15 +3593,6 @@ func TestStateCheckpointRestoresCommittedStateWhenPersistFails(t *testing.T) {
 		require.Equal(t, before, sc.GetCommittedStateSnapshot())
 	})
 
-	t.Run("SetDedicatedIsolationMode", func(t *testing.T) {
-		sc := newStateCheckpoint()
-		before := sc.GetCommittedStateSnapshot()
-
-		sc.SetDedicatedIsolationMode(DedicatedIsolationModeLegacyOverlap, true)
-
-		require.Equal(t, before, sc.GetCommittedStateSnapshot())
-	})
-
 	t.Run("Delete", func(t *testing.T) {
 		sc := newStateCheckpoint()
 		before := sc.GetCommittedStateSnapshot()
@@ -3649,20 +3611,6 @@ func TestStateCheckpointRestoresCommittedStateWhenPersistFails(t *testing.T) {
 		require.Equal(t, before, sc.GetCommittedStateSnapshot())
 	})
 
-	t.Run("MutateAuxiliaryDesired", func(t *testing.T) {
-		sc := newStateCheckpoint()
-		before := sc.GetCommittedStateSnapshot()
-
-		err := sc.MutateAuxiliaryDesired(func(desired *AdvisorAuxiliaryDesiredState) error {
-			desired.DesiredIsolationMode = DedicatedIsolationModeLegacyOverlap
-			desired.DesiredCPUSetByNUMA[1] = machine.NewCPUSet(2)
-			desired.DesiredAttributes["new"] = "value"
-			return nil
-		}, true)
-
-		require.EqualError(t, err, "injected persist failure")
-		require.Equal(t, before, sc.GetCommittedStateSnapshot())
-	})
 }
 
 func TestCommitStateRejectsStaleRevisionWithoutMutation(t *testing.T) {
@@ -3738,12 +3686,6 @@ func TestCommittedStateSnapshotAndCheckpointRestoreDoNotAliasState(t *testing.T)
 	cache := NewCPUPluginState(topology)
 	cache.SetPodEntries(podEntries)
 	cache.SetMachineState(machineState)
-	require.NoError(t, cache.MutateAuxiliaryDesired(func(desired *AdvisorAuxiliaryDesiredState) error {
-		desired.DesiredIsolationMode = DedicatedIsolationModeIsolated
-		desired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(1)
-		desired.DesiredAttributes["key"] = "value"
-		return nil
-	}, false))
 
 	sc := &stateCheckpoint{
 		cache:                              cache,
@@ -3764,8 +3706,6 @@ func TestCommittedStateSnapshotAndCheckpointRestoreDoNotAliasState(t *testing.T)
 	snapshot.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(5)
 	snapshot.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "changed"
 	snapshot.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(6)
-	snapshot.AuxiliaryDesired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(2)
-	snapshot.AuxiliaryDesired.DesiredAttributes["key"] = "changed"
 	require.Equal(t, snapshotBeforeMutation, sc.GetCommittedStateSnapshot())
 
 	checkpoint := sc.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
@@ -3780,8 +3720,6 @@ func TestCommittedStateSnapshotAndCheckpointRestoreDoNotAliasState(t *testing.T)
 	checkpoint.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(8)
 	checkpoint.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "checkpoint-changed"
 	checkpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(9)
-	checkpoint.AuxiliaryDesired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(3)
-	checkpoint.AuxiliaryDesired.DesiredAttributes["key"] = "checkpoint-changed"
 	require.Equal(t, checkpointBeforeMutation, sc.GetCommittedStateSnapshot())
 
 	restoredState := &stateCheckpoint{
@@ -3809,7 +3747,5 @@ func TestCommittedStateSnapshotAndCheckpointRestoreDoNotAliasState(t *testing.T)
 	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(11)
 	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "restore-changed"
 	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(12)
-	restoreCheckpoint.AuxiliaryDesired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(4)
-	restoreCheckpoint.AuxiliaryDesired.DesiredAttributes["key"] = "restore-checkpoint-changed"
 	require.Equal(t, restoredSnapshot, restoredState.GetCommittedStateSnapshot())
 }

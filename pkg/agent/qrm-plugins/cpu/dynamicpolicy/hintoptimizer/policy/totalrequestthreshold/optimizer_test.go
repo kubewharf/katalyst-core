@@ -118,20 +118,10 @@ func (f *fakeState) StoreState() error {
 	return nil
 }
 
-func (f *fakeState) GetDedicatedIsolationMode() state.DedicatedIsolationMode {
-	return state.DedicatedIsolationModeUnknown
-}
-
-func (f *fakeState) SetDedicatedIsolationMode(state.DedicatedIsolationMode, bool) {}
-
 func (f *fakeState) GetStateRevision() uint64 { return 0 }
 
 func (f *fakeState) GetCommittedStateSnapshot() state.CommittedStateSnapshot {
 	return state.CommittedStateSnapshot{}
-}
-
-func (f *fakeState) MutateAuxiliaryDesired(func(*state.AdvisorAuxiliaryDesiredState) error, bool) error {
-	return nil
 }
 
 func newTestOptimizer(ratio float64, machineState state.NUMANodeMap) *cpuTotalRequestThresholdHintOptimizer {

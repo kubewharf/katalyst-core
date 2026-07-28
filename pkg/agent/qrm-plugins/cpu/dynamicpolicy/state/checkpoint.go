@@ -20,24 +20,20 @@ import (
 	"encoding/json"
 
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 var _ checkpointmanager.Checkpoint = &CPUPluginCheckpoint{}
 
 type CPUPluginCheckpoint struct {
-	PolicyName                                 string                       `json:"policyName"`
-	MachineState                               NUMANodeMap                  `json:"machineState"`
-	NUMAHeadroom                               map[int]float64              `json:"numa_headroom"`
-	PodEntries                                 PodEntries                   `json:"pod_entries"`
-	AllowSharedCoresOverlapReclaimedCores      bool                         `json:"allow_shared_cores_overlap_reclaimed_cores"`
-	DisableDedicatedCoresOverlapReclaimedCores bool                         `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
-	IsolationMode                              DedicatedIsolationMode       `json:"isolation_mode"`
-	StateRevision                              uint64                       `json:"state_revision"`
-	AdvisorEpoch                               uint64                       `json:"advisor_epoch"`
-	AdviceSequence                             uint64                       `json:"advice_sequence"`
-	AuxiliaryDesired                           AdvisorAuxiliaryDesiredState `json:"auxiliary_desired"`
+	PolicyName                                 string          `json:"policyName"`
+	MachineState                               NUMANodeMap     `json:"machineState"`
+	NUMAHeadroom                               map[int]float64 `json:"numa_headroom"`
+	PodEntries                                 PodEntries      `json:"pod_entries"`
+	AllowSharedCoresOverlapReclaimedCores      bool            `json:"allow_shared_cores_overlap_reclaimed_cores"`
+	DisableDedicatedCoresOverlapReclaimedCores bool            `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
+	StateRevision                              uint64          `json:"state_revision"`
+	AdvisorEpoch                               uint64          `json:"advisor_epoch"`
+	AdviceSequence                             uint64          `json:"advice_sequence"`
 }
 
 func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
@@ -45,10 +41,6 @@ func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
 		PodEntries:   make(PodEntries),
 		MachineState: make(NUMANodeMap),
 		NUMAHeadroom: make(map[int]float64),
-		AuxiliaryDesired: AdvisorAuxiliaryDesiredState{
-			DesiredCPUSetByNUMA: make(map[int]machine.CPUSet),
-			DesiredAttributes:   make(map[string]string),
-		},
 	}
 }
 

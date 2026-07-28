@@ -44,11 +44,10 @@ type cpuPluginState struct {
 	// preserve those semantics.
 	cpuPluginStateData
 
-	socketTopology   map[int]string
-	stateRevision    uint64
-	advisorEpoch     uint64
-	adviceSequence   uint64
-	auxiliaryDesired AdvisorAuxiliaryDesiredState
+	socketTopology map[int]string
+	stateRevision  uint64
+	advisorEpoch   uint64
+	adviceSequence uint64
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
@@ -74,9 +73,8 @@ func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 			podEntries:   make(PodEntries),
 			machineState: GetDefaultMachineState(topology),
 		},
-		socketTopology:   topology.GetSocketTopology(),
-		cpuTopology:      topology,
-		auxiliaryDesired: cloneAuxiliaryDesired(AdvisorAuxiliaryDesiredState{}),
+		socketTopology: topology.GetSocketTopology(),
+		cpuTopology:    topology,
 	}
 }
 
@@ -96,8 +94,6 @@ func (s *cpuPluginState) GetCommittedStateSnapshot() CommittedStateSnapshot {
 		PodEntries:                            s.podEntries.Clone(),
 		AllowSharedCoresOverlapReclaimedCores: s.allowSharedCoresOverlapReclaimedCores,
 		DisableDedicatedCoresOverlapReclaimedCores: s.disableDedicatedCoresOverlapReclaimedCores,
-		IsolationMode:    s.dedicatedIsolationMode,
-		AuxiliaryDesired: cloneAuxiliaryDesired(s.auxiliaryDesired),
 	}
 }
 
@@ -107,22 +103,6 @@ func (s *cpuPluginState) mutateCommittedState(mutator func()) {
 	mutator()
 }
 
-// MutateAuxiliaryDesired updates only the auxiliary desired state.
-func (s *cpuPluginState) MutateAuxiliaryDesired(mutator func(*AdvisorAuxiliaryDesiredState) error, _ bool) error {
-	s.Lock()
-	defer s.Unlock()
-	desired := cloneAuxiliaryDesired(s.auxiliaryDesired)
-	if err := mutator(&desired); err != nil {
-		return err
-	}
-	if reflect.DeepEqual(s.auxiliaryDesired, desired) {
-		return nil
-	}
-	s.auxiliaryDesired = cloneAuxiliaryDesired(desired)
-	s.stateRevision++
-	return nil
-}
-
 func (s *cpuPluginState) checkpointLocked() *CPUPluginCheckpoint {
 	checkpoint := NewCPUPluginCheckpoint()
 	checkpoint.MachineState = s.machineState.Clone()
@@ -130,11 +110,9 @@ func (s *cpuPluginState) checkpointLocked() *CPUPluginCheckpoint {
 	checkpoint.PodEntries = s.podEntries.Clone()
 	checkpoint.AllowSharedCoresOverlapReclaimedCores = s.allowSharedCoresOverlapReclaimedCores
 	checkpoint.DisableDedicatedCoresOverlapReclaimedCores = s.disableDedicatedCoresOverlapReclaimedCores
-	checkpoint.IsolationMode = s.dedicatedIsolationMode
 	checkpoint.StateRevision = s.stateRevision
 	checkpoint.AdvisorEpoch = s.advisorEpoch
 	checkpoint.AdviceSequence = s.adviceSequence
-	checkpoint.AuxiliaryDesired = cloneAuxiliaryDesired(s.auxiliaryDesired)
 	return checkpoint
 }
 
@@ -144,10 +122,8 @@ func (s *cpuPluginState) applyCheckpointLocked(checkpoint *CPUPluginCheckpoint) 
 	s.podEntries = checkpoint.PodEntries.Clone()
 	s.allowSharedCoresOverlapReclaimedCores = checkpoint.AllowSharedCoresOverlapReclaimedCores
 	s.disableDedicatedCoresOverlapReclaimedCores = checkpoint.DisableDedicatedCoresOverlapReclaimedCores
-	s.dedicatedIsolationMode = checkpoint.IsolationMode
 	s.advisorEpoch = checkpoint.AdvisorEpoch
 	s.adviceSequence = checkpoint.AdviceSequence
-	s.auxiliaryDesired = cloneAuxiliaryDesired(checkpoint.AuxiliaryDesired)
 }
 
 func (s *cpuPluginState) GetMachineState() NUMANodeMap {
@@ -307,25 +283,6 @@ func (s *cpuPluginState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
 	defer s.RUnlock()
 
 	return s.cpuPluginStateData.GetDisableDedicatedCoresOverlapReclaimedCores()
-}
-
-func (s *cpuPluginState) SetDedicatedIsolationMode(dedicatedIsolationMode DedicatedIsolationMode) {
-	s.Lock()
-	defer s.Unlock()
-
-	klog.InfoS("[cpu_plugin] Updated dedicatedIsolationMode", "dedicatedIsolationMode", dedicatedIsolationMode)
-	if s.dedicatedIsolationMode == dedicatedIsolationMode {
-		return
-	}
-	s.dedicatedIsolationMode = dedicatedIsolationMode
-	s.stateRevision++
-}
-
-func (s *cpuPluginState) GetDedicatedIsolationMode() DedicatedIsolationMode {
-	s.RLock()
-	defer s.RUnlock()
-
-	return s.cpuPluginStateData.GetDedicatedIsolationMode()
 }
 
 func (s *cpuPluginState) Delete(podUID string, containerName string) {

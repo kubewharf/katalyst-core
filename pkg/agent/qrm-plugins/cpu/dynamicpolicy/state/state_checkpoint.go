@@ -112,12 +112,10 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
 	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(checkpoint.AllowSharedCoresOverlapReclaimedCores)
 	sc.cache.SetDisableDedicatedCoresOverlapReclaimedCores(checkpoint.DisableDedicatedCoresOverlapReclaimedCores)
-	sc.cache.SetDedicatedIsolationMode(checkpoint.IsolationMode)
 	sc.cache.Lock()
 	sc.cache.stateRevision = checkpoint.StateRevision
 	sc.cache.advisorEpoch = checkpoint.AdvisorEpoch
 	sc.cache.adviceSequence = checkpoint.AdviceSequence
-	sc.cache.auxiliaryDesired = cloneAuxiliaryDesired(checkpoint.AuxiliaryDesired)
 
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
 		sc.cache.Unlock()
@@ -171,12 +169,10 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	checkpoint.PodEntries = sc.cache.GetPodEntries()
 	checkpoint.AllowSharedCoresOverlapReclaimedCores = sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 	checkpoint.DisableDedicatedCoresOverlapReclaimedCores = sc.cache.GetDisableDedicatedCoresOverlapReclaimedCores()
-	checkpoint.IsolationMode = sc.cache.GetDedicatedIsolationMode()
 	checkpoint.StateRevision = sc.cache.GetStateRevision()
 	sc.cache.RLock()
 	checkpoint.AdvisorEpoch = sc.cache.advisorEpoch
 	checkpoint.AdviceSequence = sc.cache.adviceSequence
-	checkpoint.AuxiliaryDesired = cloneAuxiliaryDesired(sc.cache.auxiliaryDesired)
 	sc.cache.RUnlock()
 	return checkpoint
 }
@@ -191,22 +187,6 @@ func (sc *stateCheckpoint) GetCommittedStateSnapshot() CommittedStateSnapshot {
 	sc.RLock()
 	defer sc.RUnlock()
 	return sc.cache.GetCommittedStateSnapshot()
-}
-
-func (sc *stateCheckpoint) MutateAuxiliaryDesired(mutator func(*AdvisorAuxiliaryDesiredState) error, persist bool) error {
-	sc.Lock()
-	defer sc.Unlock()
-	before := sc.snapshotCacheLocked()
-	if err := sc.cache.MutateAuxiliaryDesired(mutator, false); err != nil {
-		return err
-	}
-	if persist {
-		if err := sc.storeState(); err != nil {
-			sc.restoreCacheLocked(before)
-			return err
-		}
-	}
-	return nil
 }
 
 func (sc *stateCheckpoint) snapshotCacheLocked() *CPUPluginCheckpoint {
@@ -414,33 +394,6 @@ func (sc *stateCheckpoint) GetDisableDedicatedCoresOverlapReclaimedCores() bool 
 	defer sc.RUnlock()
 
 	return sc.cache.GetDisableDedicatedCoresOverlapReclaimedCores()
-}
-
-func (sc *stateCheckpoint) SetDedicatedIsolationMode(dedicatedIsolationMode DedicatedIsolationMode, persist bool) {
-	sc.Lock()
-	defer sc.Unlock()
-
-	before := sc.snapshotCacheLocked()
-	sc.cache.mutateCommittedState(func() {
-		if sc.cache.dedicatedIsolationMode != dedicatedIsolationMode {
-			sc.cache.dedicatedIsolationMode = dedicatedIsolationMode
-			sc.cache.stateRevision++
-		}
-	})
-	if persist {
-		err := sc.storeState()
-		if err != nil {
-			sc.restoreCacheLocked(before)
-			klog.ErrorS(err, "[cpu_plugin] store dedicatedIsolationMode to checkpoint error")
-		}
-	}
-}
-
-func (sc *stateCheckpoint) GetDedicatedIsolationMode() DedicatedIsolationMode {
-	sc.RLock()
-	defer sc.RUnlock()
-
-	return sc.cache.GetDedicatedIsolationMode()
 }
 
 func (sc *stateCheckpoint) Delete(podUID string, containerName string, persist bool) {

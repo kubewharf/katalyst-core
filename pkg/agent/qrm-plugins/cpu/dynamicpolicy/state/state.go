@@ -65,37 +65,6 @@ type ResourcePackageState struct {
 	PinnedCPUSet machine.CPUSet    `json:"pinned_cpuset,omitempty"`
 }
 
-type DedicatedIsolationMode int
-
-const (
-	DedicatedIsolationModeUnknown DedicatedIsolationMode = iota
-	DedicatedIsolationModeLegacyOverlap
-	DedicatedIsolationModeIsolated
-)
-
-// AdvisorAuxiliaryDesiredState stores the advisor's desired auxiliary state
-// independently from committed pod and machine state.
-type AdvisorAuxiliaryDesiredState struct {
-	DesiredIsolationMode DedicatedIsolationMode `json:"desired_isolation_mode"`
-	DesiredCPUSetByNUMA  map[int]machine.CPUSet `json:"desired_cpuset_by_numa"`
-	DesiredAttributes    map[string]string      `json:"desired_attributes"`
-}
-
-func cloneAuxiliaryDesired(desired AdvisorAuxiliaryDesiredState) AdvisorAuxiliaryDesiredState {
-	clone := AdvisorAuxiliaryDesiredState{
-		DesiredIsolationMode: desired.DesiredIsolationMode,
-		DesiredCPUSetByNUMA:  make(map[int]machine.CPUSet, len(desired.DesiredCPUSetByNUMA)),
-		DesiredAttributes:    make(map[string]string, len(desired.DesiredAttributes)),
-	}
-	for numaID, cpus := range desired.DesiredCPUSetByNUMA {
-		clone.DesiredCPUSetByNUMA[numaID] = cpus.Clone()
-	}
-	for key, value := range desired.DesiredAttributes {
-		clone.DesiredAttributes[key] = value
-	}
-	return clone
-}
-
 // CommittedStateSnapshot is a read-only, deep-copied view of committed state.
 type CommittedStateSnapshot struct {
 	StateRevision                              uint64
@@ -104,8 +73,6 @@ type CommittedStateSnapshot struct {
 	PodEntries                                 PodEntries
 	AllowSharedCoresOverlapReclaimedCores      bool
 	DisableDedicatedCoresOverlapReclaimedCores bool
-	IsolationMode                              DedicatedIsolationMode
-	AuxiliaryDesired                           AdvisorAuxiliaryDesiredState
 }
 
 func (r *ResourcePackageState) GetAttributes() map[string]string {
@@ -817,7 +784,6 @@ type cpuPluginStateData struct {
 	numaHeadroom                               map[int]float64
 	allowSharedCoresOverlapReclaimedCores      bool
 	disableDedicatedCoresOverlapReclaimedCores bool
-	dedicatedIsolationMode                     DedicatedIsolationMode
 }
 
 // Clone deep-copies every field of cpuPluginStateData. The caller receives a
@@ -833,7 +799,6 @@ func (d *cpuPluginStateData) Clone() cpuPluginStateData {
 		numaHeadroom:                          general.DeepCopyIntToFloat64Map(d.numaHeadroom),
 		allowSharedCoresOverlapReclaimedCores: d.allowSharedCoresOverlapReclaimedCores,
 		disableDedicatedCoresOverlapReclaimedCores: d.disableDedicatedCoresOverlapReclaimedCores,
-		dedicatedIsolationMode:                     d.dedicatedIsolationMode,
 	}
 }
 
@@ -890,14 +855,6 @@ func (d *cpuPluginStateData) GetDisableDedicatedCoresOverlapReclaimedCores() boo
 	return d.disableDedicatedCoresOverlapReclaimedCores
 }
 
-// GetDedicatedIsolationMode returns the dedicated-core isolation mode.
-func (d *cpuPluginStateData) GetDedicatedIsolationMode() DedicatedIsolationMode {
-	if d == nil {
-		return DedicatedIsolationModeUnknown
-	}
-	return d.dedicatedIsolationMode
-}
-
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
@@ -906,7 +863,6 @@ type reader interface {
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
 	GetDisableDedicatedCoresOverlapReclaimedCores() bool
-	GetDedicatedIsolationMode() DedicatedIsolationMode
 }
 
 // writer is used to store information into local states,
@@ -924,12 +880,10 @@ type writer interface {
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
 	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool)
-	SetDedicatedIsolationMode(dedicatedIsolationMode DedicatedIsolationMode, persist bool)
 
 	Delete(podUID string, containerName string, persist bool)
 	ClearState()
 	StoreState() error
-	MutateAuxiliaryDesired(mutator func(*AdvisorAuxiliaryDesiredState) error, persist bool) error
 }
 
 // State interface provides methods for tracking and setting pod assignments
