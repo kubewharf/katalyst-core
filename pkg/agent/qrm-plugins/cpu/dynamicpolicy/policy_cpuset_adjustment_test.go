@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -164,6 +166,52 @@ func TestGetResourcesAllocationBypassClearsNonDedicatedQoS(t *testing.T) {
 		assert.Greater(t, cpuInfo.AllocatedQuantity, float64(0))
 		assert.NotEmpty(t, cpuInfo.TopologyAssignments)
 		assert.Equal(t, tc.qos, cpuInfo.Annotations["test-key"])
+	}
+}
+
+func TestGetResourcesAllocationWithoutBypassReturnsCPUSet(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+	require.NoError(t, err)
+	p.dynamicConfig.GetDynamicConfiguration().EnableBypassCPUSetAdjustment = false
+
+	testCases := []struct {
+		podUID string
+		qos    string
+		cpus   machine.CPUSet
+	}{
+		{"pod-shared", consts.PodAnnotationQoSLevelSharedCores, machine.NewCPUSet(2, 3)},
+		{"pod-reclaimed", consts.PodAnnotationQoSLevelReclaimedCores, machine.NewCPUSet(4, 5)},
+		{"pod-system", consts.PodAnnotationQoSLevelSystemCores, machine.NewCPUSet(6, 7)},
+	}
+	for _, tc := range testCases {
+		req := &pluginapi.ResourceRequest{
+			PodUid:        tc.podUID,
+			PodNamespace:  "default",
+			PodName:       tc.podUID,
+			ContainerName: "main",
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: tc.qos,
+			},
+		}
+		p.state.SetAllocationInfo(tc.podUID, "main", &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.EmptyOwnerPoolName, tc.qos),
+			AllocationResult:         tc.cpus,
+			OriginalAllocationResult: tc.cpus.Clone(),
+			TopologyAwareAssignments: map[int]machine.CPUSet{0: tc.cpus.Clone()},
+			InitTimestamp:            time.Now().Format(util.QRMTimeFormat),
+		}, false)
+	}
+
+	resp, err := p.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	require.NoError(t, err)
+	for _, tc := range testCases {
+		cpuInfo := resp.PodResources[tc.podUID].ContainerResources["main"].ResourceAllocation[string(v1.ResourceCPU)]
+		require.Equal(t, tc.cpus.String(), cpuInfo.AllocationResult)
 	}
 }
 

@@ -62,9 +62,6 @@ func (m *MockState) GetDisableDedicatedCoresOverlapReclaimedCores() bool        
 func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool)  {}
 func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)   {}
 func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) {}
-func (m *MockState) CommitState(state.PodEntries, state.NUMANodeMap, bool) error {
-	return nil
-}
 func (m *MockState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, persist bool) {
 }
 

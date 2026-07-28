@@ -3581,25 +3581,6 @@ func TestStateCheckpointRestoresCommittedStateWhenPersistFails(t *testing.T) {
 		require.Equal(t, before, cloneStateForTest(sc))
 	})
 
-	t.Run("CommitState", func(t *testing.T) {
-		sc := newStateCheckpoint()
-		before := cloneStateForTest(sc)
-		updatedMachineState := sc.GetMachineState()
-		updatedMachineState[0].DefaultCPUSet = machine.NewCPUSet(2, 3)
-		updatedPodEntries := PodEntries{
-			"new-pod": {
-				"container": {
-					AllocationResult: machine.NewCPUSet(2),
-				},
-			},
-		}
-
-		err := sc.CommitState(updatedPodEntries, updatedMachineState, true)
-
-		require.ErrorContains(t, err, "injected persist failure")
-		require.Equal(t, before, cloneStateForTest(sc))
-	})
-
 	t.Run("SetNUMAHeadroom", func(t *testing.T) {
 		sc := newStateCheckpoint()
 		before := cloneStateForTest(sc)

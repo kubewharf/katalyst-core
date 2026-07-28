@@ -190,23 +190,6 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 	}
 }
 
-// CommitState atomically updates the pod entries and machine state in memory.
-// Persistence and rollback are owned by stateCheckpoint, which delegates this
-// single in-memory mutation before storing its checkpoint.
-func (s *cpuPluginState) CommitState(
-	podEntries PodEntries, machineState NUMANodeMap, _ bool,
-) error {
-	s.Lock()
-	defer s.Unlock()
-
-	if reflect.DeepEqual(s.podEntries, podEntries) && reflect.DeepEqual(s.machineState, machineState) {
-		return nil
-	}
-	s.podEntries = podEntries.Clone()
-	s.machineState = machineState.Clone()
-	return nil
-}
-
 func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) {
 	s.Lock()
 	defer s.Unlock()

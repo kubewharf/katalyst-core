@@ -16,17 +16,8 @@ limitations under the License.
 
 package state
 
-import "github.com/kubewharf/katalyst-core/pkg/util/machine"
-
 // TargetState is the calculated committed state for an advisor update.
 type TargetState struct {
 	PodEntries   PodEntries
 	MachineState NUMANodeMap
-}
-
-// CPUSetCgroupTarget identifies one cgroup CPU-set target for an advisor update.
-type CPUSetCgroupTarget struct {
-	Key          string
-	RelativePath string
-	CPUSet       machine.CPUSet
 }

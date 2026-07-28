@@ -23,10 +23,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sync"
 	"testing"
-	"unsafe"
 
 	"github.com/bytedance/mockey"
 	"github.com/smartystreets/goconvey/convey"
@@ -41,9 +39,9 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -1473,97 +1471,15 @@ func TestDynamicPolicyGetAllocationPoolEntryMissingPoolEmitsMetric(t *testing.T)
 	require.Equal(t, []int64{1}, emitter.storedInt64[util.MetricNameOrphanContainer])
 }
 
-func TestDynamicPolicyResolveAdvisorCPUSetTargetsIncludesOnlyChangedMainContainersInKeyOrder(t *testing.T) {
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-
-	policy := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{
-					PodList: []*v1.Pod{
-						{ObjectMeta: metav1.ObjectMeta{UID: "pod-a"}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}}},
-						{ObjectMeta: metav1.ObjectMeta{UID: "pod-b"}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}}},
-					},
-				},
-			},
-		},
-	}
-	curEntries := state.PodEntries{
-		"pod-a": {"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(0)}},
-		"pod-b": {"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(1)}},
-	}
-	target := &state.TargetState{
-		PodEntries: state.PodEntries{
-			"pool": {commonstate.FakedContainerName: &state.AllocationInfo{AllocationResult: machine.NewCPUSet(7)}},
-			"pod-a": {"main": &state.AllocationInfo{
-				AllocationResult: machine.NewCPUSet(2),
-				AllocationMeta:   commonstate.AllocationMeta{PodUid: "pod-a", ContainerName: "main", ContainerType: "MAIN"},
-			}},
-			"pod-b": {"main": &state.AllocationInfo{
-				AllocationResult: machine.NewCPUSet(3),
-				AllocationMeta:   commonstate.AllocationMeta{PodUid: "pod-b", ContainerName: "main", ContainerType: "MAIN"},
-			}},
-			"unchanged": {"main": &state.AllocationInfo{
-				AllocationResult: machine.NewCPUSet(4),
-				AllocationMeta:   commonstate.AllocationMeta{PodUid: "unchanged", ContainerName: "main", ContainerType: "MAIN"},
-			}},
-		},
-	}
-	curEntries["unchanged"] = state.ContainerEntries{
-		"main": &state.AllocationInfo{AllocationResult: machine.NewCPUSet(4)},
-	}
-
-	mockey.PatchConvey("resolve only once per changed target", t, func() {
-		mockey.Mock(native.GetContainerID).IncludeCurrentGoRoutine().To(func(pod *v1.Pod, containerName string) (string, error) {
-			return "id-" + string(pod.UID), nil
-		}).Build()
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().To(func(podUID, containerID string) (string, error) {
-			return "cg/" + podUID, nil
-		}).Build()
-
-		targets, err := policy.resolveAdvisorCPUSetTargets(curEntries, target)
-		require.NoError(t, err)
-		require.Equal(t, []state.CPUSetCgroupTarget{
-			{Key: "pod-a/main", RelativePath: "cg/pod-a", CPUSet: machine.NewCPUSet(2)},
-			{Key: "pod-b/main", RelativePath: "cg/pod-b", CPUSet: machine.NewCPUSet(3)},
-		}, targets)
-	})
-}
-
 type recordingAdvisorCgroupClient struct {
 	cgroupclient.FakeCgroupClient
-	applied       []string
-	read          []string
-	values        map[string]machine.CPUSet
-	applyErr      error
-	readOverrides map[string]machine.CPUSet
-}
-
-// setCheckpointStoreStateHookForTest injects a persistence failure into the
-// concrete checkpoint fixture without exposing a production-only test API.
-func setCheckpointStoreStateHookForTest(t *testing.T, st state.State, hook func() error) {
-	t.Helper()
-
-	value := reflect.ValueOf(st)
-	require.Equal(t, reflect.Ptr, value.Kind())
-	field := value.Elem().FieldByName("storeStateHook")
-	require.True(t, field.IsValid(), "state fixture must be a checkpoint state")
-
-	writable := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-	previous := reflect.New(field.Type()).Elem()
-	previous.Set(writable)
-	writable.Set(reflect.ValueOf(hook))
-	t.Cleanup(func() {
-		writable.Set(previous)
-	})
+	applied []string
+	read    []string
+	values  map[string]machine.CPUSet
 }
 
 func (c *recordingAdvisorCgroupClient) ApplyCPUSet(_ context.Context, relativePath string, data *common.CPUSetData) error {
 	c.applied = append(c.applied, relativePath+":"+data.CPUs)
-	if c.applyErr != nil {
-		return c.applyErr
-	}
 	cpuset, err := machine.Parse(data.CPUs)
 	if err != nil {
 		return err
@@ -1577,27 +1493,11 @@ func (c *recordingAdvisorCgroupClient) ApplyCPUSet(_ context.Context, relativePa
 
 func (c *recordingAdvisorCgroupClient) ReadCPUSet(_ context.Context, relativePath string) (machine.CPUSet, error) {
 	c.read = append(c.read, relativePath)
-	if value, ok := c.readOverrides[relativePath]; ok {
-		return value, nil
-	}
 	value, ok := c.values[relativePath]
 	if !ok {
 		return machine.NewCPUSet(), errors.New("unexpected cgroup read")
 	}
 	return value, nil
-}
-
-func TestDynamicPolicyApplyAndVerifyAdvisorCPUSetTargetsAppliesAllBeforeReading(t *testing.T) {
-	cgroup := &recordingAdvisorCgroupClient{}
-	policy := &DynamicPolicy{cgroupClient: cgroup}
-	targets := []state.CPUSetCgroupTarget{
-		{Key: "pod-a/main", RelativePath: "cg/a", CPUSet: machine.NewCPUSet(2)},
-		{Key: "pod-b/main", RelativePath: "cg/b", CPUSet: machine.NewCPUSet(3)},
-	}
-
-	require.NoError(t, policy.applyAndVerifyAdvisorCPUSetTargets(targets))
-	require.Equal(t, []string{"cg/a:2", "cg/b:3"}, cgroup.applied)
-	require.Equal(t, []string{"cg/a", "cg/b"}, cgroup.read)
 }
 
 func setAdvisorCgroupTargetTestPods(policy *DynamicPolicy, entries state.PodEntries) {
@@ -1624,9 +1524,7 @@ func setAdvisorCgroupTargetTestPods(policy *DynamicPolicy, entries state.PodEntr
 	policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: pods}
 }
 
-func prepareAdvisorCgroupTargetApplyFixture(t *testing.T) (
-	*DynamicPolicy, string, advisorapi.BlockCPUSet, *advisorapi.ListAndWatchResponse,
-) {
+func prepareAdvisorBlocksFixture(t *testing.T) (*DynamicPolicy, advisorapi.BlockCPUSet, *advisorapi.ListAndWatchResponse) {
 	t.Helper()
 
 	topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
@@ -1658,7 +1556,7 @@ func prepareAdvisorCgroupTargetApplyFixture(t *testing.T) (
 	setAdvisorCgroupTargetTestPods(policy, entries)
 	policy.cgroupClient = &recordingAdvisorCgroupClient{}
 
-	return policy, stateDir,
+	return policy,
 		advisorapi.BlockCPUSet{
 			"dedicated-block": machine.NewCPUSet(6, 7),
 			"share-block":     machine.NewCPUSet(2, 3),
@@ -1695,7 +1593,7 @@ func prepareAdvisorCgroupTargetApplyFixture(t *testing.T) (
 }
 
 func TestDynamicPolicyApplyBlocksDirect(t *testing.T) {
-	policy, _, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
+	policy, blocks, resp := prepareAdvisorBlocksFixture(t)
 	policy.RegisterAllocationHook(func(_, target *state.AllocationInfo) error {
 		if target.Annotations == nil {
 			target.Annotations = make(map[string]string)
@@ -1704,128 +1602,55 @@ func TestDynamicPolicyApplyBlocksDirect(t *testing.T) {
 		return nil
 	})
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("resolve checkpoint advisor cgroup path", t, func() {
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().
-			To(func(podUID, _ string) (string, error) {
-				return "cg/" + podUID, nil
-			}).Build()
-		require.NoError(t, policy.applyBlocks(blocks, resp))
-	})
+	require.NoError(t, policy.applyBlocks(blocks, resp))
 
 	committed := cloneAdvisorState(policy.state)
 	require.Equal(t, "persisted", committed.PodEntries["pod-dedicated"]["container"].Annotations["hook.example/committed-state"])
 	require.Equal(t, machine.NewCPUSet(6, 7), committed.PodEntries["pod-dedicated"]["container"].AllocationResult)
-	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, policy.cgroupClient.(*recordingAdvisorCgroupClient).applied)
-	require.Equal(t, []string{"cg/pod-dedicated"}, policy.cgroupClient.(*recordingAdvisorCgroupClient).read)
+	require.Empty(t, policy.cgroupClient.(*recordingAdvisorCgroupClient).applied)
+	require.Empty(t, policy.cgroupClient.(*recordingAdvisorCgroupClient).read)
 }
 
-func TestDynamicPolicyApplyBlocksCommitFailureKeepsCommittedState(t *testing.T) {
-	policy, stateDir, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
+func TestDynamicPolicyApplyBlocksHookFailureDoesNotUpdateStateOrRunCPUSetAdjustmentHandlers(t *testing.T) {
+	policy, blocks, resp := prepareAdvisorBlocksFixture(t)
 	before := cloneAdvisorState(policy.state)
-	setCheckpointStoreStateHookForTest(t, policy.state, func() error {
-		return errors.New("injected persist failure")
-	})
-
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("return commit failure after applying advisor cgroup", t, func() {
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().
-			To(func(podUID, _ string) (string, error) {
-				return "cg/" + podUID, nil
-			}).Build()
-
-		err := policy.applyBlocks(blocks, resp)
-
-		require.ErrorContains(t, err, "commit advisor target state")
-		require.ErrorContains(t, err, "injected persist failure")
-	})
-
-	require.Equal(t, before, cloneAdvisorState(policy.state))
-	cgroup := policy.cgroupClient.(*recordingAdvisorCgroupClient)
-	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, cgroup.applied)
-	require.Equal(t, []string{"cg/pod-dedicated"}, cgroup.read)
-
-	restored, err := state.NewCheckpointState(
-		&statedirectory.StateDirectoryConfiguration{StateFileDirectory: stateDir},
-		cpuPluginStateFileName, cpuconsts.CPUResourcePluginPolicyNameDynamic, policy.machineInfo.CPUTopology, false,
-		state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{},
-	)
-	require.NoError(t, err)
-	require.Equal(t, before, cloneAdvisorState(restored))
-}
-
-func TestDynamicPolicyApplyBlocksHookFailureDoesNotCommitStateOrApplyCgroupTargets(t *testing.T) {
-	policy, _, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
-	before := cloneAdvisorState(policy.state)
+	handlerCalls := 0
+	require.NoError(t, policy.RegisterCPUSetAdjustmentHandler("test", func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+		handlerCalls++
+		return nil
+	}))
 	policy.RegisterAllocationHook(func(_, _ *state.AllocationInfo) error {
 		return errors.New("hook failed")
 	})
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("do not resolve cgroup path after rejected hook", t, func() {
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().
-			To(func(string, string) (string, error) {
-				return "", errors.New("cgroup path resolution must not run")
-			}).Build()
-		err := policy.applyBlocks(blocks, resp)
-		require.ErrorContains(t, err, "hook failed")
-	})
+	err := policy.applyBlocks(blocks, resp)
+	require.ErrorContains(t, err, "hook failed")
 
 	require.Equal(t, before, cloneAdvisorState(policy.state))
 	require.Empty(t, policy.cgroupClient.(*recordingAdvisorCgroupClient).applied)
+	require.Zero(t, handlerCalls)
 }
 
-func TestDynamicPolicyApplyBlocksCgroupApplyFailureKeepsCommittedState(t *testing.T) {
-	policy, _, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
+func TestDynamicPolicyApplyBlocksDoesNotRunCPUSetAdjustmentHandlers(t *testing.T) {
+	policy, blocks, resp := prepareAdvisorBlocksFixture(t)
+	handlerCalls := 0
+	require.NoError(t, policy.RegisterCPUSetAdjustmentHandler("test", func(_ context.Context, handlerCtx cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+		handlerCalls++
+		require.NotNil(t, handlerCtx)
+		committed := cloneAdvisorState(policy.state)
+		require.Equal(t, machine.NewCPUSet(6, 7), committed.PodEntries["pod-dedicated"]["container"].AllocationResult)
+		return nil
+	}))
+
+	require.NoError(t, policy.applyBlocks(blocks, resp))
+	require.Zero(t, handlerCalls)
 	cgroup := policy.cgroupClient.(*recordingAdvisorCgroupClient)
-	cgroup.applyErr = errors.New("cgroup apply failed")
-	before := cloneAdvisorState(policy.state)
-
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("resolve cgroup path for failed cgroup target apply", t, func() {
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().
-			To(func(podUID, _ string) (string, error) {
-				return "cg/" + podUID, nil
-			}).Build()
-		err := policy.applyBlocks(blocks, resp)
-		require.ErrorContains(t, err, "cgroup apply failed")
-	})
-
-	require.Equal(t, before, cloneAdvisorState(policy.state))
-	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, cgroup.applied)
+	require.Empty(t, cgroup.applied)
 	require.Empty(t, cgroup.read)
 }
 
-func TestDynamicPolicyApplyBlocksReadBackMismatchKeepsCommittedState(t *testing.T) {
-	policy, _, blocks, resp := prepareAdvisorCgroupTargetApplyFixture(t)
-	cgroup := policy.cgroupClient.(*recordingAdvisorCgroupClient)
-	cgroup.readOverrides = map[string]machine.CPUSet{
-		"cg/pod-dedicated": machine.NewCPUSet(0, 1),
-	}
-	before := cloneAdvisorState(policy.state)
-
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("resolve cgroup path for read-back mismatch", t, func() {
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().
-			To(func(podUID, _ string) (string, error) {
-				return "cg/" + podUID, nil
-			}).Build()
-		err := policy.applyBlocks(blocks, resp)
-		require.ErrorContains(t, err, "does not match expected value")
-	})
-
-	require.Equal(t, before, cloneAdvisorState(policy.state))
-	require.Equal(t, []string{"cg/pod-dedicated:6-7"}, cgroup.applied)
-	require.Equal(t, []string{"cg/pod-dedicated"}, cgroup.read)
-}
-
 func TestDynamicPolicyAllocateByCPUAdvisorReturnsNilResponseErrorWithoutPendingCgroupTargets(t *testing.T) {
-	policy, _, _, _ := prepareAdvisorCgroupTargetApplyFixture(t)
+	policy, _, _ := prepareAdvisorBlocksFixture(t)
 
 	err := policy.allocateByCPUAdvisor(nil, nil, nil)
 

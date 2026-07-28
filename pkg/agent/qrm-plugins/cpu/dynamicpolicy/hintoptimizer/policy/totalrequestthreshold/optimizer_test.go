@@ -80,12 +80,6 @@ func (f *fakeState) SetPodEntries(podEntries state.PodEntries, _ bool) {
 	f.podEntries = podEntries
 }
 
-func (f *fakeState) CommitState(podEntries state.PodEntries, machineState state.NUMANodeMap, _ bool) error {
-	f.podEntries = podEntries
-	f.machineState = machineState
-	return nil
-}
-
 func (f *fakeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, _ bool) {
 	if f.allocations == nil {
 		f.allocations = map[string]map[string]*state.AllocationInfo{}

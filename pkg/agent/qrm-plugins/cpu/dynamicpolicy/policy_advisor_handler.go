@@ -25,7 +25,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"time"
 
@@ -1352,83 +1351,10 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	if err != nil {
 		return fmt.Errorf("recalculate target machine state after allocation hooks: %w", err)
 	}
-	targets, err := p.resolveAdvisorCPUSetTargets(curEntries, target)
-	if err != nil {
-		return err
-	}
-	if err := p.applyAndVerifyAdvisorCPUSetTargets(targets); err != nil {
-		return err
-	}
-	if err := p.state.CommitState(target.PodEntries, target.MachineState, true); err != nil {
-		return fmt.Errorf("commit advisor target state: %w", err)
-	}
-	return nil
-}
-
-// resolveAdvisorCPUSetTargets resolves the externally-addressable CPU-set writes
-// for an advisor state transition. Pool entries and sidecars do not have a
-// container cgroup target.
-func (p *DynamicPolicy) resolveAdvisorCPUSetTargets(
-	curEntries state.PodEntries, target *state.TargetState,
-) ([]state.CPUSetCgroupTarget, error) {
-	if target == nil {
-		return nil, fmt.Errorf("advisor target state is nil")
-	}
-	if p.metaServer == nil {
-		return nil, fmt.Errorf("advisor target resolver meta server is nil")
-	}
-
-	targets := make([]state.CPUSetCgroupTarget, 0)
-	for podUID, entries := range target.PodEntries {
-		if entries.IsPoolEntry() {
-			continue
-		}
-		for containerName, allocationInfo := range entries {
-			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
-				continue
-			}
-			current := curEntries[podUID][containerName]
-			if current != nil && current.AllocationResult.Equals(allocationInfo.AllocationResult) {
-				continue
-			}
-			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
-			if err != nil {
-				return nil, fmt.Errorf("resolve container ID for %s/%s: %w", podUID, containerName, err)
-			}
-			relativePath, err := common.GetContainerRelativeCgroupPath(podUID, containerID)
-			if err != nil {
-				return nil, fmt.Errorf("resolve cgroup path for %s/%s: %w", podUID, containerName, err)
-			}
-			targets = append(targets, state.CPUSetCgroupTarget{
-				Key:          podUID + "/" + containerName,
-				RelativePath: relativePath,
-				CPUSet:       allocationInfo.AllocationResult.Clone(),
-			})
-		}
-	}
-	sort.Slice(targets, func(i, j int) bool { return targets[i].Key < targets[j].Key })
-	return targets, nil
-}
-
-func (p *DynamicPolicy) applyAndVerifyAdvisorCPUSetTargets(targets []state.CPUSetCgroupTarget) error {
-	if len(targets) != 0 && p.cgroupClient == nil {
-		return fmt.Errorf("advisor cgroup client is nil")
-	}
-	for _, target := range targets {
-		if err := p.cgroupClient.ApplyCPUSet(context.Background(), target.RelativePath, &common.CPUSetData{
-			CPUs: target.CPUSet.String(),
-		}); err != nil {
-			return fmt.Errorf("apply cpuset for %s: %w", target.Key, err)
-		}
-	}
-	for _, target := range targets {
-		actual, err := p.cgroupClient.ReadCPUSet(context.Background(), target.RelativePath)
-		if err != nil {
-			return fmt.Errorf("read cpuset for %s: %w", target.Key, err)
-		}
-		if !actual.Equals(target.CPUSet) {
-			return fmt.Errorf("read cpuset for %s does not match expected value", target.Key)
-		}
+	p.state.SetPodEntries(target.PodEntries, false)
+	p.state.SetMachineState(target.MachineState, false)
+	if err := p.state.StoreState(); err != nil {
+		general.Errorf("store advisor target state failed: %v", err)
 	}
 	return nil
 }

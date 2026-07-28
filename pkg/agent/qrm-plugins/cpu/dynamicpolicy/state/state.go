@@ -861,10 +861,6 @@ type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
 	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
 	SetPodEntries(podEntries PodEntries, writeThrough bool)
-	// CommitState atomically replaces pod entries and machine state. When
-	// persist is true, it returns an error and restores the prior complete
-	// snapshot if the checkpoint cannot be stored.
-	CommitState(podEntries PodEntries, machineState NUMANodeMap, persist bool) error
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
 	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool)

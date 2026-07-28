@@ -291,29 +291,6 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	}
 }
 
-// CommitState atomically replaces the committed pod entries and machine state.
-// A persistence failure restores the complete checkpoint snapshot so callers
-// never observe only one side of the state transition.
-func (sc *stateCheckpoint) CommitState(
-	podEntries PodEntries, machineState NUMANodeMap, persist bool,
-) error {
-	sc.Lock()
-	defer sc.Unlock()
-
-	before := sc.snapshotCacheLocked()
-	if err := sc.cache.CommitState(podEntries, machineState, false); err != nil {
-		return err
-	}
-	if !persist {
-		return nil
-	}
-	if err := sc.storeState(); err != nil {
-		sc.restoreCacheLocked(before)
-		return err
-	}
-	return nil
-}
-
 func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
