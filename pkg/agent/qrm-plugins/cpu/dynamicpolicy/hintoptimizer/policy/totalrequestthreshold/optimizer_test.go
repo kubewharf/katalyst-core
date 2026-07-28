@@ -66,6 +66,10 @@ func (f *fakeState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return f.allowOverlap
 }
 
+func (f *fakeState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	return false
+}
+
 func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) {
 	f.machineState = numaNodeMap
 }
@@ -74,6 +78,12 @@ func (f *fakeState) SetNUMAHeadroom(_ map[int]float64, _ bool) {}
 
 func (f *fakeState) SetPodEntries(podEntries state.PodEntries, _ bool) {
 	f.podEntries = podEntries
+}
+
+func (f *fakeState) CommitState(podEntries state.PodEntries, machineState state.NUMANodeMap, _ uint64, _ bool) error {
+	f.podEntries = podEntries
+	f.machineState = machineState
+	return nil
 }
 
 func (f *fakeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, _ bool) {
@@ -90,6 +100,8 @@ func (f *fakeState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOve
 	f.allowOverlap = allowSharedCoresOverlapReclaimedCores
 }
 
+func (f *fakeState) SetDisableDedicatedCoresOverlapReclaimedCores(_ bool, _ bool) {}
+
 func (f *fakeState) Delete(podUID string, containerName string, _ bool) {
 	if f.allocations != nil {
 		delete(f.allocations[podUID], containerName)
@@ -103,6 +115,22 @@ func (f *fakeState) ClearState() {
 }
 
 func (f *fakeState) StoreState() error {
+	return nil
+}
+
+func (f *fakeState) GetDedicatedIsolationMode() state.DedicatedIsolationMode {
+	return state.DedicatedIsolationModeUnknown
+}
+
+func (f *fakeState) SetDedicatedIsolationMode(state.DedicatedIsolationMode, bool) {}
+
+func (f *fakeState) GetStateRevision() uint64 { return 0 }
+
+func (f *fakeState) GetCommittedStateSnapshot() state.CommittedStateSnapshot {
+	return state.CommittedStateSnapshot{}
+}
+
+func (f *fakeState) MutateAuxiliaryDesired(func(*state.AdvisorAuxiliaryDesiredState) error, bool) error {
 	return nil
 }
 

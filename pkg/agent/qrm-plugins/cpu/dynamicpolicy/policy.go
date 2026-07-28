@@ -63,6 +63,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -118,6 +119,7 @@ type DynamicPolicy struct {
 	featureGateManager featuregatenegotiation.FeatureGateManager
 
 	state                    state.State
+	cgroupClient             cgroupclient.CgroupClient
 	residualHitMap           map[string]int64
 	allocationHandlers       map[string]util.AllocationHandler
 	hintHandlers             map[string]util.HintHandler
@@ -222,6 +224,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		resourcePackageManager: resourcepackage.NewCachedResourcePackageManager(agentCtx.MetaServer.ResourcePackageManager),
 
 		state:          stateImpl,
+		cgroupClient:   cgroupclient.NewCgroupClient(),
 		residualHitMap: make(map[string]int64),
 
 		advisorValidator:   validator.NewCPUAdvisorValidator(stateImpl, agentCtx.KatalystMachineInfo),
@@ -257,7 +260,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		transitionPeriod:                30 * time.Second,
 		reservedReclaimedCPUsSize:       general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
-
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
 	// initialize hint optimizer

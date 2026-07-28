@@ -53,6 +53,7 @@ type stateCheckpoint struct {
 	GenerateMachineStateFromPodEntries GenerateMachineStateFromPodEntriesFunc
 	emitter                            metrics.MetricEmitter
 	topology                           *machine.CPUTopology
+	storeStateHook                     func() error
 }
 
 var (
@@ -110,13 +111,22 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
 	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
 	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(checkpoint.AllowSharedCoresOverlapReclaimedCores)
+	sc.cache.SetDisableDedicatedCoresOverlapReclaimedCores(checkpoint.DisableDedicatedCoresOverlapReclaimedCores)
+	sc.cache.SetDedicatedIsolationMode(checkpoint.IsolationMode)
+	sc.cache.Lock()
+	sc.cache.stateRevision = checkpoint.StateRevision
+	sc.cache.advisorEpoch = checkpoint.AdvisorEpoch
+	sc.cache.adviceSequence = checkpoint.AdviceSequence
+	sc.cache.auxiliaryDesired = cloneAuxiliaryDesired(checkpoint.AuxiliaryDesired)
 
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
+		sc.cache.Unlock()
 		klog.Warningf("[cpu_plugin] machine state changed: generatedMachineState: %s; checkpointMachineState: %s",
 			generatedMachineState.String(), checkpoint.MachineState.String())
 
 		return true, nil
 	}
+	sc.cache.Unlock()
 
 	return false, nil
 }
@@ -128,6 +138,9 @@ func (sc *stateCheckpoint) StoreState() error {
 }
 
 func (sc *stateCheckpoint) storeState() error {
+	if sc.storeStateHook != nil {
+		return sc.storeStateHook()
+	}
 	startTime := time.Now()
 	general.InfoS("called")
 	defer func() {
@@ -157,7 +170,56 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	checkpoint.NUMAHeadroom = sc.cache.GetNUMAHeadroom()
 	checkpoint.PodEntries = sc.cache.GetPodEntries()
 	checkpoint.AllowSharedCoresOverlapReclaimedCores = sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
+	checkpoint.DisableDedicatedCoresOverlapReclaimedCores = sc.cache.GetDisableDedicatedCoresOverlapReclaimedCores()
+	checkpoint.IsolationMode = sc.cache.GetDedicatedIsolationMode()
+	checkpoint.StateRevision = sc.cache.GetStateRevision()
+	sc.cache.RLock()
+	checkpoint.AdvisorEpoch = sc.cache.advisorEpoch
+	checkpoint.AdviceSequence = sc.cache.adviceSequence
+	checkpoint.AuxiliaryDesired = cloneAuxiliaryDesired(sc.cache.auxiliaryDesired)
+	sc.cache.RUnlock()
 	return checkpoint
+}
+
+func (sc *stateCheckpoint) GetStateRevision() uint64 {
+	sc.RLock()
+	defer sc.RUnlock()
+	return sc.cache.GetStateRevision()
+}
+
+func (sc *stateCheckpoint) GetCommittedStateSnapshot() CommittedStateSnapshot {
+	sc.RLock()
+	defer sc.RUnlock()
+	return sc.cache.GetCommittedStateSnapshot()
+}
+
+func (sc *stateCheckpoint) MutateAuxiliaryDesired(mutator func(*AdvisorAuxiliaryDesiredState) error, persist bool) error {
+	sc.Lock()
+	defer sc.Unlock()
+	before := sc.snapshotCacheLocked()
+	if err := sc.cache.MutateAuxiliaryDesired(mutator, false); err != nil {
+		return err
+	}
+	if persist {
+		if err := sc.storeState(); err != nil {
+			sc.restoreCacheLocked(before)
+			return err
+		}
+	}
+	return nil
+}
+
+func (sc *stateCheckpoint) snapshotCacheLocked() *CPUPluginCheckpoint {
+	sc.cache.Lock()
+	defer sc.cache.Unlock()
+	return sc.cache.checkpointLocked()
+}
+
+func (sc *stateCheckpoint) restoreCacheLocked(checkpoint *CPUPluginCheckpoint) {
+	sc.cache.Lock()
+	defer sc.cache.Unlock()
+	sc.cache.applyCheckpointLocked(checkpoint)
+	sc.cache.stateRevision = checkpoint.StateRevision
 }
 
 func (sc *stateCheckpoint) GetMachineState() NUMANodeMap {
@@ -192,10 +254,17 @@ func (sc *stateCheckpoint) SetMachineState(numaNodeMap NUMANodeMap, persist bool
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.SetMachineState(numaNodeMap)
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if !reflect.DeepEqual(sc.cache.machineState, numaNodeMap) {
+			sc.cache.machineState = numaNodeMap.Clone()
+			sc.cache.stateRevision++
+		}
+	})
 	if persist {
 		err := sc.storeState()
 		if err != nil {
+			sc.restoreCacheLocked(before)
 			klog.ErrorS(err, "[cpu_plugin] store machineState to checkpoint error")
 		}
 	}
@@ -205,10 +274,17 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.SetNUMAHeadroom(m)
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if !reflect.DeepEqual(sc.cache.numaHeadroom, m) {
+			sc.cache.numaHeadroom = general.DeepCopyIntToFloat64Map(m)
+			sc.cache.stateRevision++
+		}
+	})
 	if persist {
 		err := sc.storeState()
 		if err != nil {
+			sc.restoreCacheLocked(before)
 			klog.ErrorS(err, "[cpu_plugin] store numa headroom to checkpoint error")
 		}
 	}
@@ -220,10 +296,24 @@ func (sc *stateCheckpoint) SetAllocationInfo(
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if allocationInfo == nil {
+			return
+		}
+		if entries, ok := sc.cache.podEntries[podUID]; ok && reflect.DeepEqual(entries[containerName], allocationInfo) {
+			return
+		}
+		if sc.cache.podEntries[podUID] == nil {
+			sc.cache.podEntries[podUID] = make(ContainerEntries)
+		}
+		sc.cache.podEntries[podUID][containerName] = allocationInfo.Clone()
+		sc.cache.stateRevision++
+	})
 	if persist {
 		err := sc.storeState()
 		if err != nil {
+			sc.restoreCacheLocked(before)
 			klog.ErrorS(err, "[cpu_plugin] store allocationInfo to checkpoint error")
 		}
 	}
@@ -233,23 +323,60 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.SetPodEntries(podEntries)
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if !reflect.DeepEqual(sc.cache.podEntries, podEntries) {
+			sc.cache.podEntries = podEntries.Clone()
+			sc.cache.stateRevision++
+		}
+	})
 	if persist {
 		err := sc.storeState()
 		if err != nil {
+			sc.restoreCacheLocked(before)
 			klog.ErrorS(err, "[cpu_plugin] store pod entries to checkpoint error")
 		}
 	}
+}
+
+// CommitState atomically replaces the committed pod entries and machine state.
+// A persistence failure restores the complete checkpoint snapshot so callers
+// never observe only one side of the state transition.
+func (sc *stateCheckpoint) CommitState(
+	podEntries PodEntries, machineState NUMANodeMap, expectedRevision uint64, persist bool,
+) error {
+	sc.Lock()
+	defer sc.Unlock()
+
+	before := sc.snapshotCacheLocked()
+	if err := sc.cache.CommitState(podEntries, machineState, expectedRevision, false); err != nil {
+		return err
+	}
+	if !persist {
+		return nil
+	}
+	if err := sc.storeState(); err != nil {
+		sc.restoreCacheLocked(before)
+		return err
+	}
+	return nil
 }
 
 func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores)
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if sc.cache.allowSharedCoresOverlapReclaimedCores != allowSharedCoresOverlapReclaimedCores {
+			sc.cache.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
+			sc.cache.stateRevision++
+		}
+	})
 	if persist {
 		err := sc.storeState()
 		if err != nil {
+			sc.restoreCacheLocked(before)
 			klog.ErrorS(err, "[cpu_plugin] store allowSharedCoresOverlapReclaimedCores to checkpoint error")
 		}
 	}
@@ -262,14 +389,79 @@ func (sc *stateCheckpoint) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
+func (sc *stateCheckpoint) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if sc.cache.disableDedicatedCoresOverlapReclaimedCores != disableDedicatedCoresOverlapReclaimedCores {
+			sc.cache.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
+			sc.cache.stateRevision++
+		}
+	})
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			sc.restoreCacheLocked(before)
+			klog.ErrorS(err, "[cpu_plugin] store disableDedicatedCoresOverlapReclaimedCores to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetDisableDedicatedCoresOverlapReclaimedCores()
+}
+
+func (sc *stateCheckpoint) SetDedicatedIsolationMode(dedicatedIsolationMode DedicatedIsolationMode, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if sc.cache.dedicatedIsolationMode != dedicatedIsolationMode {
+			sc.cache.dedicatedIsolationMode = dedicatedIsolationMode
+			sc.cache.stateRevision++
+		}
+	})
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			sc.restoreCacheLocked(before)
+			klog.ErrorS(err, "[cpu_plugin] store dedicatedIsolationMode to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) GetDedicatedIsolationMode() DedicatedIsolationMode {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetDedicatedIsolationMode()
+}
+
 func (sc *stateCheckpoint) Delete(podUID string, containerName string, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.Delete(podUID, containerName)
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		if sc.cache.podEntries[podUID] == nil || sc.cache.podEntries[podUID][containerName] == nil {
+			return
+		}
+		delete(sc.cache.podEntries[podUID], containerName)
+		if len(sc.cache.podEntries[podUID]) == 0 {
+			delete(sc.cache.podEntries, podUID)
+		}
+		sc.cache.stateRevision++
+	})
 	if persist {
 		err := sc.storeState()
 		if err != nil {
+			sc.restoreCacheLocked(before)
 			klog.ErrorS(err, "[cpu_plugin] store state after delete operation to checkpoint error")
 		}
 	}
@@ -279,9 +471,20 @@ func (sc *stateCheckpoint) ClearState() {
 	sc.Lock()
 	defer sc.Unlock()
 
-	sc.cache.ClearState()
+	before := sc.snapshotCacheLocked()
+	sc.cache.mutateCommittedState(func() {
+		defaultMachineState := GetDefaultMachineState(sc.cache.cpuTopology)
+		if reflect.DeepEqual(sc.cache.machineState, defaultMachineState) && len(sc.cache.podEntries) == 0 {
+			return
+		}
+		sc.cache.machineState = defaultMachineState
+		sc.cache.socketTopology = sc.cache.cpuTopology.GetSocketTopology()
+		sc.cache.podEntries = make(PodEntries)
+		sc.cache.stateRevision++
+	})
 	err := sc.storeState()
 	if err != nil {
+		sc.restoreCacheLocked(before)
 		klog.ErrorS(err, "[cpu_plugin] store state after clear operation to checkpoint error")
 	}
 }

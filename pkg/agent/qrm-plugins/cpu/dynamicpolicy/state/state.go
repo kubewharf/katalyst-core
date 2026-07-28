@@ -65,6 +65,49 @@ type ResourcePackageState struct {
 	PinnedCPUSet machine.CPUSet    `json:"pinned_cpuset,omitempty"`
 }
 
+type DedicatedIsolationMode int
+
+const (
+	DedicatedIsolationModeUnknown DedicatedIsolationMode = iota
+	DedicatedIsolationModeLegacyOverlap
+	DedicatedIsolationModeIsolated
+)
+
+// AdvisorAuxiliaryDesiredState stores the advisor's desired auxiliary state
+// independently from committed pod and machine state.
+type AdvisorAuxiliaryDesiredState struct {
+	DesiredIsolationMode DedicatedIsolationMode `json:"desired_isolation_mode"`
+	DesiredCPUSetByNUMA  map[int]machine.CPUSet `json:"desired_cpuset_by_numa"`
+	DesiredAttributes    map[string]string      `json:"desired_attributes"`
+}
+
+func cloneAuxiliaryDesired(desired AdvisorAuxiliaryDesiredState) AdvisorAuxiliaryDesiredState {
+	clone := AdvisorAuxiliaryDesiredState{
+		DesiredIsolationMode: desired.DesiredIsolationMode,
+		DesiredCPUSetByNUMA:  make(map[int]machine.CPUSet, len(desired.DesiredCPUSetByNUMA)),
+		DesiredAttributes:    make(map[string]string, len(desired.DesiredAttributes)),
+	}
+	for numaID, cpus := range desired.DesiredCPUSetByNUMA {
+		clone.DesiredCPUSetByNUMA[numaID] = cpus.Clone()
+	}
+	for key, value := range desired.DesiredAttributes {
+		clone.DesiredAttributes[key] = value
+	}
+	return clone
+}
+
+// CommittedStateSnapshot is a read-only, deep-copied view of committed state.
+type CommittedStateSnapshot struct {
+	StateRevision                              uint64
+	MachineState                               NUMANodeMap
+	NUMAHeadroom                               map[int]float64
+	PodEntries                                 PodEntries
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+	IsolationMode                              DedicatedIsolationMode
+	AuxiliaryDesired                           AdvisorAuxiliaryDesiredState
+}
+
 func (r *ResourcePackageState) GetAttributes() map[string]string {
 	if r == nil {
 		return nil
@@ -769,10 +812,12 @@ func (nm NUMANodeMap) String() string {
 // wraps it with an RWMutex and clones on every getter. Grouping the fields into
 // a single value makes it trivial to deep-copy the whole set in one place.
 type cpuPluginStateData struct {
-	podEntries                            PodEntries
-	machineState                          NUMANodeMap
-	numaHeadroom                          map[int]float64
-	allowSharedCoresOverlapReclaimedCores bool
+	podEntries                                 PodEntries
+	machineState                               NUMANodeMap
+	numaHeadroom                               map[int]float64
+	allowSharedCoresOverlapReclaimedCores      bool
+	disableDedicatedCoresOverlapReclaimedCores bool
+	dedicatedIsolationMode                     DedicatedIsolationMode
 }
 
 // Clone deep-copies every field of cpuPluginStateData. The caller receives a
@@ -787,6 +832,8 @@ func (d *cpuPluginStateData) Clone() cpuPluginStateData {
 		machineState:                          d.machineState.Clone(),
 		numaHeadroom:                          general.DeepCopyIntToFloat64Map(d.numaHeadroom),
 		allowSharedCoresOverlapReclaimedCores: d.allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores: d.disableDedicatedCoresOverlapReclaimedCores,
+		dedicatedIsolationMode:                     d.dedicatedIsolationMode,
 	}
 }
 
@@ -835,6 +882,22 @@ func (d *cpuPluginStateData) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return d.allowSharedCoresOverlapReclaimedCores
 }
 
+// GetDisableDedicatedCoresOverlapReclaimedCores returns the flag value.
+func (d *cpuPluginStateData) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	if d == nil {
+		return false
+	}
+	return d.disableDedicatedCoresOverlapReclaimedCores
+}
+
+// GetDedicatedIsolationMode returns the dedicated-core isolation mode.
+func (d *cpuPluginStateData) GetDedicatedIsolationMode() DedicatedIsolationMode {
+	if d == nil {
+		return DedicatedIsolationModeUnknown
+	}
+	return d.dedicatedIsolationMode
+}
+
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
@@ -842,6 +905,8 @@ type reader interface {
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
+	GetDisableDedicatedCoresOverlapReclaimedCores() bool
+	GetDedicatedIsolationMode() DedicatedIsolationMode
 }
 
 // writer is used to store information into local states,
@@ -850,12 +915,21 @@ type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
 	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
 	SetPodEntries(podEntries PodEntries, writeThrough bool)
+	// CommitState atomically replaces pod entries and machine state. When
+	// persist is true, it returns an error and restores the prior complete
+	// snapshot if the checkpoint cannot be stored.
+	// CommitState atomically replaces pod entries and machine state only when
+	// the committed state still has expectedRevision.
+	CommitState(podEntries PodEntries, machineState NUMANodeMap, expectedRevision uint64, persist bool) error
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
+	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool)
+	SetDedicatedIsolationMode(dedicatedIsolationMode DedicatedIsolationMode, persist bool)
 
 	Delete(podUID string, containerName string, persist bool)
 	ClearState()
 	StoreState() error
+	MutateAuxiliaryDesired(mutator func(*AdvisorAuxiliaryDesiredState) error, persist bool) error
 }
 
 // State interface provides methods for tracking and setting pod assignments
@@ -867,6 +941,8 @@ type State interface {
 // ReadonlyState interface only provides methods for tracking pod assignments
 type ReadonlyState interface {
 	reader
+	GetStateRevision() uint64
+	GetCommittedStateSnapshot() CommittedStateSnapshot
 }
 
 type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error)

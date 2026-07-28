@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -605,7 +606,18 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 4188873110
+	"numa_headroom": {},
+	"allow_shared_cores_overlap_reclaimed_cores": false,
+	"disable_dedicated_cores_overlap_reclaimed_cores": false,
+	"isolation_mode": 0,
+	"state_revision": 0,
+	"advisor_epoch": 0,
+	"advice_sequence": 0,
+	"auxiliary_desired": {
+		"desired_isolation_mode": 0,
+		"desired_cpuset_by_numa": {},
+		"desired_attributes": {}
+	}
 }`,
 			"",
 			&cpuPluginState{
@@ -1082,7 +1094,7 @@ func TestNewCheckpointState(t *testing.T) {
 			},
 		},
 		{
-			"Restore checkpoint with invalid checksum",
+			"Restore checkpoint with ignored unknown field",
 			`{
 	"policyName": "dynamic",
 	"machineState": {
@@ -1524,10 +1536,21 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 2840585175
+	"numa_headroom": {},
+	"allow_shared_cores_overlap_reclaimed_cores": false,
+	"disable_dedicated_cores_overlap_reclaimed_cores": false,
+	"isolation_mode": 0,
+	"state_revision": 0,
+	"advisor_epoch": 0,
+	"advice_sequence": 0,
+	"auxiliary_desired": {
+		"desired_isolation_mode": 0,
+		"desired_cpuset_by_numa": {},
+		"desired_attributes": {}
+	}
 }`,
-			"checkpoint is corrupted",
-			&cpuPluginState{},
+			"",
+			nil,
 		},
 		{
 			"Restore checkpoint with invalid JSON",
@@ -1566,14 +1589,11 @@ func TestNewCheckpointState(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "could not restore state from checkpoint:")
 			require.Contains(t, err.Error(), tc.expectedError)
-
-			// test skip corruption
-			if strings.Contains(err.Error(), "checkpoint is corrupted") {
-				_, err = NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName, policyName, cpuTopology, true, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
-				require.Nil(t, err)
-			}
 		} else {
 			require.NoError(t, err, "unexpected error while creating checkpointState, case: %s", tc.description)
+			if tc.expectedState == nil {
+				continue
+			}
 			// compare state after restoration with the one expected
 			assertStateEqual(t, restoredState, &stateCheckpoint{cache: tc.expectedState})
 		}
@@ -3351,93 +3371,445 @@ func generateTestMachineStateFromPodEntries(
 func TestNewCPUPluginCheckpoint(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		corruptFile bool
-		expectEqual bool
-	}{
-		{
-			name:        "successful migration with pre-stop",
-			corruptFile: false,
-			expectEqual: true,
-		},
-		{
-			name:        "corrupted checkpoint",
-			corruptFile: true,
-			expectEqual: false,
-		},
+	tmpDir := t.TempDir()
+	inMemoryTmpDir := t.TempDir()
+
+	stateDir := filepath.Join(tmpDir, "state")
+	err := os.MkdirAll(stateDir, 0o775)
+	assert.NoError(t, err)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	policyName := "test-policy"
+	checkpointName := "test-checkpoint"
+
+	// create old checkpoint manager to save the checkpoint
+	oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
+	assert.NoError(t, err)
+
+	oldCheckpoint := NewCPUPluginCheckpoint()
+	oldCheckpoint.PolicyName = policyName
+	oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
+	err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
+	assert.NoError(t, err)
+
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory:         stateDir,
+		InMemoryStateFileDirectory: inMemoryTmpDir,
+		EnableInMemoryState:        true,
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tmpDir := t.TempDir()
-			inMemoryTmpDir := t.TempDir()
+	state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, false,
+		generateTestMachineStateFromPodEntries, metrics.DummyMetrics{})
+	assert.NoError(t, err)
 
-			stateDir := filepath.Join(tmpDir, "state")
-			err := os.MkdirAll(stateDir, 0o775)
-			assert.NoError(t, err)
+	sc, ok := state.(*stateCheckpoint)
+	assert.True(t, ok)
 
-			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-			assert.NoError(t, err)
+	newCheckpoint := NewCPUPluginCheckpoint()
 
-			policyName := "test-policy"
-			checkpointName := "test-checkpoint"
+	// check if new checkpoint is created and verify equality
+	err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+	assert.NoError(t, err)
 
-			// create old checkpoint manager to save the checkpoint
-			oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
-			assert.NoError(t, err)
+	// verify old checkpoint file existence
+	checkpoint := NewCPUPluginCheckpoint()
+	err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
 
-			oldCheckpoint := NewCPUPluginCheckpoint()
-			if tt.corruptFile {
-				// create a corrupted old checkpoint
-				corruptedFile := filepath.Join(stateDir, fmt.Sprintf("%s", checkpointName))
-				err = ioutil.WriteFile(corruptedFile, []byte("corrupted data"), 0o644)
-				assert.NoError(t, err)
-			} else {
-				oldCheckpoint.PolicyName = policyName
-				oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
-				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
-				assert.NoError(t, err)
-			}
+	assert.Error(t, err)
+	assert.Equal(t, err, errors.ErrCheckpointNotFound)
+	assert.Equal(t, newCheckpoint, oldCheckpoint)
+}
 
-			stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
-				StateFileDirectory:         stateDir,
-				InMemoryStateFileDirectory: inMemoryTmpDir,
-				EnableInMemoryState:        true,
-			}
+func TestCPUPluginCheckpointDoesNotPersistCPUSetWAL(t *testing.T) {
+	t.Parallel()
 
-			state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, false,
-				generateTestMachineStateFromPodEntries, metrics.DummyMetrics{})
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
 
-			if tt.corruptFile {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
+	inMemoryState := NewCPUPluginState(topology)
+	inMemoryState.SetPodEntries(PodEntries{
+		"pod": {
+			"container": {
+				AllocationResult: machine.NewCPUSet(1, 2),
+			},
+		},
+	})
+	assert.False(t, inMemoryState.GetDisableDedicatedCoresOverlapReclaimedCores())
+	assert.Equal(t, DedicatedIsolationModeUnknown, inMemoryState.GetDedicatedIsolationMode())
+	assert.Equal(t, DedicatedIsolationModeUnknown, NewCPUPluginCheckpoint().IsolationMode)
+	inMemoryState.SetDisableDedicatedCoresOverlapReclaimedCores(true)
+	inMemoryState.SetDedicatedIsolationMode(DedicatedIsolationModeIsolated)
+	assert.True(t, inMemoryState.GetDisableDedicatedCoresOverlapReclaimedCores())
+	assert.Equal(t, DedicatedIsolationModeIsolated, inMemoryState.GetDedicatedIsolationMode())
 
-			sc, ok := state.(*stateCheckpoint)
-			assert.True(t, ok)
+	source := &stateCheckpoint{
+		cache:      inMemoryState,
+		policyName: policyName,
+		topology:   topology,
+	}
+	source.cache.auxiliaryDesired = AdvisorAuxiliaryDesiredState{
+		DesiredIsolationMode: DedicatedIsolationModeIsolated,
+		DesiredCPUSetByNUMA:  map[int]machine.CPUSet{0: machine.NewCPUSet(1, 2)},
+		DesiredAttributes:    map[string]string{"key": "value"},
+	}
+	checkpoint := source.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
+	blob, err := checkpoint.MarshalCheckpoint()
+	require.NoError(t, err)
 
-			newCheckpoint := NewCPUPluginCheckpoint()
+	var payload map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(blob, &payload))
+	require.NotContains(t, payload, "pending_transaction")
+	require.NotContains(t, payload, "pending_admission")
+	require.NotContains(t, payload, "pending_ownerships")
+	require.NotContains(t, payload, "transaction_wal_version")
 
-			// check if new checkpoint is created and verify equality
-			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
-			assert.NoError(t, err)
+	restoredCheckpoint := NewCPUPluginCheckpoint()
+	require.NoError(t, restoredCheckpoint.UnmarshalCheckpoint(blob))
+	require.Equal(t, checkpoint.PodEntries, restoredCheckpoint.PodEntries)
+	require.Equal(t, checkpoint.MachineState, restoredCheckpoint.MachineState)
+	require.Equal(t, checkpoint.IsolationMode, restoredCheckpoint.IsolationMode)
+	require.Equal(t, checkpoint.AuxiliaryDesired, restoredCheckpoint.AuxiliaryDesired)
 
-			// verify old checkpoint file existence
-			checkpoint := NewCPUPluginCheckpoint()
-			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
+	destination := &stateCheckpoint{
+		cache:                              NewCPUPluginState(topology),
+		policyName:                         policyName,
+		topology:                           topology,
+		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
+	}
+	_, err = destination.RestoreState(restoredCheckpoint)
+	require.NoError(t, err)
+	assert.True(t, destination.GetDisableDedicatedCoresOverlapReclaimedCores())
+	assert.Equal(t, DedicatedIsolationModeIsolated, destination.GetDedicatedIsolationMode())
+}
 
-			assert.Error(t, err)
-			assert.Equal(t, err, errors.ErrCheckpointNotFound)
+func TestNewCPUPluginCheckpointInitializesCurrentMaps(t *testing.T) {
+	checkpoint := NewCPUPluginCheckpoint()
 
-			if tt.expectEqual {
-				assert.Equal(t, newCheckpoint, oldCheckpoint)
-			} else {
-				assert.NotEqual(t, newCheckpoint, oldCheckpoint)
-			}
+	assert.NotNil(t, checkpoint.AuxiliaryDesired.DesiredCPUSetByNUMA)
+	assert.Zero(t, checkpoint.StateRevision)
+	assert.Zero(t, checkpoint.AdvisorEpoch)
+	assert.Zero(t, checkpoint.AdviceSequence)
+}
+
+func TestCPUPluginCheckpointRejectsInvalidJSON(t *testing.T) {
+	checkpoint := NewCPUPluginCheckpoint()
+	require.Error(t, checkpoint.UnmarshalCheckpoint([]byte(`{"policyName":`)))
+}
+
+func TestStateCheckpointRestoresCommittedStateWhenPersistFails(t *testing.T) {
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	newStateCheckpoint := func() *stateCheckpoint {
+		cache := NewCPUPluginState(topology)
+		cache.SetPodEntries(PodEntries{
+			"committed-pod": {
+				"container": {
+					AllocationResult: machine.NewCPUSet(1),
+				},
+			},
 		})
+		cache.SetMachineState(NUMANodeMap{
+			0: {
+				DefaultCPUSet:   machine.NewCPUSet(0, 1),
+				AllocatedCPUSet: machine.NewCPUSet(2),
+				PodEntries:      PodEntries{},
+				ResourcePackageStates: map[string]*ResourcePackageState{
+					"committed-package": {
+						Attributes:   map[string]string{"committed": "value"},
+						PinnedCPUSet: machine.NewCPUSet(3),
+					},
+				},
+			},
+		})
+		cache.SetNUMAHeadroom(map[int]float64{0: 1})
+		cache.MutateAuxiliaryDesired(func(desired *AdvisorAuxiliaryDesiredState) error {
+			desired.DesiredIsolationMode = DedicatedIsolationModeIsolated
+			desired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(1)
+			desired.DesiredAttributes["committed"] = "value"
+			return nil
+		}, false)
+
+		return &stateCheckpoint{
+			cache:          cache,
+			storeStateHook: func() error { return fmt.Errorf("injected persist failure") },
+		}
 	}
+
+	t.Run("SetPodEntries", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.SetPodEntries(PodEntries{
+			"new-pod": {
+				"container": {
+					AllocationResult: machine.NewCPUSet(2),
+				},
+			},
+		}, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("SetMachineState", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+		updatedMachineState := sc.GetMachineState()
+		updatedMachineState[0].DefaultCPUSet = machine.NewCPUSet(2, 3)
+
+		sc.SetMachineState(updatedMachineState, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("CommitState", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+		expectedRevision := sc.GetStateRevision()
+		updatedMachineState := sc.GetMachineState()
+		updatedMachineState[0].DefaultCPUSet = machine.NewCPUSet(2, 3)
+		updatedPodEntries := PodEntries{
+			"new-pod": {
+				"container": {
+					AllocationResult: machine.NewCPUSet(2),
+				},
+			},
+		}
+
+		err := sc.CommitState(updatedPodEntries, updatedMachineState, expectedRevision, true)
+
+		require.ErrorContains(t, err, "injected persist failure")
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("SetNUMAHeadroom", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.SetNUMAHeadroom(map[int]float64{1: 2}, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("SetAllocationInfo", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.SetAllocationInfo("new-pod", "container", &AllocationInfo{
+			AllocationResult: machine.NewCPUSet(2),
+		}, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("SetAllowSharedCoresOverlapReclaimedCores", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.SetAllowSharedCoresOverlapReclaimedCores(true, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("SetDisableDedicatedCoresOverlapReclaimedCores", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.SetDisableDedicatedCoresOverlapReclaimedCores(true, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("SetDedicatedIsolationMode", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.SetDedicatedIsolationMode(DedicatedIsolationModeLegacyOverlap, true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("Delete", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.Delete("committed-pod", "container", true)
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("ClearState", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		sc.ClearState()
+
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+
+	t.Run("MutateAuxiliaryDesired", func(t *testing.T) {
+		sc := newStateCheckpoint()
+		before := sc.GetCommittedStateSnapshot()
+
+		err := sc.MutateAuxiliaryDesired(func(desired *AdvisorAuxiliaryDesiredState) error {
+			desired.DesiredIsolationMode = DedicatedIsolationModeLegacyOverlap
+			desired.DesiredCPUSetByNUMA[1] = machine.NewCPUSet(2)
+			desired.DesiredAttributes["new"] = "value"
+			return nil
+		}, true)
+
+		require.EqualError(t, err, "injected persist failure")
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+}
+
+func TestCommitStateRejectsStaleRevisionWithoutMutation(t *testing.T) {
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	updatedPodEntries := PodEntries{
+		"updated-pod": {
+			"container": {
+				AllocationResult: machine.NewCPUSet(2),
+			},
+		},
+	}
+
+	t.Run("in-memory state", func(t *testing.T) {
+		cache := NewCPUPluginState(topology)
+		expectedRevision := cache.GetStateRevision()
+		cache.SetNUMAHeadroom(map[int]float64{0: 1})
+		before := cache.GetCommittedStateSnapshot()
+
+		err := cache.CommitState(updatedPodEntries, cache.GetMachineState(), expectedRevision, false)
+
+		require.ErrorIs(t, err, ErrStateRevisionConflict)
+		require.Equal(t, before, cache.GetCommittedStateSnapshot())
+	})
+
+	t.Run("checkpoint state", func(t *testing.T) {
+		cache := NewCPUPluginState(topology)
+		sc := &stateCheckpoint{
+			cache: cache,
+			storeStateHook: func() error {
+				t.Fatal("stale commit must not persist")
+				return nil
+			},
+		}
+		expectedRevision := sc.GetStateRevision()
+		sc.SetNUMAHeadroom(map[int]float64{0: 1}, false)
+		before := sc.GetCommittedStateSnapshot()
+
+		err := sc.CommitState(updatedPodEntries, sc.GetMachineState(), expectedRevision, true)
+
+		require.ErrorIs(t, err, ErrStateRevisionConflict)
+		require.Equal(t, before, sc.GetCommittedStateSnapshot())
+	})
+}
+
+func TestCommittedStateSnapshotAndCheckpointRestoreDoNotAliasState(t *testing.T) {
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	podEntries := PodEntries{
+		"pod": {
+			"container": {
+				AllocationMeta: commonstate.AllocationMeta{
+					Labels:      map[string]string{"label": "value"},
+					Annotations: map[string]string{"annotation": "value"},
+				},
+				AllocationResult:                 machine.NewCPUSet(1),
+				TopologyAwareAssignments:         map[int]machine.CPUSet{0: machine.NewCPUSet(1)},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(2)},
+				RequestQuantity:                  1,
+			},
+		},
+	}
+	machineState := GetDefaultMachineState(topology)
+	machineState[0].PodEntries = podEntries.Clone()
+	machineState[0].ResourcePackageStates = map[string]*ResourcePackageState{
+		"package": {
+			Attributes:   map[string]string{"attribute": "value"},
+			PinnedCPUSet: machine.NewCPUSet(3),
+		},
+	}
+	cache := NewCPUPluginState(topology)
+	cache.SetPodEntries(podEntries)
+	cache.SetMachineState(machineState)
+	require.NoError(t, cache.MutateAuxiliaryDesired(func(desired *AdvisorAuxiliaryDesiredState) error {
+		desired.DesiredIsolationMode = DedicatedIsolationModeIsolated
+		desired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(1)
+		desired.DesiredAttributes["key"] = "value"
+		return nil
+	}, false))
+
+	sc := &stateCheckpoint{
+		cache:                              cache,
+		policyName:                         policyName,
+		topology:                           topology,
+		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
+	}
+
+	snapshotBeforeMutation := sc.GetCommittedStateSnapshot()
+	snapshot := sc.GetCommittedStateSnapshot()
+	snapshot.PodEntries["pod"]["container"].Labels["label"] = "changed"
+	snapshot.PodEntries["pod"]["container"].Annotations["annotation"] = "changed"
+	snapshot.PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(4)
+	snapshot.PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(5)
+	snapshot.MachineState[0].PodEntries["pod"]["container"].Labels["label"] = "changed"
+	snapshot.MachineState[0].PodEntries["pod"]["container"].Annotations["annotation"] = "changed"
+	snapshot.MachineState[0].PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(4)
+	snapshot.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(5)
+	snapshot.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "changed"
+	snapshot.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(6)
+	snapshot.AuxiliaryDesired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(2)
+	snapshot.AuxiliaryDesired.DesiredAttributes["key"] = "changed"
+	require.Equal(t, snapshotBeforeMutation, sc.GetCommittedStateSnapshot())
+
+	checkpoint := sc.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
+	checkpointBeforeMutation := sc.GetCommittedStateSnapshot()
+	checkpoint.PodEntries["pod"]["container"].Labels["label"] = "checkpoint-changed"
+	checkpoint.PodEntries["pod"]["container"].Annotations["annotation"] = "checkpoint-changed"
+	checkpoint.PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(7)
+	checkpoint.PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(8)
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].Labels["label"] = "checkpoint-changed"
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].Annotations["annotation"] = "checkpoint-changed"
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(7)
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(8)
+	checkpoint.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "checkpoint-changed"
+	checkpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(9)
+	checkpoint.AuxiliaryDesired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(3)
+	checkpoint.AuxiliaryDesired.DesiredAttributes["key"] = "checkpoint-changed"
+	require.Equal(t, checkpointBeforeMutation, sc.GetCommittedStateSnapshot())
+
+	restoredState := &stateCheckpoint{
+		cache:      NewCPUPluginState(topology),
+		policyName: policyName,
+		topology:   topology,
+		GenerateMachineStateFromPodEntries: func(
+			_ *machine.CPUTopology, _ PodEntries, machineState NUMANodeMap,
+		) (NUMANodeMap, error) {
+			return machineState, nil
+		},
+	}
+	restoreCheckpoint := sc.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
+	_, err = restoredState.RestoreState(restoreCheckpoint)
+	require.NoError(t, err)
+	restoredSnapshot := restoredState.GetCommittedStateSnapshot()
+
+	restoreCheckpoint.PodEntries["pod"]["container"].Labels["label"] = "restore-changed"
+	restoreCheckpoint.PodEntries["pod"]["container"].Annotations["annotation"] = "restore-changed"
+	restoreCheckpoint.PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(10)
+	restoreCheckpoint.PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(11)
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].Labels["label"] = "restore-changed"
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].Annotations["annotation"] = "restore-changed"
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(10)
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(11)
+	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "restore-changed"
+	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(12)
+	restoreCheckpoint.AuxiliaryDesired.DesiredCPUSetByNUMA[0] = machine.NewCPUSet(4)
+	restoreCheckpoint.AuxiliaryDesired.DesiredAttributes["key"] = "restore-checkpoint-changed"
+	require.Equal(t, restoredSnapshot, restoredState.GetCommittedStateSnapshot())
 }
