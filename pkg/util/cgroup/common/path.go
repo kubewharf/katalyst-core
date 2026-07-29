@@ -128,6 +128,37 @@ func GetAbsCgroupPath(subsys, suffix string) string {
 	return filepath.Join(GetCgroupRootPath(subsys), suffix)
 }
 
+var relativeCgroupPathExists = general.IsPathExists
+
+// GetExistingRelativeCgroupPaths returns relative cgroup paths that exist
+// under the default selected subsystem.
+func GetExistingRelativeCgroupPaths(relativePaths ...string) []string {
+	return GetExistingRelativeCgroupPathsForSubsys(DefaultSelectedSubsys, relativePaths...)
+}
+
+// GetExistingRelativeCgroupPathsForSubsys returns relative cgroup paths that
+// exist under the given subsystem, preserving input order.
+func GetExistingRelativeCgroupPathsForSubsys(subsys string, relativePaths ...string) []string {
+	return getExistingRelativeCgroupPathsForSubsys(relativeCgroupPathExists, subsys, relativePaths...)
+}
+
+func getExistingRelativeCgroupPathsForSubsys(pathExists func(string) bool, subsys string, relativePaths ...string) []string {
+	if len(relativePaths) == 0 {
+		return nil
+	}
+
+	existingPaths := make([]string, 0, len(relativePaths))
+	for _, relativePath := range relativePaths {
+		if relativePath == "" {
+			continue
+		}
+		if pathExists(GetAbsCgroupPath(subsys, relativePath)) {
+			existingPaths = append(existingPaths, relativePath)
+		}
+	}
+	return existingPaths
+}
+
 // GetKubernetesCgroupRootPathWithSubSys returns all Cgroup paths to run container for
 // kubernetes, and the returned values are merged with subsys.
 // note: this function is not thread-safe, and it should be called after InitKubernetesCGroupPath.

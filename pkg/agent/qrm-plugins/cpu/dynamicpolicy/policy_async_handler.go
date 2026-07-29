@@ -462,13 +462,7 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 		return
 	}
 
-	// filter out paths whose cgroup dir doesn't exist on disk yet
-	existingPaths := make([]string, 0, len(p.reclaimRelativeRootCgroupPaths))
-	for _, path := range p.reclaimRelativeRootCgroupPaths {
-		if general.IsPathExists(cgroupcm.GetAbsCgroupPath(cgroupcm.DefaultSelectedSubsys, path)) {
-			existingPaths = append(existingPaths, path)
-		}
-	}
+	existingPaths := cgroupcm.GetExistingRelativeCgroupPaths(p.reclaimRelativeRootCgroupPaths...)
 	err = cgroupcmutils.ApplyCPUWithRelativePaths(existingPaths, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
 	if err != nil {
 		general.Errorf("ApplyCPUWithRelativePaths in %v with enableCPUIdle: %v failed with error: %v",
@@ -477,12 +471,7 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 
 	// sync numa binding reclaim cgroup
 	for numaID, paths := range p.numaBindingReclaimRelativeRootCgroupPaths {
-		existingNUMAPaths := make([]string, 0, len(paths))
-		for _, path := range paths {
-			if general.IsPathExists(cgroupcm.GetAbsCgroupPath(cgroupcm.DefaultSelectedSubsys, path)) {
-				existingNUMAPaths = append(existingNUMAPaths, path)
-			}
-		}
+		existingNUMAPaths := cgroupcm.GetExistingRelativeCgroupPaths(paths...)
 		if len(existingNUMAPaths) == 0 {
 			continue
 		}

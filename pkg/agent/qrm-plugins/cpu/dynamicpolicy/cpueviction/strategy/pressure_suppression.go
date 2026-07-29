@@ -52,6 +52,7 @@ type CPUPressureSuppression struct {
 
 	reclaimRelativeRootCgroupPaths            []string
 	numaBindingReclaimRelativeRootCgroupPaths map[int][]string
+	existingRelativeCgroupPaths               func(...string) []string
 
 	lastToleranceTime sync.Map
 }
@@ -65,6 +66,7 @@ func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *meta
 		metaServer:                     metaServer,
 		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
 		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
+		existingRelativeCgroupPaths:               common.GetExistingRelativeCgroupPaths,
 	}, nil
 }
 
@@ -151,8 +153,9 @@ func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, fi
 	}
 
 	// get reclaim metrics aggregated across every registered reclaim consumer's cgroup subtree
+	existingPaths := p.existingRelativeCgroupPaths(p.reclaimRelativeRootCgroupPaths...)
 	reclaimMetrics, err := helper.GetReclaimMetricsMulti(nonActualNUMABindingCPUSet,
-		general.GetExistingPaths(p.reclaimRelativeRootCgroupPaths), p.metaServer.MetricsFetcher)
+		existingPaths, p.metaServer.MetricsFetcher)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 	}
@@ -176,13 +179,7 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 ) ([]*v1alpha1.EvictPod, error) {
 	var evictPods []*v1alpha1.EvictPod
 	for numaID, reclaimPaths := range p.numaBindingReclaimRelativeRootCgroupPaths {
-		// drop any per-consumer path that doesn't exist on disk yet
-		existingPaths := make([]string, 0, len(reclaimPaths))
-		for _, path := range reclaimPaths {
-			if general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)) {
-				existingPaths = append(existingPaths, path)
-			}
-		}
+		existingPaths := p.existingRelativeCgroupPaths(reclaimPaths...)
 		if len(existingPaths) == 0 {
 			continue
 		}
@@ -191,7 +188,7 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 
 		// get reclaim metrics aggregated across every registered reclaim consumer for this NUMA
 		reclaimMetrics, err := helper.GetReclaimMetricsMulti(actualNUMABindingCPUSet,
-			general.GetExistingPaths(existingPaths), p.metaServer.MetricsFetcher)
+			existingPaths, p.metaServer.MetricsFetcher)
 		if err != nil {
 			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 		}

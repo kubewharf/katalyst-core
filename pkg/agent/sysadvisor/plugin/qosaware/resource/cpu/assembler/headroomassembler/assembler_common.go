@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	cgroupcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
@@ -46,17 +47,13 @@ type HeadroomAssemblerCommon struct {
 
 	reclaimRelativeRootCgroupPaths     []string
 	numaBindingRelativeRootCgroupPaths map[int][]string
+	existingRelativeCgroupPaths        func(...string) []string
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 
 	pathWarningOnce sync.Map
-}
-
-func resolveReclaimPathsForDiagnostics(paths []string) ([]string, int, int) {
-	resolvedPaths := general.GetExistingPaths(paths)
-	return resolvedPaths, len(paths), len(resolvedPaths)
 }
 
 func (ha *HeadroomAssemblerCommon) logReclaimPathResolution(scope string, numaID int, cpuSet machine.CPUSet, inputPaths, resolvedPaths []string) {
@@ -94,6 +91,7 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 
 		reclaimRelativeRootCgroupPaths:     reclaim.AggregateCgroupPaths(),
 		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
+		existingRelativeCgroupPaths:        cgroupcommon.GetExistingRelativeCgroupPaths,
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -141,7 +139,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 		}
 
 		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
-		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(reclaimPaths)
+		resolvedPaths := ha.existingRelativeCgroupPaths(reclaimPaths...)
 		ha.logReclaimPathResolution("numa", numaID, cpuSet, reclaimPaths, resolvedPaths)
 		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
@@ -165,7 +163,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			cpuSets = cpuSets.Union(cpuSet)
 		}
 
-		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(ha.reclaimRelativeRootCgroupPaths)
+		resolvedPaths := ha.existingRelativeCgroupPaths(ha.reclaimRelativeRootCgroupPaths...)
 		ha.logReclaimPathResolution("global", -1, cpuSets, ha.reclaimRelativeRootCgroupPaths, resolvedPaths)
 		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
@@ -232,7 +230,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		}
 
 		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
-		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(reclaimPaths)
+		resolvedPaths := ha.existingRelativeCgroupPaths(reclaimPaths...)
 		ha.logReclaimPathResolution("numa", numaID, cpuSet, reclaimPaths, resolvedPaths)
 		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
@@ -265,7 +263,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
-		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(ha.reclaimRelativeRootCgroupPaths)
+		resolvedPaths := ha.existingRelativeCgroupPaths(ha.reclaimRelativeRootCgroupPaths...)
 		ha.logReclaimPathResolution("global", -1, cpusets, ha.reclaimRelativeRootCgroupPaths, resolvedPaths)
 		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {

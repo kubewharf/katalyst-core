@@ -19,7 +19,6 @@ package headroomassembler
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -58,7 +57,6 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metric_util "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -71,17 +69,6 @@ import (
 // between one's Unregister and Register, causing "generic is already
 // registered" errors when the intervening subtest re-populates the entry.
 var hRegistryMu sync.Mutex
-
-func TestResolveReclaimPathsForDiagnostics(t *testing.T) {
-	existing := t.TempDir()
-	missing := filepath.Join(t.TempDir(), "missing")
-
-	resolved, inputCount, resolvedCount := resolveReclaimPathsForDiagnostics([]string{existing, missing})
-
-	require.Equal(t, []string{existing}, resolved)
-	require.Equal(t, 2, inputCount)
-	require.Equal(t, 1, resolvedCount)
-}
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -143,6 +130,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 		reclaimedResourceConfiguration *reclaimedresource.ReclaimedResourceConfiguration
 		setFakeMetric                  func(store *metric.FakeMetricsFetcher)
 		setMetaCache                   func(cache *metacache.MetaCacheImp)
+		filterExistingPaths            func(paths ...string) []string
 
 		allowSharedCoresOverlapReclaimedCores bool
 	}
@@ -491,6 +479,9 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 100000, Time: &now})
+				},
+				filterExistingPaths: func(paths ...string) []string {
+					return []string{"/kubepods/besteffort"}
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
@@ -953,13 +944,6 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 		patches.Reset()
 	})
 
-	existingPathsPatches := gomonkey.ApplyFunc(general.GetExistingPaths, func(paths []string) []string {
-		return paths
-	})
-	defer t.Cleanup(func() {
-		existingPathsPatches.Reset()
-	})
-
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
@@ -1006,6 +990,13 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			numaAvailable := map[int]int{0: 46, 1: 46}
 
 			ha := NewHeadroomAssemblerCommon(conf, nil, &tt.fields.regions, &reservedForReclaim, &numaAvailable, nil, metaCache, metaServer, metrics.DummyMetrics{})
+			if tt.fields.filterExistingPaths != nil {
+				ha.(*HeadroomAssemblerCommon).existingRelativeCgroupPaths = tt.fields.filterExistingPaths
+			} else {
+				ha.(*HeadroomAssemblerCommon).existingRelativeCgroupPaths = func(paths ...string) []string {
+					return paths
+				}
+			}
 
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.fields.setFakeMetric(store)
