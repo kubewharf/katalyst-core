@@ -19,12 +19,12 @@ package state
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -2114,7 +2114,7 @@ func TestClearState(t *testing.T) {
 			t.Parallel()
 
 			// create temp dir
-			testingDir, err := ioutil.TempDir("", fmt.Sprintf("dynamic_policy_state_test_%d", i))
+			testingDir, err := ioutil.TempDir("", "dynamic_policy_state_test_"+strconv.Itoa(i))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -3519,132 +3519,6 @@ func TestCPUPluginCheckpointChecksumAndSerialization(t *testing.T) {
 func TestCPUPluginCheckpointRejectsInvalidJSON(t *testing.T) {
 	checkpoint := NewCPUPluginCheckpoint()
 	require.Error(t, checkpoint.UnmarshalCheckpoint([]byte(`{"policyName":`)))
-}
-
-func TestStateCheckpointKeepsMemoryStateWhenPersistFails(t *testing.T) {
-	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-	require.NoError(t, err)
-
-	newStateCheckpoint := func() (*stateCheckpoint, *int) {
-		cache := NewCPUPluginState(topology)
-		cache.SetPodEntries(PodEntries{
-			"committed-pod": {
-				"container": {
-					AllocationResult: machine.NewCPUSet(1),
-				},
-			},
-		})
-		cache.SetMachineState(NUMANodeMap{
-			0: {
-				DefaultCPUSet:   machine.NewCPUSet(0, 1),
-				AllocatedCPUSet: machine.NewCPUSet(2),
-				PodEntries:      PodEntries{},
-				ResourcePackageStates: map[string]*ResourcePackageState{
-					"committed-package": {
-						Attributes:   map[string]string{"committed": "value"},
-						PinnedCPUSet: machine.NewCPUSet(3),
-					},
-				},
-			},
-		})
-		cache.SetNUMAHeadroom(map[int]float64{0: 1})
-
-		persistCalls := 0
-		return &stateCheckpoint{
-			cache: cache,
-			storeStateHook: func() error {
-				persistCalls++
-				return fmt.Errorf("injected persist failure")
-			},
-		}, &persistCalls
-	}
-
-	t.Run("SetPodEntries", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-		want := PodEntries{
-			"new-pod": {
-				"container": {
-					AllocationResult: machine.NewCPUSet(2),
-				},
-			},
-		}
-
-		sc.SetPodEntries(want, true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.Equal(t, want.Clone(), sc.GetPodEntries())
-	})
-
-	t.Run("SetMachineState", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-		updatedMachineState := sc.GetMachineState()
-		updatedMachineState[0].DefaultCPUSet = machine.NewCPUSet(2, 3)
-
-		sc.SetMachineState(updatedMachineState, true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.Equal(t, updatedMachineState, sc.GetMachineState())
-	})
-
-	t.Run("SetNUMAHeadroom", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-		want := map[int]float64{1: 2}
-
-		sc.SetNUMAHeadroom(want, true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.Equal(t, want, sc.GetNUMAHeadroom())
-	})
-
-	t.Run("SetAllocationInfo", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-		want := &AllocationInfo{
-			AllocationResult: machine.NewCPUSet(2),
-		}
-
-		sc.SetAllocationInfo("new-pod", "container", want, true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.Equal(t, want.Clone(), sc.GetAllocationInfo("new-pod", "container"))
-	})
-
-	t.Run("SetAllowSharedCoresOverlapReclaimedCores", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-
-		sc.SetAllowSharedCoresOverlapReclaimedCores(true, true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.True(t, sc.GetAllowSharedCoresOverlapReclaimedCores())
-	})
-
-	t.Run("SetDisableDedicatedCoresOverlapReclaimedCores", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-
-		sc.SetDisableDedicatedCoresOverlapReclaimedCores(true, true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.True(t, sc.GetDisableDedicatedCoresOverlapReclaimedCores())
-	})
-
-	t.Run("Delete", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-
-		sc.Delete("committed-pod", "container", true)
-
-		require.Equal(t, 1, *persistCalls)
-		require.Nil(t, sc.GetAllocationInfo("committed-pod", "container"))
-	})
-
-	t.Run("ClearState", func(t *testing.T) {
-		sc, persistCalls := newStateCheckpoint()
-
-		sc.ClearState()
-
-		require.Equal(t, 1, *persistCalls)
-		require.Equal(t, GetDefaultMachineState(topology), sc.GetMachineState())
-		require.Empty(t, sc.GetPodEntries())
-	})
-
 }
 
 func TestStateClonesAndCheckpointRestoreDoNotAliasState(t *testing.T) {

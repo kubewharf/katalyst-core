@@ -53,7 +53,6 @@ type stateCheckpoint struct {
 	GenerateMachineStateFromPodEntries GenerateMachineStateFromPodEntriesFunc
 	emitter                            metrics.MetricEmitter
 	topology                           *machine.CPUTopology
-	storeStateHook                     func() error
 }
 
 var (
@@ -130,9 +129,6 @@ func (sc *stateCheckpoint) StoreState() error {
 }
 
 func (sc *stateCheckpoint) storeState() error {
-	if sc.storeStateHook != nil {
-		return sc.storeStateHook()
-	}
 	startTime := time.Now()
 	general.InfoS("called")
 	defer func() {

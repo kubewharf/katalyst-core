@@ -231,9 +231,6 @@ func (s *cpuPluginState) ClearState() {
 	defer s.Unlock()
 
 	defaultMachineState := GetDefaultMachineState(s.cpuTopology)
-	if reflect.DeepEqual(s.machineState, defaultMachineState) && len(s.podEntries) == 0 {
-		return
-	}
 	s.machineState = defaultMachineState
 	s.socketTopology = s.cpuTopology.GetSocketTopology()
 	s.podEntries = make(PodEntries)
