@@ -28,8 +28,8 @@ const NegotiationFeatureGateMemoryHeadroomReporting = "feature_gate_memory_headr
 type MemoryHeadroomReporting struct{}
 
 func (e *MemoryHeadroomReporting) GetFeatureGate(conf *config.Configuration) *advisorsvc.FeatureGate {
-	if !conf.EnableMemoryHeadroomReporting {
-		general.Infof("feature_gate_memory_headroom_reporting is not supported: %v", conf.EnableMemoryHeadroomReporting)
+	if !conf.EnableReclaimedResourceAllocatableReporting {
+		general.Infof("feature_gate_memory_headroom_reporting is not supported: %v", conf.EnableReclaimedResourceAllocatableReporting)
 		return nil
 	}
 

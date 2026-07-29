@@ -25,16 +25,17 @@ import (
 )
 
 type GenericQRMPluginOptions struct {
-	QRMPluginSocketDirs             []string
-	ExtraStateFileAbsPath           string
-	PodDebugAnnoKeys                []string
-	UseKubeletReservedConfig        bool
-	PodAnnotationKeptKeys           []string
-	PodLabelKeptKeys                []string
-	MainContainerAnnotationKey      string
-	EnableReclaimNUMABinding        bool
-	EnableSNBHighNumaPreference     bool
-	TopologyAllocationAnnotationKey string
+	QRMPluginSocketDirs                         []string
+	ExtraStateFileAbsPath                       string
+	PodDebugAnnoKeys                            []string
+	UseKubeletReservedConfig                    bool
+	PodAnnotationKeptKeys                       []string
+	PodLabelKeptKeys                            []string
+	MainContainerAnnotationKey                  string
+	EnableReclaimNUMABinding                    bool
+	EnableSNBHighNumaPreference                 bool
+	TopologyAllocationAnnotationKey             string
+	EnableReclaimedResourceAllocatableReporting bool
 	*statedirectory.StateDirectoryOptions
 }
 
@@ -72,6 +73,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSNBHighNumaPreference, "default false,if set true, snb pod will be preferentially allocated on high numa node")
 	fs.StringVar(&o.TopologyAllocationAnnotationKey, "topology-allocation-annotation-key",
 		o.TopologyAllocationAnnotationKey, "the annotation key used to describe a topology aware allocation of a container")
+	fs.BoolVar(&o.EnableReclaimedResourceAllocatableReporting, "enable-reclaimed-resource-allocatable-reporting",
+		o.EnableReclaimedResourceAllocatableReporting, "enable headroom feature-gate negotiation and reclaimed CPU/memory allocatable reporting")
 	o.StateDirectoryOptions.AddFlags(fss)
 }
 
@@ -86,6 +89,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
 	conf.TopologyAllocationAnnotationKey = o.TopologyAllocationAnnotationKey
+	conf.EnableReclaimedResourceAllocatableReporting = o.EnableReclaimedResourceAllocatableReporting
 
 	if err := o.StateDirectoryOptions.ApplyTo(conf.StateDirectoryConfiguration); err != nil {
 		return err

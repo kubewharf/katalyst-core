@@ -863,6 +863,10 @@ func (p *DynamicPolicy) addReclaimedCPUAllocatable(
 	numaNodes []int,
 	consumerNames []string,
 ) {
+	if !p.conf.EnableReclaimedResourceAllocatableReporting {
+		return
+	}
+
 	if len(consumerNames) == 0 {
 		return
 	}

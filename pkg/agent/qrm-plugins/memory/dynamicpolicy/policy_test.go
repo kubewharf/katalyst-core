@@ -2814,6 +2814,7 @@ func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 		},
 	}
 
+	dynamicPolicy.enableReclaimedResourceAllocatableReporting = true
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -2835,7 +2836,15 @@ func TestAddReclaimedMemoryAllocatable(t *testing.T) {
 	// end-to-end: the ReclaimedResourceMemory entry is present in the full
 	// response when ReclaimConsumersForKCNR is configured.
 	dynamicPolicy.reclaimConsumersForKCNR = []string{"kcnr-a"}
+	dynamicPolicy.enableReclaimedResourceAllocatableReporting = false
 	resp, err := dynamicPolicy.GetTopologyAwareAllocatableResources(context.Background(),
+		&pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	as.Nil(err)
+	_, found := resp.AllocatableResources[memKey]
+	as.False(found)
+
+	dynamicPolicy.enableReclaimedResourceAllocatableReporting = true
+	resp, err = dynamicPolicy.GetTopologyAwareAllocatableResources(context.Background(),
 		&pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
 	as.Nil(err)
 	as.Equal(newResource(50), resp.AllocatableResources[memKey])

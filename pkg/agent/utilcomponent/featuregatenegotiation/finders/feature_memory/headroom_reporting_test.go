@@ -30,7 +30,7 @@ func TestMemoryHeadroomReporting_GetFeatureGate(t *testing.T) {
 
 	newConf := func(enable bool) *config.Configuration {
 		conf := config.NewConfiguration()
-		conf.EnableMemoryHeadroomReporting = enable
+		conf.EnableReclaimedResourceAllocatableReporting = enable
 		return conf
 	}
 

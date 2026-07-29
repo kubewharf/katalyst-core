@@ -170,6 +170,7 @@ type DynamicPolicy struct {
 	enableReclaimNUMABinding                      bool
 	enableSNBHighNumaPreference                   bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
+	enableReclaimedResourceAllocatableReporting   bool
 
 	numaAllocationReactor                         reactor.AllocationReactor
 	numaBindResultResourceAllocationAnnotationKey string
@@ -248,7 +249,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableEvictingLogCache:      conf.EnableEvictingLogCache,
 		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
-		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter, stateImpl),
+		enableReclaimedResourceAllocatableReporting: conf.EnableReclaimedResourceAllocatableReporting,
+		resctrlHinter: newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter, stateImpl),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 		topologyAllocationAnnotationKey:               conf.TopologyAllocationAnnotationKey,
@@ -944,6 +946,10 @@ func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
 	numaNodes []int,
 	consumerNames []string,
 ) {
+	if !p.enableReclaimedResourceAllocatableReporting {
+		return
+	}
+
 	if len(consumerNames) == 0 {
 		return
 	}

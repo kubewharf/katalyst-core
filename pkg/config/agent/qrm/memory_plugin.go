@@ -53,9 +53,6 @@ type MemoryQRMPluginConfig struct {
 	NUMABindResultResourceAllocationAnnotationKey string
 	// ExtraMemoryResources: the slice of extra memory resources such as hugepages-*
 	ExtraMemoryResources []string
-	// EnableMemoryHeadroomReporting indicates whether the QRM memory plugin reports headroom itself,
-	// which lets sysadvisor skip memory headroom reporting.
-	EnableMemoryHeadroomReporting bool
 	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
 	SockMemQRMPluginConfig
 	// LogCacheQRMPluginConfig: the configuration for logcache evicting

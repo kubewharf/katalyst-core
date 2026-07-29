@@ -81,9 +81,6 @@ type CPUDynamicPolicyConfig struct {
 	EnableSystemExclusivePool bool
 	// EnableCPUWeight indicates whether cpu weight sync is enabled
 	EnableCPUWeight bool
-	// EnableCPUHeadroomReporting indicates whether the QRM cpu plugin reports headroom itself,
-	// which lets sysadvisor skip CPU headroom reporting.
-	EnableCPUHeadroomReporting bool
 
 	*bulkhead.BulkheadConfiguration
 	*hintoptimizer.HintOptimizerConfiguration

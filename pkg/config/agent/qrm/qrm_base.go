@@ -44,6 +44,9 @@ type GenericQRMPluginConfiguration struct {
 	EnableInMemoryState bool
 	// TopologyAllocationAnnotationKey is the annotation key that indicates the topology-aware allocations of containers.
 	TopologyAllocationAnnotationKey string
+	// EnableReclaimedResourceAllocatableReporting controls both headroom feature-gate
+	// negotiation and reclaimed CPU/memory allocatable reporting.
+	EnableReclaimedResourceAllocatableReporting bool
 	*statedirectory.StateDirectoryConfiguration
 }
 

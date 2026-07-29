@@ -28,8 +28,8 @@ const NegotiationFeatureGateCPUHeadroomReporting = "feature_gate_cpu_headroom_re
 type CPUHeadroomReporting struct{}
 
 func (e *CPUHeadroomReporting) GetFeatureGate(conf *config.Configuration) *advisorsvc.FeatureGate {
-	if !conf.EnableCPUHeadroomReporting {
-		general.Infof("feature_gate_cpu_headroom_reporting is not supported: %v", conf.EnableCPUHeadroomReporting)
+	if !conf.EnableReclaimedResourceAllocatableReporting {
+		general.Infof("feature_gate_cpu_headroom_reporting is not supported: %v", conf.EnableReclaimedResourceAllocatableReporting)
 		return nil
 	}
 

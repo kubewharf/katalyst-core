@@ -30,7 +30,7 @@ func TestCPUHeadroomReporting_GetFeatureGate(t *testing.T) {
 
 	newConf := func(enable bool) *config.Configuration {
 		conf := config.NewConfiguration()
-		conf.EnableCPUHeadroomReporting = enable
+		conf.EnableReclaimedResourceAllocatableReporting = enable
 		return conf
 	}
 
