@@ -1364,18 +1364,21 @@ func TestCalculateReclaimPoolDisableDedicatedCoresOverlapReclaimedCores(t *testi
 				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
 			}
 
-			_, _, _, err := tt.calculate(pa, tt.data, result)
+			reclaimedCoresSize, _, _, err := tt.calculate(pa, tt.data, result)
 
 			require.NoError(t, err)
 			require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
 			if tt.name == "overlap reclaim pool keeps shared overlap only" {
+				require.Equal(t, 2, reclaimedCoresSize)
 				require.Equal(t, map[string]int{"share": 2}, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+			} else {
+				require.Zero(t, reclaimedCoresSize)
 			}
 		})
 	}
 }
 
-func TestAssembleProvisionDisableDedicatedNUMAExclusiveOverlapMetadata(t *testing.T) {
+func TestAssembleProvisionDisableDedicatedNUMAExclusiveOverlapRejectsReservedReclaim(t *testing.T) {
 	conf := generateTestConf(t, true, "")
 	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
 
@@ -1405,11 +1408,12 @@ func TestAssembleProvisionDisableDedicatedNUMAExclusiveOverlapMetadata(t *testin
 		nil, metrics.DummyMetrics{},
 	)
 
-	result, err := pa.AssembleProvision()
+	_, err := pa.AssembleProvision()
 
-	require.NoError(t, err)
-	require.Equal(t, types.CPUResource{Size: 0, Quota: 5}, result.PoolEntries[commonstate.PoolNameReclaim][0])
-	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+	require.Error(t, err)
+	require.ErrorContains(t, err, "NUMA 0")
+	require.ErrorContains(t, err, "reservedForReclaim 1")
+	require.ErrorContains(t, err, "dedicated NUMA exclusive")
 }
 
 func TestCalculateOverlapReclaimPoolDisableDedicatedOverlapKeepsQuotaSemantics(t *testing.T) {
@@ -1442,14 +1446,101 @@ func TestCalculateOverlapReclaimPoolDisableDedicatedOverlapKeepsQuotaSemantics(t
 		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
 	}
 
-	reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err := pa.calculateOverlapReclaimPool(data, result)
+	_, _, _, err := pa.calculateOverlapReclaimPool(data, result)
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "NUMA 0")
+	require.ErrorContains(t, err, "reservedForReclaim 1")
+	require.ErrorContains(t, err, "available 0")
+}
+
+func TestAssembleProvisionSharedOverlapKeepsReservedForReclaim(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+
+	shareRegion := NewFakeRegion("share", configapi.QoSRegionTypeShare, "share")
+	shareRegion.bindingNumas = machine.NewCPUSet(0)
+	shareRegion.isNumaBinding = true
+	shareRegion.controlKnob = types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {Value: 2},
+	}
+
+	regionMap := map[string]region.QoSRegion{shareRegion.Name(): shareRegion}
+	reservedForReclaim := map[int]int{0: 2}
+	numaAvailable := map[int]int{0: 4}
+	nonBindingNumas := machine.NewCPUSet()
+	allowSharedCoresOverlapReclaimedCores := true
+	metaReader := metacache.NewDummyMetaCacheImp()
+	pa := NewProvisionAssemblerCommon(
+		conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas,
+		&allowSharedCoresOverlapReclaimedCores, metaReader, nil, metrics.DummyMetrics{},
+	)
+
+	result, err := pa.AssembleProvision()
 
 	require.NoError(t, err)
-	require.Equal(t, 2, reclaimedCoresSize)
-	require.Zero(t, overlapReclaimedCoresSize)
-	require.Equal(t, float64(1), reclaimedCoresQuota)
-	require.Empty(t, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
-	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+	require.Equal(t, types.CPUResource{Size: 0, Quota: -1}, result.PoolEntries[commonstate.PoolNameReclaim][0])
+	require.Equal(t, map[string]int{"share": 2}, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
+}
+
+func TestAssembleProvisionDedicatedOnlyReservedReclaimWithoutCapacityFails(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+
+	dedicatedRegion := NewFakeRegion("dedicated", configapi.QoSRegionTypeDedicated, "dedicated")
+	dedicatedRegion.bindingNumas = machine.NewCPUSet(0)
+	dedicatedRegion.isNumaBinding = true
+	dedicatedRegion.controlKnob = types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {Value: 1},
+	}
+
+	regionMap := map[string]region.QoSRegion{dedicatedRegion.Name(): dedicatedRegion}
+	reservedForReclaim := map[int]int{0: 1}
+	numaAvailable := map[int]int{0: 0}
+	nonBindingNumas := machine.NewCPUSet()
+	allowSharedCoresOverlapReclaimedCores := true
+	metaReader := metacache.NewDummyMetaCacheImp()
+	pa := NewProvisionAssemblerCommon(
+		conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas,
+		&allowSharedCoresOverlapReclaimedCores, metaReader, nil, metrics.DummyMetrics{},
+	)
+
+	_, err := pa.AssembleProvision()
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "NUMA 0")
+	require.ErrorContains(t, err, "reservedForReclaim 1")
+	require.ErrorContains(t, err, "available 0")
+}
+
+func TestAssembleDedicatedNUMAExclusiveReservedReclaimFailsWhenDedicatedOverlapDisabled(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+
+	dedicatedRegion := NewFakeRegion("dedicated-numa-exclusive", configapi.QoSRegionTypeDedicated, "dedicated-numa-exclusive")
+	dedicatedRegion.bindingNumas = machine.NewCPUSet(0)
+	dedicatedRegion.isNumaBinding = true
+	dedicatedRegion.isNumaExclusive = true
+	dedicatedRegion.controlKnob = types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {Value: 2},
+	}
+
+	regionMap := map[string]region.QoSRegion{dedicatedRegion.Name(): dedicatedRegion}
+	reservedForReclaim := map[int]int{0: 1}
+	numaAvailable := map[int]int{0: 4}
+	nonBindingNumas := machine.NewCPUSet()
+	allowSharedCoresOverlapReclaimedCores := true
+	pa := NewProvisionAssemblerCommon(
+		conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas,
+		&allowSharedCoresOverlapReclaimedCores, metacache.NewDummyMetaCacheImp(), nil, metrics.DummyMetrics{},
+	)
+
+	_, err := pa.AssembleProvision()
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "NUMA 0")
+	require.ErrorContains(t, err, "reservedForReclaim 1")
+	require.ErrorContains(t, err, "dedicated NUMA exclusive")
 }
 
 func TestCalculateOverlapReclaimPoolDisableDedicatedOverlapReservedReclaim(t *testing.T) {
@@ -1481,11 +1572,10 @@ func TestCalculateOverlapReclaimPoolDisableDedicatedOverlapReservedReclaim(t *te
 		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
 	}
 
-	reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err := pa.calculateOverlapReclaimPool(data, result)
+	_, _, _, err := pa.calculateOverlapReclaimPool(data, result)
 
-	require.NoError(t, err)
-	require.Equal(t, 4, reclaimedCoresSize)
-	require.Zero(t, overlapReclaimedCoresSize)
-	require.Equal(t, float64(4), reclaimedCoresQuota)
-	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+	require.Error(t, err)
+	require.ErrorContains(t, err, "NUMA 0")
+	require.ErrorContains(t, err, "reservedForReclaim 4")
+	require.ErrorContains(t, err, "available 0")
 }

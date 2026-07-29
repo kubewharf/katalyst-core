@@ -1126,6 +1126,13 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
 				"currentAvailableCPUs", currentAvailableCPUs.String())
 
+			if currentAvailableCPUs.Size() < blockResult {
+				return fmt.Errorf(
+					"insufficient CPUs for NUMA-aware reclaim block: numa id: %d, requested: %d, available: %d",
+					numaID, blockResult, currentAvailableCPUs.Size(),
+				)
+			}
+
 			cpuset, err := calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for NUMA Aware reclaim block: %s in NUMA: %d failed with error: %v", blockID, numaID, err)

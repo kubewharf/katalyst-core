@@ -1137,7 +1137,7 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 				},
 			},
 			expectedError:    true,
-			expectedErrorStr: "allocate cpuset for NUMA Aware reclaim block: block-reclaim-1 in NUMA: 0 failed",
+			expectedErrorStr: "insufficient CPUs for NUMA-aware reclaim block: numa id: 0, requested: 2, available: 1",
 			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
 				// No validation needed if error is expected
 			},
@@ -1199,6 +1199,39 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDynamicPolicy_generateReclaimBlockCPUSet_NUMAAwareInsufficientCPUsReturnsDiagnostic(t *testing.T) {
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	policy := &DynamicPolicy{
+		machineInfo: &machine.KatalystMachineInfo{
+			CPUTopology: topology,
+		},
+	}
+	blockCPUSet := advisorapi.BlockCPUSet{}
+
+	err = policy.generateReclaimBlockCPUSet(
+		map[int][]*advisorapi.BlockInfo{
+			0: {{
+				Block: advisorapi.Block{
+					BlockId: "reclaim-numa-0",
+					Result:  2,
+				},
+			}},
+		},
+		machine.NewCPUSet(0),
+		machine.NewCPUSet(0),
+		machine.NewCPUSet(),
+		blockCPUSet,
+	)
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "numa id: 0")
+	require.ErrorContains(t, err, "requested: 2")
+	require.ErrorContains(t, err, "available: 1")
+	require.Empty(t, blockCPUSet)
 }
 
 func TestDynamicPolicyPlanBlocks(t *testing.T) {

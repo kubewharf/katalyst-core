@@ -114,6 +114,12 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 	regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
 	reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, r.GetBindingNumas())
 	available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
+	if pa.conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores && reservedForReclaim > 0 {
+		return fmt.Errorf(
+			"cannot assemble reclaim pool for NUMA %d: reservedForReclaim %d, dedicated NUMA exclusive has no reclaim capacity",
+			regionNuma, reservedForReclaim,
+		)
+	}
 	var reclaimedCoresSize int
 	reclaimedCoresLimit := float64(-1)
 
@@ -655,9 +661,21 @@ func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
 	shareReclaimCoresSize := data.shareAndIsolatedDedicatedPoolAvailable - isolated -
 		general.SumUpMapValues(nonReclaimableSharePoolSizes) - general.SumUpMapValues(reclaimableShareRequirements) -
 		general.SumUpMapValues(data.dedicatedPoolSizes) - data.totalUnusedNonReclaimablePinnedCPUSize
+	reclaimCapacityWithoutDedicatedOverlap := general.Max(shareReclaimCoresSize, 0)
+	if disableDedicatedCoresOverlapReclaimedCores && data.reservedForReclaim > reclaimCapacityWithoutDedicatedOverlap {
+		return 0, 0, 0, fmt.Errorf(
+			"cannot assemble reclaim pool for NUMA %d: reservedForReclaim %d, available %d",
+			data.numaID, data.reservedForReclaim, reclaimCapacityWithoutDedicatedOverlap,
+		)
+	}
 
 	if data.nodeEnableReclaim {
-		reclaimedCoresSize = shareReclaimCoresSize + data.dedicatedReclaimCoresSize
+		reclaimedCoresSize = shareReclaimCoresSize
+		if disableDedicatedCoresOverlapReclaimedCores {
+			reclaimedCoresSize = reclaimCapacityWithoutDedicatedOverlap
+		} else {
+			reclaimedCoresSize += data.dedicatedReclaimCoresSize
+		}
 		if reclaimedCoresSize < data.reservedForReclaim {
 			reclaimedCoresSize = data.reservedForReclaim
 			regulatedOverlapReclaimPoolSize, err := regulateOverlapReclaimPoolSize(poolSizes, reclaimedCoresSize)
@@ -798,7 +816,10 @@ func (pa *ProvisionAssemblerCommon) calculateNonOverlapReclaimPool(
 		// We deduct totalUnusedNonReclaimablePinnedCPUSize here to ensure that the unused portion of non-reclaimable
 		// resource packages is not added to the reclaim pool, preventing those CPUs from being reclaimed.
 		shareReclaimedCoresSize := data.shareAndIsolatedDedicatedPoolAvailable - general.SumUpMapValues(data.shareAndIsolateDedicatedPoolSizes) - data.totalUnusedNonReclaimablePinnedCPUSize
-		reclaimedCoresSize = shareReclaimedCoresSize + data.dedicatedReclaimCoresSize + data.reservedForReclaim
+		reclaimedCoresSize = shareReclaimedCoresSize + data.reservedForReclaim
+		if !disableDedicatedCoresOverlapReclaimedCores {
+			reclaimedCoresSize += data.dedicatedReclaimCoresSize
+		}
 	} else {
 		reclaimedCoresSize = data.reservedForReclaim
 	}
