@@ -74,30 +74,6 @@ func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 	}
 }
 
-func (s *cpuPluginState) mutateCommittedState(mutator func()) {
-	s.Lock()
-	defer s.Unlock()
-	mutator()
-}
-
-func (s *cpuPluginState) checkpointLocked() *CPUPluginCheckpoint {
-	checkpoint := NewCPUPluginCheckpoint()
-	checkpoint.MachineState = s.machineState.Clone()
-	checkpoint.NUMAHeadroom = general.DeepCopyIntToFloat64Map(s.numaHeadroom)
-	checkpoint.PodEntries = s.podEntries.Clone()
-	checkpoint.AllowSharedCoresOverlapReclaimedCores = s.allowSharedCoresOverlapReclaimedCores
-	checkpoint.DisableDedicatedCoresOverlapReclaimedCores = s.disableDedicatedCoresOverlapReclaimedCores
-	return checkpoint
-}
-
-func (s *cpuPluginState) applyCheckpointLocked(checkpoint *CPUPluginCheckpoint) {
-	s.machineState = checkpoint.MachineState.Clone()
-	s.numaHeadroom = general.DeepCopyIntToFloat64Map(checkpoint.NUMAHeadroom)
-	s.podEntries = checkpoint.PodEntries.Clone()
-	s.allowSharedCoresOverlapReclaimedCores = checkpoint.AllowSharedCoresOverlapReclaimedCores
-	s.disableDedicatedCoresOverlapReclaimedCores = checkpoint.DisableDedicatedCoresOverlapReclaimedCores
-}
-
 func (s *cpuPluginState) GetMachineState() NUMANodeMap {
 	s.RLock()
 	defer s.RUnlock()
