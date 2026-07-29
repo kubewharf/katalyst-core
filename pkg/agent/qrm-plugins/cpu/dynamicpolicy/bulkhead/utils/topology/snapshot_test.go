@@ -19,6 +19,7 @@ package topology
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -140,5 +141,80 @@ func TestBuildDomainSnapshotFailsClosedOnChildEnumerationError(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("buildDomainSnapshot returned nil error after child ownership enumeration failed")
+	}
+}
+
+func TestBuildDomainSnapshotIgnoresVanishedDynamicDescendant(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0)},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet(0)
+	cg.cpus["reclaim"] = machine.NewCPUSet(1)
+	cg.children["primary"] = []string{"vanished-container"}
+	cg.readErr["primary/vanished-container"] = os.ErrNotExist
+
+	snapshot, err := buildDomainSnapshot(
+		context.Background(),
+		cg,
+		dag,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(0),
+			"reclaim": machine.NewCPUSet(1),
+		},
+		machine.CPUDetails{
+			0: {NUMANodeID: 0},
+			1: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	)
+	if err != nil {
+		t.Fatalf("buildDomainSnapshot returned error for vanished dynamic descendant: %v", err)
+	}
+	if _, ok := snapshot.observedByRel["primary/vanished-container"]; ok {
+		t.Fatal("vanished dynamic descendant must not be recorded as an owner")
+	}
+}
+
+func TestBuildDomainSnapshotIgnoresDynamicDescendantVanishedBeforeEnumeration(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0)},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet(0)
+	cg.cpus["reclaim"] = machine.NewCPUSet(1)
+	cg.children["primary"] = []string{"vanished-container"}
+	cg.cpus["primary/vanished-container"] = machine.NewCPUSet(0)
+	cg.listErr["primary/vanished-container"] = os.ErrNotExist
+
+	if _, err := buildDomainSnapshot(
+		context.Background(),
+		cg,
+		dag,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(0),
+			"reclaim": machine.NewCPUSet(1),
+		},
+		machine.CPUDetails{
+			0: {NUMANodeID: 0},
+			1: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	); err != nil {
+		t.Fatalf("buildDomainSnapshot returned error for dynamic descendant vanished before enumeration: %v", err)
 	}
 }

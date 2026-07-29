@@ -72,12 +72,18 @@ func buildDomainSnapshot(ctx context.Context, cg cgroupclient.CgroupClient, dag 
 func (s *domainSnapshot) observeRel(ctx context.Context, cg cgroupclient.CgroupClient, rel string, domain cpusetDomain, controlled map[string]struct{}, cache *applyCache) error {
 	current, err := cg.ReadCPUSet(ctx, rel)
 	if err != nil {
+		if _, isControlled := controlled[rel]; !isControlled && isCgroupNotFoundError(err) {
+			return nil
+		}
 		return fmt.Errorf("snapshot read cpuset, rel=%q: %w", rel, err)
 	}
 	s.recordOwner(rel, current, domain)
 
 	children, err := cache.listChildren(ctx, rel)
 	if err != nil {
+		if _, isControlled := controlled[rel]; !isControlled && isCgroupNotFoundError(err) {
+			return nil
+		}
 		return fmt.Errorf("snapshot list children, rel=%q: %w", rel, err)
 	}
 	for _, name := range children {
