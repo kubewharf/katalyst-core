@@ -36,8 +36,8 @@ func newDomainGate(snapshot domainSnapshot) domainGate {
 	gate := domainGate{
 		releasedToPrimary:     machine.NewCPUSet(),
 		releasedToReclaim:     machine.NewCPUSet(),
-		safeUnownedToPrimary:  snapshot.safeUnownedToPrimary.Clone(),
-		safeUnownedToReclaim:  snapshot.safeUnownedToReclaim.Clone(),
+		safeUnownedToPrimary:  machine.NewCPUSet(),
+		safeUnownedToReclaim:  machine.NewCPUSet(),
 		pendingToPrimary:      machine.NewCPUSet(),
 		pendingToReclaim:      machine.NewCPUSet(),
 		cleanupPendingPrimary: machine.NewCPUSet(),
@@ -54,13 +54,11 @@ func (g *domainGate) recomputePending(snapshot domainSnapshot) {
 	g.pendingToPrimary = reclaimLeaving.Intersection(snapshot.targetPrimaryDomain)
 	g.pendingToReclaim = primaryLeaving.Intersection(snapshot.targetReclaimDomain)
 	g.cleanupPendingPrimary = primaryLeaving.
-		Difference(snapshot.targetReclaimDomain).
-		Difference(snapshot.nonConflictingSkippedResidual)
+		Difference(snapshot.targetReclaimDomain)
 	g.cleanupPendingReclaim = reclaimLeaving.
-		Difference(snapshot.targetPrimaryDomain).
-		Difference(snapshot.nonConflictingSkippedResidual)
-	g.safeUnownedToPrimary = snapshot.safeUnownedToPrimary.Clone()
-	g.safeUnownedToReclaim = snapshot.safeUnownedToReclaim.Clone()
+		Difference(snapshot.targetPrimaryDomain)
+	g.safeUnownedToPrimary = snapshot.safeUnownedToPrimary()
+	g.safeUnownedToReclaim = snapshot.safeUnownedToReclaim()
 }
 
 func (g *domainGate) publishReleased(fromDomain cpusetDomain, releaseBatch machine.CPUSet, snapshot domainSnapshot) machine.CPUSet {
@@ -84,7 +82,7 @@ func (g *domainGate) publishReleased(fromDomain cpusetDomain, releaseBatch machi
 	return actuallyReleased
 }
 
-func (g domainGate) allowedGrowTarget(domain cpusetDomain, desired machine.CPUSet, observed machine.CPUSet) machine.CPUSet {
+func (g *domainGate) allowedGrowTarget(domain cpusetDomain, desired machine.CPUSet, observed machine.CPUSet) machine.CPUSet {
 	switch domain {
 	case cpusetDomainPrimary:
 		allowed := observed.Union(g.releasedToPrimary).Union(g.safeUnownedToPrimary)

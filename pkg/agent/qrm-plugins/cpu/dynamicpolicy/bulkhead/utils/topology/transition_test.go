@@ -22,7 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func TestTransitionPlanClassifiesCrossDomainDisjointAsTransfer(t *testing.T) {
+func TestTransitionPlanSchedulesCrossDomainDisjointTransfer(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{
@@ -40,31 +40,22 @@ func TestTransitionPlanClassifiesCrossDomainDisjointAsTransfer(t *testing.T) {
 		observedReclaimDomain: machine.NewCPUSet(2),
 		targetReclaimDomain:   machine.NewCPUSet(0),
 		allowedCPUs:           machine.NewCPUSet(0, 2),
-		safeUnownedToPrimary:  machine.NewCPUSet(),
-		safeUnownedToReclaim:  machine.NewCPUSet(),
 	}
-	gate := newDomainGate(snapshot)
 
-	plan := buildTransitionPlan(dag, snapshot, gate)
-	primary := plan.byRel["primary"]
-	if primary.kind != transitionCrossDomain {
-		t.Fatalf("primary kind = %s, want %s", primary.kind, transitionCrossDomain)
-	}
-	if !primary.crossDomainEntering.Equals(machine.NewCPUSet(2)) {
-		t.Fatalf("crossDomainEntering = %s, want 2", primary.crossDomainEntering.String())
-	}
-	if !primary.bridgeTarget.IsEmpty() {
-		t.Fatalf("bridgeTarget = %s, want empty for cross-domain transfer", primary.bridgeTarget.String())
-	}
+	plan := buildTransitionPlan(dag, snapshot)
 	if got := len(plan.drainReclaimToPrimary); got != 1 {
 		t.Fatalf("drainReclaimToPrimary len = %d, want 1", got)
 	}
 	if got := len(plan.expandPrimary); got != 1 {
 		t.Fatalf("expandPrimary len = %d, want 1", got)
 	}
+	primary := plan.expandPrimary[0]
+	if !primary.crossDomainEntering.Equals(machine.NewCPUSet(2)) {
+		t.Fatalf("crossDomainEntering = %s, want 2", primary.crossDomainEntering.String())
+	}
 }
 
-func TestTransitionPlanAllowsReclaimNUMABucketDomainLocalBridge(t *testing.T) {
+func TestTransitionPlanSchedulesReclaimNUMABucketDomainLocalExpand(t *testing.T) {
 	t.Parallel()
 
 	dag, err := BuildDAG([]NodeSpec{
@@ -82,19 +73,16 @@ func TestTransitionPlanAllowsReclaimNUMABucketDomainLocalBridge(t *testing.T) {
 		observedReclaimDomain: machine.NewCPUSet(0, 1),
 		targetReclaimDomain:   machine.NewCPUSet(0, 1),
 		allowedCPUs:           machine.NewCPUSet(0, 1),
-		safeUnownedToPrimary:  machine.NewCPUSet(),
-		safeUnownedToReclaim:  machine.NewCPUSet(),
 	}
-	gate := newDomainGate(snapshot)
 
-	plan := buildTransitionPlan(dag, snapshot, gate)
-	bucket := plan.byRel["reclaim/numa-0"]
-	if bucket.kind != transitionDomainLocalBridge {
-		t.Fatalf("bucket kind = %s, want %s", bucket.kind, transitionDomainLocalBridge)
+	plan := buildTransitionPlan(dag, snapshot)
+	if got := len(plan.expandReclaim); got != 1 {
+		t.Fatalf("expandReclaim len = %d, want 1", got)
 	}
-	if got, want := bucket.bridgeTarget, machine.NewCPUSet(0, 1); !got.Equals(want) {
-		t.Fatalf("bridgeTarget = %s, want %s", got.String(), want.String())
+	if got := len(plan.drainReclaimToPrimary); got != 0 {
+		t.Fatalf("drainReclaimToPrimary len = %d, want 0", got)
 	}
+	bucket := plan.expandReclaim[0]
 	if !bucket.crossDomainEntering.IsEmpty() || !bucket.crossDomainLeaving.IsEmpty() {
 		t.Fatalf("cross-domain fields must be empty, entering=%s leaving=%s", bucket.crossDomainEntering.String(), bucket.crossDomainLeaving.String())
 	}

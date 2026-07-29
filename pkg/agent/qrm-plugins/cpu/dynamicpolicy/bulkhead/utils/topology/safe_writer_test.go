@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"testing"
 
+	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -42,6 +43,23 @@ type retryObservationCgroup struct {
 
 	childLists int
 	childReads int
+}
+
+type dynamicRelEBUSYOnceCgroup struct {
+	*topologyFakeCgroup
+
+	rel      string
+	attempts int
+}
+
+func (f *dynamicRelEBUSYOnceCgroup) ApplyCPUSet(ctx context.Context, rel string, data *cgcommon.CPUSetData) error {
+	if rel == f.rel {
+		f.attempts++
+		if f.attempts == 1 {
+			return syscall.EBUSY
+		}
+	}
+	return f.topologyFakeCgroup.ApplyCPUSet(ctx, rel, data)
 }
 
 func (f *retryObservationCgroup) ReadCPUSet(ctx context.Context, rel string) (machine.CPUSet, error) {
@@ -83,6 +101,79 @@ func (f *lateChildDuringParentShrinkCgroup) ListChildren(ctx context.Context, re
 		f.listsAfterInjection++
 	}
 	return f.topologyFakeCgroup.ListChildren(ctx, rel)
+}
+
+func TestFormatCPUSetSubtreeSnapshotEntryFiltersVersionSpecificFiles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		version     cgroupclient.CgroupVersion
+		wantContain []string
+		wantAbsent  []string
+	}{
+		{
+			name:    "v1 prints sched load balance only",
+			version: cgroupclient.CgroupVersionV1,
+			wantContain: []string{
+				`rel="kubepods"`,
+				`cpus="0-3"`,
+				`mems="0"`,
+				`slb="0"`,
+				`tasks="101,102"`,
+				`procs="201"`,
+			},
+			wantAbsent: []string{
+				"partition=",
+			},
+		},
+		{
+			name:    "v2 prints partition only",
+			version: cgroupclient.CgroupVersionV2,
+			wantContain: []string{
+				`rel="kubepods"`,
+				`cpus="0-3"`,
+				`mems="0"`,
+				`partition="root"`,
+				`tasks="101,102"`,
+				`procs="201"`,
+			},
+			wantAbsent: []string{
+				"slb=",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cg := newTopologyFakeCgroup()
+			cg.version = tt.version
+			cg.files["kubepods"] = map[string][]byte{
+				"cpuset.cpus":               []byte("0-3\n"),
+				"cpuset.mems":               []byte("0\n"),
+				"cpuset.sched_load_balance": []byte("0\n"),
+				"cpuset.cpus.partition":     []byte("root\n"),
+				"tasks":                     []byte("101\n102\n"),
+				"cgroup.procs":              []byte("201\n"),
+			}
+
+			writer := newSafeCPUSetWriter(context.Background(), cg, "0", &DAGApplyResult{})
+			got := writer.formatCPUSetSubtreeSnapshotEntry("kubepods")
+			for _, want := range tt.wantContain {
+				if !strings.Contains(got, want) {
+					t.Fatalf("entry %q does not contain %q", got, want)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Fatalf("entry %q contains unexpected %q", got, absent)
+				}
+			}
+		})
+	}
 }
 
 func TestApplyDAGDiffRetriesParentShrinkAfterEBUSYWithLateChild(t *testing.T) {
@@ -215,6 +306,34 @@ func TestSafeCPUSetWriterReturnsNonEBUSYImmediately(t *testing.T) {
 	}
 	if res.Attempted != 1 || res.Failed != 1 {
 		t.Fatalf("result = %+v, want attempted=1 failed=1", res)
+	}
+}
+
+func TestSafeCPUSetWriterRetriesDynamicRelAfterEBUSYWithChildShrink(t *testing.T) {
+	t.Parallel()
+
+	base := newTopologyFakeCgroup()
+	base.cpus["kubepods/pod0"] = machine.NewCPUSet(0, 1, 2)
+	base.cpus["kubepods/pod0/container0"] = machine.NewCPUSet(0, 2)
+	base.children["kubepods/pod0"] = []string{"container0"}
+	cg := &dynamicRelEBUSYOnceCgroup{
+		topologyFakeCgroup: base,
+		rel:                "kubepods/pod0",
+	}
+
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0", &DAGApplyResult{})
+	if err := writer.writeDynamicRel("kubepods/pod0", machine.NewCPUSet(0, 1), ""); err != nil {
+		t.Fatalf("writeDynamicRel error = %v, want retry to converge child then parent; writes=%#v", err, cg.writes)
+	}
+	if cg.attempts != 2 {
+		t.Fatalf("dynamic rel attempts = %d, want 2", cg.attempts)
+	}
+	wantWrites := []cpusetWrite{
+		{rel: "kubepods/pod0/container0", cpus: "0", mems: ""},
+		{rel: "kubepods/pod0", cpus: "0-1", mems: ""},
+	}
+	if !reflect.DeepEqual(cg.writes, wantWrites) {
+		t.Fatalf("writes=%#v, want child shrink before parent retry %#v", cg.writes, wantWrites)
 	}
 }
 

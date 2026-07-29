@@ -137,7 +137,12 @@ func applyTwoPhase(ctx context.Context, in DAGApplyInputs, res *DAGApplyResult) 
 	if err := pipeline.executeTransferCycle(ctx, in.Mems, res); err != nil {
 		return err
 	}
-	if err := convergeControlledNodes(ctx, in, effectiveTargets, allowEmptyTarget, res); err != nil {
+	applyTargets := effectiveTargets
+	constrainBridge := pipeline.shouldConstrainTargets()
+	if constrainBridge {
+		applyTargets = pipeline.constrainedTargets()
+	}
+	if err := convergeControlledNodesWithBridgeConstraint(ctx, in, applyTargets, allowEmptyTarget, res, constrainBridge); err != nil {
 		return err
 	}
 	report, err := buildConvergenceReport(ctx, cg, dag, effectiveTargets, in.CPUDetails, in.ReservedCPUSet, allowEmptyTarget, cache)
@@ -212,8 +217,15 @@ func (w safeCPSetWriter) propagateResetTarget(parentRel string, parentTarget mac
 }
 
 func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult) error {
-	writer := newSafeCPUSetWriterForDAG(ctx, in.Cgroup, in.DAG, targets, in.Mems, res).withCPUDetails(in.CPUDetails)
+	return convergeControlledNodesWithBridgeConstraint(ctx, in, targets, allowEmptyTarget, res, false)
+}
+
+func convergeControlledNodesWithBridgeConstraint(ctx context.Context, in DAGApplyInputs, targets map[string]machine.CPUSet, allowEmptyTarget bool, res *DAGApplyResult, constrainBridge bool) error {
+	writer := newSafeCPUSetWriterForDAG(ctx, in.Cgroup, in.DAG, targets, in.Mems, res).
+		withCPUDetails(in.CPUDetails).
+		withConstrainBridgeGrowth(constrainBridge)
 	var firstErr error
+	deferredShrinkRel := map[string]struct{}{}
 	_ = in.DAG.ForEachShrink(func(n *TopoNode) error {
 		target := targets[n.Rel]
 		if target.IsEmpty() && !allowEmptyTarget {
@@ -235,6 +247,7 @@ func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map
 			if err := writer.shrinkParentWithLiveChildUnion(n, target); err != nil {
 				if IsDeferConvergenceError(err) {
 					res.Deferred++
+					deferredShrinkRel[n.Rel] = struct{}{}
 				} else if firstErr == nil {
 					firstErr = err
 				}
@@ -246,6 +259,9 @@ func convergeControlledNodes(ctx context.Context, in DAGApplyInputs, targets map
 		return firstErr
 	}
 	_ = in.DAG.ForEachExpand(func(n *TopoNode) error {
+		if _, deferred := deferredShrinkRel[n.Rel]; deferred {
+			return nil
+		}
 		target := targets[n.Rel]
 		if target.IsEmpty() && !allowEmptyTarget {
 			res.Skipped++
@@ -360,6 +376,13 @@ func newApplyCache(cg cgroupclient.CgroupClient, kubeRelPrefix string) *applyCac
 		kubeRelPrefix: kubeRelPrefix,
 		children:      map[string][]string{},
 	}
+}
+
+func (c *applyCache) resetChildren() {
+	if c == nil {
+		return
+	}
+	c.children = map[string][]string{}
 }
 
 // listChildren returns the memoized cg.ListChildren(rel). It caches both

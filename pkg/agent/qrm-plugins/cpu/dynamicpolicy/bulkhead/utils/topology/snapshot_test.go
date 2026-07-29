@@ -18,7 +18,7 @@ package topology
 
 import (
 	"context"
-	"reflect"
+	"errors"
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -67,13 +67,78 @@ func TestBuildDomainSnapshotTracksDescendantOwners(t *testing.T) {
 	if got, want := snapshot.observedPrimaryDomain, machine.NewCPUSet(0, 2); !got.Equals(want) {
 		t.Fatalf("observedPrimaryDomain = %s, want %s", got.String(), want.String())
 	}
-	if got, want := snapshot.ownerByCPU[2], []string{"primary/pod-a"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("ownerByCPU[2] = %#v, want %#v", got, want)
+	if unowned := snapshot.unownedCPUs(); !unowned.IsEmpty() {
+		t.Fatalf("unownedCPUs = %s, want empty", unowned.String())
 	}
-	if !snapshot.unownedCPUs.IsEmpty() {
-		t.Fatalf("unownedCPUs = %s, want empty", snapshot.unownedCPUs.String())
+	if safeUnowned := snapshot.safeUnownedToPrimary(); !safeUnowned.IsEmpty() {
+		t.Fatalf("safeUnownedToPrimary = %s, want empty", safeUnowned.String())
 	}
-	if !snapshot.safeUnownedToPrimary.IsEmpty() {
-		t.Fatalf("safeUnownedToPrimary = %s, want empty", snapshot.safeUnownedToPrimary.String())
+}
+
+func TestBuildDomainSnapshotFailsClosedOnCPUSetReadError(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0)},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.readErr["primary"] = errors.New("forced cpuset read failure")
+
+	_, err = buildDomainSnapshot(
+		context.Background(),
+		cg,
+		dag,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(0),
+			"reclaim": machine.NewCPUSet(1),
+		},
+		machine.CPUDetails{
+			0: {NUMANodeID: 0},
+			1: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	)
+	if err == nil {
+		t.Fatal("buildDomainSnapshot returned nil error after ownership cpuset read failed")
+	}
+}
+
+func TestBuildDomainSnapshotFailsClosedOnChildEnumerationError(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0)},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1)},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet(0)
+	cg.cpus["reclaim"] = machine.NewCPUSet(1)
+	cg.listErr["primary"] = errors.New("forced child enumeration failure")
+
+	_, err = buildDomainSnapshot(
+		context.Background(),
+		cg,
+		dag,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(0),
+			"reclaim": machine.NewCPUSet(1),
+		},
+		machine.CPUDetails{
+			0: {NUMANodeID: 0},
+			1: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	)
+	if err == nil {
+		t.Fatal("buildDomainSnapshot returned nil error after child ownership enumeration failed")
 	}
 }

@@ -30,8 +30,6 @@ func TestDomainGateBlocksGrowUntilSourceReleased(t *testing.T) {
 		targetPrimaryDomain:   machine.NewCPUSet(0, 1),
 		observedReclaimDomain: machine.NewCPUSet(1, 2),
 		targetReclaimDomain:   machine.NewCPUSet(2),
-		safeUnownedToPrimary:  machine.NewCPUSet(),
-		safeUnownedToReclaim:  machine.NewCPUSet(),
 	}
 	gate := newDomainGate(snapshot)
 	if got, want := gate.pendingToPrimary, machine.NewCPUSet(1); !got.Equals(want) {
@@ -63,8 +61,6 @@ func TestDomainGateDoesNotPublishCleanupAsReleased(t *testing.T) {
 		targetPrimaryDomain:   machine.NewCPUSet(0),
 		observedReclaimDomain: machine.NewCPUSet(1, 2),
 		targetReclaimDomain:   machine.NewCPUSet(1),
-		safeUnownedToPrimary:  machine.NewCPUSet(),
-		safeUnownedToReclaim:  machine.NewCPUSet(),
 	}
 	gate := newDomainGate(snapshot)
 	if got, want := gate.cleanupPendingReclaim, machine.NewCPUSet(2); !got.Equals(want) {

@@ -18,47 +18,27 @@ package topology
 
 import "github.com/kubewharf/katalyst-core/pkg/util/machine"
 
-type transitionKind string
-
-const (
-	transitionNoop              transitionKind = "noop"
-	transitionGrow              transitionKind = "grow"
-	transitionShrink            transitionKind = "shrink"
-	transitionIntersectReplace  transitionKind = "intersect_replace"
-	transitionDomainLocalBridge transitionKind = "domain_local_bridge"
-	transitionCrossDomain       transitionKind = "cross_domain_transfer"
-)
-
 type nodeTransition struct {
 	node     *TopoNode
 	domain   cpusetDomain
-	kind     transitionKind
 	observed machine.CPUSet
 	target   machine.CPUSet
 
 	entering machine.CPUSet
-	leaving  machine.CPUSet
 
 	crossDomainEntering machine.CPUSet
 	crossDomainLeaving  machine.CPUSet
-	domainLocalEntering machine.CPUSet
-
-	bridgeTarget machine.CPUSet
 }
 
 type transitionPlan struct {
-	byRel map[string]nodeTransition
-
 	drainReclaimToPrimary []nodeTransition
 	expandPrimary         []nodeTransition
 	drainPrimaryToReclaim []nodeTransition
 	expandReclaim         []nodeTransition
-	cleanupPrimary        []nodeTransition
-	cleanupReclaim        []nodeTransition
 }
 
-func buildTransitionPlan(dag *TopoDAG, snapshot domainSnapshot, gate domainGate) transitionPlan {
-	plan := transitionPlan{byRel: map[string]nodeTransition{}}
+func buildTransitionPlan(dag *TopoDAG, snapshot domainSnapshot) transitionPlan {
+	plan := transitionPlan{}
 	for _, node := range dag.Nodes() {
 		domain := domainOf(node.Role)
 		if domain == cpusetDomainUnknown {
@@ -66,86 +46,33 @@ func buildTransitionPlan(dag *TopoDAG, snapshot domainSnapshot, gate domainGate)
 		}
 		observed := snapshot.observedByRel[node.Rel]
 		target := snapshot.targetByRel[node.Rel]
-		t := classifyNodeTransition(node, domain, observed, target, snapshot, gate)
-		plan.byRel[node.Rel] = t
+		t := classifyNodeTransition(node, domain, observed, target, snapshot)
 		plan.appendPhase(t)
 	}
 	return plan
 }
 
-func classifyNodeTransition(node *TopoNode, domain cpusetDomain, observed, target machine.CPUSet, snapshot domainSnapshot, gate domainGate) nodeTransition {
+func classifyNodeTransition(node *TopoNode, domain cpusetDomain, observed, target machine.CPUSet, snapshot domainSnapshot) nodeTransition {
 	t := nodeTransition{
 		node:     node,
 		domain:   domain,
 		observed: observed.Clone(),
 		target:   target.Clone(),
 		entering: target.Difference(observed),
-		leaving:  observed.Difference(target),
 	}
+	leaving := observed.Difference(target)
 	switch domain {
 	case cpusetDomainPrimary:
 		t.crossDomainEntering = t.entering.Intersection(snapshot.observedReclaimDomain)
-		t.crossDomainLeaving = t.leaving.Intersection(snapshot.targetReclaimDomain)
-		t.domainLocalEntering = t.entering.
-			Difference(snapshot.observedReclaimDomain).
-			Intersection(snapshot.allowedCPUs.Union(gate.safeUnownedToPrimary).Union(observed))
+		t.crossDomainLeaving = leaving.Intersection(snapshot.targetReclaimDomain)
 	case cpusetDomainReclaim:
 		t.crossDomainEntering = t.entering.Intersection(snapshot.observedPrimaryDomain)
-		t.crossDomainLeaving = t.leaving.Intersection(snapshot.targetPrimaryDomain)
-		t.domainLocalEntering = t.entering.
-			Difference(snapshot.observedPrimaryDomain).
-			Intersection(snapshot.allowedCPUs.Union(gate.safeUnownedToReclaim).Union(observed))
-	}
-	t.kind = classifyTransitionKind(node, t, snapshot)
-	if t.kind == transitionDomainLocalBridge {
-		t.bridgeTarget = observed.Union(target)
+		t.crossDomainLeaving = leaving.Intersection(snapshot.targetPrimaryDomain)
 	}
 	return t
 }
 
-func classifyTransitionKind(node *TopoNode, t nodeTransition, snapshot domainSnapshot) transitionKind {
-	if t.observed.Equals(t.target) {
-		return transitionNoop
-	}
-	if !t.crossDomainEntering.IsEmpty() || !t.crossDomainLeaving.IsEmpty() {
-		return transitionCrossDomain
-	}
-	if t.target.IsSubsetOf(t.observed) {
-		return transitionShrink
-	}
-	if t.observed.IsSubsetOf(t.target) {
-		return transitionGrow
-	}
-	if !t.observed.Intersection(t.target).IsEmpty() {
-		return transitionIntersectReplace
-	}
-	if allowDomainLocalBridge(node, t, snapshot) {
-		return transitionDomainLocalBridge
-	}
-	return transitionCrossDomain
-}
-
-func allowDomainLocalBridge(node *TopoNode, t nodeTransition, snapshot domainSnapshot) bool {
-	if node == nil || t.domain == cpusetDomainUnknown || !t.crossDomainEntering.IsEmpty() || !t.crossDomainLeaving.IsEmpty() {
-		return false
-	}
-	switch node.Role {
-	case TopoNodeRoleReclaimNUMABucket:
-		parent := parentNodeOf(node)
-		if parent == nil {
-			return false
-		}
-		parentTarget := snapshot.targetByRel[parent.Rel]
-		return t.target.IsSubsetOf(parentTarget)
-	default:
-		return false
-	}
-}
-
 func (p *transitionPlan) appendPhase(t nodeTransition) {
-	if t.kind == transitionNoop {
-		return
-	}
 	switch t.domain {
 	case cpusetDomainPrimary:
 		if !t.crossDomainLeaving.IsEmpty() {
@@ -154,18 +81,12 @@ func (p *transitionPlan) appendPhase(t nodeTransition) {
 		if !t.entering.IsEmpty() {
 			p.expandPrimary = append(p.expandPrimary, t)
 		}
-		if !t.leaving.Difference(t.crossDomainLeaving).IsEmpty() {
-			p.cleanupPrimary = append(p.cleanupPrimary, t)
-		}
 	case cpusetDomainReclaim:
 		if !t.crossDomainLeaving.IsEmpty() {
 			p.drainReclaimToPrimary = append(p.drainReclaimToPrimary, t)
 		}
 		if !t.entering.IsEmpty() {
 			p.expandReclaim = append(p.expandReclaim, t)
-		}
-		if !t.leaving.Difference(t.crossDomainLeaving).IsEmpty() {
-			p.cleanupReclaim = append(p.cleanupReclaim, t)
 		}
 	}
 }

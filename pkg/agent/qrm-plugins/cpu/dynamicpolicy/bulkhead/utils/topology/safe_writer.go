@@ -37,6 +37,16 @@ const (
 	maxCPUSetFailureDumpNodes  = 64
 	maxCPUSetFailureDumpDepth  = 3
 	maxCgroupFileLogFields     = 16
+	maxLiveChildShrinkAttempts = 3
+	// maxReclaimBucketShrinkAttempts bounds how many times the reclaim-bucket
+	// shrink re-runs descendant normalization + the live-child recheck within a
+	// single pass. Under high pod churn a reclaim child can materialize (or
+	// re-inherit the bridged parent cpuset) between the normalization scan and
+	// the recheck; a few extra rounds narrow such a freshly born straggler in
+	// the same pass instead of tripping children_not_ready on first sight. When
+	// the straggler still holds a previous generation after these attempts, the
+	// caller falls back to the deferred-convergence model.
+	maxReclaimBucketShrinkAttempts = 3
 )
 
 // errDeferConvergence marks a generational parent shrink that could not narrow
@@ -64,6 +74,7 @@ type safeCPSetWriter struct {
 	targetByRel     map[string]machine.CPUSet
 	cpuDetails      machine.CPUDetails
 	dynamicPolicy   dynamicDescendantPolicy
+	constrainBridge bool
 }
 
 type dynamicDescendantPolicy struct {
@@ -100,6 +111,17 @@ func newSafeCPUSetWriterForDAG(ctx context.Context, cg cgroupclient.CgroupClient
 	}
 	writer.dynamicPolicy = newDynamicDescendantPolicy(writer.defaultMems, writer.controlledByRel, writer.targetByRel)
 	return writer
+}
+
+func (w safeCPSetWriter) withConstrainBridgeGrowth(constrain bool) safeCPSetWriter {
+	w.constrainBridge = constrain
+	return w
+}
+
+func (w safeCPSetWriter) withTargetByRel(targets map[string]machine.CPUSet) safeCPSetWriter {
+	w.targetByRel = cloneCPUSetMap(targets)
+	w.dynamicPolicy = newDynamicDescendantPolicy(w.defaultMems, w.controlledByRel, w.targetByRel)
+	return w
 }
 
 // withCPUDetails supplies NUMA topology so live-child shrink can refuse to pull
@@ -173,35 +195,86 @@ func (w safeCPSetWriter) shrinkParentWithLiveChildUnion(node *TopoNode, target m
 	if err := w.shrinkControlledChildrenToTargets(node.Rel); err != nil {
 		return err
 	}
+	controlledChildUnion, err := w.controlledChildUnion(node.Rel)
+	if err != nil {
+		return err
+	}
+	if !controlledChildUnion.IsSubsetOf(target) {
+		parentActual, readErr := w.cg.ReadCPUSet(w.ctx, node.Rel)
+		if readErr != nil {
+			return fmt.Errorf("read parent cpuset before controlled-child bridge, rel=%s target=%s: %w", node.Rel, target.String(), readErr)
+		}
+		bridgeTarget := parentActual.Union(controlledChildUnion)
+		if !parentActual.Equals(bridgeTarget) {
+			if err := w.writeBridgeNode(node, target, bridgeTarget); err != nil {
+				return err
+			}
+		}
+		general.Infof("topo_dag_writer: keep_parent_bridge_for_controlled_children rel=%q target=%s controlledChildUnion=%s bridgeTarget=%s",
+			node.Rel, target.String(), controlledChildUnion.String(), bridgeTarget.String())
+		return nil
+	}
 	liveChildUnion, err := w.liveChildUnion(node.Rel)
 	if err != nil {
 		return err
 	}
 	// The bridge is a temporary superset for the observed children, not the
 	// desired steady-state parent target.
-	bridgeTarget := target.Union(liveChildUnion)
 	parentActual, err := w.cg.ReadCPUSet(w.ctx, node.Rel)
 	if err != nil {
 		return fmt.Errorf("read parent cpuset before parent shrink, rel=%s target=%s: %w", node.Rel, target.String(), err)
+	}
+	bridgeTarget := target.Union(liveChildUnion)
+	if w.constrainBridge {
+		bridgeTarget = parentActual.Union(liveChildUnion)
 	}
 	if !bridgeTarget.Equals(parentActual) {
 		if err := w.writeBridgeNode(node, target, bridgeTarget); err != nil {
 			return err
 		}
 	}
-	parked, err := w.shrinkLiveChildrenToParent(node.Rel, target, 0)
-	if err != nil {
-		return err
+	var parked machine.CPUSet
+	var effectiveTarget machine.CPUSet
+	var refreshedChildUnion machine.CPUSet
+	converged := false
+	for attempt := 0; attempt < maxLiveChildShrinkAttempts; attempt++ {
+		parked, err = w.shrinkLiveChildrenToParent(node.Rel, target, 0)
+		if err != nil {
+			return err
+		}
+		// A parked cross-NUMA reclaim bucket keeps CPUs outside the desired
+		// target. The parent must retain them (a valid cgroup v1 superset) until
+		// a later advisor round drains the bucket through its own controlled
+		// transition.
+		effectiveTarget = target.Union(parked)
+		refreshedChildUnion, err = w.liveChildUnion(node.Rel)
+		if err != nil {
+			return err
+		}
+		if refreshedChildUnion.IsSubsetOf(effectiveTarget) {
+			converged = true
+			break
+		}
 	}
-	// A parked cross-NUMA reclaim bucket keeps CPUs outside the desired target.
-	// The parent must retain them (a valid cgroup v1 superset) until a later
-	// advisor round drains the bucket through its own controlled transition.
-	effectiveTarget := target.Union(parked)
-	refreshedChildUnion, err := w.liveChildUnion(node.Rel)
-	if err != nil {
-		return err
-	}
-	if !refreshedChildUnion.IsSubsetOf(effectiveTarget) {
+	if !converged {
+		current, readErr := w.cg.ReadCPUSet(w.ctx, node.Rel)
+		if readErr != nil {
+			return fmt.Errorf("read parent cpuset before defer bridge, rel=%s target=%s: %w", node.Rel, target.String(), readErr)
+		}
+		deferBridgeTarget := effectiveTarget.Union(refreshedChildUnion)
+		if w.constrainBridge {
+			deferBridgeTarget = current.Union(refreshedChildUnion)
+		}
+		if !current.Equals(deferBridgeTarget) {
+			if err := w.writeBridgeNode(node, effectiveTarget, deferBridgeTarget); err != nil {
+				return err
+			}
+		}
+		if w.parentSupersetHeld(node) {
+			general.Warningf("topo_dag_writer: defer_convergence_live_children rel=%q target=%s parked=%s liveChildUnion=%s",
+				node.Rel, target.String(), parked.String(), refreshedChildUnion.String())
+			return errDeferConvergence
+		}
 		return fmt.Errorf("children_not_ready: parent=%s target=%s parked=%s liveChildUnion=%s",
 			node.Rel, target.String(), parked.String(), refreshedChildUnion.String())
 	}
@@ -251,6 +324,29 @@ func (w safeCPSetWriter) shrinkControlledChildrenToTargets(parentRel string) err
 	return nil
 }
 
+func (w safeCPSetWriter) controlledChildUnion(parentRel string) (machine.CPUSet, error) {
+	children, err := w.cg.ListChildren(w.ctx, parentRel)
+	if err != nil {
+		return machine.NewCPUSet(), fmt.Errorf("list controlled children, parent=%s: %w", parentRel, err)
+	}
+	union := machine.NewCPUSet()
+	for _, child := range children {
+		childRel := filepath.Join(parentRel, child)
+		if _, controlled := w.controlledByRel[childRel]; !controlled {
+			continue
+		}
+		current, err := w.cg.ReadCPUSet(w.ctx, childRel)
+		if err != nil {
+			if isCgroupNotFoundError(err) {
+				continue
+			}
+			return union, fmt.Errorf("read controlled child cpuset, child=%s: %w", childRel, err)
+		}
+		union = union.Union(current)
+	}
+	return union, nil
+}
+
 func (w safeCPSetWriter) shrinkReclaimBucketWithDescendants(node *TopoNode, target machine.CPUSet) error {
 	parentActual, err := w.cg.ReadCPUSet(w.ctx, node.Rel)
 	if err != nil {
@@ -280,14 +376,45 @@ func (w safeCPSetWriter) shrinkReclaimBucketWithDescendants(node *TopoNode, targ
 	}
 
 	bucketMems := memsForNode(node, w.defaultMems)
-	if err := w.normalizeReclaimBucketDescendants(node.Rel, target, bucketMems, 0); err != nil {
-		return err
+	// Re-run descendant normalization and the live-child recheck a bounded
+	// number of times. Under high churn a reclaim child can be created (or
+	// re-inherit the bridged parent cpuset that still carries the previous
+	// generation) in the window between the normalization scan and the
+	// recheck, so a single pass would trip children_not_ready on a straggler
+	// that a second scan would have narrowed. Each retry re-normalizes any
+	// child born since the last scan; the loop exits as soon as every live
+	// child is a subset of the target.
+	var refreshedChildUnion machine.CPUSet
+	converged := false
+	for attempt := 0; attempt < maxReclaimBucketShrinkAttempts; attempt++ {
+		if err := w.normalizeReclaimBucketDescendants(node.Rel, target, bucketMems, 0); err != nil {
+			return err
+		}
+		var err error
+		refreshedChildUnion, err = w.liveChildUnion(node.Rel)
+		if err != nil {
+			return err
+		}
+		if refreshedChildUnion.IsSubsetOf(target) {
+			converged = true
+			break
+		}
 	}
-	refreshedChildUnion, err := w.liveChildUnion(node.Rel)
-	if err != nil {
-		return err
-	}
-	if !refreshedChildUnion.IsSubsetOf(target) {
+	if !converged {
+		// A live child still holds a near-disjoint previous generation after the
+		// bounded retries. This is an uncontrolled reclaim descendant owned by a
+		// separate advisor-controlled transition, so forcibly clamping it would
+		// stomp a live workload. Provided the bucket is still a valid cgroup v1
+		// superset of every live child (the bridge above guarantees this), defer
+		// the final narrowing to the next reconcile instead of failing Pod
+		// admission with a hard children_not_ready. Only when the parent is NOT a
+		// superset (a genuine illegal parent-below-child state) is the hard error
+		// surfaced.
+		if w.parentSupersetHeld(node) {
+			general.Warningf("topo_dag_writer: defer_convergence_reclaim_bucket rel=%q target=%s liveChildUnion=%s",
+				node.Rel, target.String(), refreshedChildUnion.String())
+			return errDeferConvergence
+		}
 		return fmt.Errorf("children_not_ready: parent=%s target=%s liveChildUnion=%s",
 			node.Rel, target.String(), refreshedChildUnion.String())
 	}
@@ -318,6 +445,14 @@ func (w safeCPSetWriter) normalizeReclaimBucketDescendants(parentRel string, buc
 	}
 	children, err := w.cg.ListChildren(w.ctx, parentRel)
 	if err != nil {
+		// A dynamic reclaim descendant can be removed by kubelet between the
+		// parent's directory scan and this recursive enumeration. It has no
+		// remaining children to normalize, so treat ENOENT exactly like the
+		// disappearing-child ReadCPUSet path below rather than failing the
+		// enclosing bucket shrink and Pod admission.
+		if isCgroupNotFoundError(err) {
+			return nil
+		}
 		return fmt.Errorf("list reclaim bucket children, parent=%s: %w", parentRel, err)
 	}
 	for _, child := range children {
@@ -556,17 +691,32 @@ func (w safeCPSetWriter) writeDynamicRel(rel string, target machine.CPUSet, mems
 			mems = resolvedMems
 		}
 	}
-	if w.res != nil {
-		w.res.Attempted++
+	if w.cg.Version(w.ctx) == cgroupclient.CgroupVersionV1 && w.hasControlledAncestor(rel) {
+		if err := w.ensureReclaimDescendantParentContains(rel, target, mems); err != nil {
+			return err
+		}
 	}
-	if err := applyCPUSet(w.ctx, w.cg, rel, target, mems); err != nil {
+	for attempt := 0; attempt < maxSafeCPUSetWriteAttempts; attempt++ {
+		if w.res != nil {
+			w.res.Attempted++
+		}
+		err := applyCPUSet(w.ctx, w.cg, rel, target, mems)
+		if err == nil {
+			if w.res != nil {
+				w.res.Applied++
+			}
+			return nil
+		}
+
 		if w.res != nil {
 			w.res.Failed++
 		}
-		return err
-	}
-	if w.res != nil {
-		w.res.Applied++
+		if !isCgroupBusyError(err) || attempt == maxSafeCPUSetWriteAttempts-1 {
+			return err
+		}
+		if _, shrinkErr := w.shrinkLiveChildrenToParent(rel, target, 0); shrinkErr != nil {
+			return shrinkErr
+		}
 	}
 	return nil
 }
@@ -674,6 +824,25 @@ func (w safeCPSetWriter) writeNode(node *TopoNode, target machine.CPUSet) error 
 	if node == nil {
 		return nil
 	}
+	keptParentBridge, err := w.keepParentBridgeForControlledChildren(node, target)
+	if err != nil {
+		return err
+	}
+	if keptParentBridge {
+		return nil
+	}
+	keptLiveBridge, err := w.keepParentBridgeForLiveChildren(node, target)
+	if err != nil {
+		return err
+	}
+	if keptLiveBridge {
+		return nil
+	}
+	if w.constrainBridge && !w.liveChildrenCoveredByTarget(node.Rel, target) {
+		if err := w.convergeLiveChildrenBeforeConstrainedWrite(node.Rel, target); err != nil {
+			return err
+		}
+	}
 	// EBUSY means the kernel observed a hierarchy that no longer matches the
 	// last snapshot. Retry only EBUSY, reconcile live children before the next
 	// attempt, and keep retries bounded so persistent ownership errors remain
@@ -703,6 +872,113 @@ func (w safeCPSetWriter) writeNode(node *TopoNode, target machine.CPUSet) error 
 		}
 	}
 	return nil
+}
+
+func (w safeCPSetWriter) keepParentBridgeForControlledChildren(node *TopoNode, target machine.CPUSet) (bool, error) {
+	if !w.hasControlledDirectChild(node.Rel) {
+		return false, nil
+	}
+	controlledChildUnion, err := w.controlledChildUnion(node.Rel)
+	if err != nil {
+		return false, err
+	}
+	if controlledChildUnion.IsSubsetOf(target) {
+		return false, nil
+	}
+	parentActual, err := w.cg.ReadCPUSet(w.ctx, node.Rel)
+	if err != nil {
+		return false, fmt.Errorf("read parent cpuset before controlled-child bridge write, rel=%s target=%s: %w", node.Rel, target.String(), err)
+	}
+	bridgeTarget := parentActual.Union(controlledChildUnion)
+	if !parentActual.Equals(bridgeTarget) {
+		if err := w.writeBridgeNode(node, target, bridgeTarget); err != nil {
+			return false, err
+		}
+	}
+	general.Infof("topo_dag_writer: keep_parent_bridge_for_controlled_children rel=%q target=%s controlledChildUnion=%s bridgeTarget=%s",
+		node.Rel, target.String(), controlledChildUnion.String(), bridgeTarget.String())
+	return true, nil
+}
+
+func (w safeCPSetWriter) keepParentBridgeForLiveChildren(node *TopoNode, target machine.CPUSet) (bool, error) {
+	if node.Role != TopoNodeRoleReclaimNUMABucket {
+		return false, nil
+	}
+	liveChildUnion, err := w.liveChildUnion(node.Rel)
+	if err != nil {
+		return false, err
+	}
+	if liveChildUnion.IsSubsetOf(target) {
+		return false, nil
+	}
+	parentActual, err := w.cg.ReadCPUSet(w.ctx, node.Rel)
+	if err != nil {
+		return false, fmt.Errorf("read parent cpuset before live-child bridge write, rel=%s target=%s: %w", node.Rel, target.String(), err)
+	}
+	bridgeTarget := parentActual.Union(liveChildUnion)
+	if !parentActual.Equals(bridgeTarget) {
+		if err := w.writeBridgeNode(node, target, bridgeTarget); err != nil {
+			return false, err
+		}
+	}
+	general.Infof("topo_dag_writer: keep_parent_bridge_for_live_children rel=%q target=%s liveChildUnion=%s bridgeTarget=%s",
+		node.Rel, target.String(), liveChildUnion.String(), bridgeTarget.String())
+	return true, nil
+}
+
+func (w safeCPSetWriter) hasControlledDirectChild(parentRel string) bool {
+	prefix := strings.Trim(parentRel, "/") + "/"
+	for rel := range w.controlledByRel {
+		trimmed := strings.Trim(rel, "/")
+		if !strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		if !strings.Contains(strings.TrimPrefix(trimmed, prefix), "/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (w safeCPSetWriter) hasControlledAncestor(rel string) bool {
+	trimmedRel := strings.Trim(rel, "/")
+	for controlledRel := range w.controlledByRel {
+		trimmedControlled := strings.Trim(controlledRel, "/")
+		if trimmedControlled != "" && strings.HasPrefix(trimmedRel, trimmedControlled+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (w safeCPSetWriter) convergeLiveChildrenBeforeConstrainedWrite(parentRel string, target machine.CPUSet) error {
+	for attempt := 0; attempt < maxLiveChildShrinkAttempts; attempt++ {
+		liveChildUnion, err := w.liveChildUnion(parentRel)
+		if err != nil {
+			return err
+		}
+		if liveChildUnion.IsSubsetOf(target) {
+			return nil
+		}
+		if _, err := w.shrinkLiveChildrenToParent(parentRel, target, 0); err != nil {
+			return err
+		}
+	}
+	liveChildUnion, err := w.liveChildUnion(parentRel)
+	if err != nil {
+		return err
+	}
+	if liveChildUnion.IsSubsetOf(target) {
+		return nil
+	}
+	general.Warningf("topo_dag_writer: defer_convergence_prewrite_live_children rel=%q target=%s liveChildUnion=%s",
+		parentRel, target.String(), liveChildUnion.String())
+	return errDeferConvergence
+}
+
+func (w safeCPSetWriter) liveChildrenCoveredByTarget(parentRel string, target machine.CPUSet) bool {
+	liveChildUnion, err := w.liveChildUnion(parentRel)
+	return err == nil && liveChildUnion.IsSubsetOf(target)
 }
 
 func (w safeCPSetWriter) writeBridgeNode(node *TopoNode, finalTarget, bridgeTarget machine.CPUSet) error {
@@ -817,15 +1093,22 @@ func (w safeCPSetWriter) collectCPUSetSubtreeSnapshot(rootRel string) ([]string,
 }
 
 func (w safeCPSetWriter) formatCPUSetSubtreeSnapshotEntry(rel string) string {
-	return fmt.Sprintf("rel=%q cpus=%q mems=%q slb=%q partition=%q tasks=%q procs=%q",
-		rel,
-		w.readCgroupFileForLog(rel, "cpuset.cpus"),
-		w.readCgroupFileForLog(rel, "cpuset.mems"),
-		w.readCgroupFileForLog(rel, "cpuset.sched_load_balance"),
-		w.readCgroupFileForLog(rel, "cpuset.cpus.partition"),
-		w.readCgroupFileForLog(rel, "tasks"),
-		w.readCgroupFileForLog(rel, "cgroup.procs"),
+	fields := []string{
+		fmt.Sprintf("rel=%q", rel),
+		fmt.Sprintf("cpus=%q", w.readCgroupFileForLog(rel, "cpuset.cpus")),
+		fmt.Sprintf("mems=%q", w.readCgroupFileForLog(rel, "cpuset.mems")),
+	}
+	switch w.cg.Version(w.ctx) {
+	case cgroupclient.CgroupVersionV1:
+		fields = append(fields, fmt.Sprintf("slb=%q", w.readCgroupFileForLog(rel, "cpuset.sched_load_balance")))
+	case cgroupclient.CgroupVersionV2:
+		fields = append(fields, fmt.Sprintf("partition=%q", w.readCgroupFileForLog(rel, "cpuset.cpus.partition")))
+	}
+	fields = append(fields,
+		fmt.Sprintf("tasks=%q", w.readCgroupFileForLog(rel, "tasks")),
+		fmt.Sprintf("procs=%q", w.readCgroupFileForLog(rel, "cgroup.procs")),
 	)
+	return strings.Join(fields, " ")
 }
 
 func (w safeCPSetWriter) readCgroupFileForLog(rel, file string) string {

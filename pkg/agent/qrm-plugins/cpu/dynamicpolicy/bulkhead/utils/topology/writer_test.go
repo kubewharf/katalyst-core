@@ -51,6 +51,8 @@ type topologyFakeCgroup struct {
 	writes     []cpusetWrite
 	failRel    map[string]bool
 	applyErr   map[string]error
+	readErr    map[string]error
+	listErr    map[string]error
 	onApply    func(rel string, data *cgcommon.CPUSetData)
 	afterApply func(rel string, data *cgcommon.CPUSetData)
 
@@ -79,6 +81,8 @@ func newTopologyFakeCgroup() *topologyFakeCgroup {
 		files:    map[string]map[string][]byte{},
 		failRel:  map[string]bool{},
 		applyErr: map[string]error{},
+		readErr:  map[string]error{},
+		listErr:  map[string]error{},
 	}
 }
 
@@ -88,6 +92,9 @@ func (f *topologyFakeCgroup) Version(context.Context) cgroupclient.CgroupVersion
 
 func (f *topologyFakeCgroup) ReadCPUSet(_ context.Context, rel string) (machine.CPUSet, error) {
 	f.reads++
+	if err := f.readErr[rel]; err != nil {
+		return machine.NewCPUSet(), err
+	}
 	if cpus, ok := f.cpus[rel]; ok {
 		return cpus.Clone(), nil
 	}
@@ -142,6 +149,9 @@ func (f *topologyFakeCgroup) ApplyCPUSet(_ context.Context, rel string, data *cg
 }
 
 func (f *topologyFakeCgroup) ListChildren(_ context.Context, rel string) ([]string, error) {
+	if err := f.listErr[rel]; err != nil {
+		return nil, err
+	}
 	children := append([]string(nil), f.children[rel]...)
 	sort.Strings(children)
 	return children, nil
@@ -378,8 +388,9 @@ func TestApplyDAGDiffPreShrinksSiblingMovesBeforeTargetGrow(t *testing.T) {
 
 	wantPrefix := []cpusetWrite{
 		{rel: "kubesandbox", cpus: "3-5"},
-		{rel: "kubepods", cpus: "0-2,6"},
+		{rel: "kubepods", cpus: "0-2"},
 		{rel: "kubesandbox", cpus: "3-5,99"},
+		{rel: "kubepods", cpus: "0-2,6"},
 	}
 	if len(cg.writes) < len(wantPrefix) {
 		t.Fatalf("writes = %#v, want prefix %#v", cg.writes, wantPrefix)
@@ -608,9 +619,12 @@ func TestApplyDAGDiffDoesNotWriteEmptyV1PreShrinkOrGrowFailedCPU(t *testing.T) {
 		if data.CPUs == "" {
 			t.Fatalf("cgroup v1 should not write empty cpuset; rel=%s writes=%#v", rel, cg.writes)
 		}
+		if overlap := cg.cpus["kubepods"].Intersection(cg.cpus["kubesandbox"]); !overlap.IsEmpty() {
+			t.Fatalf("destination must not grow before source releases CPUs; overlap=%s writes=%#v", overlap.String(), cg.writes)
+		}
 	}
 
-	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
 		DAG:        dag,
 		Cgroup:     cg,
 		CPUDetails: testCPUDetails(),
@@ -618,8 +632,11 @@ func TestApplyDAGDiffDoesNotWriteEmptyV1PreShrinkOrGrowFailedCPU(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyDAGDiff should skip unsafe empty v1 pre-shrink without failing: %v; writes=%#v", err, cg.writes)
 	}
-	if !reflect.DeepEqual(cg.writes, []cpusetWrite{{rel: "kubesandbox", cpus: "6"}}) {
-		t.Fatalf("normal pipeline should write only the non-empty reclaim target, got writes=%#v", cg.writes)
+	if len(cg.writes) != 0 {
+		t.Fatalf("normal pipeline must not grow reclaim before the empty v1 primary source can release CPU 6, got writes=%#v", cg.writes)
+	}
+	if res.FullyConverged {
+		t.Fatalf("ApplyDAGDiff reported full convergence while CPU 6 is still owned by primary")
 	}
 }
 
@@ -1228,7 +1245,7 @@ func TestApplyDAGDiffConvergesExpectedLeafWithoutDeductingReclaim(t *testing.T) 
 	cg.children["kubepods/burstable"] = []string{"pod-abc"}
 	cg.children["kubepods/burstable/pod-abc"] = []string{"container-a"}
 
-	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
 		DAG:        dag,
 		Cgroup:     cg,
 		CPUDetails: testCPUDetails(),
@@ -1242,8 +1259,11 @@ func TestApplyDAGDiffConvergesExpectedLeafWithoutDeductingReclaim(t *testing.T) 
 	if got := cg.cpus["kubepods"].String(); got != "1-2" {
 		t.Fatalf("primary target = %s, want 1-2; writes=%#v", got, cg.writes)
 	}
-	if got := cg.cpus["reclaim"].String(); got != "3-5" {
-		t.Fatalf("reclaim target = %s, want 3-5 without current leaf deduction; writes=%#v", got, cg.writes)
+	if got := cg.cpus["reclaim"].String(); got != "4-5" {
+		t.Fatalf("reclaim target = %s, want 4-5 until a fresh snapshot confirms CPU 3 is released; writes=%#v", got, cg.writes)
+	}
+	if res.FullyConverged {
+		t.Fatalf("ApplyDAGDiff reported full convergence before reclaim reacquired CPU 3")
 	}
 }
 
@@ -1268,6 +1288,44 @@ func TestApplyDAGDiffPropagatesProtectedRelToPrimaryAndDeductsReclaim(t *testing
 	}
 	if got := effective["reclaim"].String(); got != "4" {
 		t.Fatalf("reclaim target = %s, want protected CPU 3 deducted", got)
+	}
+}
+
+func TestApplyDAGDiffDoesNotGrowPrimaryWhileReclaimDrainDeferred(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubepods", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0, 1), Mems: "0"},
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(2), Mems: "0"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["kubepods"] = machine.NewCPUSet(0)
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(1, 2)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(1)
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+
+	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
+		DAG:        dag,
+		Cgroup:     cg,
+		CPUDetails: testCPUDetails(),
+		Mems:       "0",
+	})
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff: %v; writes=%#v", err, cg.writes)
+	}
+	if got := cg.cpus["kubesandbox/reclaimed-1"]; !got.Equals(machine.NewCPUSet(1)) {
+		t.Fatalf("reclaim child cpuset = %s, want still holding CPU 1 for deferred drain", got.String())
+	}
+	if got := cg.cpus["kubepods"]; !got.Equals(machine.NewCPUSet(0)) {
+		t.Fatalf("primary cpuset = %s, want unchanged 0 while reclaim still owns CPU 1; result=%+v writes=%#v", got.String(), res, cg.writes)
+	}
+	if res.Deferred != 0 {
+		t.Fatalf("result.Deferred = %d, want no defer while gate filters unreleased CPU; writes=%#v", res.Deferred, cg.writes)
 	}
 }
 

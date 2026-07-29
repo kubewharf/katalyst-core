@@ -18,31 +18,22 @@ package topology
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
-	"sort"
 
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type domainSnapshot struct {
-	allowedCPUs  machine.CPUSet
-	reservedCPUs machine.CPUSet
+	allowedCPUs machine.CPUSet
 
-	topLevelSiblingRels           []string
-	siblingDiscoveryGeneration    string
-	observedByRel                 map[string]machine.CPUSet
-	targetByRel                   map[string]machine.CPUSet
-	observedPrimaryDomain         machine.CPUSet
-	targetPrimaryDomain           machine.CPUSet
-	observedReclaimDomain         machine.CPUSet
-	targetReclaimDomain           machine.CPUSet
-	unownedCPUs                   machine.CPUSet
-	nonConflictingSkippedResidual machine.CPUSet
-	ownerByCPU                    map[int][]string
-	safeUnownedToPrimary          machine.CPUSet
-	safeUnownedToReclaim          machine.CPUSet
+	observedByRel         map[string]machine.CPUSet
+	targetByRel           map[string]machine.CPUSet
+	observedPrimaryDomain machine.CPUSet
+	targetPrimaryDomain   machine.CPUSet
+	observedReclaimDomain machine.CPUSet
+	targetReclaimDomain   machine.CPUSet
 }
 
 // buildDomainSnapshot captures the observed cpuset ownership before any apply
@@ -52,21 +43,16 @@ type domainSnapshot struct {
 // bounded by the applyCache rel list.
 func buildDomainSnapshot(ctx context.Context, cg cgroupclient.CgroupClient, dag *TopoDAG, targetByRel map[string]machine.CPUSet, cpuDetails machine.CPUDetails, reservedCPUs machine.CPUSet, cache *applyCache) (domainSnapshot, error) {
 	snapshot := domainSnapshot{
-		reservedCPUs:                  reservedCPUs.Clone(),
-		observedByRel:                 map[string]machine.CPUSet{},
-		targetByRel:                   cloneCPUSetMap(targetByRel),
-		observedPrimaryDomain:         machine.NewCPUSet(),
-		targetPrimaryDomain:           domainTargetUnion(domainNodes(dag, cpusetDomainPrimary), targetByRel),
-		observedReclaimDomain:         machine.NewCPUSet(),
-		targetReclaimDomain:           domainTargetUnion(domainNodes(dag, cpusetDomainReclaim), targetByRel),
-		nonConflictingSkippedResidual: machine.NewCPUSet(),
-		ownerByCPU:                    map[int][]string{},
-		safeUnownedToPrimary:          machine.NewCPUSet(),
-		safeUnownedToReclaim:          machine.NewCPUSet(),
+		observedByRel:         map[string]machine.CPUSet{},
+		targetByRel:           cloneCPUSetMap(targetByRel),
+		observedPrimaryDomain: machine.NewCPUSet(),
+		targetPrimaryDomain:   domainTargetUnion(domainNodes(dag, cpusetDomainPrimary), targetByRel),
+		observedReclaimDomain: machine.NewCPUSet(),
+		targetReclaimDomain:   domainTargetUnion(domainNodes(dag, cpusetDomainReclaim), targetByRel),
 	}
 	if len(cpuDetails) > 0 {
 		desiredUnion := snapshot.targetPrimaryDomain.Union(snapshot.targetReclaimDomain)
-		snapshot.allowedCPUs = cpuDetails.CPUs().Difference(snapshot.reservedCPUs).Intersection(desiredUnion)
+		snapshot.allowedCPUs = cpuDetails.CPUs().Difference(reservedCPUs).Intersection(desiredUnion)
 	} else {
 		snapshot.allowedCPUs = machine.NewCPUSet()
 	}
@@ -80,22 +66,19 @@ func buildDomainSnapshot(ctx context.Context, cg cgroupclient.CgroupClient, dag 
 			return snapshot, err
 		}
 	}
-	snapshot.finalizeUnowned()
 	return snapshot, nil
 }
 
 func (s *domainSnapshot) observeRel(ctx context.Context, cg cgroupclient.CgroupClient, rel string, domain cpusetDomain, controlled map[string]struct{}, cache *applyCache) error {
 	current, err := cg.ReadCPUSet(ctx, rel)
 	if err != nil {
-		general.InfofV(5, "topo_dag_writer: snapshot read cpuset failed, rel=%q err=%v", rel, err)
-		current = machine.NewCPUSet()
+		return fmt.Errorf("snapshot read cpuset, rel=%q: %w", rel, err)
 	}
 	s.recordOwner(rel, current, domain)
 
 	children, err := cache.listChildren(ctx, rel)
 	if err != nil {
-		general.InfofV(5, "topo_dag_writer: snapshot list children failed, rel=%q err=%v", rel, err)
-		return nil
+		return fmt.Errorf("snapshot list children, rel=%q: %w", rel, err)
 	}
 	for _, name := range children {
 		childRel := filepath.Join(rel, name)
@@ -111,9 +94,6 @@ func (s *domainSnapshot) observeRel(ctx context.Context, cg cgroupclient.CgroupC
 
 func (s *domainSnapshot) recordOwner(rel string, cpus machine.CPUSet, domain cpusetDomain) {
 	s.observedByRel[rel] = cpus.Clone()
-	for _, cpu := range cpus.ToSliceInt() {
-		s.ownerByCPU[cpu] = append(s.ownerByCPU[cpu], rel)
-	}
 	switch domain {
 	case cpusetDomainPrimary:
 		s.observedPrimaryDomain = s.observedPrimaryDomain.Union(cpus)
@@ -122,19 +102,21 @@ func (s *domainSnapshot) recordOwner(rel string, cpus machine.CPUSet, domain cpu
 	}
 }
 
-func (s *domainSnapshot) finalizeUnowned() {
+func (s *domainSnapshot) unownedCPUs() machine.CPUSet {
 	if s.allowedCPUs.IsEmpty() {
-		s.unownedCPUs = machine.NewCPUSet()
-		return
+		return machine.NewCPUSet()
 	}
-	s.unownedCPUs = s.allowedCPUs.
+	return s.allowedCPUs.
 		Difference(s.observedPrimaryDomain).
 		Difference(s.observedReclaimDomain)
-	s.safeUnownedToPrimary = s.targetPrimaryDomain.Intersection(s.unownedCPUs)
-	s.safeUnownedToReclaim = s.targetReclaimDomain.Intersection(s.unownedCPUs)
-	for cpu := range s.ownerByCPU {
-		sort.Strings(s.ownerByCPU[cpu])
-	}
+}
+
+func (s *domainSnapshot) safeUnownedToPrimary() machine.CPUSet {
+	return s.targetPrimaryDomain.Intersection(s.unownedCPUs())
+}
+
+func (s *domainSnapshot) safeUnownedToReclaim() machine.CPUSet {
+	return s.targetReclaimDomain.Intersection(s.unownedCPUs())
 }
 
 func cloneCPUSetMap(in map[string]machine.CPUSet) map[string]machine.CPUSet {

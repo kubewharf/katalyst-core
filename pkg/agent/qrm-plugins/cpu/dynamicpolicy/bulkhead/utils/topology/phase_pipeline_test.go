@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"testing"
 
+	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -58,8 +59,11 @@ func TestDomainPhasePipelineRebuildsPlanFromFreshSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first nextRound: %v", err)
 	}
-	if got := first.plan.byRel["primary"].kind; got != transitionCrossDomain {
-		t.Fatalf("first primary kind = %s, want %s", got, transitionCrossDomain)
+	if got := len(first.plan.expandPrimary); got != 1 {
+		t.Fatalf("first expandPrimary len = %d, want 1", got)
+	}
+	if got := first.plan.expandPrimary[0].crossDomainEntering; !got.Equals(machine.NewCPUSet(1)) {
+		t.Fatalf("first primary crossDomainEntering = %s, want 1", got.String())
 	}
 	if got, want := first.gate.pendingToPrimary, machine.NewCPUSet(1); !got.Equals(want) {
 		t.Fatalf("first pendingToPrimary = %s, want %s", got.String(), want.String())
@@ -71,8 +75,11 @@ func TestDomainPhasePipelineRebuildsPlanFromFreshSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second nextRound: %v", err)
 	}
-	if got := second.plan.byRel["primary"].kind; got != transitionGrow {
-		t.Fatalf("second primary kind = %s, want %s after fresh snapshot", got, transitionGrow)
+	if got := len(second.plan.expandPrimary); got != 1 {
+		t.Fatalf("second expandPrimary len = %d, want 1 after fresh snapshot", got)
+	}
+	if got := second.plan.expandPrimary[0].crossDomainEntering; !got.IsEmpty() {
+		t.Fatalf("second primary crossDomainEntering = %s, want empty after fresh snapshot", got.String())
 	}
 	if !second.gate.pendingToPrimary.IsEmpty() {
 		t.Fatalf("second pendingToPrimary = %s, want empty after reclaim released", second.gate.pendingToPrimary.String())
@@ -107,7 +114,6 @@ func TestDomainPhaseExecutorDrainReclaimNUMABucketRemovesOnlyCrossDomainLeaving(
 		observed:            observed,
 		target:              target,
 		entering:            target.Difference(observed),
-		leaving:             observed.Difference(target),
 		crossDomainEntering: machine.NewCPUSet(33, 34, 35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 86, 87),
 		crossDomainLeaving:  machine.NewCPUSet(29, 30, 31, 73, 74, 75),
 	}
@@ -150,6 +156,52 @@ func TestDomainPhaseExecutorDrainReclaimNUMABucketRemovesOnlyCrossDomainLeaving(
 		if !machine.MustParse(w.cpus).Intersection(entering).IsEmpty() {
 			t.Fatalf("drain wrote entering CPUs into rel=%s cpus=%s; writes=%#v", w.rel, w.cpus, cg.writes)
 		}
+	}
+}
+
+func TestDomainPhaseExecutorDrainParentDoesNotExpandControlledReclaimChildToFinalTarget(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "kubesandbox", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1, 2), Mems: "0"},
+		{Rel: "kubesandbox/reclaimed-1", ParentRel: "kubesandbox", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(2), Mems: "0", Metadata: map[string]string{"numa": "0"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	parent := dag.index["kubesandbox"]
+	transition := nodeTransition{
+		node:                parent,
+		domain:              cpusetDomainReclaim,
+		observed:            machine.NewCPUSet(0, 1),
+		target:              machine.NewCPUSet(1, 2),
+		entering:            machine.NewCPUSet(2),
+		crossDomainLeaving:  machine.NewCPUSet(0),
+		crossDomainEntering: machine.NewCPUSet(2),
+	}
+
+	cg := newTopologyFakeCgroup()
+	cg.cpus["kubesandbox"] = machine.NewCPUSet(0, 1)
+	cg.cpus["kubesandbox/reclaimed-1"] = machine.NewCPUSet(0)
+	cg.children["kubesandbox"] = []string{"reclaimed-1"}
+
+	res := DAGApplyResult{}
+	executor := newDomainPhaseExecutor(newSafeCPUSetWriterForDAG(context.Background(), cg, dag, map[string]machine.CPUSet{
+		"kubesandbox":             machine.NewCPUSet(1, 2),
+		"kubesandbox/reclaimed-1": machine.NewCPUSet(2),
+	}, "0", &res))
+
+	drain, err := executor.executeDrainPhase(cpusetDomainReclaim, []nodeTransition{transition})
+	if err != nil {
+		t.Fatalf("executeDrainPhase: %v writes=%#v", err, cg.writes)
+	}
+	for _, write := range cg.writes {
+		if write.rel == "kubesandbox/reclaimed-1" && write.cpus != "" && !machine.MustParse(write.cpus).Intersection(machine.NewCPUSet(2)).IsEmpty() {
+			t.Fatalf("parent drain expanded controlled child into final target CPU 2; writes=%#v", cg.writes)
+		}
+	}
+	if got, want := drain.release, machine.NewCPUSet(0); !got.Equals(want) {
+		t.Fatalf("drain release=%s, want %s", got.String(), want.String())
 	}
 }
 
@@ -213,7 +265,6 @@ func TestDomainPhaseExecutorDrainsBeforeGatePublish(t *testing.T) {
 		domain:             cpusetDomainReclaim,
 		observed:           machine.NewCPUSet(1, 2),
 		target:             machine.NewCPUSet(2),
-		leaving:            machine.NewCPUSet(1),
 		crossDomainLeaving: machine.NewCPUSet(1),
 	}
 	cg := newTopologyFakeCgroup()
@@ -248,6 +299,164 @@ func TestDomainPhaseExecutorDrainsBeforeGatePublish(t *testing.T) {
 	}
 }
 
+func TestDomainPhasePipelineDoesNotPublishPrimaryReleaseHiddenByCachedChildren(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(0), Mems: "0"},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(1), Mems: "0"},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet(0, 1)
+	cg.cpus["reclaim"] = machine.NewCPUSet()
+	cg.children["primary"] = nil
+	cg.afterApply = func(rel string, data *cgcommon.CPUSetData) {
+		switch {
+		case rel == "primary" && data.CPUs == "0":
+			// A new kube-managed child appears after the primary drain starts.
+			cg.children["primary"] = []string{"pod0"}
+			cg.cpus["primary/pod0"] = machine.NewCPUSet(1)
+		case rel == "primary/pod0" && data.CPUs == "0":
+			// Kubelet/admission can race with the shrink and re-inherit the
+			// previous primary generation. The publish snapshot must rediscover
+			// this live owner and block reclaim expansion.
+			cg.cpus["primary/pod0"] = machine.NewCPUSet(1)
+		}
+	}
+
+	res := DAGApplyResult{}
+	pipeline := newDomainPhasePipeline(
+		dag,
+		cg,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(0),
+			"reclaim": machine.NewCPUSet(1),
+		},
+		machine.CPUDetails{
+			0: {NUMANodeID: 0},
+			1: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	)
+
+	if err := pipeline.executeTransferCycle(context.Background(), "0", &res); err != nil {
+		t.Fatalf("executeTransferCycle: %v", err)
+	}
+	for _, write := range cg.writes {
+		if write.rel == "reclaim" && write.cpus == "1" {
+			t.Fatalf("reclaim expanded onto CPU still owned by newly created primary child; writes=%#v", cg.writes)
+		}
+	}
+}
+
+func TestDomainPhasePipelineDoesNotPublishReclaimReleaseHiddenByCachedChildren(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1), Mems: "0"},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(2), Mems: "0"},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet()
+	cg.cpus["reclaim"] = machine.NewCPUSet(1, 2)
+	cg.children["reclaim"] = nil
+	cg.afterApply = func(rel string, data *cgcommon.CPUSetData) {
+		switch {
+		case rel == "reclaim" && data.CPUs == "2":
+			// A new reclaim child appears after the reclaim drain starts.
+			cg.children["reclaim"] = []string{"pod0"}
+			cg.cpus["reclaim/pod0"] = machine.NewCPUSet(1)
+		case rel == "reclaim/pod0" && data.CPUs == "2":
+			// The child can snap back to the previous reclaim generation.
+			cg.cpus["reclaim/pod0"] = machine.NewCPUSet(1)
+		}
+	}
+
+	res := DAGApplyResult{}
+	pipeline := newDomainPhasePipeline(
+		dag,
+		cg,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(1),
+			"reclaim": machine.NewCPUSet(2),
+		},
+		machine.CPUDetails{
+			1: {NUMANodeID: 0},
+			2: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	)
+
+	if err := pipeline.executeTransferCycle(context.Background(), "0", &res); err != nil {
+		t.Fatalf("executeTransferCycle: %v", err)
+	}
+	for _, write := range cg.writes {
+		if write.rel == "primary" && write.cpus == "1" {
+			t.Fatalf("primary expanded onto CPU still owned by newly created reclaim child; writes=%#v", cg.writes)
+		}
+	}
+}
+
+func TestDomainPhasePipelineDrainsBothDomainsBeforeExpandingBidirectionalSwap(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "primary", Role: TopoNodeRolePrimary, CPUs: machine.NewCPUSet(1, 2), Mems: "0"},
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(3, 4), Mems: "0"},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["primary"] = machine.NewCPUSet(1, 3)
+	cg.cpus["reclaim"] = machine.NewCPUSet(2, 4)
+	res := DAGApplyResult{}
+	pipeline := newDomainPhasePipeline(
+		dag,
+		cg,
+		map[string]machine.CPUSet{
+			"primary": machine.NewCPUSet(1, 2),
+			"reclaim": machine.NewCPUSet(3, 4),
+		},
+		machine.CPUDetails{
+			1: {NUMANodeID: 0},
+			2: {NUMANodeID: 0},
+			3: {NUMANodeID: 0},
+			4: {NUMANodeID: 0},
+		},
+		machine.NewCPUSet(),
+		newApplyCache(cg, "primary"),
+	)
+
+	if err := pipeline.executeTransferCycle(context.Background(), "0", &res); err != nil {
+		t.Fatalf("executeTransferCycle: %v", err)
+	}
+	primaryExpandedAt := -1
+	primaryDrainedAt := -1
+	for i, write := range cg.writes {
+		if write.rel == "primary" && write.cpus == "1-2" && primaryExpandedAt < 0 {
+			primaryExpandedAt = i
+		}
+		if write.rel == "primary" && write.cpus == "1" && primaryDrainedAt < 0 {
+			primaryDrainedAt = i
+		}
+	}
+	if primaryExpandedAt >= 0 && (primaryDrainedAt < 0 || primaryExpandedAt < primaryDrainedAt) {
+		t.Fatalf("primary expanded before its cross-domain leaving CPUs were drained; primaryExpandedAt=%d primaryDrainedAt=%d writes=%#v",
+			primaryExpandedAt, primaryDrainedAt, cg.writes)
+	}
+}
+
 func TestDomainPhaseExecutorDrainShrinksLiveChildBeforeParent(t *testing.T) {
 	t.Parallel()
 
@@ -263,7 +472,6 @@ func TestDomainPhaseExecutorDrainShrinksLiveChildBeforeParent(t *testing.T) {
 		domain:             cpusetDomainReclaim,
 		observed:           machine.NewCPUSet(1, 2, 3),
 		target:             machine.NewCPUSet(2, 3),
-		leaving:            machine.NewCPUSet(1),
 		crossDomainLeaving: machine.NewCPUSet(1),
 	}
 	cg := newTopologyFakeCgroup()
@@ -287,6 +495,64 @@ func TestDomainPhaseExecutorDrainShrinksLiveChildBeforeParent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cg.writes, wantWrites) {
 		t.Fatalf("writes = %#v, want %#v", cg.writes, wantWrites)
+	}
+}
+
+func TestDomainPhaseExecutorDoesNotShrinkParentBelowControlledChildSkippedByEmptyV1Drain(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(0), Mems: "0"},
+		{Rel: "reclaim/bucket-1", ParentRel: "reclaim", Role: TopoNodeRoleReclaimNUMABucket, CPUs: machine.NewCPUSet(), Mems: "1", Metadata: map[string]string{"numa": "1"}},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	parent := dag.index["reclaim"]
+	child := dag.index["reclaim/bucket-1"]
+	transitions := []nodeTransition{
+		{
+			node:               parent,
+			domain:             cpusetDomainReclaim,
+			observed:           machine.NewCPUSet(0, 1),
+			target:             machine.NewCPUSet(0),
+			crossDomainLeaving: machine.NewCPUSet(1),
+		},
+		{
+			node:               child,
+			domain:             cpusetDomainReclaim,
+			observed:           machine.NewCPUSet(1),
+			target:             machine.NewCPUSet(),
+			crossDomainLeaving: machine.NewCPUSet(1),
+		},
+	}
+	cg := newTopologyFakeCgroup()
+	cg.enforceParentContainsTarget = true
+	cg.cpus["reclaim"] = machine.NewCPUSet(0, 1)
+	cg.cpus["reclaim/bucket-1"] = machine.NewCPUSet(1)
+	cg.children["reclaim"] = []string{"bucket-1"}
+	res := DAGApplyResult{}
+	executor := newDomainPhaseExecutor(newSafeCPUSetWriterForDAG(
+		context.Background(),
+		cg,
+		dag,
+		map[string]machine.CPUSet{
+			"reclaim":          machine.NewCPUSet(0),
+			"reclaim/bucket-1": machine.NewCPUSet(),
+		},
+		"0",
+		&res,
+	))
+
+	drain, err := executor.executeDrainPhase(cpusetDomainReclaim, transitions)
+	if err != nil {
+		t.Fatalf("executeDrainPhase error = %v, want bridge/no error; writes=%#v", err, cg.writes)
+	}
+	if got, want := drain.release, machine.NewCPUSet(1); !got.Equals(want) {
+		t.Fatalf("drain release = %s, want %s for gate filtering", got.String(), want.String())
+	}
+	if got := cg.cpus["reclaim"]; !got.Equals(machine.NewCPUSet(0, 1)) {
+		t.Fatalf("parent cpuset = %s, want unchanged bridge 0-1; writes=%#v", got.String(), cg.writes)
 	}
 }
 
