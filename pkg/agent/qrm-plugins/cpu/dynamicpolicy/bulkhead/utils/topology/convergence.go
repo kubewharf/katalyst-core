@@ -91,11 +91,10 @@ func buildConvergenceReport(
 			})
 		}
 	}
-	report.FullyConverged =
-		len(report.NonConvergedTargets) == 0 &&
-			report.PendingToPrimary.IsEmpty() &&
-			report.PendingToReclaim.IsEmpty() &&
-			report.CleanupPendingPrimary.IsEmpty() &&
-			report.CleanupPendingReclaim.IsEmpty()
+	report.FullyConverged = len(report.NonConvergedTargets) == 0 &&
+		report.PendingToPrimary.IsEmpty() &&
+		report.PendingToReclaim.IsEmpty() &&
+		report.CleanupPendingPrimary.IsEmpty() &&
+		report.CleanupPendingReclaim.IsEmpty()
 	return report, nil
 }

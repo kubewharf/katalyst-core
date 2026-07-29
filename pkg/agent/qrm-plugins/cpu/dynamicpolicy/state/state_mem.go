@@ -42,7 +42,7 @@ type cpuPluginState struct {
 	// preserve those semantics.
 	cpuPluginStateData
 
-	socketTopology                        map[int]string
+	socketTopology map[int]string
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {

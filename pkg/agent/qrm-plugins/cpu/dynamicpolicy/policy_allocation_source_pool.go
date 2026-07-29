@@ -191,8 +191,7 @@ func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (
 				continue
 			}
 
-			preferredByPool[commonstate.PoolNameShare] =
-				preferredByPool[commonstate.PoolNameShare].Union(allocationInfo.AllocationResult)
+			preferredByPool[commonstate.PoolNameShare] = preferredByPool[commonstate.PoolNameShare].Union(allocationInfo.AllocationResult)
 			if preferredByContainer[podUID] == nil {
 				preferredByContainer[podUID] = make(map[string]machine.CPUSet)
 			}
