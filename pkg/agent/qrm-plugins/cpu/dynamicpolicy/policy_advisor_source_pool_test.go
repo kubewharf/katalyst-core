@@ -452,6 +452,91 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve(t *testing.T) {
 	require.True(t, blockCPUSet["block-share"].Union(availableCPUs).Equals(machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11)))
 }
 
+func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveAggregatesSharedSourceBlock(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve_sharedSource")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	p.state.SetPodEntries(state.PodEntries{
+		"pod-a": {
+			"c": &state.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        "pod-a",
+				ContainerName: "c",
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+				OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod-a",
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationCPUEnhancementCPUSet: "a",
+				},
+			}},
+		},
+		"pod-b": {
+			"c": &state.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        "pod-b",
+				ContainerName: "c",
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+				OwnerPoolName: commonstate.PoolNamePrefixIsolation + "-pod-b",
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationCPUEnhancementCPUSet: "b",
+				},
+			}},
+		},
+	}, false)
+
+	const (
+		sourceBlockID = "block-shared-source"
+		sourcePoolA   = "a"
+		sourcePoolB   = "b"
+	)
+	sourceBlocks := []*advisorapi.BlockInfo{{
+		Block: advisorapi.Block{BlockId: sourceBlockID, Result: 4},
+		OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+			sourcePoolA: {EntryName: sourcePoolA, SubEntryName: commonstate.FakedContainerName},
+			sourcePoolB: {EntryName: sourcePoolB, SubEntryName: commonstate.FakedContainerName},
+		},
+	}}
+	isolationBlocks := []*advisorapi.BlockInfo{
+		{
+			Block: advisorapi.Block{BlockId: "block-isolation-a", Result: 2},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				commonstate.PoolNamePrefixIsolation + "-pod-a": {EntryName: "pod-a", SubEntryName: "c"},
+			},
+		},
+		{
+			Block: advisorapi.Block{BlockId: "block-isolation-b", Result: 2},
+			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
+				commonstate.PoolNamePrefixIsolation + "-pod-b": {EntryName: "pod-b", SubEntryName: "c"},
+			},
+		},
+	}
+	blockCPUSet := advisorapi.NewBlockCPUSet()
+	availableCPUs := machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11)
+	nodeRemainingCPUs := availableCPUs.Clone()
+
+	err = p.allocateAdvisorSourceBlocksForCarve(
+		sourceBlocks,
+		isolationBlocks,
+		blockCPUSet,
+		&availableCPUs,
+		&nodeRemainingCPUs,
+		machine.NewCPUSet(),
+		map[string]string{
+			sourcePoolA: sourceBlockID,
+			sourcePoolB: sourceBlockID,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 8, blockCPUSet[sourceBlockID].Size(),
+		"shared source block must reserve source result plus isolation demand from every mapped pool")
+	require.True(t, availableCPUs.IsEmpty())
+}
+
 func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveReturnsErrorWhenInsufficient(t *testing.T) {
 	t.Parallel()
 

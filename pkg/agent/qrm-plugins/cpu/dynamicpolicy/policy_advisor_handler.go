@@ -881,6 +881,109 @@ func isSharedBlock(block *advisorapi.BlockInfo) bool {
 	return false
 }
 
+type fakeNUMABlockClass int
+
+const (
+	fakeNUMABlockClassActualReclaim fakeNUMABlockClass = iota
+	fakeNUMABlockClassNormalShare
+	fakeNUMABlockClassIsolation
+	fakeNUMABlockClassAmbiguous
+)
+
+func classifyFakeNUMABlock(block *advisorapi.BlockInfo) fakeNUMABlockClass {
+	if block == nil || len(block.OwnerPoolEntryMap) == 0 {
+		return fakeNUMABlockClassAmbiguous
+	}
+
+	var (
+		hasReclaim   bool
+		hasShare     bool
+		hasIsolation bool
+	)
+	for poolName := range block.OwnerPoolEntryMap {
+		switch {
+		case poolName == commonstate.PoolNameReclaim:
+			hasReclaim = true
+		case commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName):
+			hasIsolation = true
+		case poolName == commonstate.PoolNameDedicated:
+			return fakeNUMABlockClassAmbiguous
+		default:
+			hasShare = true
+		}
+	}
+
+	switch {
+	case hasReclaim && !hasShare && !hasIsolation:
+		return fakeNUMABlockClassActualReclaim
+	case hasShare && !hasReclaim && !hasIsolation:
+		return fakeNUMABlockClassNormalShare
+	case hasIsolation && !hasReclaim:
+		return fakeNUMABlockClassIsolation
+	default:
+		return fakeNUMABlockClassAmbiguous
+	}
+}
+
+func getSingleNormalSharePoolName(block *advisorapi.BlockInfo) (string, bool) {
+	if classifyFakeNUMABlock(block) != fakeNUMABlockClassNormalShare {
+		return "", false
+	}
+
+	for poolName := range block.OwnerPoolEntryMap {
+		return poolName, true
+	}
+	return "", false
+}
+
+func (p *DynamicPolicy) allocateFakeNUMANormalShareBlocks(
+	blocks []*advisorapi.BlockInfo,
+	blockCPUSet advisorapi.BlockCPUSet,
+	availableCPUs *machine.CPUSet,
+	nodeRemainingCPUs *machine.CPUSet,
+	globalNonReclaimableCPUSet machine.CPUSet,
+) error {
+	for _, block := range blocks {
+		if block == nil {
+			continue
+		}
+		if _, found := blockCPUSet[block.BlockId]; found {
+			continue
+		}
+
+		poolName, ok := getSingleNormalSharePoolName(block)
+		if !ok {
+			return fmt.Errorf("normal share block %s has no unique owner pool", block.BlockId)
+		}
+		quantity, err := general.CovertUInt64ToInt(block.Result)
+		if err != nil {
+			return fmt.Errorf("parse normal share block: %s result failed with error: %v", block.BlockId, err)
+		}
+
+		candidates := availableCPUs.Difference(globalNonReclaimableCPUSet)
+		previous := machine.NewCPUSet()
+		if allocationInfo := p.state.GetAllocationInfo(poolName, commonstate.FakedContainerName); allocationInfo != nil {
+			previous = allocationInfo.AllocationResult.Clone()
+		}
+
+		cpuset, _, err := p.takeByTieredPreferredCPUs(candidates, []machine.CPUSet{previous}, quantity)
+		if err != nil {
+			return fmt.Errorf("allocate normal share block: %s pool: %s failed with error: %v",
+				block.BlockId, poolName, err)
+		}
+
+		blockCPUSet[block.BlockId] = cpuset
+		*availableCPUs = availableCPUs.Difference(cpuset)
+		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
+		general.InfoS("allocated fake numa normal share block",
+			"blockID", block.BlockId,
+			"poolName", poolName,
+			"previousCPUSet", previous.String(),
+			"allocatedCPUSet", cpuset.String())
+	}
+	return nil
+}
+
 // allocateDedicatedBlocks allocates CPU sets for dedicated blocks.
 // It iterates through the dedicated blocks and assigns them the CPUs they have already
 // been allocated according to the state. It also subtracts these allocated CPUs
@@ -1309,27 +1412,34 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// Phase 2 for FakedNUMAID
-	// Note: Normal share blocks are not considered "shared" by isSharedBlock
-	// (which only matches isolation or NUMA-binding share pools), so they will
-	// be pushed to reclaimBlocks and processed in Phase 3 alongside reclaim blocks.
 	if blocks, ok := numaToBlocks[commonstate.FakedNUMAID]; ok {
-		var shareBlocks, reclaimBlocks []*advisorapi.BlockInfo
+		var normalShareBlocks, isolationBlocks, reclaimBlocks []*advisorapi.BlockInfo
 		for _, block := range blocks {
-			if isSharedBlock(block) {
-				shareBlocks = append(shareBlocks, block)
-			} else {
+			switch classifyFakeNUMABlock(block) {
+			case fakeNUMABlockClassNormalShare:
+				normalShareBlocks = append(normalShareBlocks, block)
+			case fakeNUMABlockClassIsolation:
+				isolationBlocks = append(isolationBlocks, block)
+			case fakeNUMABlockClassActualReclaim:
 				reclaimBlocks = append(reclaimBlocks, block)
+			default:
+				return nil, fmt.Errorf("ambiguous fake numa block: %v", block)
 			}
 		}
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
-		err = p.allocateAdvisorSourceBlocksForCarve(reclaimBlocks, shareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, globalNonReclaimableCPUSet, sourceBlockByPool)
+		err = p.allocateAdvisorSourceBlocksForCarve(normalShareBlocks, isolationBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, globalNonReclaimableCPUSet, sourceBlockByPool)
 		if err != nil {
 			return nil, err
 		}
 
 		emptyNUMA := machine.NewCPUSet()
-		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil, sourceBlockByPool)
+		err = p.allocateShareBlocks(commonstate.FakedNUMAID, isolationBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil, sourceBlockByPool)
+		if err != nil {
+			return nil, err
+		}
+
+		err = p.allocateFakeNUMANormalShareBlocks(normalShareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, globalNonReclaimableCPUSet)
 		if err != nil {
 			return nil, err
 		}

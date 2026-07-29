@@ -113,7 +113,7 @@ func buildAdvisorSourceBlockResultByID(blocks []*advisorapi.BlockInfo, sourceBlo
 // tryCarveAdvisorBlockFromSource to carve isolation from this candidate, leaving the
 // source block at the sourceResult size requested by the advisor.
 func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
-	reclaimBlocks []*advisorapi.BlockInfo,
+	sourceShareBlocks []*advisorapi.BlockInfo,
 	isolationBlocks []*advisorapi.BlockInfo,
 	blockCPUSet advisorapi.BlockCPUSet,
 	availableCPUs *machine.CPUSet,
@@ -121,9 +121,13 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 	globalNonReclaimableCPUSet machine.CPUSet,
 	sourceBlockByPool map[string]string,
 ) error {
-	isolationQuantityBySource := make(map[string]int)
+	isolationQuantityBySourceBlock := make(map[string]int)
 	for _, block := range isolationBlocks {
 		sourcePoolName, ok := deriveAdvisorIsolationSourcePool(block, p.state.GetPodEntries())
+		if !ok {
+			continue
+		}
+		sourceBlockID, ok := sourceBlockByPool[sourcePoolName]
 		if !ok {
 			continue
 		}
@@ -132,13 +136,13 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 		if err != nil {
 			return fmt.Errorf("parse isolation block: %s result failed with error: %v", block.BlockId, err)
 		}
-		isolationQuantityBySource[sourcePoolName] += blockResult
+		isolationQuantityBySourceBlock[sourceBlockID] += blockResult
 	}
-	if len(isolationQuantityBySource) == 0 {
+	if len(isolationQuantityBySourceBlock) == 0 {
 		return nil
 	}
 
-	for _, block := range reclaimBlocks {
+	for _, block := range sourceShareBlocks {
 		if block == nil {
 			continue
 		}
@@ -146,14 +150,8 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 			continue
 		}
 
-		var sourcePoolName string
-		for ownerPoolName := range block.OwnerPoolEntryMap {
-			if sourceBlockByPool[ownerPoolName] == block.BlockId {
-				sourcePoolName = ownerPoolName
-				break
-			}
-		}
-		if sourcePoolName == "" || isolationQuantityBySource[sourcePoolName] == 0 {
+		isolationQuantity := isolationQuantityBySourceBlock[block.BlockId]
+		if isolationQuantity == 0 {
 			continue
 		}
 
@@ -162,7 +160,7 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 			return fmt.Errorf("parse source block: %s result failed with error: %v", block.BlockId, err)
 		}
 
-		combinedResult := sourceResult + isolationQuantityBySource[sourcePoolName]
+		combinedResult := sourceResult + isolationQuantity
 		currentAvailableCPUs := availableCPUs.Difference(globalNonReclaimableCPUSet)
 		cpuset, _, err := calculator.TakeByNUMABalance(p.machineInfo, currentAvailableCPUs, combinedResult)
 		if err != nil {
@@ -175,9 +173,8 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
 		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
 		general.InfoS("preallocated advisor source block for isolation carve",
 			"blockID", block.BlockId,
-			"sourcePoolName", sourcePoolName,
 			"sourceResult", sourceResult,
-			"isolationResult", isolationQuantityBySource[sourcePoolName],
+			"isolationResult", isolationQuantity,
 			"allocatedCPUSet", cpuset.String())
 	}
 
