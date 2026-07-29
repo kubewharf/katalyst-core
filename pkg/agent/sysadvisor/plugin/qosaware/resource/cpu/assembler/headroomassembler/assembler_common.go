@@ -19,8 +19,10 @@ package headroomassembler
 import (
 	"fmt"
 	"math"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -48,6 +50,35 @@ type HeadroomAssemblerCommon struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+
+	pathWarningOnce sync.Map
+}
+
+func resolveReclaimPathsForDiagnostics(paths []string) ([]string, int, int) {
+	resolvedPaths := general.GetExistingPaths(paths)
+	return resolvedPaths, len(paths), len(resolvedPaths)
+}
+
+func (ha *HeadroomAssemblerCommon) logReclaimPathResolution(scope string, numaID int, cpuSet machine.CPUSet, inputPaths, resolvedPaths []string) {
+	if len(inputPaths) > 0 && len(resolvedPaths) == 0 {
+		warningKey := fmt.Sprintf("%s/%d", scope, numaID)
+		if _, loaded := ha.pathWarningOnce.LoadOrStore(warningKey, struct{}{}); !loaded {
+			klog.Warningf("headroom_reclaim_paths_resolved component=%s policy=%s scope=%s numa_id=%d input_paths=%v resolved_paths=%v input_count=%d resolved_count=%d cpuset=%s",
+				"headroom_assembler", "common", scope, numaID, inputPaths, resolvedPaths, len(inputPaths), len(resolvedPaths), cpuSet.String())
+		}
+		return
+	}
+
+	klog.V(4).InfoS("headroom_reclaim_paths_resolved",
+		"component", "headroom_assembler",
+		"policy", "common",
+		"scope", scope,
+		"numa_id", numaID,
+		"input_paths", inputPaths,
+		"resolved_paths", resolvedPaths,
+		"input_count", len(inputPaths),
+		"resolved_count", len(resolvedPaths),
+		"cpuset", cpuSet.String())
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
@@ -110,7 +141,9 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 		}
 
 		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, general.GetExistingPaths(reclaimPaths), ha.metaServer.MetricsFetcher)
+		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(reclaimPaths)
+		ha.logReclaimPathResolution("numa", numaID, cpuSet, reclaimPaths, resolvedPaths)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -132,7 +165,9 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			cpuSets = cpuSets.Union(cpuSet)
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, general.GetExistingPaths(ha.reclaimRelativeRootCgroupPaths), ha.metaServer.MetricsFetcher)
+		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(ha.reclaimRelativeRootCgroupPaths)
+		ha.logReclaimPathResolution("global", -1, cpuSets, ha.reclaimRelativeRootCgroupPaths, resolvedPaths)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
@@ -149,7 +184,6 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 	for numaID, headroom := range numaHeadroom {
 		general.InfoS("[qosaware-cpu] get headroom per numa", "NUMA-ID", numaID, "headroom", headroom.Value())
 	}
-
 	allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
 	for _, numaID := range allNUMAs.ToSliceInt() {
 		if _, ok := numaHeadroom[numaID]; !ok {
@@ -157,6 +191,13 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 		}
 	}
+	klog.V(4).InfoS("headroom_computed",
+		"component", "headroom_assembler",
+		"policy", "common",
+		"source", "default",
+		"resource", "cpu",
+		"output_value", totalHeadroom.Value(),
+		"numa_output", headroomValues(numaHeadroom))
 
 	return totalHeadroom, numaHeadroom, nil
 }
@@ -191,7 +232,9 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		}
 
 		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, general.GetExistingPaths(reclaimPaths), ha.metaServer.MetricsFetcher)
+		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(reclaimPaths)
+		ha.logReclaimPathResolution("numa", numaID, cpuSet, reclaimPaths, resolvedPaths)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -222,7 +265,9 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, general.GetExistingPaths(ha.reclaimRelativeRootCgroupPaths), ha.metaServer.MetricsFetcher)
+		resolvedPaths, _, _ := resolveReclaimPathsForDiagnostics(ha.reclaimRelativeRootCgroupPaths)
+		ha.logReclaimPathResolution("global", -1, cpusets, ha.reclaimRelativeRootCgroupPaths, resolvedPaths)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, resolvedPaths, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
@@ -251,7 +296,6 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	for numaID, headroom := range numaHeadroom {
 		general.InfoS("[qosaware-cpu] NUMA headroom by utilization", "NUMA-ID", numaID, "headroom", headroom.Value())
 	}
-
 	allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
 	for _, numaID := range allNUMAs.ToSliceInt() {
 		if _, ok := numaHeadroom[numaID]; !ok {
@@ -259,5 +303,20 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 		}
 	}
+	klog.V(4).InfoS("headroom_computed",
+		"component", "headroom_assembler",
+		"policy", "common",
+		"source", "utilization",
+		"resource", "cpu",
+		"output_value", totalHeadroom.Value(),
+		"numa_output", headroomValues(numaHeadroom))
 	return totalHeadroom, numaHeadroom, nil
+}
+
+func headroomValues(numaHeadroom map[int]resource.Quantity) map[int]int64 {
+	values := make(map[int]int64, len(numaHeadroom))
+	for numaID, headroom := range numaHeadroom {
+		values[numaID] = headroom.Value()
+	}
+	return values
 }

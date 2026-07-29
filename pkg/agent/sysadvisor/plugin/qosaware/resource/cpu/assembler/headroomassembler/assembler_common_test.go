@@ -19,6 +19,7 @@ package headroomassembler
 import (
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -70,6 +71,17 @@ import (
 // between one's Unregister and Register, causing "generic is already
 // registered" errors when the intervening subtest re-populates the entry.
 var hRegistryMu sync.Mutex
+
+func TestResolveReclaimPathsForDiagnostics(t *testing.T) {
+	existing := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	resolved, inputCount, resolvedCount := resolveReclaimPathsForDiagnostics([]string{existing, missing})
+
+	require.Equal(t, []string{existing}, resolved)
+	require.Equal(t, 2, inputCount)
+	require.Equal(t, 1, resolvedCount)
+}
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
