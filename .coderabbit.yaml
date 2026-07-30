@@ -1,0 +1,72 @@
+language: "en-US"
+early_access: false
+tone_instructions: >-
+  Prioritize correctness, concurrency safety, nil/error handling, and tests.
+  Write concise English text first, then equivalent Simplified Chinese. Do not
+  translate code, paths, APIs, markers, protobuf names, or error strings.
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_instructions: >-
+    Summarize runtime behavior changes, affected components, operational or
+    rollout risk, and any config or dependency updates. Call out when changes
+    affect agent, controller, scheduler, or release wiring. Write concise English text 
+    first, then equivalent Simplified Chinese. Do not translate code, paths, APIs, markers, 
+    protobuf names, or error strings.
+  high_level_summary_in_walkthrough: false
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+  slop_detection:
+    enabled: true
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_pause_after_reviewed_commits: 0
+    base_branches:
+      - "main"
+    ignore_title_keywords:
+      - "WIP"
+      - "DRAFT"
+      - "DO NOT MERGE"
+  path_filters:
+    - "!**/*.pb.go"
+    - "!**/zz_generated_*.go"
+    - "!docs/imgs/**"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+    - "!**/*.svg"
+  path_instructions:
+    - path: "go.mod"
+      instructions: |
+        Review dependency and module version changes for runtime behavior risk, katalyst-api compatibility, and transitive Kubernetes or controller-runtime impact.
+        Flag version bumps that likely require code updates, config changes, or coordinated rollout notes.
+    - path: ".github/workflows/**"
+      instructions: |
+        Review CI and release automation changes for correct branch triggers, pinned actions where appropriate, timeout and permission hygiene, and consistency with this repo's validation and release flow.
+        Flag changes that weaken testing, vetting, or release safety.
+    - path: "{cmd/**,pkg/agent/**,pkg/controller/**,pkg/metaserver/**,pkg/scheduler/**}"
+      instructions: |
+        Focus on runtime correctness: reconciliation idempotency, cache staleness, lock ordering, goroutine lifecycle, resource accounting, and nil/error paths.
+        Flag behavior that can cause inconsistent node state, leaked background work, or partial updates after failures.
+    - path: "pkg/config/**"
+      instructions: |
+        Check config defaulting and validation carefully.
+        Flag new fields that are not wired through startup paths, feature gates, validation, or tests.
+    - path: "**/*_test.go"
+      instructions: |
+        Prefer deterministic tests that cover failure paths, edge cases, and concurrency-sensitive behavior when relevant.
+        Avoid asking for broad end-to-end tests when focused unit coverage is sufficient.
+    - path: "docs/**/*.md"
+      instructions: |
+        Check for technical accuracy, outdated operational guidance, and mismatches between documented behavior and current runtime wiring.
+
+knowledge_base:
+  automatic_repository_linking: true
+
+chat:
+  auto_reply: true
