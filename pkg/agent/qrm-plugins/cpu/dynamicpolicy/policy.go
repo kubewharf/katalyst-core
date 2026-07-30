@@ -61,11 +61,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
 
@@ -140,8 +140,8 @@ type DynamicPolicy struct {
 	enableCPUIdle                             bool
 	enableSyncingCPUIdle                      bool
 	enableCPUBurst                            bool
-	reclaimRelativeRootCgroupPath             string
-	numaBindingReclaimRelativeRootCgroupPaths map[int]string
+	reclaimRelativeRootCgroupPaths            []string
+	numaBindingReclaimRelativeRootCgroupPaths map[int][]string
 	qosConfig                                 *generic.QoSConfiguration
 	dynamicConfig                             *dynamicconfig.DynamicAgentConfiguration
 	conf                                      *config.Configuration
@@ -160,6 +160,10 @@ type DynamicPolicy struct {
 
 	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
+
+	reclaimConsumersForKCNR []string
+
+	enableCPUHeadroomReporting bool
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -220,23 +224,22 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 		cpuPressureEviction: cpuPressureEviction,
 
-		conf:                          conf,
-		qosConfig:                     conf.QoSConfiguration,
-		dynamicConfig:                 conf.DynamicAgentConfiguration,
-		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
-		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
-		enableReclaimNUMABinding:      conf.EnableReclaimNUMABinding,
-		enableSNBHighNumaPreference:   conf.EnableSNBHighNumaPreference,
-		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
-		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,
-		reservedCPUs:                  reservedCPUs,
-		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
-		enableCPUBurst:                conf.CPUQRMPluginConfig.EnableCPUBurst,
-		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
-		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
-		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
-		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		conf:                           conf,
+		qosConfig:                      conf.QoSConfiguration,
+		dynamicConfig:                  conf.DynamicAgentConfiguration,
+		cpuAdvisorSocketAbsPath:        conf.CPUAdvisorSocketAbsPath,
+		cpuPluginSocketAbsPath:         conf.CPUPluginSocketAbsPath,
+		enableReclaimNUMABinding:       conf.EnableReclaimNUMABinding,
+		enableSNBHighNumaPreference:    conf.EnableSNBHighNumaPreference,
+		enableCPUAdvisor:               conf.CPUQRMPluginConfig.EnableCPUAdvisor,
+		getAdviceInterval:              conf.CPUQRMPluginConfig.GetAdviceInterval,
+		reservedCPUs:                   reservedCPUs,
+		extraStateFileAbsPath:          conf.ExtraStateFileAbsPath,
+		enableCPUBurst:                 conf.CPUQRMPluginConfig.EnableCPUBurst,
+		enableSyncingCPUIdle:           conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
+		enableCPUIdle:                  conf.CPUQRMPluginConfig.EnableCPUIdle,
+		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 		podDebugAnnoKeys:                conf.PodDebugAnnoKeys,
 		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:                conf.PodLabelKeptKeys,
@@ -246,6 +249,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		topologyAllocationAnnotationKey: conf.TopologyAllocationAnnotationKey,
 		transitionPeriod:                30 * time.Second,
 		reservedReclaimedCPUsSize:       general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		reclaimConsumersForKCNR:         conf.ReclaimConsumersForKCNR,
+		enableCPUHeadroomReporting:      conf.EnableCPUHeadroomReporting,
 	}
 
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
@@ -411,7 +416,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	if p.enableSyncingCPUIdle {
 		general.Infof("syncCPUIdle enabled")
 
-		if p.reclaimRelativeRootCgroupPath == "" {
+		if len(p.reclaimRelativeRootCgroupPaths) == 0 {
 			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
 		}
 
@@ -805,18 +810,70 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 		})
 	}
 
-	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
-		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
-			string(v1.ResourceCPU): {
-				IsNodeResource:                       false,
-				IsScalarResource:                     true,
-				AggregatedAllocatableQuantity:        float64(p.machineInfo.NumCPUs - p.reservedCPUs.Size()),
-				TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
-				AggregatedCapacityQuantity:           float64(p.machineInfo.NumCPUs),
-				TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
-			},
+	allocatableResources := map[string]*pluginapi.AllocatableTopologyAwareResource{
+		string(v1.ResourceCPU): {
+			IsNodeResource:                       false,
+			IsScalarResource:                     true,
+			AggregatedAllocatableQuantity:        float64(p.machineInfo.NumCPUs - p.reservedCPUs.Size()),
+			TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
+			AggregatedCapacityQuantity:           float64(p.machineInfo.NumCPUs),
+			TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
 		},
+	}
+
+	p.addReclaimedCPUAllocatable(allocatableResources, numaNodes, p.reclaimConsumersForKCNR)
+
+	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+		AllocatableResources: allocatableResources,
 	}, nil
+}
+
+// addReclaimedCPUAllocatable inserts a ReclaimedResourceMilliCPU entry
+// into allocatableResources when ReclaimConsumersForKCNR is configured.
+// The reported value is (headroom_cores * 1000 * summed_percentage / 100),
+// converting cores to millicpu; summed_percentage is the sum of
+// GetReclaimedPercentage across every configured consumer name, capped at
+// 100 (unknown names contribute 0 and are logged by GetReclaimedPercentage).
+func (p *DynamicPolicy) addReclaimedCPUAllocatable(
+	allocatableResources map[string]*pluginapi.AllocatableTopologyAwareResource,
+	numaNodes []int,
+	consumerNames []string,
+) {
+	if len(consumerNames) == 0 {
+		return
+	}
+
+	if !p.enableCPUHeadroomReporting {
+		return
+	}
+
+	summedPct := reclaim.GetSummedReclaimedPercentage(p.dynamicConfig.GetDynamicConfiguration(), consumerNames)
+
+	numaHeadroom := p.state.GetNUMAHeadroom()
+
+	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
+	for _, numaNode := range numaNodes {
+		scaled := numaHeadroom[numaNode] * 1000 * summedPct / 100
+		topologyAwareList = append(topologyAwareList, &pluginapi.TopologyAwareQuantity{
+			ResourceValue: scaled,
+			Node:          uint64(numaNode),
+		})
+	}
+
+	var totalHeadroom float64
+	for _, v := range numaHeadroom {
+		totalHeadroom += v
+	}
+	aggregated := totalHeadroom * 1000 * summedPct / 100
+
+	allocatableResources[string(consts.ReclaimedResourceMilliCPU)] = &pluginapi.AllocatableTopologyAwareResource{
+		IsNodeResource:                       false,
+		IsScalarResource:                     true,
+		AggregatedAllocatableQuantity:        aggregated,
+		TopologyAwareAllocatableQuantityList: topologyAwareList,
+		AggregatedCapacityQuantity:           aggregated,
+		TopologyAwareCapacityQuantityList:    topologyAwareList,
+	}
 }
 
 // GetTopologyHints returns hints of corresponding resources
@@ -1558,4 +1615,9 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 
 	p.state.SetAllocationInfo(podUID, containerName, allocationInfo, persist)
 	return nil
+}
+
+// GetNUMAHeadroom exposes CPU NUMA headroom scaled by reclaimed consumers.
+func (p *DynamicPolicy) GetNUMAHeadroom(consumers []string) map[int]float64 {
+	return p.getScaledReclaimedNUMAHeadroom(consumers)
 }

@@ -196,7 +196,7 @@ func (p *kubeletPlugin) setCache(resp *v1alpha1.GetReportContentResponse) {
 
 // getReportContent get report content from all collectors
 func (p *kubeletPlugin) getReportContent(ctx context.Context) (*v1alpha1.GetReportContentResponse, error) {
-	reportContent, err := p.getTopologyStatusContent(ctx)
+	reportContent, err := p.getCNRStatusReports(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -206,9 +206,11 @@ func (p *kubeletPlugin) getReportContent(ctx context.Context) (*v1alpha1.GetRepo
 	}, nil
 }
 
-// getTopologyStatusContent get topology status content from topologyStatusAdapter
-func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alpha1.ReportContent, error) {
-	topologyStatus, err := p.topologyStatusAdapter.GetTopologyZones(ctx)
+// getCNRStatusReports builds ReportContent entries for the CNR status
+// fields owned by this plugin: TopologyZone, Resources, and optionally
+// TopologyPolicy.
+func (p *kubeletPlugin) getCNRStatusReports(ctx context.Context) ([]*v1alpha1.ReportContent, error) {
+	topologyStatus, nodeResources, err := p.topologyStatusAdapter.GetTopologyZonesAndResources(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get numa topology status from adapter failed")
 	}
@@ -218,7 +220,7 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 		return nil, errors.Wrap(err, "marshal topology status failed")
 	}
 
-	topologyStatusContent := []*v1alpha1.ReportContent{
+	reportContents := []*v1alpha1.ReportContent{
 		{
 			GroupVersionKind: &util.CNRGroupVersionKind,
 			Field: []*v1alpha1.ReportField{
@@ -231,15 +233,30 @@ func (p *kubeletPlugin) getTopologyStatusContent(ctx context.Context) ([]*v1alph
 		},
 	}
 
+	resourcesValue, err := json.Marshal(&nodeResources)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal node resources failed")
+	}
+	reportContents = append(reportContents, &v1alpha1.ReportContent{
+		GroupVersionKind: &util.CNRGroupVersionKind,
+		Field: []*v1alpha1.ReportField{
+			{
+				FieldType: v1alpha1.FieldType_Status,
+				FieldName: util.CNRFieldNameResources,
+				Value:     resourcesValue,
+			},
+		},
+	})
+
 	if p.conf.EnableReportTopologyPolicy {
 		content, err := p.getTopologyPolicyReportContent(ctx)
 		if err != nil {
 			return nil, errors.Wrap(err, "get topology policy report content failed")
 		}
-		topologyStatusContent = append(topologyStatusContent, content)
+		reportContents = append(reportContents, content)
 	}
 
-	return topologyStatusContent, nil
+	return reportContents, nil
 }
 
 func (p *kubeletPlugin) getNumaInfo() ([]info.Node, error) {

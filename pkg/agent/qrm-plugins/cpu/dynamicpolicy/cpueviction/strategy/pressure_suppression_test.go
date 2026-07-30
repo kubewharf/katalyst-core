@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -40,8 +41,10 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const (
@@ -49,7 +52,8 @@ const (
 	defaultCPUMinSuppressionToleranceDuration = 10 * time.Millisecond
 )
 
-func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
+func makeSuppressionEvictionConf(t *testing.T,
+	cpuMaxSuppressionToleranceRate float64,
 	cpuMinSuppressionToleranceDuration time.Duration,
 ) *config.Configuration {
 	conf := config.NewConfiguration()
@@ -57,6 +61,9 @@ func makeSuppressionEvictionConf(cpuMaxSuppressionToleranceRate float64,
 	conf.GetDynamicConfiguration().MaxSuppressionToleranceRate = cpuMaxSuppressionToleranceRate
 	conf.GetDynamicConfiguration().MinSuppressionToleranceDuration = cpuMinSuppressionToleranceDuration
 	conf.ReclaimRelativeRootCgroupPath = "test"
+	conf.BaseConfiguration.GenericReclaimedResourcePercentage = 0
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, nil))
 	return conf
 }
 
@@ -67,7 +74,7 @@ func TestNewCPUPressureSuppressionEviction(t *testing.T) {
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	as.Nil(err)
-	conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
+	conf := makeSuppressionEvictionConf(t, defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
 	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
 	stateImpl, err := makeState(cpuTopology)
 	as.Nil(err)
@@ -404,6 +411,20 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 		},
 	}
 
+	// GetEvictPods now filters reclaim cgroup paths through
+	// general.GetExistingPaths; the fake "test" path used by these subtests
+	// does not exist on disk, so the filter would drop it and
+	// GetReclaimMetricsMulti would error with "no reclaim cgroup paths
+	// provided". Install a single pass-through patch at function scope so
+	// all parallel subtests see it — per-subtest Reset would race with
+	// siblings and cause intermittent nil-pointer panics.
+	existingPathsPatches := gomonkey.ApplyFunc(general.GetExistingPaths, func(paths []string) []string {
+		return paths
+	})
+	defer t.Cleanup(func() {
+		existingPathsPatches.Reset()
+	})
+
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
@@ -411,7 +432,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 
 			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 			as.Nil(err)
-			conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
+			conf := makeSuppressionEvictionConf(t, defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
 
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)

@@ -20,6 +20,7 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
 type MemoryHeadroomConfiguration struct {
 	*MemoryUtilBasedConfiguration
+	ReclaimedMemoryMaxRatio float64
 }
 
 func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
@@ -30,4 +31,13 @@ func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
 
 func (c *MemoryHeadroomConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.MemoryUtilBasedConfiguration.ApplyConfiguration(conf)
+
+	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
+		aqc.Spec.Config.ReclaimedResourceConfig != nil &&
+		aqc.Spec.Config.ReclaimedResourceConfig.MemoryHeadroomConfig != nil {
+		mhc := aqc.Spec.Config.ReclaimedResourceConfig.MemoryHeadroomConfig
+		if mhc.ReclaimedMemoryMaxRatio != nil {
+			c.ReclaimedMemoryMaxRatio = *mhc.ReclaimedMemoryMaxRatio
+		}
+	}
 }

@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"time"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -77,6 +79,20 @@ func ApplyCPUWithRelativePath(relCgroupPath string, data *common.CPUData) error 
 
 	absCgroupPath := common.GetAbsCgroupPath("cpu", relCgroupPath)
 	return GetManager().ApplyCPU(absCgroupPath, data)
+}
+
+// ApplyCPUWithRelativePaths applies the same CPUData to each relative cgroup
+// path. It continues on failure and returns an aggregated error over every
+// failing path, so a single missing subtree does not block updates to sibling
+// subtrees and every failure is surfaced.
+func ApplyCPUWithRelativePaths(relCgroupPaths []string, data *common.CPUData) error {
+	var errs []error
+	for _, relCgroupPath := range relCgroupPaths {
+		if err := ApplyCPUWithRelativePath(relCgroupPath, data); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return utilerrors.NewAggregate(errs)
 }
 
 func ApplyCPUWithAbsolutePath(absCgroupPath string, data *common.CPUData) error {

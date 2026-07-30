@@ -297,6 +297,21 @@ func GetOneExistPath(paths []string) string {
 	return ""
 }
 
+// GetExistingPaths returns the subset of paths that exist on disk,
+// preserving input order.
+func GetExistingPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if IsPathExists(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // GetOneExistPathUntilExist returns a path until one provided path exists
 func GetOneExistPathUntilExist(
 	paths []string, checkInterval,

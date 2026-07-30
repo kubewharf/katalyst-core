@@ -30,6 +30,9 @@ type CPUProvisionConfiguration struct {
 	IndicatorTargetGetters                      map[string]string
 	IndicatorTargetDefaultGetter                string
 	IndicatorTargetMetricThresholdExpandFactors map[string]float64
+	// ReclaimedCPUMaxRatio is the ratio (in [0, 1]) of the maximum amount of CPUs
+	// that can be reclaimed at any time.
+	ReclaimedCPUMaxRatio float64
 }
 
 func NewCPUProvisionConfiguration() *CPUProvisionConfiguration {
@@ -78,6 +81,9 @@ func (c *CPUProvisionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCR
 		}
 		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.AllowSharedCoresOverlapReclaimedCores != nil {
 			c.AllowSharedCoresOverlapReclaimedCores = *aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.AllowSharedCoresOverlapReclaimedCores
+		}
+		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.CPUProvisionConfig.ReclaimedCPUMaxRatio != nil {
+			c.ReclaimedCPUMaxRatio = *aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.CPUProvisionConfig.ReclaimedCPUMaxRatio
 		}
 	}
 }

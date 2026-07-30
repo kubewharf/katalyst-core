@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -125,6 +126,7 @@ func (fake *FakeRegion) IsNumaBinding() bool {
 	return fake.isNumaBinding
 }
 func (fake *FakeRegion) IsNumaExclusive() bool                      { return fake.isNumaExclusive }
+func (fake *FakeRegion) SetIsNumaExclusive(v bool)                  { fake.isNumaExclusive = v }
 func (fake *FakeRegion) SetThrottled(throttled bool)                { fake.throttled = throttled }
 func (fake *FakeRegion) EnableReclaim() bool                        { return true }
 func (fake *FakeRegion) AddContainer(ci *types.ContainerInfo) error { return nil }
@@ -191,6 +193,8 @@ type testCasePoolConfig struct {
 
 func TestAssembleProvision(t *testing.T) {
 	t.Parallel()
+
+	const machineTotalCPUs = 96
 
 	containerInfos := []types.ContainerInfo{
 		{
@@ -274,6 +278,7 @@ func TestAssembleProvision(t *testing.T) {
 		enableReclaimed                       bool
 		allowSharedCoresOverlapReclaimedCores bool
 		disableReclaimSelector                string
+		reclaimedCPUMaxRatio                  float64
 		resourcePackageConfig                 types.ResourcePackageConfig
 		poolInfos                             []testCasePoolConfig
 		wantErr                               bool
@@ -1137,6 +1142,126 @@ func TestAssembleProvision(t *testing.T) {
 			},
 		},
 		{
+			name:                 "reclaimed cpu max ratio caps non-overlap reclaim size",
+			enableReclaimed:      true,
+			reclaimedCPUMaxRatio: 10.0 / float64(machineTotalCPUs),
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"share-NUMA1": {
+					1: types.CPUResource{Size: 8, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 2, Quota: -1},
+					1:  types.CPUResource{Size: 2, Quota: -1},
+				},
+			},
+		},
+		{
+			name:                 "reclaimed cpu max ratio above computed size is a no-op",
+			enableReclaimed:      true,
+			reclaimedCPUMaxRatio: 1.0,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"share-NUMA1": {
+					1: types.CPUResource{Size: 8, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 16, Quota: -1},
+				},
+			},
+		},
+		{
+			name:                 "reclaimed cpu max ratio truncating to zero zeroes reclaim",
+			enableReclaimed:      true,
+			reclaimedCPUMaxRatio: 0.5 / float64(machineTotalCPUs),
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"share-NUMA1": {
+					1: types.CPUResource{Size: 8, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+					1:  types.CPUResource{Size: 0, Quota: -1},
+				},
+			},
+		},
+		{
 			name:                   "test with invalid disable-reclaim selector",
 			disableReclaimSelector: "disable-reclaim=true,,invalid",
 			wantErr:                true,
@@ -1158,13 +1283,17 @@ func TestAssembleProvision(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			conf := generateTestConf(t, tt.enableReclaimed, tt.disableReclaimSelector)
+			conf := generateTestConf(t, tt.enableReclaimed, tt.disableReclaimSelector, tt.reclaimedCPUMaxRatio)
 
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 			require.NoError(t, err)
 
 			metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
 			require.NoError(t, err)
+
+			cpuTopology, err := machine.GenerateDummyCPUTopology(machineTotalCPUs, 2, 4)
+			require.NoError(t, err)
+			metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{CPUTopology: cpuTopology}
 			defer func() {
 				os.RemoveAll(conf.GenericSysAdvisorConfiguration.StateFileDirectory)
 				os.RemoveAll(conf.MetaServerConfiguration.CheckpointManagerDir)
@@ -1218,7 +1347,7 @@ func TestAssembleProvision(t *testing.T) {
 	}
 }
 
-func generateTestConf(t *testing.T, enableReclaim bool, disableReclaimSelector string) *config.Configuration {
+func generateTestConf(t *testing.T, enableReclaim bool, disableReclaimSelector string, reclaimedCPUMaxRatio float64) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, conf)
@@ -1237,5 +1366,252 @@ func generateTestConf(t *testing.T, enableReclaim bool, disableReclaimSelector s
 	if disableReclaimSelector != "" {
 		conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = disableReclaimSelector
 	}
+	conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = reclaimedCPUMaxRatio
 	return conf
+}
+
+func TestClampByReclaimedCPUMaxRatio(t *testing.T) {
+	t.Parallel()
+
+	const machineTotalCPUs = 96
+
+	build := func(ratio float64) *ProvisionAssemblerCommon {
+		conf, err := options.NewOptions().Config()
+		require.NoError(t, err)
+		conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = ratio
+
+		cpuTopology, err := machine.GenerateDummyCPUTopology(machineTotalCPUs, 2, 4)
+		require.NoError(t, err)
+		return &ProvisionAssemblerCommon{
+			conf: conf,
+			metaServer: &metaserver.MetaServer{
+				MetaAgent: &metaserveragent.MetaAgent{
+					KatalystMachineInfo: &machine.KatalystMachineInfo{CPUTopology: cpuTopology},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		ratio     float64
+		size      int
+		limit     float64
+		wantSize  int
+		wantLimit float64
+	}{
+		{name: "ratio unset returns inputs", ratio: 0, size: 20, limit: 12, wantSize: 20, wantLimit: 12},
+		{name: "ratio clamps size and limit", ratio: 10.0 / 96, size: 20, limit: 15, wantSize: 10, wantLimit: 10},
+		{name: "limit -1 sentinel is preserved", ratio: 10.0 / 96, size: 20, limit: -1, wantSize: 10, wantLimit: -1},
+		{name: "cap does not bind is a no-op", ratio: 1.0, size: 20, limit: 15, wantSize: 20, wantLimit: 15},
+		{name: "ratio caps size only when limit already below cap", ratio: 10.0 / 96, size: 20, limit: 5, wantSize: 10, wantLimit: 5},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pa := build(tt.ratio)
+			gotSize, gotLimit := pa.clampByReclaimedCPUMaxRatio(tt.size, tt.limit, machineTotalCPUs)
+			require.Equal(t, tt.wantSize, gotSize)
+			require.InDelta(t, tt.wantLimit, gotLimit, 1e-9)
+		})
+	}
+}
+
+func TestAssembleDedicatedNUMAExclusive_Clamp(t *testing.T) {
+	t.Parallel()
+
+	const machineTotalCPUs = 96
+
+	conf := generateTestConf(t, true, "", 10.0/float64(machineTotalCPUs))
+
+	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
+	require.NoError(t, err)
+
+	metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+	require.NoError(t, err)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(machineTotalCPUs, 2, 4)
+	require.NoError(t, err)
+	metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{CPUTopology: cpuTopology}
+	defer func() {
+		os.RemoveAll(conf.GenericSysAdvisorConfiguration.StateFileDirectory)
+		os.RemoveAll(conf.MetaServerConfiguration.CheckpointManagerDir)
+	}()
+
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	require.NoError(t, err)
+	require.NoError(t, metaCache.SetResourcePackageConfig(types.ResourcePackageConfig{0: map[string]*types.ResourcePackageState{}}))
+
+	reservedForReclaim := map[int]int{0: 4, 1: 4}
+	numaAvailable := map[int]int{0: 24, 1: 24}
+	nonBindingNumas := machine.NewCPUSet()
+
+	dedicated := NewFakeRegion("dedicated-NUMA0", configapi.QoSRegionTypeDedicated, "dedicated-NUMA0")
+	dedicated.SetBindingNumas(machine.NewCPUSet(0))
+	dedicated.SetIsNumaBinding(true)
+	dedicated.SetIsNumaExclusive(true)
+	dedicated.SetProvision(types.ControlKnob{
+		configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+	})
+	dedicated.SetPods(types.PodSet{
+		"pod-a": sets.NewString("container-a"),
+	})
+	dedicated.TryUpdateProvision()
+
+	regionMap := map[string]region.QoSRegion{dedicated.Name(): dedicated}
+	allowOverlap := false
+
+	common := NewProvisionAssemblerCommon(conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas, &allowOverlap, metaCache, metaServer, metrics.DummyMetrics{})
+	result, err := common.AssembleProvision()
+	require.NoError(t, err)
+
+	// Uncapped: available (24) - nonReclaim (6) = 18; per-NUMA cap = int(10/96 * 24) = 2 → clamped to 2.
+	require.Equal(t, 2, result.PoolOverlapPodContainerInfo["reclaim"][0]["pod-a"]["container-a"])
+	require.Equal(t, float64(-1), result.PoolEntries["reclaim"][0].Quota)
+}
+
+func TestClampByReclaimedCPUMaxRatio_PerScope(t *testing.T) {
+	t.Parallel()
+
+	const machineTotalCPUs = 96 // 4 NUMAs x 24 CPUs each
+
+	conf, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = 0.5
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(machineTotalCPUs, 2, 4)
+	require.NoError(t, err)
+	pa := &ProvisionAssemblerCommon{
+		conf: conf,
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &metaserveragent.MetaAgent{
+				KatalystMachineInfo: &machine.KatalystMachineInfo{CPUTopology: cpuTopology},
+			},
+		},
+	}
+
+	// Per-NUMA scope: cap = 0.5 * 24 = 12
+	gotSize, _ := pa.clampByReclaimedCPUMaxRatio(20, -1, 24)
+	require.Equal(t, 12, gotSize)
+
+	// Two-NUMA union scope: cap = 0.5 * 48 = 24
+	gotSize, _ = pa.clampByReclaimedCPUMaxRatio(30, -1, 48)
+	require.Equal(t, 24, gotSize)
+}
+
+func TestClampReclaimAndOverlap(t *testing.T) {
+	t.Parallel()
+
+	newPA := func(ratio float64) *ProvisionAssemblerCommon {
+		conf, err := options.NewOptions().Config()
+		require.NoError(t, err)
+		conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = ratio
+		return &ProvisionAssemblerCommon{conf: conf}
+	}
+
+	tests := []struct {
+		name        string
+		ratio       float64
+		size        int
+		overlap     map[string]int
+		cpuCount    int
+		wantSize    int
+		wantOverlap map[string]int
+	}{
+		{
+			name:        "no-op when ratio == 0",
+			ratio:       0,
+			size:        40,
+			overlap:     map[string]int{"share": 30},
+			cpuCount:    24,
+			wantSize:    40,
+			wantOverlap: map[string]int{"share": 30},
+		},
+		{
+			name:        "overlap within cap is unchanged",
+			ratio:       0.5,
+			size:        20,
+			overlap:     map[string]int{"share": 8},
+			cpuCount:    24,
+			wantSize:    12,
+			wantOverlap: map[string]int{"share": 8},
+		},
+		{
+			name:        "overlap exceeds cap is scaled down proportionally",
+			ratio:       0.5,
+			size:        20,
+			overlap:     map[string]int{"a": 15, "b": 10},
+			cpuCount:    24,
+			wantSize:    12,
+			wantOverlap: map[string]int{"a": 7, "b": 4},
+		},
+		{
+			name:        "nil overlap map is safe",
+			ratio:       0.25,
+			size:        20,
+			overlap:     nil,
+			cpuCount:    24,
+			wantSize:    6,
+			wantOverlap: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pa := newPA(tt.ratio)
+
+			var inputSnapshot map[string]int
+			if tt.overlap != nil {
+				inputSnapshot = make(map[string]int, len(tt.overlap))
+				for k, v := range tt.overlap {
+					inputSnapshot[k] = v
+				}
+			}
+
+			gotSize, gotOverlap, _ := pa.clampReclaimAndOverlap(tt.size, tt.overlap, -1, tt.cpuCount)
+			require.Equal(t, tt.wantSize, gotSize)
+			require.Equal(t, tt.wantOverlap, gotOverlap)
+			require.Equal(t, inputSnapshot, tt.overlap, "input overlap map must not be mutated")
+		})
+	}
+}
+
+func TestClampReclaimAndOverlap_Quota(t *testing.T) {
+	t.Parallel()
+
+	newPA := func(ratio float64) *ProvisionAssemblerCommon {
+		conf, err := options.NewOptions().Config()
+		require.NoError(t, err)
+		conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = ratio
+		return &ProvisionAssemblerCommon{conf: conf}
+	}
+
+	tests := []struct {
+		name      string
+		ratio     float64
+		size      int
+		quota     float64
+		cpuCount  int
+		wantSize  int
+		wantQuota float64
+	}{
+		{name: "quota_below_cap", ratio: 0.5, size: 8, quota: 8, cpuCount: 24, wantSize: 8, wantQuota: 8},
+		{name: "quota_above_cap_clamped", ratio: 0.5, size: 20, quota: 20, cpuCount: 24, wantSize: 20, wantQuota: 12},
+		{name: "quota_negative_sentinel_unchanged", ratio: 0.5, size: 20, quota: -1, cpuCount: 24, wantSize: 12, wantQuota: -1},
+		{name: "ratio_disabled_passthrough", ratio: 0, size: 20, quota: 15, cpuCount: 24, wantSize: 20, wantQuota: 15},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pa := newPA(tt.ratio)
+			gotSize, _, gotQuota := pa.clampReclaimAndOverlap(tt.size, nil, tt.quota, tt.cpuCount)
+			require.Equal(t, tt.wantSize, gotSize)
+			require.Equal(t, tt.wantQuota, gotQuota)
+		})
+	}
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
@@ -84,12 +86,11 @@ func TestNewCheckpointState(t *testing.T) {
 		checkpointContent string
 		expectedError     string
 		expectedState     *cpuPluginState
+		recomputeChecksum bool
 	}{
 		{
-			"Restore non-existing checkpoint",
-			"",
-			"",
-			&cpuPluginState{
+			description: "Restore non-existing checkpoint",
+			expectedState: &cpuPluginState{
 				podEntries:     make(PodEntries),
 				machineState:   GetDefaultMachineState(cpuTopology),
 				socketTopology: cpuTopology.GetSocketTopology(),
@@ -97,8 +98,9 @@ func TestNewCheckpointState(t *testing.T) {
 			},
 		},
 		{
-			"Restore valid checkpoint",
-			`{
+			description:       "Restore valid checkpoint",
+			recomputeChecksum: true,
+			checkpointContent: `{
 	"policyName": "dynamic",
 	"machineState": {
 		"0": {
@@ -539,10 +541,9 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 4188873110
+	"checksum": 0
 }`,
-			"",
-			&cpuPluginState{
+			expectedState: &cpuPluginState{
 				podEntries: PodEntries{
 					"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 						testName: &AllocationInfo{
@@ -1014,8 +1015,8 @@ func TestNewCheckpointState(t *testing.T) {
 			},
 		},
 		{
-			"Restore checkpoint with invalid checksum",
-			`{
+			description: "Restore checkpoint with invalid checksum",
+			checkpointContent: `{
 	"policyName": "dynamic",
 	"machineState": {
 		"0": {
@@ -1458,14 +1459,14 @@ func TestNewCheckpointState(t *testing.T) {
 	},
 	"checksum": 2840585175
 }`,
-			"checkpoint is corrupted",
-			&cpuPluginState{},
+			expectedError: "checkpoint is corrupted",
+			expectedState: &cpuPluginState{},
 		},
 		{
-			"Restore checkpoint with invalid JSON",
-			`{`,
-			"unexpected end of JSON input",
-			&cpuPluginState{},
+			description:       "Restore checkpoint with invalid JSON",
+			checkpointContent: `{`,
+			expectedError:     "unexpected end of JSON input",
+			expectedState:     &cpuPluginState{},
 		},
 	}
 
@@ -1488,8 +1489,18 @@ func TestNewCheckpointState(t *testing.T) {
 		require.NoError(t, cpm.RemoveCheckpoint(cpuPluginStateFileName), "could not remove testing checkpoint")
 
 		// prepare checkpoint for testing
-		if strings.TrimSpace(tc.checkpointContent) != "" {
-			checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
+		content := tc.checkpointContent
+		if tc.recomputeChecksum {
+			cp := &CPUPluginCheckpoint{}
+			require.NoError(t, json.Unmarshal([]byte(content), cp), "could not parse fixture for checksum recompute")
+			cp.Checksum = 0
+			cp.Checksum = checksum.New(cp)
+			blob, err := json.Marshal(cp)
+			require.NoError(t, err, "could not remarshal fixture for checksum recompute")
+			content = string(blob)
+		}
+		if strings.TrimSpace(content) != "" {
+			checkpoint := &testutil.MockCheckpoint{Content: content}
 			require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
 		}
 

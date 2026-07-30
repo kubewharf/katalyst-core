@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
@@ -510,7 +511,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 	}
 
 	machineState := p.state.GetMachineState()
-	numaHeadroomState := p.state.GetNUMAHeadroom()
+	numaHeadroomState := p.getScaledReclaimedNUMAHeadroom(p.reclaimConsumersForKCNR)
 	podEntries := p.state.GetPodEntries()
 
 	var hints map[string]*pluginapi.ListOfTopologyHints
@@ -566,6 +567,20 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 	}
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
+}
+
+func (p *DynamicPolicy) getScaledReclaimedNUMAHeadroom(consumers []string) map[int]float64 {
+	numaHeadroomState := p.state.GetNUMAHeadroom()
+	pct := reclaim.GetSummedReclaimedPercentage(
+		p.dynamicConfig.GetDynamicConfiguration(),
+		consumers,
+	)
+
+	scaled := make(map[int]float64, len(numaHeadroomState))
+	for numaID, headroom := range numaHeadroomState {
+		scaled[numaID] = headroom * pct / 100
+	}
+	return scaled
 }
 
 func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(req *pluginapi.ResourceRequest, reqFloat float64, podEntries state.PodEntries,

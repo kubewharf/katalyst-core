@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
@@ -53,8 +55,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
+
+// serverGlobalRegistryMu serializes tests in this package that mutate
+// the process-global reclaim consumer registry (or assert on cgroup
+// paths derived from it). Tests hold this lock across their body so
+// two concurrent tests can't observe each other's half-registered
+// state or leaked entries.
+var serverGlobalRegistryMu sync.Mutex
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
 	conf, err := options.NewOptions().Config()
@@ -910,4 +921,173 @@ func TestCPUServerUpdateMetaCacheInput_InvalidResourcePackageCPUSet(t *testing.T
 	err := cs.updateMetaCacheInput(context.Background(), request)
 	require.Error(t, err)
 	require.Equal(t, types.ResourcePackageConfig{}, cs.metaCache.GetResourcePackageConfig())
+}
+
+func Test_cpuServer_assembleCgroupConfig_multiReclaim(t *testing.T) {
+	t.Parallel()
+
+	// This test mutates the process-global reclaim registry and asserts on
+	// paths (/kubepods/besteffort, /kubesandbox) that other parallel tests
+	// in this package (e.g. TestCPUServerUpdate) also read. Serialize with
+	// serverGlobalRegistryMu and clean up on exit so we don't leak state.
+	serverGlobalRegistryMu.Lock()
+	defer serverGlobalRegistryMu.Unlock()
+
+	cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+	cs.metaServer.KatalystMachineInfo.CPUTopology = cpuTopology
+	reclaim.UnregisterConsumer("test-multi-a")
+	reclaim.UnregisterConsumer("test-multi-b")
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	cs.conf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"test-multi-a": 60,
+		"test-multi-b": 40,
+	}
+	reg := func(name, path string) {
+		c := config.NewConfiguration()
+		c.BaseConfiguration.ReclaimRelativeRootCgroupPath = path
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, c, cs.metaServer.KatalystMachineInfo))
+	}
+	reg("test-multi-a", "/kubepods/besteffort")
+	reg("test-multi-b", "/kubesandbox")
+	t.Cleanup(func() {
+		reclaim.UnregisterConsumer("test-multi-a")
+		reclaim.UnregisterConsumer("test-multi-b")
+	})
+
+	provision := &types.InternalCPUCalculationResult{
+		PoolEntries: map[string]map[int]types.CPUResource{
+			commonstate.PoolNameReclaim: {
+				-1: {Size: 40, Quota: 40.0},
+				0:  {Size: 10, Quota: 10.0},
+				1:  {Size: 11, Quota: 11.0},
+				2:  {Size: 12, Quota: common.CPUQuotaUnlimit},
+				3:  {Size: 13, Quota: 13.0},
+			},
+		},
+	}
+
+	buildBody := func(quota float64) string {
+		q := int64(-1)
+		if quota > 0 {
+			q = int64(quota * DefaultCFSCPUPeriod)
+		}
+		bytes, err := json.Marshal(&common.CgroupResources{CpuQuota: q, CpuPeriod: DefaultCFSCPUPeriod})
+		require.NoError(t, err)
+		return string(bytes)
+	}
+
+	makeEntry := func(cgroupPath, body string) *advisorsvc.CalculationInfo {
+		return &advisorsvc.CalculationInfo{
+			CgroupPath: cgroupPath,
+			CalculationResult: &advisorsvc.CalculationResult{
+				Values: map[string]string{
+					string(cpuadvisor.ControlKnobKeyCgroupConfig): body,
+				},
+			},
+		}
+	}
+
+	got := cs.assembleCgroupConfig(provision)
+
+	want := []*advisorsvc.CalculationInfo{
+		makeEntry("/kubepods/besteffort", buildBody(40.0*60/100)),
+		makeEntry("/kubesandbox", buildBody(40.0*40/100)),
+		makeEntry("/kubepods/besteffort-0", buildBody(10.0*60/100)),
+		makeEntry("/kubesandbox-0", buildBody(10.0*40/100)),
+		makeEntry("/kubepods/besteffort-1", buildBody(11.0*60/100)),
+		makeEntry("/kubesandbox-1", buildBody(11.0*40/100)),
+		makeEntry("/kubepods/besteffort-2", buildBody(common.CPUQuotaUnlimit)),
+		makeEntry("/kubesandbox-2", buildBody(common.CPUQuotaUnlimit)),
+		makeEntry("/kubepods/besteffort-3", buildBody(13.0*60/100)),
+		makeEntry("/kubesandbox-3", buildBody(13.0*40/100)),
+	}
+	assert.ElementsMatch(t, want, got)
+}
+
+// fakeHeadroomResourceManager is a test double that returns configured
+// results for GetAllocatable / GetNumaAllocatable. Other methods are
+// unused by assembleHeadroom.
+type fakeHeadroomResourceManager struct {
+	allocatable    resource.Quantity
+	allocatableErr error
+
+	numaAllocatable    map[int]resource.Quantity
+	numaAllocatableErr error
+}
+
+func (f *fakeHeadroomResourceManager) GetAllocatable() (resource.Quantity, error) {
+	return f.allocatable, f.allocatableErr
+}
+
+func (f *fakeHeadroomResourceManager) GetCapacity() (resource.Quantity, error) {
+	return resource.Quantity{}, nil
+}
+
+func (f *fakeHeadroomResourceManager) GetNumaAllocatable() (map[int]resource.Quantity, error) {
+	return f.numaAllocatable, f.numaAllocatableErr
+}
+
+func (f *fakeHeadroomResourceManager) GetNumaCapacity() (map[int]resource.Quantity, error) {
+	return nil, nil
+}
+
+func Test_cpuServer_assembleHeadroom(t *testing.T) {
+	t.Parallel()
+
+	// values are millicore-scaled (reportMilliValue=true for CPU).
+	millicores := func(v int64) resource.Quantity {
+		return *resource.NewQuantity(v, resource.DecimalSI)
+	}
+
+	t.Run("emits numa key with correct cores conversion", func(t *testing.T) {
+		t.Parallel()
+		cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
+		cs.headroomResourceManager = &fakeHeadroomResourceManager{
+			allocatable: millicores(3200),
+			numaAllocatable: map[int]resource.Quantity{
+				0: millicores(1500),
+				1: millicores(1700),
+			},
+		}
+
+		got := cs.assembleHeadroom()
+		require.NotNil(t, got)
+		require.Equal(t, "", got.CgroupPath)
+		require.NotNil(t, got.CalculationResult)
+
+		vals := got.CalculationResult.Values
+		require.Contains(t, vals, string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom))
+
+		var numa map[int]float64
+		require.NoError(t, json.Unmarshal([]byte(vals[string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom)]), &numa))
+		require.InDelta(t, 1.5, numa[0], 1e-9)
+		require.InDelta(t, 1.7, numa[1], 1e-9)
+	})
+
+	t.Run("returns nil when GetNumaAllocatable errors", func(t *testing.T) {
+		t.Parallel()
+		cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
+		cs.headroomResourceManager = &fakeHeadroomResourceManager{
+			numaAllocatableErr: fmt.Errorf("boom-numa"),
+			allocatable:        millicores(1000),
+		}
+		require.Nil(t, cs.assembleHeadroom())
+	})
+
+	t.Run("empty per-NUMA still emits map", func(t *testing.T) {
+		t.Parallel()
+		cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
+		cs.headroomResourceManager = &fakeHeadroomResourceManager{
+			allocatable:     millicores(4000),
+			numaAllocatable: map[int]resource.Quantity{},
+		}
+		got := cs.assembleHeadroom()
+		require.NotNil(t, got)
+
+		var numa map[int]float64
+		require.NoError(t, json.Unmarshal([]byte(got.CalculationResult.Values[string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom)]), &numa))
+		require.Empty(t, numa)
+	})
 }

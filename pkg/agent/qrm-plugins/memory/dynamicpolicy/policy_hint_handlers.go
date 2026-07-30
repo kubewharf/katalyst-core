@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 var errNoAvailableMemoryHints = fmt.Errorf("no available memory hints")
@@ -244,7 +245,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	resourcesMachineState := p.state.GetMachineState()
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
-	numaHeadroomState := p.state.GetNUMAHeadroom()
+	numaHeadroomState := p.getScaledReclaimedNUMAHeadroom(p.reclaimConsumersForKCNR)
 
 	var hints map[string]*pluginapi.ListOfTopologyHints
 
@@ -300,6 +301,20 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 		req.PodNamespace, req.PodName, req.ContainerName, hints)
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory), hints)
+}
+
+func (p *DynamicPolicy) getScaledReclaimedNUMAHeadroom(consumers []string) map[int]int64 {
+	numaHeadroomState := p.state.GetNUMAHeadroom()
+	pct := reclaim.GetSummedReclaimedPercentage(
+		p.dynamicConf.GetDynamicConfiguration(),
+		consumers,
+	)
+
+	scaled := make(map[int]int64, len(numaHeadroomState))
+	for numaID, headroom := range numaHeadroomState {
+		scaled[numaID] = int64(float64(headroom) * pct / 100)
+	}
+	return scaled
 }
 
 func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(req *pluginapi.ResourceRequest) (state.NUMANodeResourcesMap, error) {

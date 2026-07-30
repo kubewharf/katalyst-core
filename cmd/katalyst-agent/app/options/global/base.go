@@ -53,10 +53,13 @@ type BaseOptions struct {
 	CgroupType            string
 	AdditionalCgroupPaths []string
 
-	ReclaimRelativeRootCgroupPath  string
-	GeneralRelativeCgroupPaths     []string
-	OptionalRelativeCgroupPaths    []string
-	DisableCGroupV2TaskLoadMetrics bool
+	ReclaimRelativeRootCgroupPath      string
+	ReclaimConsumers                   []string
+	ReclaimConsumersForKCNR            []string
+	GenericReclaimedResourcePercentage float64
+	GeneralRelativeCgroupPaths         []string
+	OptionalRelativeCgroupPaths        []string
+	DisableCGroupV2TaskLoadMetrics     bool
 
 	// configurations for kubelet
 	KubeletReadOnlyPort      int
@@ -88,7 +91,9 @@ func NewBaseOptions() *BaseOptions {
 
 		CgroupType: "cgroupfs",
 
-		ReclaimRelativeRootCgroupPath: "/kubepods/besteffort",
+		ReclaimRelativeRootCgroupPath:      "/kubepods/besteffort",
+		GenericReclaimedResourcePercentage: 100,
+		ReclaimConsumersForKCNR:            []string{"generic"},
 
 		KubeletReadOnlyPort:      defaultKubeletReadOnlyPort,
 		KubeletSecurePort:        defaultKubeletSecurePort,
@@ -127,6 +132,15 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath, "reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
+	fs.StringSliceVar(&o.ReclaimConsumers, "reclaim-consumers", o.ReclaimConsumers,
+		"Names of reclaim consumers to activate. Each must be pre-registered "+
+			"via pkg/util/reclaim.RegisterFactory. If empty, defaults to \"generic\".")
+	fs.StringSliceVar(&o.ReclaimConsumersForKCNR, "reclaim-consumers-for-kcnr", o.ReclaimConsumersForKCNR,
+		"Names of reclaim consumers whose reclaimed percentages are summed "+
+			"and applied to memory headroom reported under ReclaimedResourceMemory in KCNR. "+
+			"Empty disables the ReclaimedResourceMemory entry.")
+	fs.Float64Var(&o.GenericReclaimedResourcePercentage, "generic-reclaimed-resource-percentage", o.GenericReclaimedResourcePercentage,
+		"percentage (0-100) reported by the generic reclaim consumer for headroom and provision")
 	fs.StringSliceVar(&o.GeneralRelativeCgroupPaths, "malachite-general-relative-cgroup-paths", o.GeneralRelativeCgroupPaths,
 		"The cgroup paths of standalone services which not managed by kubernetes, errors will occur if these paths not existed")
 	fs.StringSliceVar(&o.OptionalRelativeCgroupPaths, "malachite-optional-relative-cgroup-paths", o.OptionalRelativeCgroupPaths,
@@ -179,6 +193,9 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.LockWaitingEnabled = o.LockWaitingEnabled
 
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
+	c.ReclaimConsumers = o.ReclaimConsumers
+	c.ReclaimConsumersForKCNR = o.ReclaimConsumersForKCNR
+	c.GenericReclaimedResourcePercentage = o.GenericReclaimedResourcePercentage
 	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths
 	c.OptionalRelativeCgroupPaths = o.OptionalRelativeCgroupPaths
 	c.CgroupType = o.CgroupType

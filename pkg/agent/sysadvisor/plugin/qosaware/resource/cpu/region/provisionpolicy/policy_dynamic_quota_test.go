@@ -18,6 +18,7 @@ package provisionpolicy
 
 import (
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func generateDynamicQuotaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, checkpointManagerDir string) *config.Configuration {
@@ -67,11 +69,21 @@ func generateDynamicQuotaTestConfiguration(t *testing.T, checkpointDir, stateFil
 	return conf
 }
 
+// dqRegistryMu serializes any parallel test in this file that mutates the
+// process-global reclaim consumer registry (via newTestPolicyDynamicQuota or
+// direct RegisterNamedGenericConsumer calls). Locking this at the start of
+// each parallel subtest is the simplest way to keep the racy "unregister ->
+// register" pattern safe across TestPolicyDynamicQuota_* and their subtests.
+var dqRegistryMu sync.Mutex
+
 func newTestPolicyDynamicQuota(t *testing.T, checkpointDir string, stateFileDir string,
 	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher,
 ) ProvisionPolicy {
 	conf := generateDynamicQuotaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
+	// clear any prior registration; NewMetaServer below calls SetupConsumers,
+	// which registers the default "generic" reclaim consumer from conf.
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricFetcher)
 	require.NoError(t, err)
 	require.NotNil(t, metaCacheTmp)
@@ -98,7 +110,6 @@ func TestPolicyDynamicQuota_updateForCPUQuota(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-
 	tests := []struct {
 		name                   string
 		regionInfo             types.RegionInfo
@@ -286,10 +297,17 @@ func TestPolicyDynamicQuota_updateForCPUQuota(t *testing.T) {
 		},
 	}
 
+	// registryMu serializes the parallel subtests below: they all mutate the
+	// process-global reclaim consumer registry (generic + per-subtest
+	// consumers) via newTestPolicyDynamicQuota. Without this, concurrent
+	// registrations of the "generic" name collide.
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			dqRegistryMu.Lock()
+			defer dqRegistryMu.Unlock()
 
 			checkpointDir, err := os.MkdirTemp("", "checkpoint")
 			require.NoError(t, err)
@@ -317,6 +335,7 @@ func TestPolicyDynamicQuota_updateForCPUQuota(t *testing.T) {
 				policy.metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{
 					CPUTopology: &machine.CPUTopology{
 						NUMAToCPUs:   map[int]machine.CPUSet{},
+						CPUDetails:   machine.CPUDetails{0: machine.CPUTopoInfo{NUMANodeID: 0}},
 						NumNUMANodes: 1,
 						NumCPUs:      44,
 					},
@@ -327,11 +346,14 @@ func TestPolicyDynamicQuota_updateForCPUQuota(t *testing.T) {
 						NUMAToCPUs: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43), // 44 CPUs
 						},
+						CPUDetails:   machine.CPUDetails{0: machine.CPUTopoInfo{NUMANodeID: 0}},
 						NumNUMANodes: 1,
 						NumCPUs:      44,
 					},
 				}
 			}
+			reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, policy.conf, policy.metaServer.KatalystMachineInfo))
 
 			// Setup Reclaim Pool
 			if tt.reclaimPoolExist {
@@ -419,6 +441,9 @@ func TestPolicyDynamicQuota_isCPUQuotaAsControlKnob(t *testing.T) {
 func TestPolicyDynamicQuota_sanityCheck(t *testing.T) {
 	t.Parallel()
 
+	dqRegistryMu.Lock()
+	defer dqRegistryMu.Unlock()
+
 	checkpointDir, err := os.MkdirTemp("", "checkpoint")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(checkpointDir) }()
@@ -445,4 +470,123 @@ func TestPolicyDynamicQuota_sanityCheck(t *testing.T) {
 	err = p.sanityCheck()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "reclaim disabled")
+}
+
+// TestPolicyDynamicQuota_updateForCPUQuota_multiPath exercises the multi-consumer
+// usage summation. Registering the extra consumer under a fixed name is idempotent
+// (same key overwrites, not accumulates) and each subtest owns its own metric
+// fetcher and policy instance, so it is safe to run in parallel.
+func TestPolicyDynamicQuota_updateForCPUQuota_multiPath(t *testing.T) {
+	t.Parallel()
+
+	regionInfo := types.RegionInfo{
+		RegionName:   "share-xxx",
+		RegionType:   v1alpha1.QoSRegionTypeShare,
+		BindingNumas: machine.NewCPUSet(0),
+	}
+	controlEssentials := types.ControlEssentials{
+		Indicators: types.Indicator{
+			string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
+				Target:  0.6,
+				Current: 0.4,
+			},
+		},
+	}
+
+	tests := []struct {
+		name  string
+		usage map[string]float64
+		// quota = Max(reclaimNUMACPUSize*(target-current) + sum(usage), ReservedForReclaim)
+		//       = Max(4*(0.6-0.4) + sum(usage), 1.0)
+		//       = Max(0.8 + sum(usage), 1.0)
+		wantQuota float64
+	}{
+		{
+			name: "usage summed across both paths",
+			usage: map[string]float64{
+				"/kubepods/besteffort-0": 2.0,
+				"/kubesandbox-0":         1.5,
+			},
+			wantQuota: 4.3, // 0.8 + 3.5
+		},
+		{
+			name: "missing path is skipped",
+			usage: map[string]float64{
+				// "/kubepods/besteffort-0" intentionally unset -> skipped
+				"/kubesandbox-0": 1.5,
+			},
+			wantQuota: 2.3, // 0.8 + 1.5
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dqRegistryMu.Lock()
+			defer dqRegistryMu.Unlock()
+
+			now := time.Now()
+
+			checkpointDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(checkpointDir) })
+
+			stateFileDir, err := os.MkdirTemp("", "statefile")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(stateFileDir) })
+
+			checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = os.RemoveAll(checkpointManagerDir) })
+
+			metricFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			for path, value := range tc.usage {
+				metricFetcher.(*metric.FakeMetricsFetcher).SetCgroupMetric(
+					path, consts.MetricCPUUsageCgroup, metricutil.MetricData{Value: value, Time: &now})
+			}
+
+			policy := newTestPolicyDynamicQuota(t, checkpointDir, stateFileDir,
+				checkpointManagerDir, regionInfo, metricFetcher).(*PolicyDynamicQuota)
+			require.NotNil(t, policy)
+			machineInfo := &machine.KatalystMachineInfo{
+				CPUTopology: &machine.CPUTopology{
+					CPUDetails:   machine.CPUDetails{0: machine.CPUTopoInfo{NUMANodeID: 0}},
+					NumNUMANodes: 1,
+				},
+			}
+			policy.metaServer.KatalystMachineInfo = machineInfo
+			reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, policy.conf, machineInfo))
+
+			// add a second reclaim consumer; combined with the default generic
+			// consumer the registry resolves two disjoint subtrees. Same key
+			// across subtests is idempotent under parallel execution.
+			reclaim.UnregisterConsumer("dq-multi-sandbox")
+			cSandbox := config.NewConfiguration()
+			cSandbox.BaseConfiguration.ReclaimRelativeRootCgroupPath = "/kubesandbox"
+			cSandbox.BaseConfiguration.GenericReclaimedResourcePercentage = 0
+			require.NoError(t, reclaim.RegisterNamedGenericConsumer("dq-multi-sandbox", cSandbox, machineInfo))
+
+			reclaimPoolInfo := &types.PoolInfo{
+				PoolName:                 commonstate.PoolNameReclaim,
+				TopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(10, 11, 12, 13)}, // size 4
+			}
+			require.NoError(t, policy.metaReader.(*metacache.MetaCacheImp).SetPoolInfo(commonstate.PoolNameReclaim, reclaimPoolInfo))
+
+			policy.SetEssentials(types.ResourceEssentials{}, controlEssentials)
+			policy.ReservedForReclaim = 1.0
+
+			require.NoError(t, policy.Update())
+			got, err := policy.GetControlKnobAdjusted()
+			require.NoError(t, err)
+			assert.Equal(t, types.ControlKnob{
+				v1alpha1.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{
+					Value:  tc.wantQuota,
+					Action: types.ControlKnobActionNone,
+				},
+			}, got)
+		})
+	}
 }
