@@ -224,6 +224,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		resourcePackageManager: resourcepackage.NewCachedResourcePackageManager(agentCtx.MetaServer.ResourcePackageManager),
 
 		state:          stateImpl,
+		cgroupClient:   cgroupclient.NewCgroupClient(),
 		residualHitMap: make(map[string]int64),
 
 		advisorValidator:   validator.NewCPUAdvisorValidator(stateImpl, agentCtx.KatalystMachineInfo),
@@ -259,7 +260,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reservedReclaimedCPUsSize:       general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 		reclaimConsumersForKCNR:         conf.ReclaimConsumersForKCNR,
 	}
-
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
 	// initialize hint optimizer

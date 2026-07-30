@@ -693,6 +693,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	result := machine.NewCPUSet()
 	alignedAvailableCPUs := machine.CPUSet{}
 	alignedAvailableCPUsPerNUMA := make(map[uint64]machine.CPUSet)
+	reclaimCPUs := machine.NewCPUSet()
 	hintNodes := hint.Nodes
 	pkgName := rputil.GetResourcePackageName(reqAnnotations)
 	numaRPPinnedCPUSet := machineState.GetNUMAResourcePackagePinnedCPUSet()
@@ -2379,6 +2380,16 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries state.PodEntries,
 	allocationInfo *state.AllocationInfo,
 ) (machine.CPUSet, map[int]machine.CPUSet, error) {
+	return p.getSystemPoolCPUSetAndNumaAwareAssignmentsForMachineState(
+		podEntries, p.state.GetMachineState(), allocationInfo,
+	)
+}
+
+// getSystemPoolCPUSetAndNumaAwareAssignmentsForMachineState gets the system pool cpuset and
+// topologyAwareAssignments using the supplied machine state for NUMA-aware fallback.
+func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignmentsForMachineState(
+	podEntries state.PodEntries, machineState state.NUMANodeMap, allocationInfo *state.AllocationInfo,
+) (machine.CPUSet, map[int]machine.CPUSet, error) {
 	if allocationInfo == nil {
 		return machine.CPUSet{}, nil, fmt.Errorf("allocationInfo is nil")
 	}
@@ -2408,7 +2419,7 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 	if poolCPUSet.IsEmpty() {
 		// if the pod is numa binding, get the default cpuset from machine state
 		if allocationInfo.CheckNUMABinding() {
-			poolCPUSet = p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs)
+			poolCPUSet = machineState.GetAvailableCPUSet(p.reservedCPUs)
 		}
 
 		// if the default cpuset is empty or no numa binding, use all cpuset as default cpuset
@@ -2432,22 +2443,44 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 }
 
 func (p *DynamicPolicy) getAllocationPoolEntry(allocationInfo *state.AllocationInfo, ownerPoolName string, entries state.PodEntries) (*state.AllocationInfo, error) {
-	poolEntry := entries[ownerPoolName][commonstate.FakedContainerName]
-	if poolEntry != nil {
+	poolEntry, err := lookupAllocationPoolEntry(allocationInfo, ownerPoolName, entries)
+	if err == nil {
 		return poolEntry, nil
 	}
 
-	errMsg := fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
-		ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
+	general.Errorf(err.Error())
+	p.emitOrphanContainerMetric(allocationInfo, ownerPoolName)
+	return nil, err
+}
 
-	general.Errorf(errMsg)
-
+func (p *DynamicPolicy) emitOrphanContainerMetric(allocationInfo *state.AllocationInfo, ownerPoolName string) {
 	_ = p.emitter.StoreInt64(util.MetricNameOrphanContainer, 1, metrics.MetricTypeNameCount,
 		metrics.MetricTag{Key: "podNamespace", Val: allocationInfo.PodNamespace},
 		metrics.MetricTag{Key: "podName", Val: allocationInfo.PodName},
 		metrics.MetricTag{Key: "containerName", Val: allocationInfo.ContainerName},
 		metrics.MetricTag{Key: "poolName", Val: ownerPoolName})
-	return nil, fmt.Errorf(errMsg)
+}
+
+func lookupAllocationPoolEntry(allocationInfo *state.AllocationInfo, ownerPoolName string, entries state.PodEntries) (*state.AllocationInfo, error) {
+	poolEntry := entries[ownerPoolName][commonstate.FakedContainerName]
+	if poolEntry != nil {
+		return poolEntry, nil
+	}
+
+	return nil, &allocationPoolEntryNotFoundError{
+		allocationInfo: allocationInfo,
+		ownerPoolName:  ownerPoolName,
+	}
+}
+
+type allocationPoolEntryNotFoundError struct {
+	allocationInfo *state.AllocationInfo
+	ownerPoolName  string
+}
+
+func (e *allocationPoolEntryNotFoundError) Error() string {
+	return fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
+		e.ownerPoolName, e.allocationInfo.PodNamespace, e.allocationInfo.PodName, e.allocationInfo.ContainerName, e.allocationInfo.QoSLevel)
 }
 
 func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo *state.AllocationInfo,

@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -60,6 +61,15 @@ type FakeRegion struct {
 	headroomPolicyTopPriority  types.CPUHeadroomPolicyName
 	controlEssentials          types.ControlEssentials
 	essentials                 types.ResourceEssentials
+}
+
+type fakeMetaReader struct {
+	metacache.MetaReader
+	featureGates map[string]*advisorsvc.FeatureGate
+}
+
+func (f fakeMetaReader) GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error) {
+	return f.featureGates, nil
 }
 
 func NewFakeRegion(name string, regionType configapi.QoSRegionType, ownerPoolName string) *FakeRegion {

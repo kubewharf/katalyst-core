@@ -28,6 +28,7 @@ import (
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -44,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	agentpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -140,8 +142,9 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	resp := &cpuadvisor.GetAdviceResponse{
 		Entries:                               result.Entries,
 		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          result.ExtraEntries,
-		SupportedFeatureGates:                 supportedWantedFeatureGates,
+		DisableDedicatedCoresOverlapReclaimedCores: result.DisableDedicatedCoresOverlapReclaimedCores,
+		ExtraEntries:          result.ExtraEntries,
+		SupportedFeatureGates: supportedWantedFeatureGates,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
 	general.InfoS("get advice", "duration", time.Since(startTime))
@@ -260,7 +263,8 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	lwResp := &cpuadvisor.ListAndWatchResponse{
 		Entries:                               result.Entries,
 		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          result.ExtraEntries,
+		DisableDedicatedCoresOverlapReclaimedCores: result.DisableDedicatedCoresOverlapReclaimedCores,
+		ExtraEntries: result.ExtraEntries,
 	}
 	if err := server.Send(lwResp); err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
@@ -301,9 +305,10 @@ func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]
 }
 
 type cpuInternalResult struct {
-	Entries                               map[string]*cpuadvisor.CalculationEntries
-	AllowSharedCoresOverlapReclaimedCores bool
-	ExtraEntries                          []*advisorsvc.CalculationInfo
+	Entries                                    map[string]*cpuadvisor.CalculationEntries
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+	ExtraEntries                               []*advisorsvc.CalculationInfo
 }
 
 func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuInternalResult {
@@ -345,6 +350,7 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 		Entries:                               calculationEntriesMap,
 		ExtraEntries:                          extraEntries,
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: advisorResp.DisableDedicatedCoresOverlapReclaimedCores,
 	}
 
 	return resp
@@ -453,6 +459,11 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 
 func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.GetAdviceRequest) error {
 	startTime := time.Now()
+	podsByUID, stalePodUIDSet, err := cs.getRequestedPodsByUID(ctx, req)
+	if err != nil {
+		return err
+	}
+
 	// lock meta cache to prevent race with cpu server
 	cs.metaCache.Lock()
 	general.InfoS("acquired lock", "duration", time.Since(startTime))
@@ -533,9 +544,9 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 			continue
 		}
 		podUID := entryName
-		pod, err := cs.metaServer.GetPod(ctx, podUID)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("get pod info for %s failed: %w", podUID, err))
+		pod, ok := podsByUID[podUID]
+		if !ok {
+			general.Warningf("skip stale pod in GetAdvice request: podUID=%s", podUID)
 			continue
 		}
 
@@ -555,6 +566,9 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 
 	// clean up containers that no longer exist
 	if err := cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+		if stalePodUIDSet.Has(containerInfo.PodUID) {
+			return true
+		}
 		info, ok := req.Entries[containerInfo.PodUID]
 		if !ok {
 			return true
@@ -583,6 +597,40 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 
 	general.InfoS("cleaned up pool entries", "duration", time.Since(startTime))
 	return errors.NewAggregate(errs)
+}
+
+func (cs *cpuServer) getRequestedPodsByUID(ctx context.Context, req *cpuadvisor.GetAdviceRequest) (map[string]*v1.Pod, sets.String, error) {
+	if req == nil {
+		return nil, nil, fmt.Errorf("nil GetAdvice request")
+	}
+	requestedPodUIDSet := sets.NewString()
+	for entryName, entry := range req.Entries {
+		if entry == nil {
+			return nil, nil, fmt.Errorf("nil GetAdvice entry for %q", entryName)
+		}
+		if _, ok := entry.Entries[commonstate.FakedContainerName]; ok {
+			continue
+		}
+		requestedPodUIDSet.Insert(entryName)
+	}
+	if requestedPodUIDSet.Len() == 0 {
+		return map[string]*v1.Pod{}, sets.NewString(), nil
+	}
+
+	bypassCacheCtx := context.WithValue(ctx, agentpod.BypassCacheKey, agentpod.BypassCacheTrue)
+	podList, err := cs.metaServer.GetPodList(bypassCacheCtx, func(pod *v1.Pod) bool {
+		return pod != nil && requestedPodUIDSet.Has(string(pod.UID))
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("get pod list failed: %w", err)
+	}
+
+	podsByUID := nativeutil.GetPodKeyMap(podList, func(obj metav1.Object) string {
+		return string(obj.GetUID())
+	})
+
+	stalePodUIDSet := requestedPodUIDSet.Difference(sets.StringKeySet(podsByUID))
+	return podsByUID, stalePodUIDSet, nil
 }
 
 // Deprecated: to be removed after all qrm plugins are migrated to the new synchronous model

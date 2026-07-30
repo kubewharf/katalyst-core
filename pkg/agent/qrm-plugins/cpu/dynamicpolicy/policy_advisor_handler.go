@@ -384,7 +384,8 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 	err = p.allocateByCPUAdvisor(request, &advisorapi.ListAndWatchResponse{
 		Entries:                               resp.Entries,
 		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          resp.ExtraEntries,
+		DisableDedicatedCoresOverlapReclaimedCores: resp.DisableDedicatedCoresOverlapReclaimedCores,
+		ExtraEntries: resp.ExtraEntries,
 	}, resp.SupportedFeatureGates)
 	if err != nil {
 		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
@@ -489,10 +490,6 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 	resp *advisorapi.ListAndWatchResponse,
 	featureGates map[string]*advisorsvc.FeatureGate,
 ) (err error) {
-	if resp == nil {
-		return fmt.Errorf("allocateByCPUAdvisor got nil qos aware lw response")
-	}
-
 	startTime := time.Now()
 	general.Infof("allocateByCPUAdvisor is called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
@@ -504,6 +501,10 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		}
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
+
+	if resp == nil {
+		return fmt.Errorf("allocateByCPUAdvisor got nil qos aware lw response")
+	}
 
 	if req != nil {
 		vErr := p.advisorValidator.ValidateRequest(req)
@@ -536,8 +537,19 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		return fmt.Errorf("applyCgroupConfigs failed with error: %v", applyErr)
 	}
 
-	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	p.syncAdvisorOverlapFlags(resp)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.runCPUSetAdjustmentHandlers(ctx); err != nil {
+		return fmt.Errorf("runCPUSetAdjustmentHandlers failed with error: %v", err)
+	}
+
+	return nil
+}
+
+func (p *DynamicPolicy) syncAdvisorOverlapFlags(resp *advisorapi.ListAndWatchResponse) {
+	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
 		general.Infof("set allowSharedCoresOverlapReclaimedCores from %v to %v",
 			curAllowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
@@ -1458,23 +1470,48 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	return blockCPUSet, nil
 }
 
-// applyBlocks allocate based on BlockCPUSet
-// and the logic contains three main steps
-// 1. construct entries for dedicated containers and pools
-// 2. ensure reclaimed pool exists
-// 3. construct entries for shared and reclaimed containers
 func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *advisorapi.ListAndWatchResponse) error {
+	curEntries := p.state.GetPodEntries()
+	curMachineState := p.state.GetMachineState()
+	target, err := p.planBlocks(curEntries, curMachineState, blockCPUSet, resp)
+	if err != nil {
+		return err
+	}
+	p.emitPoolSizeMetrics(resp, target.PodEntries)
+	if err := p.invokeAllocationHooksForPodEntries(curEntries, target.PodEntries); err != nil {
+		return err
+	}
+	target.MachineState, err = generateMachineStateFromPodEntries(
+		p.machineInfo.CPUTopology, target.PodEntries, target.MachineState,
+	)
+	if err != nil {
+		return fmt.Errorf("recalculate target machine state after allocation hooks: %w", err)
+	}
+	p.state.SetPodEntries(target.PodEntries, false)
+	p.state.SetMachineState(target.MachineState, false)
+	if err := p.state.StoreState(); err != nil {
+		general.Errorf("store advisor target state failed: %v", err)
+	}
+	return nil
+}
+
+// planBlocks calculates the target state for the advisor response without mutating state or invoking side effects.
+func (p *DynamicPolicy) planBlocks(
+	curEntries state.PodEntries,
+	curMachineState state.NUMANodeMap,
+	blockCPUSet advisorapi.BlockCPUSet,
+	resp *advisorapi.ListAndWatchResponse,
+) (*state.TargetState, error) {
 	if resp == nil {
-		return fmt.Errorf("applyBlocks got nil resp")
+		return nil, fmt.Errorf("applyBlocks got nil resp")
 	}
 
-	curEntries := p.state.GetPodEntries()
 	newEntries := make(state.PodEntries)
 	dedicatedCPUSet := machine.NewCPUSet()
 	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
 
 	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	nonReclaimActualBindingNUMAs := curMachineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
 
 	// deal with blocks of dedicated_cores and pools
 	for entryName, entry := range resp.Entries {
@@ -1493,13 +1530,13 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			// construct cpuset for this entry by union all blocks for it
 			entryCPUSet, err := calculationInfo.GetCPUSet(entryName, subEntryName, blockCPUSet)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			// transform cpuset into topologyAwareAssignments
 			topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, entryCPUSet)
 			if err != nil {
-				return fmt.Errorf("unable to calculate topologyAwareAssignments for entry: %s, subEntry: %s, entry cpuset: %s, error: %v",
+				return nil, fmt.Errorf("unable to calculate topologyAwareAssignments for entry: %s, subEntry: %s, entry cpuset: %s, error: %v",
 					entryName, subEntryName, entryCPUSet.String(), err)
 			}
 
@@ -1509,9 +1546,9 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				// currently, cpu advisor can only create new pools,
 				// all container entries or entries with owner pool name dedicated can't be created by cpu advisor
 				if calculationInfo.OwnerPoolName == commonstate.PoolNameDedicated || subEntryName != commonstate.FakedContainerName {
-					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
+					return nil, fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
 				} else if entryName != calculationInfo.OwnerPoolName {
-					return fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
+					return nil, fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
 				}
 
 				general.Infof("create new pool: %s cpuset result %s", entryName, entryCPUSet.String())
@@ -1555,13 +1592,6 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					general.Infof("pod: %s/%s, container: %s ramp up finished", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				}
 			} else {
-				for numaID, cpus := range allocationInfo.TopologyAwareAssignments {
-					_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cpus.Size()),
-						metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName},
-						metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(allocationInfo.OwnerPoolName)},
-						metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
-					general.Infof("try to apply pool %s numa %d: %s", allocationInfo.OwnerPoolName, numaID, cpus.String())
-				}
 			}
 		}
 	}
@@ -1580,7 +1610,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			continue
 		}
 		if _, exists := newEntries[name]; exists {
-			return fmt.Errorf("system pool %s already exists", name)
+			return nil, fmt.Errorf("system pool %s already exists", name)
 		}
 		newEntries[name] = make(state.ContainerEntries)
 		if ai, ok := subEntry[commonstate.FakedContainerName]; ok && ai != nil {
@@ -1590,18 +1620,18 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 	// revise reclaim pool size to avoid reclaimed_cores and numa_binding dedicated_cores containers
 	// in NUMAs without cpuset actual binding
-	err := p.reviseReclaimPool(newEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet)
+	err := p.reviseReclaimPoolForEntries(newEntries, curEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// calculate rampUpCPUs
 	sharedBindingNUMAs, err := resp.GetSharedBindingNUMAs()
 	if err != nil {
-		return fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
+		return nil, fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
 	}
 	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
-	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
+	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(curEntries, state.IsForbiddenPool, commonstate.IsSystemPool)
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().
 		Difference(p.reservedCPUs).
@@ -1611,7 +1641,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
-		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
+		return nil, fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
 			rampUpCPUs.String(), err)
 	}
 
@@ -1644,11 +1674,13 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				errMsg := fmt.Sprintf("dedicated_cores blocks aren't applied, pod: %s/%s, container: %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				general.Errorf(errMsg)
-				return fmt.Errorf(errMsg)
+				return nil, fmt.Errorf(errMsg)
 			case consts.PodAnnotationQoSLevelSystemCores:
-				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(newEntries, allocationInfo)
+				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignmentsForMachineState(
+					newEntries, curMachineState, allocationInfo,
+				)
 				if err != nil {
-					return fmt.Errorf("pod: %s/%s, container: %s is system_cores, "+
+					return nil, fmt.Errorf("pod: %s/%s, container: %s is system_cores, "+
 						"getSystemPoolCPUSetAndNumaAwareAssignments failed with error: %v",
 						allocationInfo.PodNamespace, allocationInfo.PodName,
 						allocationInfo.ContainerName, err)
@@ -1676,9 +1708,9 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 				} else {
-					poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
+					poolEntry, err := lookupAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
 					if err != nil {
-						return err
+						return nil, err
 					}
 
 					if allocationInfo.CheckSharedNUMABinding() {
@@ -1701,39 +1733,28 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				}
 			case consts.PodAnnotationQoSLevelReclaimedCores:
 				ownerPoolName := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
-				poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
+				poolEntry, err := lookupAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
 				if err != nil {
-					return err
+					return nil, err
 				}
 
 				err = p.updateReclaimAllocationResultByPoolEntry(newEntries[podUID][containerName], poolEntry, nonReclaimActualBindingNUMAs)
 				if err != nil {
-					return err
+					return nil, err
 				}
 			default:
-				return fmt.Errorf("invalid qosLevel: %s for pod: %s/%s container: %s",
+				return nil, fmt.Errorf("invalid qosLevel: %s for pod: %s/%s container: %s",
 					allocationInfo.QoSLevel, allocationInfo.PodNamespace,
 					allocationInfo.PodName, allocationInfo.ContainerName)
 			}
 		}
 	}
 
-	// trigger allocation hooks for non-pool containers before committing to state.
-	if err := p.invokeAllocationHooksForPodEntries(curEntries, newEntries); err != nil {
-		return err
-	}
-
-	// use pod entries generated above to generate machine state info, and store in local state
-	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries, p.state.GetMachineState())
+	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries, curMachineState)
 	if err != nil {
-		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
+		return nil, fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
-	p.state.SetPodEntries(newEntries, false)
-	p.state.SetMachineState(newMachineState, false)
-	if err := p.state.StoreState(); err != nil {
-		general.ErrorS(err, "store state failed")
-	}
-	return nil
+	return &state.TargetState{PodEntries: newEntries, MachineState: newMachineState}, nil
 }
 
 func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(allocationInfo *state.AllocationInfo, resp *advisorapi.ListAndWatchResponse) string {
@@ -1790,10 +1811,17 @@ func (p *DynamicPolicy) applyNUMAHeadroom(calculationInfo *advisorsvc.Calculatio
 }
 
 func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet) error {
+	return p.reviseReclaimPoolForEntries(newEntries, p.state.GetPodEntries(), nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet)
+}
+
+func (p *DynamicPolicy) reviseReclaimPoolForEntries(
+	newEntries, currentEntries state.PodEntries,
+	nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet,
+) error {
 	// if there is no block for state.PoolNameReclaim pool,
 	// we must make it existing here even if cause overlap
 	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
-		notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
+		notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(currentEntries, state.IsForbiddenPool, commonstate.IsSystemPool)
 		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet).Difference(notAllocatablePoolsCPUs)
 		if reclaimPoolCPUSet.IsEmpty() {
 			reclaimPoolCPUSet = p.reservedReclaimedCPUSet.Clone()

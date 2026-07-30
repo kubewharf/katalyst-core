@@ -100,7 +100,8 @@ type cpuResourceAdvisor struct {
 	numRegionsPerNuma  map[int]int                 // map[numaID]regionQuantity
 	nonBindingNumas    machine.CPUSet              // numas without numa binding pods
 
-	allowSharedCoresOverlapReclaimedCores bool
+	allowSharedCoresOverlapReclaimedCores      bool
+	disableDedicatedCoresOverlapReclaimedCores bool
 
 	provisionAssembler provisionassembler.ProvisionAssembler
 	headroomAssembler  headroomassembler.HeadroomAssembler
@@ -264,7 +265,8 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 			ReservedForReclaim:  cra.getRegionReservedForReclaim(r),
 			ReservedForAllocate: cra.getRegionReservedForAllocate(r),
 
-			AllowSharedCoresOverlapReclaimedCores: cra.allowSharedCoresOverlapReclaimedCores,
+			AllowSharedCoresOverlapReclaimedCores:      cra.allowSharedCoresOverlapReclaimedCores,
+			DisableDedicatedCoresOverlapReclaimedCores: cra.disableDedicatedCoresOverlapReclaimedCores,
 		})
 
 		r.TryUpdateProvision()
@@ -572,6 +574,7 @@ func (cra *cpuResourceAdvisor) gcRegionMap() {
 func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
 	cra.allowSharedCoresOverlapReclaimedCores = cra.conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores
+	cra.disableDedicatedCoresOverlapReclaimedCores = cra.conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores
 
 	// update non-binding numas
 	for _, r := range cra.regionMap {

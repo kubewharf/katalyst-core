@@ -26,12 +26,13 @@ import (
 var _ checkpointmanager.Checkpoint = &CPUPluginCheckpoint{}
 
 type CPUPluginCheckpoint struct {
-	PolicyName                            string            `json:"policyName"`
-	MachineState                          NUMANodeMap       `json:"machineState"`
-	NUMAHeadroom                          map[int]float64   `json:"numa_headroom"`
-	PodEntries                            PodEntries        `json:"pod_entries"`
-	AllowSharedCoresOverlapReclaimedCores bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
-	Checksum                              checksum.Checksum `json:"checksum"`
+	PolicyName                                 string            `json:"policyName"`
+	MachineState                               NUMANodeMap       `json:"machineState"`
+	NUMAHeadroom                               map[int]float64   `json:"numa_headroom"`
+	PodEntries                                 PodEntries        `json:"pod_entries"`
+	AllowSharedCoresOverlapReclaimedCores      bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
+	DisableDedicatedCoresOverlapReclaimedCores bool              `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
+	Checksum                                   checksum.Checksum `json:"checksum"`
 }
 
 func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
@@ -44,7 +45,7 @@ func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
 
 // MarshalCheckpoint returns marshaled checkpoint
 func (cp *CPUPluginCheckpoint) MarshalCheckpoint() ([]byte, error) {
-	// make sure checksum wasn't set before so it doesn't affect output checksum
+	// make sure checksum wasn't set before, so it doesn't affect output checksum
 	cp.Checksum = 0
 	cp.Checksum = checksum.New(cp)
 	return json.Marshal(*cp)
@@ -58,6 +59,9 @@ func (cp *CPUPluginCheckpoint) UnmarshalCheckpoint(blob []byte) error {
 // VerifyChecksum verifies that current checksum of checkpoint is valid
 func (cp *CPUPluginCheckpoint) VerifyChecksum() error {
 	ck := cp.Checksum
+	if ck == 0 {
+		return nil
+	}
 	cp.Checksum = 0
 	err := ck.Verify(cp)
 	cp.Checksum = ck

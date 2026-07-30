@@ -1083,8 +1083,9 @@ func TestCPUServerUpdate(t *testing.T) {
 		{
 			name: "reclaim pool overlap shared pool[1]",
 			provision: types.InternalCPUCalculationResult{
-				AllowSharedCoresOverlapReclaimedCores: true,
-				TimeStamp:                             time.Now(),
+				AllowSharedCoresOverlapReclaimedCores:      true,
+				DisableDedicatedCoresOverlapReclaimedCores: true,
+				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
 					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
@@ -1101,7 +1102,8 @@ func TestCPUServerUpdate(t *testing.T) {
 				},
 			},
 			wantRes: &cpuadvisor.ListAndWatchResponse{
-				AllowSharedCoresOverlapReclaimedCores: true,
+				AllowSharedCoresOverlapReclaimedCores:      true,
+				DisableDedicatedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
@@ -1515,6 +1517,7 @@ func TestCPUServerUpdate(t *testing.T) {
 		assert.ElementsMatch(t, tt.wantRes.ExtraEntries, res.ExtraEntries)
 		assert.Equal(t, tt.wantRes.Entries, res.Entries)
 		assert.Equal(t, tt.wantRes.AllowSharedCoresOverlapReclaimedCores, res.AllowSharedCoresOverlapReclaimedCores)
+		assert.Equal(t, tt.wantRes.DisableDedicatedCoresOverlapReclaimedCores, res.DisableDedicatedCoresOverlapReclaimedCores)
 	}
 
 	testWithGetAdvice := func(
@@ -1577,13 +1580,15 @@ func TestCPUServerUpdate(t *testing.T) {
 		lwResp, err := DeepCopyResponse(&cpuadvisor.ListAndWatchResponse{
 			Entries:                               resp.Entries,
 			AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
-			ExtraEntries:                          resp.ExtraEntries,
+			DisableDedicatedCoresOverlapReclaimedCores: resp.DisableDedicatedCoresOverlapReclaimedCores,
+			ExtraEntries: resp.ExtraEntries,
 		})
 		assert.NoError(t, err)
 
 		assert.ElementsMatch(t, resp.ExtraEntries, lwResp.ExtraEntries)
 		assert.Equal(t, tt.wantRes.Entries, lwResp.Entries)
 		assert.Equal(t, tt.wantRes.AllowSharedCoresOverlapReclaimedCores, lwResp.AllowSharedCoresOverlapReclaimedCores)
+		assert.Equal(t, tt.wantRes.DisableDedicatedCoresOverlapReclaimedCores, lwResp.DisableDedicatedCoresOverlapReclaimedCores)
 	}
 
 	for _, tt := range tests {

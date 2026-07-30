@@ -181,11 +181,12 @@ type HeadroomInfo struct {
 // InternalCPUCalculationResult conveys minimal information to cpu server for composing
 // calculation result
 type InternalCPUCalculationResult struct {
-	PoolEntries                           map[string]map[int]CPUResource               // map[poolName][numaId]CPUResource
-	PoolOverlapInfo                       map[string]map[int]map[string]int            // map[poolName][numaId][targetOverlapPoolName]int
-	PoolOverlapPodContainerInfo           map[string]map[int]map[string]map[string]int // map[poolName][numaId][targetOverlapPodUID][targetOverlapContainerName]int
-	TimeStamp                             time.Time
-	AllowSharedCoresOverlapReclaimedCores bool
+	PoolEntries                                map[string]map[int]CPUResource               // map[poolName][numaId]CPUResource
+	PoolOverlapInfo                            map[string]map[int]map[string]int            // map[poolName][numaId][targetOverlapPoolName]int
+	PoolOverlapPodContainerInfo                map[string]map[int]map[string]map[string]int // map[poolName][numaId][targetOverlapPodUID][targetOverlapContainerName]int
+	TimeStamp                                  time.Time
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
 }
 
 type CPUResource struct {

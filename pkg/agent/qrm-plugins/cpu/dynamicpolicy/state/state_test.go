@@ -17,13 +17,14 @@ limitations under the License.
 package state
 
 import (
+	"encoding/json"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -32,8 +33,8 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
-	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -126,6 +127,16 @@ func assertStateEqual(t *testing.T, restoredState, expectedState State) {
 	as.Equalf(expectedPodEntries, restoredPodEntries, "podEntries mismatch")
 }
 
+func cloneStateForTest(s ReadonlyState) *CPUPluginCheckpoint {
+	return &CPUPluginCheckpoint{
+		MachineState:                          s.GetMachineState(),
+		NUMAHeadroom:                          s.GetNUMAHeadroom(),
+		PodEntries:                            s.GetPodEntries(),
+		AllowSharedCoresOverlapReclaimedCores: s.GetAllowSharedCoresOverlapReclaimedCores(),
+		DisableDedicatedCoresOverlapReclaimedCores: s.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	}
+}
+
 // generateSharedNumaBindingPoolAllocationMeta generates a generic allocation metadata for a pool.
 func generateSharedNumaBindingPoolAllocationMeta(poolName string) commonstate.AllocationMeta {
 	meta := commonstate.GenerateGenericPoolAllocationMeta(poolName)
@@ -148,6 +159,7 @@ func TestNewCheckpointState(t *testing.T) {
 		checkpointContent string
 		expectedError     string
 		expectedState     *cpuPluginState
+		legacyCheckpoint  bool
 	}{
 		{
 			"Restore non-existing checkpoint",
@@ -161,9 +173,10 @@ func TestNewCheckpointState(t *testing.T) {
 				socketTopology: cpuTopology.GetSocketTopology(),
 				cpuTopology:    cpuTopology,
 			},
+			false,
 		},
 		{
-			"Restore valid checkpoint",
+			"Restore valid legacy checkpoint without checksum",
 			`{
 	"policyName": "dynamic",
 	"machineState": {
@@ -605,7 +618,12 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 4188873110
+	"numa_headroom": {},
+	"allow_shared_cores_overlap_reclaimed_cores": false,
+	"disable_dedicated_cores_overlap_reclaimed_cores": false,
+	"state_revision": 0,
+	"advisor_epoch": 0,
+	"advice_sequence": 0
 }`,
 			"",
 			&cpuPluginState{
@@ -1080,9 +1098,10 @@ func TestNewCheckpointState(t *testing.T) {
 					},
 				},
 			},
+			true,
 		},
 		{
-			"Restore checkpoint with invalid checksum",
+			"Restore checkpoint with ignored unknown field",
 			`{
 	"policyName": "dynamic",
 	"machineState": {
@@ -1524,16 +1543,23 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 2840585175
+	"numa_headroom": {},
+	"allow_shared_cores_overlap_reclaimed_cores": false,
+	"disable_dedicated_cores_overlap_reclaimed_cores": false,
+	"state_revision": 0,
+	"advisor_epoch": 0,
+	"advice_sequence": 0
 }`,
-			"checkpoint is corrupted",
-			&cpuPluginState{},
+			"",
+			nil,
+			false,
 		},
 		{
 			"Restore checkpoint with invalid JSON",
 			`{`,
 			"unexpected end of JSON input",
 			&cpuPluginState{},
+			false,
 		},
 	}
 
@@ -1557,8 +1583,11 @@ func TestNewCheckpointState(t *testing.T) {
 
 		// prepare checkpoint for testing
 		if strings.TrimSpace(tc.checkpointContent) != "" {
-			checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
-			require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+			require.NoError(t, os.WriteFile(
+				filepath.Join(testingDir, cpuPluginStateFileName),
+				[]byte(tc.checkpointContent),
+				0o600,
+			), "could not write raw testing checkpoint")
 		}
 
 		restoredState, err := NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName, policyName, cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
@@ -1566,16 +1595,20 @@ func TestNewCheckpointState(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "could not restore state from checkpoint:")
 			require.Contains(t, err.Error(), tc.expectedError)
-
-			// test skip corruption
-			if strings.Contains(err.Error(), "checkpoint is corrupted") {
-				_, err = NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName, policyName, cpuTopology, true, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
-				require.Nil(t, err)
-			}
 		} else {
 			require.NoError(t, err, "unexpected error while creating checkpointState, case: %s", tc.description)
+			if tc.expectedState == nil {
+				continue
+			}
 			// compare state after restoration with the one expected
 			assertStateEqual(t, restoredState, &stateCheckpoint{cache: tc.expectedState})
+			if tc.legacyCheckpoint {
+				restoredState.SetNUMAHeadroom(map[int]float64{0: 1.5}, true)
+				checkpoint := NewCPUPluginCheckpoint()
+				require.NoError(t, cpm.GetCheckpoint(cpuPluginStateFileName, checkpoint))
+				require.NotZero(t, checkpoint.Checksum)
+				require.NoError(t, checkpoint.VerifyChecksum())
+			}
 		}
 	}
 }
@@ -2081,7 +2114,7 @@ func TestClearState(t *testing.T) {
 			t.Parallel()
 
 			// create temp dir
-			testingDir, err := ioutil.TempDir("", fmt.Sprintf("dynamic_policy_state_test_%d", i))
+			testingDir, err := ioutil.TempDir("", "dynamic_policy_state_test_"+strconv.Itoa(i))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -3351,93 +3384,232 @@ func generateTestMachineStateFromPodEntries(
 func TestNewCPUPluginCheckpoint(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		corruptFile bool
-		expectEqual bool
-	}{
-		{
-			name:        "successful migration with pre-stop",
-			corruptFile: false,
-			expectEqual: true,
-		},
-		{
-			name:        "corrupted checkpoint",
-			corruptFile: true,
-			expectEqual: false,
-		},
+	tmpDir := t.TempDir()
+	inMemoryTmpDir := t.TempDir()
+
+	stateDir := filepath.Join(tmpDir, "state")
+	err := os.MkdirAll(stateDir, 0o775)
+	assert.NoError(t, err)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	policyName := "test-policy"
+	checkpointName := "test-checkpoint"
+
+	// create old checkpoint manager to save the checkpoint
+	oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
+	assert.NoError(t, err)
+
+	oldCheckpoint := NewCPUPluginCheckpoint()
+	oldCheckpoint.PolicyName = policyName
+	oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
+	err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
+	assert.NoError(t, err)
+
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory:         stateDir,
+		InMemoryStateFileDirectory: inMemoryTmpDir,
+		EnableInMemoryState:        true,
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tmpDir := t.TempDir()
-			inMemoryTmpDir := t.TempDir()
+	state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, false,
+		generateTestMachineStateFromPodEntries, metrics.DummyMetrics{})
+	assert.NoError(t, err)
 
-			stateDir := filepath.Join(tmpDir, "state")
-			err := os.MkdirAll(stateDir, 0o775)
-			assert.NoError(t, err)
+	sc, ok := state.(*stateCheckpoint)
+	assert.True(t, ok)
 
-			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-			assert.NoError(t, err)
+	newCheckpoint := NewCPUPluginCheckpoint()
 
-			policyName := "test-policy"
-			checkpointName := "test-checkpoint"
+	// check if new checkpoint is created and verify equality
+	err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+	assert.NoError(t, err)
 
-			// create old checkpoint manager to save the checkpoint
-			oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
-			assert.NoError(t, err)
+	// verify old checkpoint file existence
+	checkpoint := NewCPUPluginCheckpoint()
+	err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
 
-			oldCheckpoint := NewCPUPluginCheckpoint()
-			if tt.corruptFile {
-				// create a corrupted old checkpoint
-				corruptedFile := filepath.Join(stateDir, fmt.Sprintf("%s", checkpointName))
-				err = ioutil.WriteFile(corruptedFile, []byte("corrupted data"), 0o644)
-				assert.NoError(t, err)
-			} else {
-				oldCheckpoint.PolicyName = policyName
-				oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
-				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
-				assert.NoError(t, err)
-			}
+	assert.Error(t, err)
+	assert.Equal(t, err, errors.ErrCheckpointNotFound)
+	assert.Equal(t, newCheckpoint, oldCheckpoint)
+}
 
-			stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
-				StateFileDirectory:         stateDir,
-				InMemoryStateFileDirectory: inMemoryTmpDir,
-				EnableInMemoryState:        true,
-			}
+func TestCPUPluginCheckpointDoesNotPersistDeprecatedDedicatedIsolationState(t *testing.T) {
+	t.Parallel()
 
-			state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, false,
-				generateTestMachineStateFromPodEntries, metrics.DummyMetrics{})
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
 
-			if tt.corruptFile {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
+	inMemoryState := NewCPUPluginState(topology)
+	inMemoryState.SetPodEntries(PodEntries{
+		"pod": {
+			"container": {
+				AllocationResult: machine.NewCPUSet(1, 2),
+			},
+		},
+	})
+	assert.False(t, inMemoryState.GetDisableDedicatedCoresOverlapReclaimedCores())
+	inMemoryState.SetDisableDedicatedCoresOverlapReclaimedCores(true)
+	assert.True(t, inMemoryState.GetDisableDedicatedCoresOverlapReclaimedCores())
 
-			sc, ok := state.(*stateCheckpoint)
-			assert.True(t, ok)
-
-			newCheckpoint := NewCPUPluginCheckpoint()
-
-			// check if new checkpoint is created and verify equality
-			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
-			assert.NoError(t, err)
-
-			// verify old checkpoint file existence
-			checkpoint := NewCPUPluginCheckpoint()
-			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
-
-			assert.Error(t, err)
-			assert.Equal(t, err, errors.ErrCheckpointNotFound)
-
-			if tt.expectEqual {
-				assert.Equal(t, newCheckpoint, oldCheckpoint)
-			} else {
-				assert.NotEqual(t, newCheckpoint, oldCheckpoint)
-			}
-		})
+	source := &stateCheckpoint{
+		cache:      inMemoryState,
+		policyName: policyName,
+		topology:   topology,
 	}
+	checkpoint := source.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
+	blob, err := checkpoint.MarshalCheckpoint()
+	require.NoError(t, err)
+
+	var payload map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(blob, &payload))
+	require.NotContains(t, payload, "pending_transaction")
+	require.NotContains(t, payload, "pending_admission")
+	require.NotContains(t, payload, "pending_ownerships")
+	require.NotContains(t, payload, "transaction_wal_version")
+	require.NotContains(t, payload, "isolation_mode")
+	require.NotContains(t, payload, "auxiliary_desired")
+
+	restoredCheckpoint := NewCPUPluginCheckpoint()
+	require.NoError(t, restoredCheckpoint.UnmarshalCheckpoint(blob))
+	require.Equal(t, checkpoint.PodEntries, restoredCheckpoint.PodEntries)
+	require.Equal(t, checkpoint.MachineState, restoredCheckpoint.MachineState)
+
+	destination := &stateCheckpoint{
+		cache:                              NewCPUPluginState(topology),
+		policyName:                         policyName,
+		topology:                           topology,
+		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
+	}
+	_, err = destination.RestoreState(restoredCheckpoint)
+	require.NoError(t, err)
+	assert.True(t, destination.GetDisableDedicatedCoresOverlapReclaimedCores())
+}
+
+func TestCPUPluginCheckpointChecksumAndSerialization(t *testing.T) {
+	checkpoint := NewCPUPluginCheckpoint()
+	checkpoint.PolicyName = policyName
+	checkpoint.NUMAHeadroom = map[int]float64{0: 1.5}
+
+	blob, err := checkpoint.MarshalCheckpoint()
+	require.NoError(t, err)
+	require.NotZero(t, checkpoint.Checksum)
+
+	checkpointForChecksum := *checkpoint
+	checkpointForChecksum.Checksum = 0
+	assert.Equal(t, checksum.New(&checkpointForChecksum), checkpoint.Checksum)
+	require.NoError(t, checkpoint.VerifyChecksum())
+
+	var payload map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(blob, &payload))
+	require.Contains(t, payload, "checksum")
+	require.NotContains(t, payload, "state_revision")
+	require.NotContains(t, payload, "advisor_epoch")
+	require.NotContains(t, payload, "advice_sequence")
+
+	restored := NewCPUPluginCheckpoint()
+	require.NoError(t, restored.UnmarshalCheckpoint(blob))
+	require.NoError(t, restored.VerifyChecksum())
+
+	restored.PolicyName = "tampered"
+	require.Error(t, restored.VerifyChecksum())
+}
+
+func TestCPUPluginCheckpointRejectsInvalidJSON(t *testing.T) {
+	checkpoint := NewCPUPluginCheckpoint()
+	require.Error(t, checkpoint.UnmarshalCheckpoint([]byte(`{"policyName":`)))
+}
+
+func TestStateClonesAndCheckpointRestoreDoNotAliasState(t *testing.T) {
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	podEntries := PodEntries{
+		"pod": {
+			"container": {
+				AllocationMeta: commonstate.AllocationMeta{
+					Labels:      map[string]string{"label": "value"},
+					Annotations: map[string]string{"annotation": "value"},
+				},
+				AllocationResult:                 machine.NewCPUSet(1),
+				TopologyAwareAssignments:         map[int]machine.CPUSet{0: machine.NewCPUSet(1)},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(2)},
+				RequestQuantity:                  1,
+			},
+		},
+	}
+	machineState := GetDefaultMachineState(topology)
+	machineState[0].PodEntries = podEntries.Clone()
+	machineState[0].ResourcePackageStates = map[string]*ResourcePackageState{
+		"package": {
+			Attributes:   map[string]string{"attribute": "value"},
+			PinnedCPUSet: machine.NewCPUSet(3),
+		},
+	}
+	cache := NewCPUPluginState(topology)
+	cache.SetPodEntries(podEntries)
+	cache.SetMachineState(machineState)
+
+	sc := &stateCheckpoint{
+		cache:                              cache,
+		policyName:                         policyName,
+		topology:                           topology,
+		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
+	}
+
+	snapshotBeforeMutation := cloneStateForTest(sc)
+	snapshot := cloneStateForTest(sc)
+	snapshot.PodEntries["pod"]["container"].Labels["label"] = "changed"
+	snapshot.PodEntries["pod"]["container"].Annotations["annotation"] = "changed"
+	snapshot.PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(4)
+	snapshot.PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(5)
+	snapshot.MachineState[0].PodEntries["pod"]["container"].Labels["label"] = "changed"
+	snapshot.MachineState[0].PodEntries["pod"]["container"].Annotations["annotation"] = "changed"
+	snapshot.MachineState[0].PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(4)
+	snapshot.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(5)
+	snapshot.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "changed"
+	snapshot.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(6)
+	require.Equal(t, snapshotBeforeMutation, cloneStateForTest(sc))
+
+	checkpoint := sc.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
+	checkpointBeforeMutation := cloneStateForTest(sc)
+	checkpoint.PodEntries["pod"]["container"].Labels["label"] = "checkpoint-changed"
+	checkpoint.PodEntries["pod"]["container"].Annotations["annotation"] = "checkpoint-changed"
+	checkpoint.PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(7)
+	checkpoint.PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(8)
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].Labels["label"] = "checkpoint-changed"
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].Annotations["annotation"] = "checkpoint-changed"
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(7)
+	checkpoint.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(8)
+	checkpoint.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "checkpoint-changed"
+	checkpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(9)
+	require.Equal(t, checkpointBeforeMutation, cloneStateForTest(sc))
+
+	restoredState := &stateCheckpoint{
+		cache:      NewCPUPluginState(topology),
+		policyName: policyName,
+		topology:   topology,
+		GenerateMachineStateFromPodEntries: func(
+			_ *machine.CPUTopology, _ PodEntries, machineState NUMANodeMap,
+		) (NUMANodeMap, error) {
+			return machineState, nil
+		},
+	}
+	restoreCheckpoint := sc.InitNewCheckpoint(false).(*CPUPluginCheckpoint)
+	_, err = restoredState.RestoreState(restoreCheckpoint)
+	require.NoError(t, err)
+	restoredSnapshot := cloneStateForTest(restoredState)
+
+	restoreCheckpoint.PodEntries["pod"]["container"].Labels["label"] = "restore-changed"
+	restoreCheckpoint.PodEntries["pod"]["container"].Annotations["annotation"] = "restore-changed"
+	restoreCheckpoint.PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(10)
+	restoreCheckpoint.PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(11)
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].Labels["label"] = "restore-changed"
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].Annotations["annotation"] = "restore-changed"
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].TopologyAwareAssignments[0] = machine.NewCPUSet(10)
+	restoreCheckpoint.MachineState[0].PodEntries["pod"]["container"].OriginalTopologyAwareAssignments[0] = machine.NewCPUSet(11)
+	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].Attributes["attribute"] = "restore-changed"
+	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(12)
+	require.Equal(t, restoredSnapshot, cloneStateForTest(restoredState))
 }

@@ -842,6 +842,7 @@ type reader interface {
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
+	GetDisableDedicatedCoresOverlapReclaimedCores() bool
 }
 
 // writer is used to store information into local states,
@@ -852,6 +853,7 @@ type writer interface {
 	SetPodEntries(podEntries PodEntries, writeThrough bool)
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
+	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool)
 
 	Delete(podUID string, containerName string, persist bool)
 	ClearState()

@@ -218,6 +218,42 @@ func TestCPUPB(t *testing.T) {
 	ai.XXX_DiscardUnknown()
 }
 
+func TestDisableDedicatedCoresOverlapReclaimedCoresWireRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("list and watch response", func(t *testing.T) {
+		source := &ListAndWatchResponse{DisableDedicatedCoresOverlapReclaimedCores: true}
+		data, err := source.XXX_Marshal(make([]byte, source.XXX_Size()), false)
+		if err != nil {
+			t.Fatalf("marshal ListAndWatchResponse: %v", err)
+		}
+
+		target := &ListAndWatchResponse{}
+		if err := target.XXX_Unmarshal(data); err != nil {
+			t.Fatalf("unmarshal ListAndWatchResponse: %v", err)
+		}
+		if !target.DisableDedicatedCoresOverlapReclaimedCores {
+			t.Fatal("DisableDedicatedCoresOverlapReclaimedCores was not preserved")
+		}
+	})
+
+	t.Run("get advice response", func(t *testing.T) {
+		source := &GetAdviceResponse{DisableDedicatedCoresOverlapReclaimedCores: true}
+		data, err := source.XXX_Marshal(make([]byte, source.XXX_Size()), false)
+		if err != nil {
+			t.Fatalf("marshal GetAdviceResponse: %v", err)
+		}
+
+		target := &GetAdviceResponse{}
+		if err := target.XXX_Unmarshal(data); err != nil {
+			t.Fatalf("unmarshal GetAdviceResponse: %v", err)
+		}
+		if !target.DisableDedicatedCoresOverlapReclaimedCores {
+			t.Fatal("DisableDedicatedCoresOverlapReclaimedCores was not preserved")
+		}
+	})
+}
+
 func TestAddContainer(t *testing.T) {
 	t.Parallel()
 

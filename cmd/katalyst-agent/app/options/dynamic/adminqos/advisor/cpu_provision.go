@@ -32,6 +32,7 @@ import (
 
 type CPUProvisionOptions struct {
 	AllowSharedCoresOverlapReclaimedCores       bool
+	DisableDedicatedCoresOverlapReclaimedCores  bool
 	RegionIndicatorTargetOptions                map[string]string
 	IndicatorTargetGetters                      map[string]string
 	IndicatorTargetDefaultGetter                string
@@ -42,6 +43,7 @@ type CPUProvisionOptions struct {
 func NewCPUProvisionOptions() *CPUProvisionOptions {
 	return &CPUProvisionOptions{
 		AllowSharedCoresOverlapReclaimedCores:       false,
+		DisableDedicatedCoresOverlapReclaimedCores:  false,
 		RegionIndicatorTargetOptions:                map[string]string{},
 		IndicatorTargetGetters:                      map[string]string{},
 		IndicatorTargetDefaultGetter:                string(consts.IndicatorTargetGetterSPDMin),
@@ -100,6 +102,8 @@ func (o *CPUProvisionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("cpu-provision")
 	fs.BoolVar(&o.AllowSharedCoresOverlapReclaimedCores, "allow-shared-cores-overlap-reclaimed-cores", o.AllowSharedCoresOverlapReclaimedCores,
 		"set true to allow shared_cores overlap reclaimed_cores")
+	fs.BoolVar(&o.DisableDedicatedCoresOverlapReclaimedCores, "disable-dedicated-cores-overlap-reclaimed-cores", o.DisableDedicatedCoresOverlapReclaimedCores,
+		"set true to prevent dedicated_cores overlap reclaimed_cores")
 	fs.StringToStringVar(&o.RegionIndicatorTargetOptions, "region-indicator-targets", o.RegionIndicatorTargetOptions,
 		"indicators targets for each region, in format like cpu_sched_wait=400/cpu_iowait_ratio=0.8")
 	fs.StringToStringVar(&o.IndicatorTargetGetters, "indicator-target-getters", o.IndicatorTargetGetters,

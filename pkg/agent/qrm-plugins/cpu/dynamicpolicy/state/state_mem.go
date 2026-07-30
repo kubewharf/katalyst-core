@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"reflect"
 	"sync"
 
 	"k8s.io/klog/v2"
@@ -109,6 +110,9 @@ func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
 	s.Lock()
 	defer s.Unlock()
 
+	if reflect.DeepEqual(s.machineState, numaNodeMap) {
+		return
+	}
 	s.machineState = numaNodeMap.Clone()
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
@@ -119,6 +123,9 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
 	s.Lock()
 	defer s.Unlock()
 
+	if reflect.DeepEqual(s.numaHeadroom, numaHeadroom) {
+		return
+	}
 	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
 	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
 }
@@ -146,6 +153,9 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 	s.Lock()
 	defer s.Unlock()
 
+	if reflect.DeepEqual(s.podEntries, podEntries) {
+		return
+	}
 	s.podEntries = podEntries.Clone()
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
@@ -160,6 +170,9 @@ func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCor
 	klog.InfoS("[cpu_plugin] Updated allowSharedCoresOverlapReclaimedCores",
 		"allowSharedCoresOverlapReclaimedCores", allowSharedCoresOverlapReclaimedCores)
 
+	if s.allowSharedCoresOverlapReclaimedCores == allowSharedCoresOverlapReclaimedCores {
+		return
+	}
 	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
 }
 
@@ -177,6 +190,9 @@ func (s *cpuPluginState) Delete(podUID string, containerName string) {
 	if _, ok := s.podEntries[podUID]; !ok {
 		return
 	}
+	if _, ok := s.podEntries[podUID][containerName]; !ok {
+		return
+	}
 
 	delete(s.podEntries[podUID], containerName)
 	if len(s.podEntries[podUID]) == 0 {
@@ -191,7 +207,8 @@ func (s *cpuPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState = GetDefaultMachineState(s.cpuTopology)
+	defaultMachineState := GetDefaultMachineState(s.cpuTopology)
+	s.machineState = defaultMachineState
 	s.socketTopology = s.cpuTopology.GetSocketTopology()
 	s.podEntries = make(PodEntries)
 	klog.V(2).InfoS("[cpu_plugin] cleared state")
