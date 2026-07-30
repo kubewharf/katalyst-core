@@ -18,6 +18,7 @@ package cpuburst
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/bytedance/mockey"
@@ -709,6 +710,48 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 					return "/sys/fs/cgroup/cpu/" + podUID + "/" + containerID, nil
 				}).Build()
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
+				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
+					To(func(absPath string, cpuData *common.CPUData) error {
+						s[absPath] = *cpuData.CpuBurst
+						return nil
+					}).Build()
+			},
+			wantResults: make(resultState),
+		},
+		{
+			name: "cpu quota is max means that cpu burst value is skipped",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod-1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static", "cpu_burst_percent":"50"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "test-container-1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "test-container-1",
+								ContainerID: "test-container-1-id",
+							},
+						},
+					},
+				},
+			},
+			mocks: func(s resultState) {
+				mockey.Mock(common.IsContainerCgroupExist).Return(true, nil).Build()
+				mockey.Mock(common.GetContainerAbsCgroupPath).To(func(_, podUID, containerID string) (string, error) {
+					return "/sys/fs/cgroup/cpu/" + podUID + "/" + containerID, nil
+				}).Build()
+				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: math.MaxInt64}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
 						s[absPath] = *cpuData.CpuBurst
