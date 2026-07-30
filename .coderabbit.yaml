@@ -12,8 +12,10 @@ reviews:
   high_level_summary_instructions: >-
     Summarize runtime behavior changes, affected components, operational or
     rollout risk, and any config or dependency updates. Call out when changes
-    affect agent, controller, scheduler, or release wiring.
-  high_level_summary_in_walkthrough: true
+    affect agent, controller, scheduler, or release wiring. Write concise English text 
+    first, then equivalent Simplified Chinese. Do not translate code, paths, APIs, markers, 
+    protobuf names, or error strings.
+  high_level_summary_in_walkthrough: false
   review_status: true
   collapse_walkthrough: true
   poem: false
