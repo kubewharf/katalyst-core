@@ -1413,7 +1413,6 @@ func TestClampByReclaimedCPUMaxRatio(t *testing.T) {
 		reservedForReclaim int
 		wantSize           int
 		wantLimit          float64
-		wantErr            string
 	}{
 		{
 			name:               "ratio disabled",
@@ -1426,14 +1425,14 @@ func TestClampByReclaimedCPUMaxRatio(t *testing.T) {
 			wantLimit:          30,
 		},
 		{
-			name:               "floor fractional cap",
+			name:               "floor fractional cap to even",
 			size:               40,
 			limit:              40,
 			ratio:              0.3,
-			cpuCount:           96,
+			cpuCount:           24,
 			reservedForReclaim: 2,
-			wantSize:           28,
-			wantLimit:          28,
+			wantSize:           6,
+			wantLimit:          6,
 		},
 		{
 			name:               "size below cap is unchanged",
@@ -1456,22 +1455,24 @@ func TestClampByReclaimedCPUMaxRatio(t *testing.T) {
 			wantLimit:          -1,
 		},
 		{
-			name:               "cap equal to reserved is rejected",
+			name:               "cap equal to reserved is allowed",
 			size:               8,
 			limit:              8,
 			ratio:              0.25,
 			cpuCount:           8,
 			reservedForReclaim: 2,
-			wantErr:            "cap 2 must be greater than reservedForReclaim 2",
+			wantSize:           2,
+			wantLimit:          2,
 		},
 		{
-			name:               "cap below reserved is rejected",
+			name:               "cap below reserved returns reserved",
 			size:               8,
 			limit:              8,
 			ratio:              0.1,
 			cpuCount:           8,
-			reservedForReclaim: 2,
-			wantErr:            "cap 0 must be greater than reservedForReclaim 2",
+			reservedForReclaim: 3,
+			wantSize:           3,
+			wantLimit:          3,
 		},
 	}
 
@@ -1479,25 +1480,20 @@ func TestClampByReclaimedCPUMaxRatio(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotSize, gotLimit, err := clampByReclaimedCPUMaxRatio(
+			gotSize, gotLimit := clampByReclaimedCPUMaxRatio(
 				tt.size,
 				tt.limit,
 				tt.ratio,
 				tt.cpuCount,
 				tt.reservedForReclaim,
 			)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
 			require.Equal(t, tt.wantSize, gotSize)
 			require.Equal(t, tt.wantLimit, gotLimit)
 		})
 	}
 }
 
-func TestAssembleProvisionRejectsRatioCapAtReservedForReclaim(t *testing.T) {
+func TestAssembleProvisionUsesReservedWhenEvenRatioCapIsLower(t *testing.T) {
 	t.Parallel()
 
 	newAssembler := func(t *testing.T, regionMap map[string]region.QoSRegion, nonBindingNUMAs machine.CPUSet) *ProvisionAssemblerCommon {
@@ -1505,7 +1501,7 @@ func TestAssembleProvisionRejectsRatioCapAtReservedForReclaim(t *testing.T) {
 
 		conf, err := options.NewOptions().Config()
 		require.NoError(t, err)
-		conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = 0.25
+		conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = 0.1
 
 		cpuDetails := machine.CPUDetails{}
 		for cpuID := 0; cpuID < 8; cpuID++ {
@@ -1548,9 +1544,9 @@ func TestAssembleProvisionRejectsRatioCapAtReservedForReclaim(t *testing.T) {
 		t.Parallel()
 
 		pa := newAssembler(t, map[string]region.QoSRegion{}, machine.NewCPUSet(0))
-		_, err := pa.AssembleProvision()
-		require.ErrorContains(t, err, `clamp reclaim pool for NUMAs "0"`)
-		require.ErrorContains(t, err, "cap 2 must be greater than reservedForReclaim 2")
+		result, err := pa.AssembleProvision()
+		require.NoError(t, err)
+		require.Equal(t, 2, result.PoolEntries[commonstate.PoolNameReclaim][commonstate.FakedNUMAID].Size)
 	})
 
 	t.Run("dedicated NUMA-exclusive region", func(t *testing.T) {
@@ -1560,6 +1556,7 @@ func TestAssembleProvisionRejectsRatioCapAtReservedForReclaim(t *testing.T) {
 		dedicatedRegion.SetBindingNumas(machine.NewCPUSet(0))
 		dedicatedRegion.SetIsNumaBinding(true)
 		dedicatedRegion.isNumaExclusive = true
+		dedicatedRegion.SetPods(types.PodSet{"pod": {"container": {}}})
 		regionMap := map[string]region.QoSRegion{dedicatedRegion.Name(): dedicatedRegion}
 
 		pa := newAssembler(t, regionMap, machine.NewCPUSet())
@@ -1569,7 +1566,7 @@ func TestAssembleProvisionRejectsRatioCapAtReservedForReclaim(t *testing.T) {
 			PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
 		}
 		err := pa.assembleDedicatedNUMAExclusiveRegion(dedicatedRegion, result)
-		require.ErrorContains(t, err, `clamp reclaim pool for dedicated NUMA-exclusive region "dedicated-exclusive"`)
-		require.ErrorContains(t, err, "cap 2 must be greater than reservedForReclaim 2")
+		require.NoError(t, err)
+		require.Equal(t, 2, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0]["pod"]["container"])
 	})
 }
