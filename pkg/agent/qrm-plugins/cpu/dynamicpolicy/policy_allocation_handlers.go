@@ -732,7 +732,6 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	preferredAvailableCPUs := machine.NewCPUSet()
 	var preferredAvailableCPUsPerNUMA map[uint64]machine.CPUSet
 	if !numaExclusive {
-		reclaimCPUs := machine.NewCPUSet()
 		if reclaimInfo := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName); reclaimInfo != nil {
 			// GetAllocationInfo already returns a deep copy, so the result can be used directly.
 			reclaimCPUs = reclaimInfo.AllocationResult
@@ -759,11 +758,17 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		// Both branches select cpus via takeByTopologyPreferring (directly, or per-NUMA
 		// inside allocateEvenlyAcrossNUMAs), which prefers the reclaim-free set first.
 		if distributeEvenlyAcrossNuma {
+			if p.state.GetDisableDedicatedCoresOverlapReclaimedCores() && !reclaimCPUs.IsEmpty() {
+				alignedAvailableCPUsPerNUMA = preferredAvailableCPUsPerNUMA
+			}
 			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, alignedAvailableCPUsPerNUMA, preferredAvailableCPUsPerNUMA)
 			if err != nil {
 				return machine.NewCPUSet(), fmt.Errorf("allocateEvenlyAcrossNUMA failed with error: %v", err)
 			}
 		} else {
+			if p.state.GetDisableDedicatedCoresOverlapReclaimedCores() && !reclaimCPUs.IsEmpty() {
+				alignedAvailableCPUs = preferredAvailableCPUs
+			}
 			alignedCPUs, err = p.takeByTopologyPreferring(alignedAvailableCPUs, preferredAvailableCPUs, numCPUs)
 			if err != nil {
 				general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",

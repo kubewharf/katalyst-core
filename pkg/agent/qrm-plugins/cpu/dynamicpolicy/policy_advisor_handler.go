@@ -556,13 +556,12 @@ func (p *DynamicPolicy) syncAdvisorOverlapFlags(resp *advisorapi.ListAndWatchRes
 		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores, true)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := p.runCPUSetAdjustmentHandlers(ctx); err != nil {
-		return fmt.Errorf("runCPUSetAdjustmentHandlers failed with error: %v", err)
+	curDisableDedicatedCoresOverlapReclaimedCores := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
+	if curDisableDedicatedCoresOverlapReclaimedCores != resp.DisableDedicatedCoresOverlapReclaimedCores {
+		general.Infof("set disableDedicatedCoresOverlapReclaimedCores from %v to %v",
+			curDisableDedicatedCoresOverlapReclaimedCores, resp.DisableDedicatedCoresOverlapReclaimedCores)
+		p.state.SetDisableDedicatedCoresOverlapReclaimedCores(resp.DisableDedicatedCoresOverlapReclaimedCores, true)
 	}
-
-	return nil
 }
 
 func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
@@ -1241,6 +1240,13 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
 				"currentAvailableCPUs", currentAvailableCPUs.String())
 
+			if currentAvailableCPUs.Size() < blockResult {
+				return fmt.Errorf(
+					"insufficient CPUs for NUMA-aware reclaim block: numa id: %d, requested: %d, available: %d",
+					numaID, blockResult, currentAvailableCPUs.Size(),
+				)
+			}
+
 			// Prefer this NUMA node's slice of the previous reclaim cpuset so reclaim
 			// stays in place across recomputes; only spill to fresh cores when the
 			// prior cores were taken by dedicated/share or the requirement grew.
@@ -1769,6 +1775,33 @@ func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(allocationInfo *state.Alloca
 			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 	}
 	return ownerPoolName
+}
+
+func (p *DynamicPolicy) emitPoolSizeMetrics(resp *advisorapi.ListAndWatchResponse, entries state.PodEntries) {
+	for entryName, entry := range resp.Entries {
+		if entryName == commonstate.PoolNameInterrupt {
+			continue
+		}
+		for subEntryName, calculationInfo := range entry.Entries {
+			if calculationInfo == nil ||
+				!(subEntryName == commonstate.FakedContainerName || calculationInfo.OwnerPoolName == commonstate.PoolNameDedicated) ||
+				calculationInfo.OwnerPoolName == commonstate.PoolNameDedicated {
+				continue
+			}
+
+			allocationInfo := entries[entryName][subEntryName]
+			if allocationInfo == nil {
+				continue
+			}
+			for numaID, cpus := range allocationInfo.TopologyAwareAssignments {
+				_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cpus.Size()),
+					metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName},
+					metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(allocationInfo.OwnerPoolName)},
+					metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
+				general.Infof("try to apply pool %s numa %d: %s", allocationInfo.OwnerPoolName, numaID, cpus.String())
+			}
+		}
+	}
 }
 
 func (p *DynamicPolicy) applyHeadroom(resp *advisorapi.ListAndWatchResponse) error {

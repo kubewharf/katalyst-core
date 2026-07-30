@@ -359,7 +359,8 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 		reqAnnotations map[string]string
 		// reclaimCPUs, when non-empty, is written into the reclaim pool before the
 		// call so that dedicated allocation can prefer reclaim-free cpus.
-		reclaimCPUs machine.CPUSet
+		reclaimCPUs                                machine.CPUSet
+		disableDedicatedCoresOverlapReclaimedCores bool
 	}
 	tests := []struct {
 		name    string
@@ -582,6 +583,27 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "dedicated isolation rejects non-exclusive fallback to reclaim cpus",
+			args: args{
+				numCPUs: 3,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				reclaimCPUs: machine.NewCPUSet(2, 3),
+				disableDedicatedCoresOverlapReclaimedCores: true,
+			},
+			want:    machine.NewCPUSet(),
+			wantErr: true,
+		},
+		{
 			name: "prefer reclaim-free first instead of full-set topology order",
 			args: args{
 				numCPUs: 3,
@@ -708,6 +730,9 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 				AllocationResult: tt.args.reclaimCPUs.Clone(),
 			}, false)
+			p.state.SetDisableDedicatedCoresOverlapReclaimedCores(
+				tt.args.disableDedicatedCoresOverlapReclaimedCores, false,
+			)
 
 			got, err := p.allocateNumaBindingCPUs(tt.args.numCPUs, tt.args.hint, tt.args.machineState, tt.args.reqAnnotations)
 			if (err != nil) != tt.wantErr {

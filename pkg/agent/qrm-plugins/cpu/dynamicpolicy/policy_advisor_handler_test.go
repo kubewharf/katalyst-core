@@ -1205,11 +1205,8 @@ func TestDynamicPolicy_generateReclaimBlockCPUSet_NUMAAwareInsufficientCPUsRetur
 	topology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
 	require.NoError(t, err)
 
-	policy := &DynamicPolicy{
-		machineInfo: &machine.KatalystMachineInfo{
-			CPUTopology: topology,
-		},
-	}
+	policy, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
+	require.NoError(t, err)
 	blockCPUSet := advisorapi.BlockCPUSet{}
 
 	err = policy.generateReclaimBlockCPUSet(

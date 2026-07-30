@@ -225,6 +225,30 @@ func getTestDynamicPolicyWithoutInitialization(
 	return policyImplement, nil
 }
 
+func setAdvisorTransactionTestPods(policy *DynamicPolicy, entries state.PodEntries) {
+	pods := make([]*v1.Pod, 0, len(entries))
+	for podUID, containers := range entries {
+		if containers.IsPoolEntry() {
+			continue
+		}
+		podContainers := make([]v1.Container, 0, len(containers))
+		containerStatuses := make([]v1.ContainerStatus, 0, len(containers))
+		for containerName := range containers {
+			podContainers = append(podContainers, v1.Container{Name: containerName})
+			containerStatuses = append(containerStatuses, v1.ContainerStatus{
+				Name:        containerName,
+				ContainerID: "containerd://test-container-id",
+			})
+		}
+		pods = append(pods, &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID(podUID)},
+			Spec:       v1.PodSpec{Containers: podContainers},
+			Status:     v1.PodStatus{ContainerStatuses: containerStatuses},
+		})
+	}
+	policy.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: pods}
+}
+
 func TestCleanPoolsSkipsNilAllocationInfo(t *testing.T) {
 	t.Parallel()
 
@@ -728,7 +752,7 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 2,
-							AllocationResult:  machine.NewCPUSet(8, 9).String(),
+							AllocationResult:  machine.NewCPUSet(1, 9).String(),
 							TopologyAssignments: map[uint64]uint64{
 								0: 2,
 							},
@@ -745,7 +769,7 @@ func TestAllocate(t *testing.T) {
 								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationMemoryEnhancementNumaExclusive: "false",
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:            "0",
-								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"8-9"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
 							},
 						},
 					},
@@ -874,7 +898,7 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 2,
-							AllocationResult:  machine.NewCPUSet(8, 9).String(),
+							AllocationResult:  machine.NewCPUSet(1, 9).String(),
 							TopologyAssignments: map[uint64]uint64{
 								0: 2,
 							},
@@ -890,7 +914,7 @@ func TestAllocate(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"8-9"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
 							},
 						},
 					},
@@ -1447,8 +1471,8 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 4,
-							// CPUs 5 and 13 are from NUMA 2 and CPUs 7 and 15 are from NUMA 3.
-							AllocationResult: machine.NewCPUSet(5, 7, 13, 15).String(),
+							// CPUs 4 and 12 are from NUMA 2 and CPUs 6 and 14 are from NUMA 3
+							AllocationResult: machine.NewCPUSet(4, 6, 12, 14).String(),
 							TopologyAssignments: map[uint64]uint64{
 								2: 2,
 								3: 2,
@@ -1466,7 +1490,7 @@ func TestAllocate(t *testing.T) {
 								consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
 								consts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
-								coreconsts.QRMPodAnnotationTopologyAllocationKey:             `{"Numa":{"2":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"5,13"}},"3":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"7,15"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:             `{"Numa":{"2":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"4,12"}},"3":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"6,14"}}}}`,
 							},
 						},
 					},
@@ -1523,8 +1547,8 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 2,
-							// Allocate the full physical core of CPUs 5 and 13.
-							AllocationResult: machine.NewCPUSet(5, 13).String(),
+							// Allocate full physical core of CPUs 4 and 12
+							AllocationResult: machine.NewCPUSet(4, 12).String(),
 							TopologyAssignments: map[uint64]uint64{
 								2: 2,
 							},
@@ -1541,7 +1565,7 @@ func TestAllocate(t *testing.T) {
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "2",
 								"full_pcpus_pairing":                             "true",
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"5,13"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"4,12"}}}}`,
 							},
 						},
 					},
@@ -1627,7 +1651,7 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 6,
-							AllocationResult:  machine.NewCPUSet(5, 7, 12, 13, 14, 15).String(),
+							AllocationResult:  machine.NewCPUSet(4, 5, 6, 7, 12, 14).String(),
 							TopologyAssignments: map[uint64]uint64{
 								2: 3,
 								3: 3,
@@ -1646,7 +1670,7 @@ func TestAllocate(t *testing.T) {
 								consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
 								consts.PodAnnotationCPUEnhancementFullPCPUsPairing:           consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
 								consts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
-								coreconsts.QRMPodAnnotationTopologyAllocationKey:             `{"Numa":{"2":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"5,12-13"}},"3":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"7,14-15"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:             `{"Numa":{"2":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"4-5,12"}},"3":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"6-7,14"}}}}`,
 							},
 						},
 					},
@@ -1704,11 +1728,11 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 6,
-							// Allocate three CPUs from each selected NUMA node.
-							AllocationResult: machine.NewCPUSet(5, 7, 12, 13, 14, 15).String(),
+							// Will allocate 4, 5, 12, 13 from numa 2 first and then 6, 14 from numa 3
+							AllocationResult: machine.NewCPUSet(4, 5, 6, 12, 13, 14).String(),
 							TopologyAssignments: map[uint64]uint64{
-								2: 3,
-								3: 3,
+								2: 4,
+								3: 2,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -1722,7 +1746,7 @@ func TestAllocate(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementNumaNumber:     "2",
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"5,12-13"}},"3":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"7,14-15"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"4"},"attributes":{"CpusetCpus":"4-5,12-13"}},"3":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"6,14"}}}}`,
 							},
 						},
 					},

@@ -63,6 +63,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -118,6 +119,7 @@ type DynamicPolicy struct {
 	featureGateManager featuregatenegotiation.FeatureGateManager
 
 	state                    state.State
+	cgroupClient             cgroupclient.CgroupClient
 	residualHitMap           map[string]int64
 	allocationHandlers       map[string]util.AllocationHandler
 	hintHandlers             map[string]util.HintHandler

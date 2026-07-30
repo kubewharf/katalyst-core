@@ -769,10 +769,11 @@ func (nm NUMANodeMap) String() string {
 // wraps it with an RWMutex and clones on every getter. Grouping the fields into
 // a single value makes it trivial to deep-copy the whole set in one place.
 type cpuPluginStateData struct {
-	podEntries                            PodEntries
-	machineState                          NUMANodeMap
-	numaHeadroom                          map[int]float64
-	allowSharedCoresOverlapReclaimedCores bool
+	podEntries                                 PodEntries
+	machineState                               NUMANodeMap
+	numaHeadroom                               map[int]float64
+	allowSharedCoresOverlapReclaimedCores      bool
+	disableDedicatedCoresOverlapReclaimedCores bool
 }
 
 // Clone deep-copies every field of cpuPluginStateData. The caller receives a
@@ -787,6 +788,7 @@ func (d *cpuPluginStateData) Clone() cpuPluginStateData {
 		machineState:                          d.machineState.Clone(),
 		numaHeadroom:                          general.DeepCopyIntToFloat64Map(d.numaHeadroom),
 		allowSharedCoresOverlapReclaimedCores: d.allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores: d.disableDedicatedCoresOverlapReclaimedCores,
 	}
 }
 
@@ -833,6 +835,14 @@ func (d *cpuPluginStateData) GetAllowSharedCoresOverlapReclaimedCores() bool {
 		return false
 	}
 	return d.allowSharedCoresOverlapReclaimedCores
+}
+
+// GetDisableDedicatedCoresOverlapReclaimedCores returns the flag value.
+func (d *cpuPluginStateData) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	if d == nil {
+		return false
+	}
+	return d.disableDedicatedCoresOverlapReclaimedCores
 }
 
 // reader is used to get information from local states

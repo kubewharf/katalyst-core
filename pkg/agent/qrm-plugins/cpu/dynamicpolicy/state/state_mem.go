@@ -183,6 +183,26 @@ func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return s.cpuPluginStateData.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
+func (s *cpuPluginState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores bool) {
+	s.Lock()
+	defer s.Unlock()
+
+	klog.InfoS("[cpu_plugin] Updated disableDedicatedCoresOverlapReclaimedCores",
+		"disableDedicatedCoresOverlapReclaimedCores", disableDedicatedCoresOverlapReclaimedCores)
+
+	if s.disableDedicatedCoresOverlapReclaimedCores == disableDedicatedCoresOverlapReclaimedCores {
+		return
+	}
+	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
+}
+
+func (s *cpuPluginState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.cpuPluginStateData.GetDisableDedicatedCoresOverlapReclaimedCores()
+}
+
 func (s *cpuPluginState) Delete(podUID string, containerName string) {
 	s.Lock()
 	defer s.Unlock()

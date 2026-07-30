@@ -29,11 +29,11 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -1303,6 +1303,102 @@ func TestClampReclaimOverlapMetadataClearsZeroBudget(t *testing.T) {
 	require.Zero(t, got)
 	require.Empty(t, result.PoolOverlapInfo[commonstate.PoolNameReclaim][0])
 	require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+}
+
+func TestCalculateReclaimPoolDisableDedicatedCoresOverlapReclaimedCores(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name      string
+		calculate func(*ProvisionAssemblerCommon, *reclaimPoolCalculationData, *types.InternalCPUCalculationResult) (int, int, float64, error)
+		data      *reclaimPoolCalculationData
+		wantSize  int
+	}{
+		{
+			name:      "overlap reclaim pool keeps shared capacity only",
+			calculate: (*ProvisionAssemblerCommon).calculateOverlapReclaimPool,
+			data: &reclaimPoolCalculationData{
+				shareInfo: regionInfo{
+					requirements:  map[string]int{"share": 2},
+					requests:      map[string]int{"share": 4},
+					reclaimEnable: map[string]bool{"share": true},
+				},
+				dedicatedInfo: regionInfo{
+					requirements:  map[string]int{"dedicated": 2},
+					requests:      map[string]int{"dedicated": 4},
+					reclaimEnable: map[string]bool{"dedicated": true},
+					podSet:        map[string]types.PodSet{"dedicated": {"pod": {"container": {}}}},
+				},
+				shareAndIsolateDedicatedPoolSizes:      map[string]int{"share": 4, "dedicated": 4},
+				dedicatedPoolSizes:                     map[string]int{"dedicated": 4},
+				dedicatedReclaimCoresSize:              2,
+				shareAndIsolatedDedicatedPoolAvailable: 8,
+				nodeEnableReclaim:                      true,
+			},
+			wantSize: 2,
+		},
+		{
+			name:      "non-overlap reclaim pool excludes dedicated capacity",
+			calculate: (*ProvisionAssemblerCommon).calculateNonOverlapReclaimPool,
+			data: &reclaimPoolCalculationData{
+				dedicatedInfo: regionInfo{
+					requirements:  map[string]int{"dedicated": 2},
+					requests:      map[string]int{"dedicated": 4},
+					reclaimEnable: map[string]bool{"dedicated": true},
+					podSet:        map[string]types.PodSet{"dedicated": {"pod": {"container": {}}}},
+				},
+				dedicatedReclaimCoresSize: 2,
+				nodeEnableReclaim:         true,
+			},
+			wantSize: 0,
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := generateTestConf(t, true, "")
+			conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+			pa := &ProvisionAssemblerCommon{conf: conf, metaReader: fakeMetaReader{}}
+			result := &types.InternalCPUCalculationResult{
+				PoolOverlapInfo:             map[string]map[int]map[string]int{},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
+			}
+
+			reclaimedCoresSize, _, _, err := tt.calculate(pa, tt.data, result)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantSize, reclaimedCoresSize)
+			require.Empty(t, result.PoolOverlapPodContainerInfo[commonstate.PoolNameReclaim][0])
+		})
+	}
+}
+
+func TestAssembleProvisionDisableDedicatedNUMAExclusiveOverlapRejectsReservedReclaim(t *testing.T) {
+	conf := generateTestConf(t, true, "")
+	conf.GetDynamicConfiguration().DisableDedicatedCoresOverlapReclaimedCores = true
+
+	dedicatedRegion := NewFakeRegion("dedicated-numa-exclusive", configapi.QoSRegionTypeDedicated, "dedicated-numa-exclusive")
+	dedicatedRegion.bindingNumas = machine.NewCPUSet(0)
+	dedicatedRegion.isNumaBinding = true
+	dedicatedRegion.isNumaExclusive = true
+
+	regionMap := map[string]region.QoSRegion{dedicatedRegion.Name(): dedicatedRegion}
+	reservedForReclaim := map[int]int{0: 1}
+	numaAvailable := map[int]int{0: 8}
+	nonBindingNumas := machine.NewCPUSet()
+	allowSharedCoresOverlapReclaimedCores := true
+	pa := NewProvisionAssemblerCommon(
+		conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas,
+		&allowSharedCoresOverlapReclaimedCores, metacache.NewDummyMetaCacheImp(), nil, metrics.DummyMetrics{},
+	)
+
+	_, err := pa.AssembleProvision()
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "NUMA 0")
+	require.ErrorContains(t, err, "reservedForReclaim 1")
+	require.ErrorContains(t, err, "dedicated NUMA exclusive")
 }
 
 func TestClampByReclaimedCPUMaxRatio(t *testing.T) {
