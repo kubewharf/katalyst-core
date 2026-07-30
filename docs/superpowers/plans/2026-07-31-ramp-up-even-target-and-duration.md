@@ -42,7 +42,7 @@
 - [ ] Reset, switch target to ratio `0.2`, and verify runtime flags.
 - [ ] Create a fresh NUMA-exclusive DNB Pod.
 - [ ] Capture the cold `ramp_up=true` state and verify `eligible=96`, `hard=18`, `DNB=78`, disjoint union equals eligible.
-- [ ] Poll state every 100 ms, derive elapsed time from `InitTimestamp`, prove no false observation before 30 seconds, and require first `ramp_up=false` in `[30s,40s]`.
+- [ ] Poll state every 10 ms, derive elapsed time from `InitTimestamp`, and verify dedicated ramp-up finishes on the first advisor result before the generic 30-second transition period.
 - [ ] Run the strict stable target node check.
 - [ ] Delete the Pod, verify remaining zero and pre-occupation classification, then final reset.
 - [ ] Package logs/state, transfer through the jump host, and verify SHA, size, and tar integrity.

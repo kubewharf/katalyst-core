@@ -41,16 +41,19 @@ remainder is 78.
 
 ## Duration
 
-QRM uses `transitionPeriod=30s`. The probe measures elapsed time from the
-persisted allocation `InitTimestamp`, not from Pod creation.
+QRM uses `transitionPeriod=30s` to decide the ramp-up phase sent in advisor
+requests. Dedicated allocations have a more specific rule in the advisor
+response path: ramp-up finishes when the first dedicated advisor result is
+applied.
 
-Pass criteria:
+The DNB probe measures elapsed time from the persisted allocation
+`InitTimestamp`, not from Pod creation. Pass criteria:
 
 ```text
-ramp_up=true is never cleared before 30s
-first observed ramp_up=false occurs between 30s and 40s
+cold ramp_up=true checkpoint is observed
+first advisor result changes ramp_up to false
+the measured duration is less than the 30s generic transition period
 ```
 
-The upper bound allows the advisor/update reconciliation period and sampling
-jitter. The probe records all timestamps so a failure can distinguish early
-expiry from delayed convergence.
+The probe records all timestamps. A 30-second minimum is not expected for
+dedicated/DNB workloads under the current implementation.
