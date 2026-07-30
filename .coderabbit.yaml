@@ -1,13 +1,8 @@
 language: "en-US"
 early_access: false
 tone_instructions: >-
-  Focus on correctness, concurrency safety, reconciliation behavior,
-  nil/error handling, and meaningful tests. Avoid style-only feedback unless it
-  affects maintainability. Write all review comments, summaries, and chat
-  replies in both English and Simplified Chinese, with English first and
-  Chinese second. Keep both versions concise and semantically equivalent. Do
-  not translate code, paths, APIs, kubebuilder markers, protobuf field names,
-  or error strings.
+  Be concise and direct. Keep comments short and actionable. Avoid style-only
+  feedback unless it affects readability or maintainability.
 
 reviews:
   profile: "chill"
@@ -43,6 +38,10 @@ reviews:
     - "!**/*.gif"
     - "!**/*.svg"
   path_instructions:
+    - path: "**"
+      instructions: |
+        Write review comments, summaries, and chat replies in both English and Simplified Chinese, with English first and Chinese second.
+        Keep both versions concise and semantically equivalent. Do not translate code, paths, APIs, kubebuilder markers, protobuf field names, or error strings.
     - path: "go.mod"
       instructions: |
         Review dependency and module version changes for runtime behavior risk, katalyst-api compatibility, and transitive Kubernetes or controller-runtime impact.
