@@ -526,8 +526,8 @@ func (p *DynamicPolicy) syncSystemExclusivePool(_ *coreconfig.Configuration,
 
 func (p *DynamicPolicy) reconcileSystemExclusivePools() error {
 	currentPools := p.listCurrentSystemExclusivePools()
-
 	expectedPools := p.getExpectedSystemExclusivePools()
+	p.emitSystemExclusivePoolSizes(currentPools, expectedPools)
 
 	toCreate, toUpdate, toDelete := p.calculateSystemExclusivePoolChanges(currentPools, expectedPools)
 
@@ -567,6 +567,47 @@ func (p *DynamicPolicy) getExpectedSystemExclusivePools() map[string]int {
 	}
 
 	return expectedPools
+}
+
+func (p *DynamicPolicy) emitSystemExclusivePoolSizes(currentPools map[string]*state.AllocationInfo, expectedPools map[string]int) {
+	if p.emitter == nil {
+		return
+	}
+
+	poolNames := sets.NewString()
+	for poolName := range expectedPools {
+		poolNames.Insert(poolName)
+	}
+	for poolName := range currentPools {
+		poolNames.Insert(poolName)
+	}
+
+	for _, poolName := range poolNames.List() {
+		poolSize, poolStatus := getSystemExclusivePoolMetricValueAndStatus(currentPools, expectedPools, poolName)
+		_ = p.emitter.StoreInt64(util.MetricNameSystemExclusivePoolSize, poolSize, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "pool_name", Val: poolName},
+			metrics.MetricTag{Key: "status", Val: poolStatus})
+	}
+}
+
+func getSystemExclusivePoolMetricValueAndStatus(currentPools map[string]*state.AllocationInfo, expectedPools map[string]int, poolName string) (int64, string) {
+	expectedSize, expectedExists := expectedPools[poolName]
+	allocationInfo, actualExists := currentPools[poolName]
+	actualSize := 0
+	if actualExists {
+		actualSize = allocationInfo.AllocationResult.Size()
+	}
+
+	switch {
+	case expectedExists && actualExists && expectedSize == actualSize:
+		return int64(actualSize), "ready"
+	case expectedExists && !actualExists:
+		return 0, "absent"
+	case !expectedExists && actualExists:
+		return int64(actualSize), "stale"
+	default:
+		return int64(actualSize), "updating"
+	}
 }
 
 // calculateSystemExclusivePoolChanges calculates the system exclusive pool changes according to the current pools and expected pools
@@ -878,6 +919,6 @@ func (p *DynamicPolicy) syncCPUWeight(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncCPUWeight, err)
 	}()
 
-	cpuWeightManager := cpuweight.GetManager(p.metaServer)
+	cpuWeightManager := cpuweight.GetManager(p.metaServer, p.emitter)
 	err = cpuWeightManager.UpdateCPUWeight(p.dynamicConfig)
 }
