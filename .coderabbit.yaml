@@ -64,12 +64,7 @@ reviews:
         Check for technical accuracy, outdated operational guidance, and mismatches between documented behavior and current runtime wiring.
 
 knowledge_base:
-  linked_repositories:
-    - repository: "kubewharf/katalyst-api"
-      instructions: >-
-        Use this repository to assess upstream API, protocol, constant, and
-        dependency compatibility. Focus on required consumer changes, version
-        bumps, and coordinated cross-repo rollout risk.
+  automatic_repository_linking: true
 
 chat:
   auto_reply: true
