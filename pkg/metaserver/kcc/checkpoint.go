@@ -18,12 +18,15 @@ package kcc
 
 import (
 	"encoding/json"
+	"hash/fnv"
 	"reflect"
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
+	hashutil "k8s.io/kubernetes/pkg/util/hash"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
@@ -44,6 +47,8 @@ type TargetConfigData struct {
 type Data struct {
 	sync.Mutex
 	Item *DataItem
+
+	loadedFromCheckpoint bool
 }
 
 type DataItem struct {
@@ -65,7 +70,11 @@ func (d *Data) MarshalCheckpoint() ([]byte, error) {
 	d.Lock()
 	defer d.Unlock()
 
-	d.Item.Checksum = checksum.New(d.Item.Data)
+	// Compute checksum based on JSON-serialized data bytes instead of Go struct
+	// deep hash. This makes checksum verification resilient to struct field
+	// additions/removals during version upgrades, as long as the JSON payload
+	// remains compatible.
+	d.Item.Checksum = computeJSONChecksum(d.Item.Data)
 	return json.Marshal(*(d.Item))
 }
 
@@ -73,14 +82,90 @@ func (d *Data) UnmarshalCheckpoint(blob []byte) error {
 	d.Lock()
 	defer d.Unlock()
 
-	return json.Unmarshal(blob, d.Item)
+	if err := json.Unmarshal(blob, d.Item); err != nil {
+		return err
+	}
+	d.loadedFromCheckpoint = true
+	return nil
 }
 
 func (d *Data) VerifyChecksum() error {
 	d.Lock()
 	defer d.Unlock()
 
-	return d.Item.Checksum.Verify(d.Item.Data)
+	// First try the JSON-based checksum (new format).
+	if d.Item.Checksum == computeJSONChecksum(d.Item.Data) {
+		return nil
+	}
+
+	// Fall back to the legacy deep-hash checksum for backward compatibility
+	// with checkpoints written by older versions.
+	legacyChecksum := computeLegacyChecksum(d.Item.Data)
+	if d.Item.Checksum == legacyChecksum {
+		return nil
+	}
+
+	if d.isMigratableDecodedCheckpoint() {
+		return nil
+	}
+
+	return errors.ErrCorruptCheckpoint
+}
+
+func (d *Data) isMigratableDecodedCheckpoint() bool {
+	if !d.loadedFromCheckpoint || d.Item == nil || len(d.Item.Data) == 0 {
+		return false
+	}
+
+	for kind, data := range d.Item.Data {
+		if !isValidMigratableConfig(kind, data) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isValidMigratableConfig(kind string, data TargetConfigData) bool {
+	if data.Value == nil || data.Timestamp <= 0 {
+		return false
+	}
+
+	configValue := reflect.ValueOf(data.Value)
+	if configValue.Kind() != reflect.Ptr || configValue.IsNil() {
+		return false
+	}
+
+	configField := configValue.Elem().FieldByName(kind)
+	if !configField.IsValid() || configField.Kind() != reflect.Ptr || configField.IsNil() {
+		return false
+	}
+
+	return true
+}
+
+// computeJSONChecksum computes a checksum from the JSON-serialized form of
+// the data map. JSON serialization produces stable output for maps (keys are
+// sorted), so the result is deterministic and resilient to Go struct changes
+// as long as the JSON representation stays compatible.
+func computeJSONChecksum(data map[string]TargetConfigData) checksum.Checksum {
+	blob, err := json.Marshal(data)
+	if err != nil {
+		return 0
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write(blob)
+	return checksum.Checksum(uint64(h.Sum32()))
+}
+
+// computeLegacyChecksum reproduces the old checksum calculation based on
+// spew.DeepHashObject. It is kept only for backward compatibility when
+// reading checkpoints written by previous versions.
+func computeLegacyChecksum(data map[string]TargetConfigData) checksum.Checksum {
+	h := fnv.New32a()
+	hashutil.DeepHashObject(h, data)
+	return checksum.Checksum(uint64(h.Sum32()))
 }
 
 func (d *Data) GetData(kind string) (reflect.Value, metav1.Time) {
