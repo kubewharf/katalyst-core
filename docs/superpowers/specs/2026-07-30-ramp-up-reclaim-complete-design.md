@@ -161,23 +161,39 @@ func CalculateReserveForReclaimByNUMA(
 
 现有 NUMA reserve ratio 继续以物理 NUMA CPU 数为分母，避免顺带改变旧配置含义；`InitialRampUpReclaimCPUSetRatio` 以实际 eligible allocatable CPU 数为分母。QRM 根据共享 helper 得到 floor size，再从 eligible CPUSet 中选取具体 CPU。若 floor 大于 eligible capacity，直接拒绝。
 
-### ratio 配置兼容
+### hard partition 开关与 ratio 配置
 
-API 字段应使用指针：
+API 字段放在 `QRMPluginConfig.CPUPluginConfig`：
 
 ```go
+EnableRampUpReclaimHardPartition *bool
 InitialRampUpReclaimCPUSetRatio *float64
 ```
 
-推荐语义：
+开关语义：
 
 ```text
-nil      = 不启用新的 hard ramp-up partition，完全沿用旧行为
-0        = 启用新 planner，仅保留 reserveForReclaim
-(0, 1]   = 启用 ratio planner
+EnableRampUpReclaimHardPartition != true:
+  不启用新的 hard ramp-up partition，完全沿用旧行为
+
+EnableRampUpReclaimHardPartition == true:
+  启用 hard partition planner
 ```
 
-这可以避免“字段未配置”被解释成主动收缩到 reserve floor。本文的非空、互斥 hard partition 不变量只对配置非 nil 的 workload 生效；legacy checkpoint 不能直接套用新不变量。CRD 和 CLI 都要校验 `[0, 1]`。
+ratio 语义：
+
+```text
+InitialRampUpReclaimCPUSetRatio == nil:
+  动态配置未覆盖，使用启动 flag 或默认配置中的 ratio
+
+InitialRampUpReclaimCPUSetRatio == 0:
+  只使用 reserveForReclaim floor
+
+InitialRampUpReclaimCPUSetRatio in (0, 1]:
+  使用 max(reserveForReclaim floor, ceil(ratio * eligibleCPUCount))
+```
+
+这样可以避免“配置了 ratio=0”与“未启用新语义”混在一起，也保留动态配置缺省时回退到 flag/default 的能力。本文的非空、互斥 hard partition 不变量只在 `EnableRampUpReclaimHardPartition == true` 时生效；启用前已有 checkpoint 不能直接套用新不变量。CRD 和 CLI 都要校验 ratio 在 `[0, 1]`。
 
 ### ramp-up overlap 规则
 
@@ -300,49 +316,48 @@ flowchart LR
 - 对应的 katalyst-api `CPUPluginConfig`
 - generated deepcopy 和 CRD schema
 
-ratio 本身不需要加入 advisor proto，也不需要单独写入 CPU checkpoint。为了证明 response 基于哪一版 QRM state生成，需要给 request/response 增加 generation ACK，详见 advisor request 章节。
+ratio 本身不需要加入 advisor proto，也不需要单独写入 CPU checkpoint。首期同步 `GetAdvice` 通过完整 request snapshot 比较证明 response 基于当前 QRM state；只有后续兼容 legacy `ListAndWatch` 时才需要给 request/response 增加 generation ACK，详见 advisor request 章节。
 
 ### AllocationInfo
 
-保留现有 `RampUp` 和 `InitTimestamp`，新增 main container 持有的 bootstrap reservation：
+不新增 main container 字段。现有 `AllocationInfo` 已经有两类语义：
 
 ```go
 type AllocationInfo struct {
     // existing fields
 
     RampUp                       bool
-    RampUpReservationPending    bool
     InitTimestamp                string
-    RampUpReclaimCPUSet          machine.CPUSet
+    AllocationResult             machine.CPUSet
+    TopologyAwareAssignments     map[int]machine.CPUSet
 }
 ```
 
-`RampUpReclaimCPUSet` 的用途：
+复用方式：
 
-- 固定 Pod 创建时选择的 reclaim reservation；
-- ratio 动态变化时不改变已在 ramp-up 的 Pod；
-- 节点重启后恢复相同 bootstrap layout；
-- 多个 active ramp-up Pod 可通过 union 聚合仍需保留的 reservation；
-- ramp-up 结束时只释放当前 Pod 独占的 reservation，不影响其他 Pod。
+- main container 的 `AllocationResult` 继续表达 workload 可用 CPUSet，不能拿来存 reclaim；
+- `PoolNameReclaim/FakedContainerName` 的 `AllocationResult` 表达已提交的具体 reclaim pool CPUSet；
+- initial ramp-up planner 直接更新 reclaim pool entry 的 `AllocationResult` 和 `TopologyAwareAssignments`，使 bootstrap reclaim 成为 QRM state 的一部分；
+- ratio 动态变化不重写已提交的 reclaim pool concrete CPUSet；
+- 节点重启后通过 reclaim pool entry 恢复相同 bootstrap layout；
+- 稳定态 candidate 提交时更新 reclaim pool entry 到 stable target，bulkhead 随后基于已提交 stable state 收敛。
 
-两个生命周期字段的职责不同：
+`RampUp` 的职责：
 
 ```text
-RampUp=true, Pending=true:
-  initial phase，advisor 必须保持 bootstrap target
+RampUp=true:
+  live state 仍处于 ramp-up ownership；advisor request phase 由 transitionPeriod 决定
 
-RampUp=false, Pending=true:
-  transitionPeriod 已结束，等待 stable advice 和 cgroup partition 应用成功
+transitionPeriod 到期:
+  不直接改 live state；下一次 advisor request 报告 stable phase
 
-RampUp=false, Pending=false:
-  stable phase，可以清理 RampUpReclaimCPUSet
+stable candidate 提交:
+  candidate 中清除 RampUp，并把 reclaim pool AllocationResult 更新为 stable target
 ```
 
-`RampUpReservationPending` 的释放点只能是“稳定态 candidate 已验证、bulkhead 已成功应用并 read-back、stable state 已提交”。不能在 transitionPeriod 到期或第一帧 advice 到达时清理。
+sidecar复制 `RampUp`、`InitTimestamp` 和 workload allocation，但不作为 reservation owner重复计数。hard reclaim ownership 只来自已提交的 reclaim pool entry，不来自 sidecar。
 
-该字段只在 main container 上持有。sidecar复制 `RampUp`、`InitTimestamp` 和 workload allocation，但不作为 reservation owner重复计数。
-
-旧 checkpoint 缺少这些字段时必须走显式迁移，不能仅依赖 Go 零值。迁移和 checksum 规则见“兼容性”章节。
+旧 checkpoint 不需要迁移新增字段；`EnableRampUpReclaimHardPartition == true` 后如果发现 `RampUp=true` 但 reclaim pool entry 不能证明满足 hard partition invariant，应 fail closed 并保持旧布局，不从零值推断 bootstrap target。
 
 ### 统一 planner
 
@@ -361,7 +376,7 @@ func (p *DynamicPolicy) planRampUpAllocation(
     entries state.PodEntries,
     machineState state.NUMANodeMap,
     req *pluginapi.ResourceRequest,
-    ratio *float64,
+    effectiveRatio float64,
     reserveForReclaimByNUMA map[int]int,
 ) (*RampUpAllocationPlan, error)
 ```
@@ -459,7 +474,7 @@ exclusive DNB/reclaim 覆盖 eligible NUMA
 
 response flag 应直接参与本轮规划，不能等待 `syncAdvisorOverlapFlags` 写入 state 后才影响行为。
 
-`applyBlocks` 应支持 candidate-state apply。bulkhead 先针对 candidate snapshot 做无写入 preflight，再直接应用该 candidate；成功后才替换 live state：
+`applyBlocks` 应支持 candidate-state apply，但提交顺序不是“bulkhead 先 preflight/apply，成功后再替换 live state”。正确顺序是：先在 clone state 上完成规划和校验，随后先写入 QRM state，使该 state 成为 bulkhead 的唯一输入，再由 bulkhead 基于已写入的 state 按安全阶段应用 cgroup：
 
 ```text
 plan
@@ -467,31 +482,25 @@ plan
 → run pure/controlled hooks
 → regenerate MachineState
 → validate again
-→ bulkhead preflight(candidate, no writes)
-→ bulkhead apply(candidate)
-→ read-back and verify
 → commit PodEntries and MachineState
 → StoreState
+→ bulkhead apply(committed state)
+→ read-back and verify
 → headroom/cgroup/flag follow-up
 ```
 
-如果 bulkhead apply 失败，live state 保持旧值；writer按安全阶段恢复或保留上一稳定 partition。apply 成功后，内存 state 一次切换到 candidate。`StoreState` 失败仍遵循当前分支“不回滚内存 state”的语义，此时 cgroup 与内存一致，但重启可能回到旧 checkpoint，需要监控和 checkpoint 重试。
+如果 bulkhead apply 失败，QRM state 不回滚到旧值；它继续表达目标状态，后续 reconcile 基于同一 state 重试应用。`StoreState` 失败仍遵循当前分支“不回滚内存 state”的语义，此时内存 state 与 bulkhead 目标一致，但重启可能回到旧 checkpoint，需要监控和 checkpoint 重试。
 
-`CPUSetAdjustmentHandlerCtx` 需要支持 candidate preflight：
+`CPUSetAdjustmentHandlerCtx` 需要支持基于指定 state 应用，而不是从 handler 内部重新读取 live state：
 
 ```go
-type CPUSetAdjustmentTarget interface {
-    state.ReadonlyState
-    Validate() error
-}
-
-type CPUSetAdjustmentHandler interface {
-    Preflight(ctx context.Context, target CPUSetAdjustmentTarget) error
-    Apply(ctx context.Context, target CPUSetAdjustmentTarget) error
+type CPUSetAdjustmentHandlerCtx struct {
+    State state.ReadonlyState
+    // ...
 }
 ```
 
-candidate snapshot 至少包含 `PodEntries`、`MachineState`、本轮 overlap flags 和 hard reservations，并实现 `state.ReadonlyState`。普通 allocation 与 advisor response 必须共用同一个 plan/preflight/apply/commit 框架。
+candidate snapshot 至少包含 `PodEntries`、`MachineState`、本轮 overlap flags 和 hard reservations，并实现 `state.ReadonlyState`。普通 allocation 与 advisor response 必须共用同一个 plan/validate/commit/apply 框架，保证写入 state 后 bulkhead 看到的就是已提交目标。
 
 ### `GetResourcesAllocation`
 
@@ -502,9 +511,9 @@ stateDiagram-v2
     [*] --> Stable
     Stable --> RampUp: new shared/SNB/DNB allocation
     RampUp --> RampUp: advisor refresh preserves bootstrap target
-    RampUp --> StablePending: transitionPeriod expires
-    StablePending --> Stable: stable plan committed and applied
-    StablePending --> StablePending: keep safe bootstrap layout on failure
+    RampUp --> RequestExpired: transitionPeriod expires
+    RequestExpired --> Stable: stable target state committed
+    RequestExpired --> RequestExpired: keep live ramp-up state on failure
 ```
 
 `GetResourcesAllocation` 应分三阶段：
@@ -518,7 +527,7 @@ stateDiagram-v2
 - shared/SNB 进入稳定 shared pool；
 - DNB 将 `RampUp=false` 发送给 SysAdvisor；
 - 在稳定 advice 到达前继续保持当前安全 bootstrap partition；
-- `RampUpReservationPending=true`，bulkhead继续把 reservation 当作 hard minimum；
+- live state 仍保持 `RampUp=true`，reclaim pool `AllocationResult` 继续作为 hard minimum；
 - 不允许只翻 bool 后立即释放 reclaim reservation。
 
 sidecar 不独立解析 timestamp，不独立结束 ramp-up。
@@ -532,7 +541,9 @@ bool ramp_up = 1;
 map<uint64, string> topology_aware_assignments = 3;
 ```
 
-无需增加 ratio 字段，但需要新增 state generation：
+无需增加 ratio 字段。首期若只支持同步 `GetAdvice`，也不需要新增 generation 字段；通过完整 request snapshot 比较拒绝 stale response 即可。
+
+若必须支持 legacy `ListAndWatch`，再新增 state generation：
 
 ```proto
 message GetAdviceRequest {
@@ -556,19 +567,19 @@ message GetCheckpointResponse {
 }
 ```
 
-QRM checkpoint/state 持久化单调递增的 `StateGeneration`。每次完整 candidate commit 后加一。
+首期若强制使用同步 `GetAdvice`，不需要新增 generation proto；QRM 在锁内重建当前规范化 request，并与 response 对应的原 request 做完整比较即可拒绝 stale response。只有必须支持 legacy `ListAndWatch` 时，才需要 QRM checkpoint/state 持久化单调递增的 `StateGeneration`，并在每次完整 candidate commit 后加一。
 
-- 同步 `GetAdvice`：request 携带当前 generation，response 原样回传实际计算基线。
-- 异步 `ListAndWatch`：`GetCheckpointResponse` 必须在同一锁和同一快照中返回 entries 与 generation；SysAdvisor 保存该 generation，并在基于该 snapshot生成的 `ListAndWatchResponse` 中原样回传。
+- 同步 `GetAdvice`：QRM 保存发出时的完整 request snapshot，response 返回后在锁内重建当前 request并做完整比较。
+- 异步 `ListAndWatch`：后续兼容时，`GetCheckpointResponse` 必须在同一锁和同一快照中返回 entries 与 generation；SysAdvisor 保存该 generation，并在基于该 snapshot生成的 `ListAndWatchResponse` 中原样回传。
 
-进入 `StablePending` 后，QRM 只接受：
+transitionPeriod 到期后，QRM 对外发送 stable phase request；legacy `ListAndWatch` 模式只接受：
 
 ```text
 response.base_state_generation ==
-发送 RampUp=false 后提交的当前 state generation
+发送 stable phase request 时对应的当前 state generation
 ```
 
-旧 `RampUp=true` response 即使内容仍满足 bootstrap invariant，也不能清除 pending。
+旧 `RampUp=true` response 即使内容仍满足 bootstrap invariant，也不能触发 stable candidate 提交。
 
 `createGetAdviceRequest` 需要保证：
 
@@ -578,7 +589,7 @@ response.base_state_generation ==
 - reclaim pool entry 发送当前 bootstrap topology；
 - sidecar `RampUp` 与 main 一致；
 - sidecar不重复成为 reservation owner。
-- request/response generation匹配，stable-pending只接受基于当前稳定态请求生成的 response。
+- 同步模式要求 request/response 完整快照匹配；legacy ListAndWatch 模式要求 generation 匹配，并且只接受基于当前稳定态请求生成的 response。
 - legacy ListAndWatch基于同一checkpoint snapshot回传generation，不能猜测或使用当前最新值替代。
 
 ## SysAdvisor 设计
@@ -734,23 +745,22 @@ dedicated block id != reclaim block id
 
 ### hard reclaim reservation
 
-从 QRM state 聚合满足以下任一条件的 main container：
+从 QRM state 判断是否存在受新语义保护的 ramp-up main container：
 
 ```text
 RampUp == true
-或 RampUpReservationPending == true
 ```
 
-并读取它们的：
+并读取 reclaim pool entry：
 
 ```text
-RampUpReclaimCPUSet
+PoolNameReclaim/FakedContainerName.AllocationResult
 ```
 
 得到：
 
 ```text
-HardRampUpReclaim
+HardRampUpReclaim = reclaim pool AllocationResult filtered by active ramp-up scope
 ```
 
 `BuildCPUSetPartitionView` 或其调用方必须验证：
@@ -790,22 +800,21 @@ cgroup v1 无法可靠写空 reclaim cpuset。新方案通过 admission 保证 e
 ```mermaid
 sequenceDiagram
     participant Q as QRM Planner
-    participant B as Bulkhead Validator
+    participant B as Bulkhead Applier
     participant R as Reclaim Cgroups
     participant P as Primary/DNB Cgroups
     participant S as QRM State
 
     Q->>Q: plan I_n and D_n
-    Q->>B: preflight candidate
-    B-->>Q: valid without writes
+    Q->>Q: validate hard partition
+    Q->>S: commit PodEntries and MachineState
     B->>R: shrink reclaim descendants
     B->>R: shrink reclaim NUMA bucket/parent
     B->>B: read back released CPUs
     B->>P: expand primary ancestors
     B->>P: write DNB remainder
     B->>B: verify partition
-    B-->>Q: candidate applied
-    Q->>S: commit PodEntries and MachineState
+    B-->>Q: committed state applied
 ```
 
 写入原则：
@@ -837,11 +846,10 @@ sequenceDiagram
     K->>Q: Allocate Pod
     Q->>Q: calculate bootstrap reclaim
     Q->>Q: plan workload complement
-    Q->>H: preflight candidate
-    H-->>Q: valid
-    Q->>H: apply candidate partition
-    H-->>Q: converged
+    Q->>Q: validate candidate invariants
     Q->>Q: commit RampUp state
+    Q->>H: apply committed state partition
+    H-->>Q: converged
     Q-->>K: allocation response
 
     loop advisor reconcile during ramp-up
@@ -854,12 +862,12 @@ sequenceDiagram
     end
 
     Q->>Q: transitionPeriod expires
-    Q->>Q: RampUp=false, ReservationPending=true
-    Q->>A: next request uses stable phase
+    Q->>Q: live RampUp state still protects hard reclaim
+    Q->>A: next request reports stable phase
     A-->>Q: stable overlap/non-overlap plan
-    Q->>H: apply stable candidate while live state protects old reservation
+    Q->>Q: commit Stable state, clear RampUp and update reclaim pool target
+    Q->>H: apply committed Stable state
     H-->>Q: stable partition applied
-    Q->>Q: commit Stable state, clear pending and bootstrap target
 ```
 
 ## 原子性边界
@@ -876,13 +884,12 @@ cgroup 最终一致
 
 1. 在 clone state 上完成所有计算。
 2. 在写 state 或 cgroup 前完成集合不变量校验。
-3. bulkhead 对 candidate snapshot 执行无写入 preflight。
-4. bulkhead 直接基于 candidate snapshot 按安全顺序写入并 read-back。
-5. apply 失败时保留旧 live state；writer恢复或保持上一稳定 partition。
-6. apply 成功后一次提交 candidate state。
-7. 稳定态 candidate apply 成功后才释放 `RampUpReservationPending`。
+3. 校验通过后一次提交 candidate state，使 QRM state 先成为新的目标状态。
+4. bulkhead 直接基于已提交 state 按安全顺序写入并 read-back。
+5. apply 失败时不回滚 state；writer恢复或保持上一稳定 partition，后续 reconcile 继续向已提交目标收敛。
+6. 稳定态 state 提交时才清理 `RampUp` 并更新 reclaim pool target，bulkhead 随后基于该稳定态目标应用。
 
-当前 allocation 路径部分场景先更新 state 再运行 adjustment handler，需要重构为 plan/preflight/apply/commit 四阶段。文档不要求跨多个 cgroup 文件的 ACID 事务，而是要求 candidate state 原子和 writer apply 可恢复。
+当前 allocation 路径部分场景先更新 state 再运行 adjustment handler，这个方向是对的，但需要先补齐 clone 规划、集合校验和统一提交边界。文档不要求跨多个 cgroup 文件的 ACID 事务，而是要求 state 目标原子提交和 writer apply 可恢复。
 
 SysAdvisor 也应避免 assembler 失败后留下半更新 region/policy 状态。至少只发布完整成功的 advice；失败时保留上一帧可用结果。
 
@@ -926,31 +933,30 @@ dedicated remainder 1
 - 未配置保持旧行为；
 - 配置后启用完整新 planner；
 - ratio 热更新只影响新进入 ramp-up 的 main container；
-- 已进入 ramp-up 的 Pod使用 checkpoint 中的 `RampUpReclaimCPUSet`；
-- advisor proto只增加 state generation ACK，不传 ratio和具体 CPU ID；
+- 已进入 ramp-up 的 Pod使用 checkpoint 中的 reclaim pool `AllocationResult`；
+- 首期 advisor proto 不传 ratio和具体 CPU ID；legacy `ListAndWatch` 兼容阶段再增加 state generation ACK；
 - API 依赖更新后移除长期 fork replace。
 
 ### checkpoint
 
-新增 `AllocationInfo` 字段会改变 checkpoint 深哈希对象；`omitempty` 只影响 JSON 输出，不能保证 checksum 兼容。升级必须采用显式迁移策略：
+不新增 `AllocationInfo` 字段后，checkpoint schema 变化只来自其它必要配置或 proto 改动；仍需显式处理启用新配置后的旧状态：
 
-1. 为 checkpoint 增加 schema version，或在当前 checksum 失败时识别已知旧 schema。
-2. 旧 schema 反序列化后，把缺失的 `RampUpReclaimCPUSet` 初始化为 `machine.NewCPUSet()`，不能保留未初始化零值。
-3. 根据旧 `RampUp`、当前 reclaim pool和 workload scope执行 fail-closed 迁移。
-4. 迁移成功后立即按新 schema重写 checkpoint。
-5. 迁移失败时不运行新的 hard partition writer，保持旧布局并报告 degraded。
+1. 配置未启用时按 legacy checkpoint 运行。
+2. `EnableRampUpReclaimHardPartition == true` 且存在 `RampUp=true` entry 时，必须从 reclaim pool `AllocationResult` 和 workload scope 校验 hard partition invariant。
+3. 校验成功后继续使用该 reclaim pool concrete CPUSet，不重新按 ratio 选择 CPU。
+4. 校验失败时不运行新的 hard partition writer，保持旧布局并报告 degraded。
 
-部署已明确开启 `SkipCPUStateCorruption`，它可以承载一次性升级：checksum mismatch 后继续恢复已反序列化数据，再重写新 checkpoint。但这必须作为发布前置条件记录，不能描述为透明兼容。
+如果仍有 checksum mismatch，部署必须明确开启 `SkipCPUStateCorruption`，并把它作为发布前置条件记录，不能描述为透明兼容。
 
 降级到不了解新字段的旧 binary 不保证 checksum兼容；若要求回滚，旧 binary也必须开启 skip corruption，或在回滚前转换/清理 checkpoint。
 
 恢复时：
 
-- `RampUp=true`：恢复 active phase和 reservation；
-- `RampUp=false && RampUpReservationPending=true`：继续保护 reservation，等待 stable partition apply；
-- `RampUp=false && RampUpReservationPending=false`：无需 bootstrap reservation；
-- `RampUp=true` 且 reservation存在：按原 target恢复；
-- `RampUp=true` 且 reservation缺失：只接受能从当前 reclaim pool与 workload scope证明安全的布局，否则维持旧 state并拒绝新变更。
+- `RampUp=true` 且 reclaim pool满足hard partition：恢复 live hard reservation；
+- `RampUp=true` 且 reclaim pool无法证明hard partition：按 legacy ramp-up entry 处理并 fail closed，不推断新 hard partition；
+- `RampUp=false`：无需 bootstrap reservation；
+- `RampUp=true` 且 reclaim pool target存在：按原 target恢复；
+- `RampUp=true` 且 reclaim pool target缺失：维持旧 state并拒绝新变更。
 
 ### stable overlap
 
@@ -973,7 +979,7 @@ Ramp-up 结束后恢复：
 - core dynamic config/options
 - QRM/SysAdvisor 共用 reserve floor helper
 - `AllocationInfo`
-- state generation及proto生成代码
+- legacy ListAndWatch state generation及proto生成代码
 - checkpoint migration/version
 - checkpoint round-trip
 - sidecar同步
@@ -983,8 +989,8 @@ Ramp-up 结束后恢复：
 - nil/0/边界 ratio语义；
 - main/sidecar lifecycle一致；
 - reservation重启后保持。
-- active/pending/stable phase恢复正确；
-- stale generation response不能清除pending；
+- active/request-expired/stable phase恢复正确；
+- stale response不能触发 stable candidate 提交；
 - skip corruption升级后重写新checksum。
 
 ### 第二阶段：QRM planner
@@ -1030,7 +1036,7 @@ Ramp-up 结束后恢复：
 - `applyBlocks`
 - `generateBlockCPUSet` hard reclaim预绑定
 - candidate readonly snapshot
-- bulkhead preflight interface
+- bulkhead committed-state apply interface
 - `BuildCPUSetPartitionView`
 - topology target normalization
 - cpusettopology plugin/writer tests
@@ -1113,9 +1119,9 @@ union = 8 CPU
 - 两者没有 overlap target；
 - sidecar复用main DNB block；
 - `planBlocks` 保持 `RampUp=true`；
-- stable pending期间仍保持hard reservation；
+- request phase 到期但 stable target 尚未提交期间仍保持hard reservation；
 - stale/stable response违反hard reservation时拒绝。
-- stale generation response即使内容合法也不能结束pending；
+- stale response即使内容合法也不能触发 stable candidate 提交；
 - hard bootstrap CPU在block materialization后保持精确不变。
 
 ### bulkhead
@@ -1131,8 +1137,8 @@ union = 8 CPU
 ### 状态恢复
 
 - shared/SNB/DNB `RampUp=true` round-trip；
-- `RampUp=false && RampUpReservationPending=true` round-trip；
-- reservation round-trip；
+- `RampUp=true` 与 reclaim pool `AllocationResult` round-trip；
+- hard reservation round-trip；
 - main/sidecar一致；
 - 旧checkpoint checksum mismatch在skip corruption模式下迁移并重写；
 - downgrade限制有明确测试或发布说明；
@@ -1143,7 +1149,7 @@ union = 8 CPU
 ### 可复用部分
 
 - `AllocationInfo.RampUp` 和 `InitTimestamp`
-- advisor proto 中已有的 `ramp_up`、topology assignments和新增generation ACK
+- advisor proto 中已有的 `ramp_up` 和 topology assignments
 - SysAdvisor `ContainerInfo.RampUp`
 - dedicated response size override
 - QRM `planBlocks` 的纯规划框架
@@ -1177,10 +1183,10 @@ union = 8 CPU
 
 1. QRM 是 initial ratio 和具体 CPUSet 的唯一计算者。
 2. QRM 与 SysAdvisor 使用同一个 reserve floor helper。
-3. `RampUpReclaimCPUSet` 和 reservation pending 状态随 main container checkpoint 持久化。
-4. SysAdvisor 在 active phase保持 bootstrap target；stable-pending 时计算稳定态 candidate，QRM 旧 live state继续保护 bootstrap reservation。
+3. hard reservation 复用 reclaim pool entry 的 `AllocationResult` 随 checkpoint 持久化。
+4. SysAdvisor 在 active phase保持 bootstrap target；request phase 到期后计算稳定态 candidate，QRM live state在提交 stable target 前继续保护 bootstrap reservation。
 5. bulkhead 将其视为 hard reservation，不允许 normalization 删除。
-6. candidate state先通过preflight并由bulkhead安全应用，成功后再提交live state。
+6. candidate state 先写入成为 QRM 目标状态，再由 bulkhead 基于该 state 安全应用。
 7. 独占 DNB 与 reclaim 在 NUMA 内形成两个非空、互斥且覆盖完整 eligible NUMA 的调度域。
 
 满足这些条件后，独占 DNB 上线时 reclaim 不会为空，也不会与 dedicated 相交，bulkhead 调度域隔离可以稳定成立。

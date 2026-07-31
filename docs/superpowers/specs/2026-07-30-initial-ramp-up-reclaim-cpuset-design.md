@@ -1,5 +1,8 @@
 # Initial Ramp-Up Reclaim CPUSet Design
 
+> Superseded by `2026-07-30-ramp-up-reclaim-complete-design.md` and `2026-07-30-ramp-up-reclaim-merged-evaluation.md`.
+> This early draft is retained only as historical context. Do not implement from this file directly: it predates `EnableRampUpReclaimHardPartition`, reclaim-pool `AllocationResult` reuse, committed-state bulkhead apply, and the synchronous `GetAdvice` first-phase decision.
+
 ## Goal
 
 Add `InitialRampUpReclaimCPUSetRatio` so shared and dedicated workloads reserve a predictable reclaim CPUSet during ramp-up without violating per-NUMA reclaim reserves or dedicated/reclaim isolation.

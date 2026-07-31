@@ -72,7 +72,7 @@ MOCKEY_CHECK_GCFLAGS=false \
 
 ## 核心目标
 
-启用 `InitialRampUpReclaimCPUSetRatio` 后，独占 DNB ramp-up 必须把每个绑定 NUMA 分成两个调度域：
+启用 `EnableRampUpReclaimHardPartition` 后，独占 DNB ramp-up 必须把每个绑定 NUMA 分成两个调度域：
 
 ```text
 H_n = hard ramp-up reclaim CPUSet
@@ -200,9 +200,9 @@ transitionPeriod到期:
 
 stable candidate:
   candidate中先设置RampUp=false
-  清理candidate hard reclaim
-  bulkhead基于该stable candidate完全收敛
-  成功后一次提交live state
+  更新candidate中的reclaim pool AllocationResult为stable target
+  提交candidate为新的live state
+  bulkhead基于已提交stable state完全收敛
 ```
 
 这样不需要 `RampUpReservationPending`。时间戳决定发给 SysAdvisor 的 phase，live `RampUp` 决定 reservation ownership。
@@ -254,19 +254,32 @@ entries 与 generation 必须来自同一 checkpoint snapshot。否则 SysAdviso
 新增到 `QRMPluginConfig.CPUPluginConfig`：
 
 ```go
+EnableRampUpReclaimHardPartition *bool
+    `json:"enableRampUpReclaimHardPartition,omitempty"`
+
 InitialRampUpReclaimCPUSetRatio *float64
     `json:"initialRampUpReclaimCPUSetRatio,omitempty"`
 ```
 
-语义：
+开关语义：
 
 ```text
-nil      = legacy，不启用hard partition
-0        = 启用新planner，只使用reserve floor
+EnableRampUpReclaimHardPartition != true:
+  legacy，不启用hard partition
+
+EnableRampUpReclaimHardPartition == true:
+  启用hard partition planner
+```
+
+ratio 语义：
+
+```text
+nil      = 动态配置未覆盖，使用启动 flag 或默认配置中的 ratio
+0        = 只使用reserve floor
 (0, 1]   = 使用ratio和reserve floor较大值
 ```
 
-API 与 core dynamic config 均保留指针，不能在配置 merge 时提前转为 `float64`，否则无法区分 nil 和显式 0。
+API 与 core dynamic config 均保留 enable 指针，避免无法区分“未下发开关”和“显式关闭”。ratio 指针表达动态配置是否下发过比例值；nil 时不得覆盖 flag/default ratio。
 
 CRD 与 CLI 校验：
 
@@ -282,7 +295,7 @@ CRD 与 CLI 校验：
 cpu_ramp_up_reclaim_hard_partition
 ```
 
-配置非 nil 时：
+`EnableRampUpReclaimHardPartition == true` 时：
 
 - QRM 与 SysAdvisor 必须都支持；
 - 未协商成功时 fail closed；
@@ -342,33 +355,23 @@ func CalculateReservedForReclaimByNUMA(
 - initial ramp-up ratio以 eligible CPU数为分母；
 - QRM与SysAdvisor使用同一floor结果。
 
-## AllocationInfo
+## AllocationInfo 与 reclaim pool entry
 
-建议新增：
+不新增 `AllocationInfo` 字段，复用现有 `AllocationResult`：
 
-```go
-type AllocationInfo struct {
-    // existing fields
+- main container 的 `AllocationResult` 继续表达 workload CPUSet；
+- `PoolNameReclaim/FakedContainerName` 的 `AllocationResult` 表达 QRM 已提交的 concrete reclaim target；
+- initial ramp-up planner 通过更新 reclaim pool entry 持久化 hard reclaim；
+- legacy checkpoint 通过 `RampUp=true` + reclaim pool invariant 校验 fail closed，不依赖新增 planned bool。
 
-    RampUpReclaimPlanned bool
-    RampUpReclaimCPUSet  machine.CPUSet
-}
-```
-
-`RampUpReclaimPlanned` 用来区分：
-
-- 旧 checkpoint没有新字段；
-- 新 planner显式计算出空值；
-- 新 exclusive DNB必须具有非空值。
-
-reservation只存储在 main container。sidecar同步：
+sidecar同步：
 
 - `RampUp`
 - `InitTimestamp`
 - workload CPUSet
 - topology
 
-sidecar不复制 reservation ownership，避免重复聚合。
+sidecar不复制 reservation ownership，避免重复聚合；reservation ownership 来自 reclaim pool entry。
 
 ## QRM planner
 
@@ -513,8 +516,8 @@ reclaim last
 
 新模式必须变为：
 
-1. 聚合 main container 的 `RampUpReclaimCPUSet`。
-2. 按 NUMA得到 `HardReclaim[n]`。
+1. 检测 active ramp-up main containers。
+2. 从 reclaim pool entry 的 `AllocationResult` 按 active ramp-up scope 得到 `HardReclaim[n]`。
 3. 验证 reclaim block result不小于hard size。
 4. 将 hard CPU精确预绑定到 reclaim block。
 5. 从 available CPU中扣除hard CPU。
@@ -651,8 +654,7 @@ FullyConverged=false => error
 
 ```text
 AllocationInfo.RampUp=true
-RampUpReclaimPlanned=true
-hard CPUSet非空
+reclaim pool AllocationResult满足hard partition invariant
 ```
 
 ### 到期
@@ -670,8 +672,7 @@ QRM执行：
 ```text
 clone live state as stable candidate
 → candidate中RampUp=false
-→ candidate中RampUpReclaimPlanned=false
-→ candidate中clear hard CPUSet
+→ candidate中更新reclaim pool AllocationResult为stable target
 → 基于该candidate materialize stable blocks
 → regenerate MachineState并校验stable不变量
 → bulkhead基于stable candidate fully converged
@@ -680,13 +681,12 @@ clone live state as stable candidate
 
 ## checkpoint
 
-新增字段会改变深哈希对象，`omitempty` 不保证 checksum兼容。
+不新增 `AllocationInfo` 字段后，不再因为 hard reclaim 引入新的 checkpoint schema字段。
 
 发布要求：
 
 - 开启 `SkipCPUStateCorruption`；
-- 缺失 CPUSet初始化为 `machine.NewCPUSet()`；
-- `RampUpReclaimPlanned=false` 按legacy entry处理；
+- `RampUp=true` 但 reclaim pool invariant 不满足时按legacy entry fail closed；
 - restore成功后立即重写新checkpoint；
 - rollback旧binary同样需要skip corruption或checkpoint转换。
 
@@ -701,7 +701,7 @@ clone live state as stable candidate
 - core dynamic config
 - feature gate
 - shared reserve helper
-- AllocationInfo新字段
+- reclaim pool entry复用与checkpoint校验
 - checkpoint迁移
 - sidecar同步
 
@@ -714,7 +714,7 @@ clone live state as stable candidate
 - `GetResourcesAllocation`
 - advisor request phase
 
-全局 ratio配置非 nil 前，shared、SNB、非独占 DNB和独占 DNB必须全部实现。当前配置没有 workload维度，不能只实现exclusive DNB后启用同一个全局字段。
+全局 hard partition 开关打开前，shared、SNB、非独占 DNB和独占 DNB必须全部实现。当前开关没有 workload维度，不能只实现exclusive DNB后启用同一个全局字段。
 
 ### 第三组：SysAdvisor 与 blocks
 
@@ -832,8 +832,8 @@ replace github.com/kubewharf/katalyst-api =>
 QRM选择并持久化hard reclaim
 → SysAdvisor输出独立合法blocks
 → QRM先预绑定hard CPU
-→ bulkhead基于candidate state校验和收敛
-→ 完全收敛后提交live state
+→ QRM提交candidate为新的目标state
+→ bulkhead基于已提交state校验和收敛
 ```
 
 原完整方案中的以下方向保留：
