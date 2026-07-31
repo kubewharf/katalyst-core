@@ -24,7 +24,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bytedance/mockey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,7 +106,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	return conf
 }
 
-func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metrictypes.MetricsFetcher, plugins []types.MemoryAdvisorPluginName) (*memoryResourceAdvisor, metacache.MetaCache) {
+func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFileDir string, fetcher metrictypes.MetricsFetcher, plugins []types.MemoryAdvisorPluginName, extraConfigs ...interface{}) (*memoryResourceAdvisor, metacache.MetaCache) {
 	conf := generateTestConfiguration(t, checkpointDir, stateFileDir)
 	conf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
 		reclaim.GenericConsumerName: 100,
@@ -155,7 +154,11 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(podProfiles))
 	assert.NoError(t, err)
 
-	mra := NewMemoryResourceAdvisor(conf, struct{}{}, metaCache, metaServer, metrics.DummyMetrics{})
+	extraConfig := interface{}(struct{}{})
+	if len(extraConfigs) > 0 {
+		extraConfig = extraConfigs[0]
+	}
+	mra := NewMemoryResourceAdvisor(conf, extraConfig, metaCache, metaServer, metrics.DummyMetrics{})
 	assert.NotNil(t, mra)
 
 	return mra, metaCache
@@ -4559,12 +4562,6 @@ func TestUpdate(t *testing.T) {
 			mockmu.Lock()
 			defer mockmu.Unlock()
 
-			if len(tt.zoneInfos) > 0 {
-				defer mockey.UnPatchAll()
-				mockey.Mock(machine.GetNormalZoneInfo).To(func(s string) []machine.NormalZoneInfo {
-					return tt.zoneInfos
-				}).Build()
-			}
 			ckDir, err := ioutil.TempDir("", "checkpoint-TestUpdate")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)
@@ -4597,7 +4594,16 @@ func TestUpdate(t *testing.T) {
 				metricsFetcher.SetSynced(*tt.metricsFetcherSynced)
 			}
 
-			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher, tt.plugins)
+			extraConfig := interface{}(struct{}{})
+			if len(tt.zoneInfos) > 0 {
+				zoneInfos := tt.zoneInfos
+				extraConfig = &memadvisorplugin.MemoryGuardExtraConfig{
+					NormalZoneInfoReader: func(string) []machine.NormalZoneInfo {
+						return zoneInfos
+					},
+				}
+			}
+			advisor, metaCache := newTestMemoryAdvisor(t, tt.pods, ckDir, sfDir, fetcher, tt.plugins, extraConfig)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.reclaimedEnable
 			transparentMemoryOffloadingConfiguration := tmo.NewTransparentMemoryOffloadingConfiguration()
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)

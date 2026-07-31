@@ -60,9 +60,19 @@ type memoryGuard struct {
 	reconcileStatus                    *atomic.String
 	minCriticalWatermark               int64
 	conf                               *config.Configuration
+	normalZoneInfoReader               func(string) []machine.NormalZoneInfo
+}
+
+type MemoryGuardExtraConfig struct {
+	NormalZoneInfoReader func(string) []machine.NormalZoneInfo
 }
 
 func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
+	normalZoneInfoReader := machine.GetNormalZoneInfo
+	if cfg, ok := extraConfig.(*MemoryGuardExtraConfig); ok && cfg.NormalZoneInfoReader != nil {
+		normalZoneInfoReader = cfg.NormalZoneInfoReader
+	}
+
 	return &memoryGuard{
 		metaReader:                         metaReader,
 		metaServer:                         metaServer,
@@ -74,6 +84,7 @@ func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaRea
 		reconcileStatus:                    atomic.NewString(reconcileStatusFailed),
 		minCriticalWatermark:               conf.MinCriticalWatermark,
 		conf:                               conf,
+		normalZoneInfoReader:               normalZoneInfoReader,
 	}
 }
 
@@ -88,7 +99,7 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 
 	mg.reconcileStatus.Store(reconcileStatusFailed)
 
-	zoneInfos := machine.GetNormalZoneInfo(defaultProcZoneInfoFile)
+	zoneInfos := mg.normalZoneInfoReader(defaultProcZoneInfoFile)
 
 	err := mg.updateNonActualNUMABindingReclaimMemoryLimit(zoneInfos)
 	if err != nil {

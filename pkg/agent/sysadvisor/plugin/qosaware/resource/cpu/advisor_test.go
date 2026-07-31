@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -58,7 +58,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
@@ -78,6 +77,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+	conf.BaseConfiguration.ReclaimRelativeRootCgroupPath = "/kubepods/besteffort"
 	conf.RestrictRefPolicy = nil
 
 	return conf
@@ -95,33 +95,34 @@ func (m *testResourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha
 }
 
 func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, profiles map[k8stypes.UID]spd.DummyPodServiceProfile) (*cpuResourceAdvisor, metacache.MetaCache) {
-	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
-	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, nil))
-
-	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, mf)
-	require.NoError(t, err)
-
 	// numa node0 cpu(s): 0-23,48-71
 	// numa node1 cpu(s): 24-47,72-95
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
 	assert.NoError(t, err)
+	machineInfo := &machine.KatalystMachineInfo{
+		MachineInfo: &info.MachineInfo{
+			NumCores: 96,
+			Topology: []info.Node{
+				{
+					Id: 0,
+				},
+				{
+					Id: 1,
+				},
+			},
+		},
+		CPUTopology: cpuTopology,
+	}
+
+	reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+	require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, conf, machineInfo))
+
+	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, mf)
+	require.NoError(t, err)
 
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			KatalystMachineInfo: &machine.KatalystMachineInfo{
-				MachineInfo: &info.MachineInfo{
-					NumCores: 96,
-					Topology: []info.Node{
-						{
-							Id: 0,
-						},
-						{
-							Id: 1,
-						},
-					},
-				},
-				CPUTopology: cpuTopology,
-			},
+			KatalystMachineInfo: machineInfo,
 			PodFetcher: &pod.PodFetcherStub{
 				PodList: pods,
 			},
@@ -135,7 +136,11 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 	err = metaServer.SetResourcePackageManager(&testResourcePackageManager{})
 	require.NoError(t, err)
 
-	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, metrics.DummyMetrics{})
+	cra := NewCPUResourceAdvisor(conf, &headroomassembler.HeadroomAssemblerCommonExtraConfig{
+		ExistingRelativeCgroupPaths: func(paths ...string) []string {
+			return paths
+		},
+	}, metaCache, metaServer, metrics.DummyMetrics{})
 	require.NotNil(t, cra)
 
 	return cra, metaCache
@@ -1449,18 +1454,6 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 		},
 	}
-
-	// The production headroom assembler now filters reclaim cgroup paths
-	// through general.GetExistingPaths, which returns an empty slice for the
-	// fake paths used in tests and causes GetReclaimMetricsMulti to error.
-	// Install a single function-level pass-through patch so all parallel
-	// subtests see it; per-subtest teardown would race with siblings.
-	existingPathsPatches := gomonkey.ApplyFunc(general.GetExistingPaths, func(paths []string) []string {
-		return paths
-	})
-	defer t.Cleanup(func() {
-		existingPathsPatches.Reset()
-	})
 
 	for _, tt := range tests {
 		tt := tt

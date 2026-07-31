@@ -56,6 +56,10 @@ type HeadroomAssemblerCommon struct {
 	pathWarningOnce sync.Map
 }
 
+type HeadroomAssemblerCommonExtraConfig struct {
+	ExistingRelativeCgroupPaths func(...string) []string
+}
+
 func (ha *HeadroomAssemblerCommon) logReclaimPathResolution(scope string, numaID int, cpuSet machine.CPUSet, inputPaths, resolvedPaths []string) {
 	if len(inputPaths) > 0 && len(resolvedPaths) == 0 {
 		warningKey := fmt.Sprintf("%s/%d", scope, numaID)
@@ -78,10 +82,15 @@ func (ha *HeadroomAssemblerCommon) logReclaimPathResolution(scope string, numaID
 		"cpuset", cpuSet.String())
 }
 
-func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
+func NewHeadroomAssemblerCommon(conf *config.Configuration, extraConfig interface{}, regionMap *map[string]region.QoSRegion,
 	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomAssembler {
+	existingRelativeCgroupPaths := cgroupcommon.GetExistingRelativeCgroupPaths
+	if cfg, ok := extraConfig.(*HeadroomAssemblerCommonExtraConfig); ok && cfg.ExistingRelativeCgroupPaths != nil {
+		existingRelativeCgroupPaths = cfg.ExistingRelativeCgroupPaths
+	}
+
 	return &HeadroomAssemblerCommon{
 		conf:               conf,
 		regionMap:          regionMap,
@@ -91,7 +100,7 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 
 		reclaimRelativeRootCgroupPaths:     reclaim.AggregateCgroupPaths(),
 		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
-		existingRelativeCgroupPaths:        cgroupcommon.GetExistingRelativeCgroupPaths,
+		existingRelativeCgroupPaths:        existingRelativeCgroupPaths,
 
 		metaReader: metaReader,
 		metaServer: metaServer,
