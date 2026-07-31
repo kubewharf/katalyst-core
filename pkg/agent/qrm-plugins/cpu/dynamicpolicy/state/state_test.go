@@ -3613,3 +3613,64 @@ func TestStateClonesAndCheckpointRestoreDoNotAliasState(t *testing.T) {
 	restoreCheckpoint.MachineState[0].ResourcePackageStates["package"].PinnedCPUSet = machine.NewCPUSet(12)
 	require.Equal(t, restoredSnapshot, cloneStateForTest(restoredState))
 }
+
+func TestReclaimPoolAllocationResultClonesIndependently(t *testing.T) {
+	t.Parallel()
+
+	reclaimPool := &AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.NewCPUSet(1, 2),
+	}
+
+	cloned := reclaimPool.Clone()
+	cloned.AllocationResult = cloned.AllocationResult.Difference(machine.NewCPUSet(1))
+
+	assert.True(t, reclaimPool.AllocationResult.Equals(machine.NewCPUSet(1, 2)))
+	assert.True(t, cloned.AllocationResult.Equals(machine.NewCPUSet(2)))
+}
+
+func TestTargetStateReadonlyStateSnapshot(t *testing.T) {
+	t.Parallel()
+
+	target := &TargetState{
+		PodEntries: PodEntries{
+			commonstate.PoolNameReclaim: {
+				commonstate.FakedContainerName: {
+					AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+					AllocationResult: machine.NewCPUSet(1, 2),
+				},
+			},
+		},
+		MachineState: NUMANodeMap{
+			0: {
+				DefaultCPUSet:   machine.NewCPUSet(0, 1, 2, 3),
+				AllocatedCPUSet: machine.NewCPUSet(1, 2),
+				PodEntries:      make(PodEntries),
+			},
+		},
+		NUMAHeadroom: map[int]float64{0: 1.5},
+
+		AllowSharedCoresOverlapReclaimedCores:      true,
+		DisableDedicatedCoresOverlapReclaimedCores: true,
+	}
+
+	var readonly ReadonlyState = target
+
+	entries := readonly.GetPodEntries()
+	entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult = machine.NewCPUSet(9)
+	assert.True(t, target.PodEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.Equals(machine.NewCPUSet(1, 2)))
+
+	allocationInfo := readonly.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	allocationInfo.AllocationResult = machine.NewCPUSet(8)
+	assert.True(t, target.PodEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.Equals(machine.NewCPUSet(1, 2)))
+
+	machineState := readonly.GetMachineState()
+	machineState[0].AllocatedCPUSet = machine.NewCPUSet(7)
+	assert.True(t, target.MachineState[0].AllocatedCPUSet.Equals(machine.NewCPUSet(1, 2)))
+
+	headroom := readonly.GetNUMAHeadroom()
+	headroom[0] = 9.9
+	assert.Equal(t, 1.5, target.NUMAHeadroom[0])
+	assert.True(t, readonly.GetAllowSharedCoresOverlapReclaimedCores())
+	assert.True(t, readonly.GetDisableDedicatedCoresOverlapReclaimedCores())
+}

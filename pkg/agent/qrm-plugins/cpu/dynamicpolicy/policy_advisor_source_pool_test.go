@@ -726,7 +726,7 @@ func TestDynamicPolicy_generateBlockCPUSet_combinedCarvesIsolationFromNormalShar
 		},
 	}
 
-	blockCPUSet, err := p.generateBlockCPUSet(resp)
+	blockCPUSet, err := p.generateBlockCPUSet(resp, false)
 	require.NoError(t, err)
 
 	share := blockCPUSet["block-share"]

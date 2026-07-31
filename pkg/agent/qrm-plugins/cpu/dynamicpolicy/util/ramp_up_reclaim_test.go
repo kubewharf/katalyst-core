@@ -26,79 +26,106 @@ func TestCalculateRampUpReclaimTarget(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		ratio     float64
-		eligible  int
-		reserve   int
-		cap       int
-		exclusive bool
-		want      int
-		wantErr   string
+		name              string
+		ratio             float64
+		eligible          int
+		reserve           int
+		cap               int
+		podReclaimEnabled bool
+		exclusive         bool
+		want              int
+		wantErr           string
 	}{
 		{
-			name:     "reserve wins",
-			ratio:    0.1,
-			eligible: 20,
-			reserve:  4,
-			cap:      10,
-			want:     4,
+			name:              "reserve wins",
+			ratio:             0.1,
+			eligible:          20,
+			reserve:           4,
+			cap:               10,
+			podReclaimEnabled: true,
+			want:              4,
 		},
 		{
-			name:     "ratio wins after rounding down to even",
-			ratio:    0.26,
-			eligible: 20,
-			reserve:  1,
-			cap:      10,
-			want:     4,
+			name:              "ratio wins after rounding down to even",
+			ratio:             0.26,
+			eligible:          20,
+			reserve:           1,
+			cap:               10,
+			podReclaimEnabled: true,
+			want:              4,
 		},
 		{
-			name:     "ratio point two rounds nineteen point two down to eighteen",
-			ratio:    0.2,
-			eligible: 96,
-			reserve:  4,
-			cap:      95,
-			want:     18,
+			name:              "ratio point two rounds nineteen point two down to eighteen",
+			ratio:             0.2,
+			eligible:          96,
+			reserve:           4,
+			cap:               95,
+			podReclaimEnabled: true,
+			want:              18,
 		},
 		{
-			name:     "zero ratio uses reserve",
-			ratio:    0,
-			eligible: 20,
-			reserve:  2,
-			cap:      10,
-			want:     2,
+			name:              "zero ratio uses reserve",
+			ratio:             0,
+			eligible:          20,
+			reserve:           2,
+			cap:               10,
+			podReclaimEnabled: true,
+			want:              2,
 		},
 		{
-			name:     "target above cap rejects",
-			ratio:    0.8,
-			eligible: 20,
-			reserve:  1,
-			cap:      10,
-			wantErr:  "bootstrap target exceeds reclaim cap",
+			name:              "pod reclaim disabled ignores ratio target",
+			ratio:             0.8,
+			eligible:          20,
+			reserve:           1,
+			cap:               10,
+			podReclaimEnabled: false,
+			want:              1,
 		},
 		{
-			name:      "exclusive remainder empty rejects",
-			ratio:     1,
-			eligible:  20,
-			reserve:   1,
-			cap:       20,
-			exclusive: true,
-			wantErr:   "exclusive ramp-up requires non-empty dedicated remainder",
+			name:              "pod reclaim disabled ignores invalid ratio",
+			ratio:             1.1,
+			eligible:          20,
+			reserve:           2,
+			cap:               10,
+			podReclaimEnabled: false,
+			want:              2,
 		},
 		{
-			name:     "empty target rejects",
-			ratio:    0,
-			eligible: 20,
-			reserve:  0,
-			cap:      10,
-			wantErr:  "bootstrap target must be positive",
+			name:              "target above cap rejects",
+			ratio:             0.8,
+			eligible:          20,
+			reserve:           1,
+			cap:               10,
+			podReclaimEnabled: true,
+			wantErr:           "bootstrap target exceeds reclaim cap",
 		},
 		{
-			name:     "invalid ratio rejects",
-			ratio:    1.1,
-			eligible: 20,
-			reserve:  1,
-			cap:      10,
-			wantErr:  "initial ramp-up reclaim ratio must be in [0,1]",
+			name:              "exclusive remainder empty rejects",
+			ratio:             1,
+			eligible:          20,
+			reserve:           1,
+			cap:               20,
+			podReclaimEnabled: true,
+			exclusive:         true,
+			wantErr:           "exclusive ramp-up requires non-empty dedicated remainder",
+		},
+		{
+			name:              "empty target rejects",
+			ratio:             0,
+			eligible:          20,
+			reserve:           0,
+			cap:               10,
+			podReclaimEnabled: true,
+			wantErr:           "bootstrap target must be positive",
+		},
+		{
+			name:              "invalid ratio rejects",
+			ratio:             1.1,
+			eligible:          20,
+			reserve:           1,
+			cap:               10,
+			podReclaimEnabled: true,
+			wantErr:           "initial ramp-up reclaim ratio must be in [0,1]",
 		},
 	}
 
@@ -107,7 +134,7 @@ func TestCalculateRampUpReclaimTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := CalculateRampUpReclaimTarget(tt.eligible, tt.reserve, tt.cap, tt.ratio, tt.exclusive)
+			got, err := CalculateRampUpReclaimTarget(tt.eligible, tt.reserve, tt.cap, tt.ratio, tt.podReclaimEnabled, tt.exclusive)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return

@@ -530,6 +530,11 @@ func (p *DynamicPolicy) Start() (err error) {
 		default:
 		}
 
+		if p.isRampUpReclaimHardPartitionEnabled() {
+			general.Errorf("advisor GetAdvice is required when ramp-up reclaim hard partition is enabled; skip legacy ListAndWatch fallback")
+			return
+		}
+
 		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
 		if err := p.pushCPUAdvisor(); err != nil {
@@ -679,6 +684,12 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				}
 			} else if allocationInfo.RampUp && time.Now().After(initTs.Add(p.transitionPeriod)) {
 				general.Infof("pod: %s/%s, container: %s ramp up finished", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				if p.isRampUpReclaimHardPartitionEnabled() {
+					// Expiry only changes the advisor phase in hard-partition mode. The
+					// live reclaim pool remains the target until a stable candidate is
+					// committed and bulkhead converges cgroups toward that committed state.
+					continue
+				}
 				allocationInfo.RampUp = false
 				if err := p.updateAllocationInfo(podUID, containerName, originAllocationInfo, allocationInfo, true); err != nil {
 					general.Errorf("updateAllocationInfo failed for pod: %s/%s, container: %s: %v",

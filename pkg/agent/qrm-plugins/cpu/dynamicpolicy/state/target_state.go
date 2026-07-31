@@ -16,8 +16,61 @@ limitations under the License.
 
 package state
 
+import "github.com/kubewharf/katalyst-core/pkg/util/general"
+
 // TargetState is the calculated committed state for an advisor update.
+// It never falls back to live state: every getter reads only this candidate
+// snapshot so bulkhead and source-pool helpers cannot accidentally mix states.
 type TargetState struct {
 	PodEntries   PodEntries
 	MachineState NUMANodeMap
+	NUMAHeadroom map[int]float64
+
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+}
+
+func (s *TargetState) GetMachineState() NUMANodeMap {
+	if s == nil {
+		return nil
+	}
+	return s.MachineState.Clone()
+}
+
+func (s *TargetState) GetNUMAHeadroom() map[int]float64 {
+	if s == nil {
+		return nil
+	}
+	return general.DeepCopyIntToFloat64Map(s.NUMAHeadroom)
+}
+
+func (s *TargetState) GetPodEntries() PodEntries {
+	if s == nil {
+		return nil
+	}
+	return s.PodEntries.Clone()
+}
+
+func (s *TargetState) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
+	if s == nil {
+		return nil
+	}
+	if entries, ok := s.PodEntries[podUID]; ok {
+		return entries[containerName].Clone()
+	}
+	return nil
+}
+
+func (s *TargetState) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	if s == nil {
+		return false
+	}
+	return s.AllowSharedCoresOverlapReclaimedCores
+}
+
+func (s *TargetState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	if s == nil {
+		return false
+	}
+	return s.DisableDedicatedCoresOverlapReclaimedCores
 }

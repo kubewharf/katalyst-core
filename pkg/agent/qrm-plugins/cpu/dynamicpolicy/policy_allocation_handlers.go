@@ -33,9 +33,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/planner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	dynamicpolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	resourcehelper "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -60,7 +63,7 @@ func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
 	}
 }
 
-func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context.Context,
+func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest, persistCheckpoint bool,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
@@ -138,7 +141,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 					if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 						return nil, err
 					}
-					checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true, persistCheckpoint)
+					checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(ctx, allocationInfo, true, persistCheckpoint)
 					if err != nil {
 						// roll back the freshly-inserted allocation to keep pod entries clean
 						p.state.Delete(allocationInfo.PodUid, allocationInfo.ContainerName, persistCheckpoint)
@@ -169,7 +172,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 				if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 					return nil, err
 				}
-				_, err = p.doAndCheckPutAllocationInfo(allocationInfo, false, persistCheckpoint)
+				_, err = p.doAndCheckPutAllocationInfo(ctx, allocationInfo, false, persistCheckpoint)
 				if err != nil {
 					return nil, err
 				}
@@ -200,7 +203,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 				return nil, err
 			}
-			_, err := p.doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo, false, true, persistCheckpoint)
+			_, err := p.doAndCheckPutAllocationInfoPodResizingAware(ctx, originAllocationInfo, allocationInfo, false, true, persistCheckpoint)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s doAndCheckPutAllocationInfoPodResizingAware failed: %q",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -208,7 +211,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 				return nil, err
 			}
 		} else {
-			_, err := p.doAndCheckPutAllocationInfo(allocationInfo, true, persistCheckpoint)
+			_, err := p.doAndCheckPutAllocationInfo(ctx, allocationInfo, true, persistCheckpoint)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s doAndCheckPutAllocationInfo failed: %q",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -219,21 +222,32 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 	}
 
 	if needSet {
+		rollbackPodEntries := p.state.GetPodEntries()
+		rollbackMachineState := p.state.GetMachineState()
 		// update pod entries directly.
 		// if one of subsequent steps is failed,
-		// we will delete current allocationInfo from podEntries in defer function of allocation function.
-		if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
+		// we will roll back current allocationInfo and hard reclaim planner state.
+		if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, false); err != nil {
 			return nil, err
 		}
 		podEntries := p.state.GetPodEntries()
-
-		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
-		if err != nil {
-			general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, err)
-			return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		if p.isRampUpReclaimHardPartitionEnabled() && allocationInfo.RampUp {
+			podReclaimEnabled := p.podEnableReclaimOrFallback(ctx, allocationInfo.PodUid, "non-binding shared allocate")
+			committedPodEntries, _, err := p.writeRampUpReclaimPoolTargetFromEligible(ctx, allocationInfo.AllocationResult, false, podReclaimEnabled, persistCheckpoint, rollbackPodEntries, rollbackMachineState)
+			if err != nil {
+				return nil, err
+			}
+			podEntries = committedPodEntries
+		} else {
+			updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				return nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint,
+					fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err))
+			}
+			p.state.SetMachineState(updatedMachineState, persistCheckpoint)
 		}
-		p.state.SetMachineState(updatedMachineState, persistCheckpoint)
 	}
 
 	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req, allocationInfo.Annotations)
@@ -428,12 +442,14 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return p.allocationSidecarHandler(ctx, req, apiconsts.PodAnnotationQoSLevelDedicatedCores, persistCheckpoint)
 	}
 
+	rollbackPodEntries := p.state.GetPodEntries()
+	rollbackMachineState := p.state.GetMachineState()
 	var machineState state.NUMANodeMap
 	oldAllocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if oldAllocationInfo == nil {
 		machineState = p.state.GetMachineState()
 	} else {
-		p.state.Delete(req.PodUid, req.ContainerName, persistCheckpoint)
+		p.state.Delete(req.PodUid, req.ContainerName, false)
 		podEntries := p.state.GetPodEntries()
 
 		var err error
@@ -441,21 +457,36 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		if err != nil {
 			general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
-			return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			return nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint,
+				fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err))
 		}
+	}
+	stateMutated := false
+	rollbackDNBReallocation := func(persistRollback bool, err error) error {
+		if oldAllocationInfo == nil && !stateMutated {
+			return err
+		}
+		return p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistRollback, err)
 	}
 
 	podAggregatedRequest, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
-		return nil, fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
+		return nil, rollbackDNBReallocation(persistCheckpoint,
+			fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err))
 	}
 
 	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
-		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+		return nil, rollbackDNBReallocation(persistCheckpoint,
+			fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err))
 	}
 
-	result, err := p.allocateNumaBindingCPUs(podAggregatedRequest, req.Hint, machineState, req.Annotations)
+	podReclaimEnabled := false
+	if p.isRampUpReclaimHardPartitionEnabled() {
+		podReclaimEnabled = p.podEnableReclaimOrFallback(ctx, req.PodUid, "dedicated NUMA binding allocate")
+	}
+
+	result, hardReclaimCPUs, err := p.allocateNumaBindingCPUs(podAggregatedRequest, req.Hint, machineState, req.Annotations, podReclaimEnabled)
 	if err != nil {
 		general.ErrorS(err, "unable to allocate CPUs",
 			"podNamespace", req.PodNamespace,
@@ -464,7 +495,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"podAggregatedRequest", podAggregatedRequest,
 			"numCPUsInt", reqInt,
 			"numCPUsFloat64", reqFloat64)
-		return nil, err
+		return nil, rollbackDNBReallocation(persistCheckpoint, err)
 	}
 
 	// avoid running services on not allocatable CPUs.
@@ -490,7 +521,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"numCPUsInt", reqInt,
 			"numCPUsFloat64", reqFloat64,
 			"result cpuset", result.String())
-		return nil, err
+		return nil, rollbackDNBReallocation(persistCheckpoint, err)
 	}
 
 	allocationInfo := &state.AllocationInfo{
@@ -507,37 +538,57 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 
 	numaNumber, err := qosutil.AnnotationsGetNUMANumber(req.Annotations, len(machineState), p.numaNumberAnnotationKey)
 	if err != nil {
-		return nil, fmt.Errorf("get numa number failed with error: %v", err)
+		return nil, rollbackDNBReallocation(persistCheckpoint,
+			fmt.Errorf("get numa number failed with error: %v", err))
 	}
 	// Cross NUMA allocation is only possible in the case of exclusive NUMA and non-exclusive NUMA with numa number more than 1
 	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) && numaNumber <= 1 {
 		if len(req.Hint.Nodes) != 1 {
-			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
-				"not equal to 1", len(req.Hint.Nodes))
+			return nil, rollbackDNBReallocation(persistCheckpoint,
+				fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
+					"not equal to 1", len(req.Hint.Nodes)))
 		}
 		allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes)
 	}
 
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
-	if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, nil, allocationInfo, persistCheckpoint); err != nil {
-		return nil, err
+	if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, nil, allocationInfo, false); err != nil {
+		return nil, rollbackDNBReallocation(persistCheckpoint, err)
 	}
+	stateMutated = true
 	podEntries := p.state.GetPodEntries()
-
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+	var updatedMachineState state.NUMANodeMap
+	if !hardReclaimCPUs.IsEmpty() {
+		var err error
+		podEntries, updatedMachineState, err = p.writeHardRampUpReclaimPoolTarget(hardReclaimCPUs, false, rollbackPodEntries, rollbackMachineState)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		updatedMachineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint,
+				fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err))
+		}
+		p.state.SetMachineState(updatedMachineState, false)
 	}
-	p.state.SetMachineState(updatedMachineState, persistCheckpoint)
 
-	err = p.adjustAllocationEntries(podEntries, updatedMachineState, persistCheckpoint)
+	err = p.adjustAllocationEntries(podEntries, updatedMachineState, false)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s putContainersAndAdjustAllocationEntriesWithoutAllocation failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
+		return nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint,
+			fmt.Errorf("adjustAllocationEntries failed with error: %v", err))
+	}
+	if persistCheckpoint {
+		if err := p.state.StoreState(); err != nil {
+			return nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, false,
+				fmt.Errorf("store dedicated NUMA-binding allocation checkpoint failed: %w", err))
+		}
 	}
 
 	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU),
@@ -545,11 +596,13 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+		return nil, rollbackDNBReallocation(persistCheckpoint,
+			fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err))
 	}
 
 	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
-		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
+		return nil, rollbackDNBReallocation(persistCheckpoint,
+			fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err))
 	}
 	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
 
@@ -624,7 +677,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 
 	// there is no need to delete old allocationInfo for the container if it exists,
 	// allocateSharedNumaBindingCPUs will re-calculate pool size and avoid counting same entry twice
-	allocationInfo, err := p.allocateSharedNumaBindingCPUs(req, req.Hint, persistCheckpoint)
+	allocationInfo, err := p.allocateSharedNumaBindingCPUs(ctx, req, req.Hint, persistCheckpoint)
 	if err != nil || allocationInfo == nil {
 		general.ErrorS(err, "unable to allocate CPUs",
 			"podNamespace", req.PodNamespace,
@@ -666,31 +719,32 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 //     b. If the package is not pinned but others are, exclude other packages' pinned CPUs.
 //  3. Allocate CPUs from the calculated available set using the topology calculator.
 func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap, reqAnnotations map[string]string,
-) (machine.CPUSet, error) {
+	machineState state.NUMANodeMap, reqAnnotations map[string]string, podReclaimEnabled bool,
+) (machine.CPUSet, machine.CPUSet, error) {
 	distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(reqAnnotations)
 	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(reqAnnotations)
 	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
 	numaNumber, err := qosutil.AnnotationsGetNUMANumber(reqAnnotations, len(machineState), p.numaNumberAnnotationKey)
 	if err != nil {
-		return machine.NewCPUSet(), fmt.Errorf("get numa number failed with error: %v", err)
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("get numa number failed with error: %v", err)
 	}
 
 	if hint == nil {
-		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("hint is nil")
 	} else if len(hint.Nodes) == 0 {
-		return machine.NewCPUSet(), fmt.Errorf("hint is empty")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("hint is empty")
 	} else if !qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) {
-		return machine.NewCPUSet(), fmt.Errorf("request is not NUMA binding, which is unexpected")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("request is not NUMA binding, which is unexpected")
 	} else if !numaExclusive && numaNumber <= 1 && len(hint.Nodes) > 1 {
-		return machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	} else if numaExclusive && fullPCPUsPairing {
-		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and full pcpus pairing not supported at the same time")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and full pcpus pairing not supported at the same time")
 	} else if numaExclusive && distributeEvenlyAcrossNuma {
-		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and distribute evenly across numa not supported at the same time")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and distribute evenly across numa not supported at the same time")
 	}
 
 	result := machine.NewCPUSet()
+	hardReclaimCPUs := machine.NewCPUSet()
 	alignedAvailableCPUs := machine.CPUSet{}
 	alignedAvailableCPUsPerNUMA := make(map[uint64]machine.CPUSet)
 	reclaimCPUs := machine.NewCPUSet()
@@ -715,6 +769,29 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 
 		alignedAvailableCPUsPerNUMA[numaNode] = availableCPUs
 		alignedAvailableCPUs = alignedAvailableCPUs.Union(availableCPUs)
+	}
+
+	if p.isRampUpReclaimHardPartitionEnabled() {
+		for numaNode, availableCPUs := range alignedAvailableCPUsPerNUMA {
+			target, err := dynamicpolicyutil.CalculateRampUpReclaimTarget(
+				availableCPUs.Size(),
+				p.reservedReclaimedCPUSet.Intersection(availableCPUs).Size(),
+				availableCPUs.Size()-1,
+				p.getInitialRampUpReclaimCPUSetRatio(),
+				podReclaimEnabled,
+				numaExclusive,
+			)
+			if err != nil {
+				return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("calculate ramp-up reclaim target for NUMA %d failed: %v", numaNode, err)
+			}
+			hardInNUMA, err := calculator.TakeByTopology(p.machineInfo, availableCPUs, target, true)
+			if err != nil {
+				return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("take hard ramp-up reclaim cpus for NUMA %d failed: %v", numaNode, err)
+			}
+			hardReclaimCPUs = hardReclaimCPUs.Union(hardInNUMA)
+			alignedAvailableCPUsPerNUMA[numaNode] = availableCPUs.Difference(hardInNUMA)
+		}
+		alignedAvailableCPUs = alignedAvailableCPUs.Difference(hardReclaimCPUs)
 	}
 
 	// Prefer reclaim-free cpus so dedicated_cores avoid landing on cpus currently held by
@@ -763,7 +840,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 			}
 			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, alignedAvailableCPUsPerNUMA, preferredAvailableCPUsPerNUMA)
 			if err != nil {
-				return machine.NewCPUSet(), fmt.Errorf("allocateEvenlyAcrossNUMA failed with error: %v", err)
+				return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("allocateEvenlyAcrossNUMA failed with error: %v", err)
 			}
 		} else {
 			if p.state.GetDisableDedicatedCoresOverlapReclaimedCores() && !reclaimCPUs.IsEmpty() {
@@ -775,7 +852,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 					"hints", hintNodes,
 					"alignedAvailableCPUs", alignedAvailableCPUs.String())
 
-				return machine.NewCPUSet(),
+				return machine.NewCPUSet(), machine.NewCPUSet(),
 					fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
 			}
 		}
@@ -794,9 +871,9 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		general.Errorf("result cpus: %s in hint NUMA nodes: %d with size: %d can't meet cpus request: %d",
 			result.String(), hintNodes, result.Size(), numCPUs)
 
-		return machine.NewCPUSet(), fmt.Errorf("results can't meet cpus request")
+		return machine.NewCPUSet(), machine.NewCPUSet(), fmt.Errorf("results can't meet cpus request")
 	}
-	return result, nil
+	return result, hardReclaimCPUs, nil
 }
 
 // allocateEvenlyAcrossNUMAs distributes the cpu request evenly across NUMA nodes.
@@ -869,7 +946,7 @@ func (p *DynamicPolicy) takeByTopologyPreferring(
 	return takenPreferred.Union(takenRemaining), nil
 }
 
-func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceRequest,
+func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(ctx context.Context, req *pluginapi.ResourceRequest,
 	hint *pluginapi.TopologyHint, persistCheckpoint bool,
 ) (*state.AllocationInfo, error) {
 	if req == nil {
@@ -920,7 +997,7 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 		if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 			return nil, err
 		}
-		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo, false, true, persistCheckpoint)
+		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfoPodResizingAware(ctx, originAllocationInfo, allocationInfo, false, true, persistCheckpoint)
 		if err != nil {
 			general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize allocation, but doAndCheckPutAllocationInfoPodResizingAware failed: %q",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -932,7 +1009,7 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 		if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, nil, allocationInfo, persistCheckpoint); err != nil {
 			return nil, err
 		}
-		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(allocationInfo, true, persistCheckpoint)
+		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfo(ctx, allocationInfo, true, persistCheckpoint)
 		if err != nil {
 			return nil, fmt.Errorf("doAndCheckPutAllocationInfo failed with error: %v", err)
 		}
@@ -2212,10 +2289,54 @@ func (p *DynamicPolicy) isSharedCoresRampUpDisabled() bool {
 	return dyn != nil && dyn.DisableSharedCoresRampUp
 }
 
-func (p *DynamicPolicy) doAndCheckPutAllocationInfoPodResizingAware(originAllocationInfo, allocationInfo *state.AllocationInfo, incrByReq, podInplaceUpdateResizing, persistCheckpoint bool) (*state.AllocationInfo, error) {
+func (p *DynamicPolicy) isRampUpReclaimHardPartitionEnabled() bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	return dyn != nil && dyn.EnableRampUpReclaimHardPartition
+}
+
+func (p *DynamicPolicy) isReclaimEnabled() bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	return dyn != nil && dyn.EnableReclaim
+}
+
+func (p *DynamicPolicy) podEnableReclaim(ctx context.Context, podUID string) (bool, error) {
+	return resourcehelper.PodEnableReclaim(ctx, p.metaServer, podUID, p.isReclaimEnabled())
+}
+
+func (p *DynamicPolicy) podEnableReclaimOrFallback(ctx context.Context, podUID, operation string) bool {
+	podReclaimEnabled, err := p.podEnableReclaim(ctx, podUID)
+	if err != nil {
+		general.Warningf("%s: failed to check pod enable reclaim for pod %s, fallback podReclaimEnabled=false: %v",
+			operation, podUID, err)
+		return false
+	}
+	return podReclaimEnabled
+}
+
+func (p *DynamicPolicy) getInitialRampUpReclaimCPUSetRatio() float64 {
+	if p.dynamicConfig == nil {
+		return 0
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	if dyn == nil {
+		return 0
+	}
+	return dyn.InitialRampUpReclaimCPUSetRatio
+}
+
+func (p *DynamicPolicy) doAndCheckPutAllocationInfoPodResizingAware(ctx context.Context, originAllocationInfo, allocationInfo *state.AllocationInfo, incrByReq, podInplaceUpdateResizing, persistCheckpoint bool) (*state.AllocationInfo, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("doAndCheckPutAllocationInfo got nil allocationInfo")
 	}
+
+	rollbackPodEntries := p.state.GetPodEntries()
+	rollbackMachineState := p.state.GetMachineState()
 
 	// need to adjust pools and putAllocationsAndAdjustAllocationEntries will set the allocationInfo after adjusted
 	err := p.putAllocationsAndAdjustAllocationEntriesResizeAware([]*state.AllocationInfo{originAllocationInfo}, []*state.AllocationInfo{allocationInfo}, incrByReq, podInplaceUpdateResizing, persistCheckpoint)
@@ -2231,12 +2352,114 @@ func (p *DynamicPolicy) doAndCheckPutAllocationInfoPodResizingAware(originAlloca
 			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 		return nil, fmt.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
 	}
+	if err := p.writeRampUpReclaimPoolTarget(ctx, checkedAllocationInfo, persistCheckpoint, rollbackPodEntries, rollbackMachineState); err != nil {
+		return nil, err
+	}
 
 	return checkedAllocationInfo, nil
 }
 
-func (p *DynamicPolicy) doAndCheckPutAllocationInfo(allocationInfo *state.AllocationInfo, incrByReq, persistCheckpoint bool) (*state.AllocationInfo, error) {
-	return p.doAndCheckPutAllocationInfoPodResizingAware(nil, allocationInfo, incrByReq, false, persistCheckpoint)
+func (p *DynamicPolicy) doAndCheckPutAllocationInfo(ctx context.Context, allocationInfo *state.AllocationInfo, incrByReq, persistCheckpoint bool) (*state.AllocationInfo, error) {
+	return p.doAndCheckPutAllocationInfoPodResizingAware(ctx, nil, allocationInfo, incrByReq, false, persistCheckpoint)
+}
+
+func (p *DynamicPolicy) writeRampUpReclaimPoolTarget(ctx context.Context, checkedAllocationInfo *state.AllocationInfo, persistCheckpoint bool, rollbackPodEntries state.PodEntries, rollbackMachineState state.NUMANodeMap) error {
+	if !p.isRampUpReclaimHardPartitionEnabled() || checkedAllocationInfo == nil ||
+		!checkedAllocationInfo.RampUp || !checkedAllocationInfo.CheckSharedNUMABinding() {
+		return nil
+	}
+
+	podReclaimEnabled := p.podEnableReclaimOrFallback(ctx, checkedAllocationInfo.PodUid, "shared NUMA binding write ramp-up reclaim pool target")
+	_, _, err := p.writeRampUpReclaimPoolTargetFromEligible(ctx, checkedAllocationInfo.AllocationResult, false, podReclaimEnabled, persistCheckpoint, rollbackPodEntries, rollbackMachineState)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *DynamicPolicy) restoreRampUpReclaimCheckpoint(rollbackPodEntries state.PodEntries, rollbackMachineState state.NUMANodeMap, persistCheckpoint bool, err error) error {
+	p.state.SetPodEntries(rollbackPodEntries, false)
+	p.state.SetMachineState(rollbackMachineState, false)
+	if persistCheckpoint {
+		if storeErr := p.state.StoreState(); storeErr != nil {
+			return fmt.Errorf("%v; store rollback checkpoint failed: %w", err, storeErr)
+		}
+	}
+	return err
+}
+
+func (p *DynamicPolicy) writeRampUpReclaimPoolTargetFromEligible(_ context.Context, eligible machine.CPUSet, exclusive bool, podReclaimEnabled bool, persistCheckpoint bool, rollbackPodEntries state.PodEntries, rollbackMachineState state.NUMANodeMap) (state.PodEntries, state.NUMANodeMap, error) {
+	hardReclaimCPUs, err := p.selectRampUpHardReclaimFromEligible(eligible, exclusive, podReclaimEnabled)
+	if err != nil {
+		return nil, nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint, err)
+	}
+	return p.writeHardRampUpReclaimPoolTarget(hardReclaimCPUs, persistCheckpoint, rollbackPodEntries, rollbackMachineState)
+}
+
+func (p *DynamicPolicy) writeHardRampUpReclaimPoolTarget(hardReclaimCPUs machine.CPUSet, persistCheckpoint bool, rollbackPodEntries state.PodEntries, rollbackMachineState state.NUMANodeMap) (state.PodEntries, state.NUMANodeMap, error) {
+	plannedSnapshot, err := planner.PlanRampUpReclaimPoolTarget(&planner.CPUStateSnapshot{
+		PodEntries:   p.state.GetPodEntries(),
+		MachineState: p.state.GetMachineState(),
+	}, hardReclaimCPUs, p.machineInfo.CPUTopology)
+	if err != nil {
+		return nil, nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint, err)
+	}
+	podEntries := plannedSnapshot.PodEntries
+	p.state.SetPodEntries(podEntries, false)
+
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
+	if err != nil {
+		return nil, nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, persistCheckpoint,
+			fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err))
+	}
+	p.state.SetMachineState(updatedMachineState, false)
+	if persistCheckpoint {
+		if err := p.state.StoreState(); err != nil {
+			return nil, nil, p.restoreRampUpReclaimCheckpoint(rollbackPodEntries, rollbackMachineState, false,
+				fmt.Errorf("store ramp-up reclaim pool target checkpoint failed: %w", err))
+		}
+	}
+	return podEntries, updatedMachineState, nil
+}
+
+func (p *DynamicPolicy) selectRampUpHardReclaimFromEligible(eligible machine.CPUSet, exclusive bool, podReclaimEnabled bool) (machine.CPUSet, error) {
+	if eligible.IsEmpty() {
+		return machine.NewCPUSet(), fmt.Errorf("eligible CPUSet for hard ramp-up reclaim must not be empty")
+	}
+
+	hardReclaimCPUs := machine.NewCPUSet()
+	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+		eligibleInNUMA := eligible.Intersection(p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
+		if eligibleInNUMA.IsEmpty() {
+			continue
+		}
+
+		cap := eligibleInNUMA.Size()
+		if exclusive {
+			cap--
+		}
+		target, err := dynamicpolicyutil.CalculateRampUpReclaimTarget(
+			eligibleInNUMA.Size(),
+			p.reservedReclaimedCPUSet.Intersection(eligibleInNUMA).Size(),
+			cap,
+			p.getInitialRampUpReclaimCPUSetRatio(),
+			podReclaimEnabled,
+			exclusive,
+		)
+		if err != nil {
+			return machine.NewCPUSet(), fmt.Errorf("calculate ramp-up reclaim target for NUMA %d failed: %v", numaID, err)
+		}
+		hardInNUMA, err := calculator.TakeByTopology(p.machineInfo, eligibleInNUMA, target, true)
+		if err != nil {
+			return machine.NewCPUSet(), fmt.Errorf("take hard ramp-up reclaim cpus for NUMA %d failed: %v", numaID, err)
+		}
+		hardReclaimCPUs = hardReclaimCPUs.Union(hardInNUMA)
+	}
+
+	if hardReclaimCPUs.IsEmpty() {
+		return machine.NewCPUSet(), fmt.Errorf("hard ramp-up reclaim target must not be empty")
+	}
+	return hardReclaimCPUs, nil
 }
 
 func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (map[string]float64, error) {

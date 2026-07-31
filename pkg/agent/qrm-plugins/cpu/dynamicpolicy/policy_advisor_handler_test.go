@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bytedance/mockey"
 	"github.com/smartystreets/goconvey/convey"
@@ -39,6 +40,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
@@ -56,6 +58,213 @@ import (
 )
 
 var advisorTestMutex = &sync.Mutex{}
+
+func TestDynamicPolicy_validateGetAdviceRequestSnapshotRejectsStaleState(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 2)
+	require.NoError(t, err)
+	tmpDir, err := os.MkdirTemp("", "checkpoint-TestDynamicPolicy_validateGetAdviceRequestSnapshotRejectsStaleState")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	req, err := policy.createGetAdviceRequest()
+	require.NoError(t, err)
+	require.NoError(t, policy.validateGetAdviceRequestSnapshot(req))
+
+	allocationResult := machine.NewCPUSet(0, 1)
+	policy.state.SetAllocationInfo("stale-pod", "main", &state.AllocationInfo{
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(&pluginapi.ResourceRequest{
+			PodUid:         "stale-pod",
+			PodNamespace:   "default",
+			PodName:        "stale-pod",
+			ContainerName:  "main",
+			ContainerType:  pluginapi.ContainerType_MAIN,
+			ContainerIndex: 0,
+			Labels: map[string]string{
+				apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+			},
+			Annotations: map[string]string{
+				apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+			},
+		}, commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSharedCores),
+		AllocationResult:         allocationResult,
+		OriginalAllocationResult: allocationResult.Clone(),
+	}, false)
+
+	require.ErrorContains(t, policy.validateGetAdviceRequestSnapshot(req), "stale GetAdvice request snapshot")
+}
+
+func TestDynamicPolicy_createGetAdviceRequestReportsStableAfterTransitionWhenHardPartitionEnabled(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 2)
+	require.NoError(t, err)
+	tmpDir, err := os.MkdirTemp("", "checkpoint-TestDynamicPolicy_createGetAdviceRequestReportsStableAfterTransitionWhenHardPartitionEnabled")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	policy.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+	policy.transitionPeriod = time.Millisecond
+
+	allocationResult := machine.NewCPUSet(0, 1)
+	policy.state.SetAllocationInfo("expired-ramp-up-pod", "main", &state.AllocationInfo{
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(&pluginapi.ResourceRequest{
+			PodUid:         "expired-ramp-up-pod",
+			PodNamespace:   "default",
+			PodName:        "expired-ramp-up-pod",
+			ContainerName:  "main",
+			ContainerType:  pluginapi.ContainerType_MAIN,
+			ContainerIndex: 0,
+			Labels: map[string]string{
+				apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+			},
+			Annotations: map[string]string{
+				apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+			},
+		}, commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSharedCores),
+		RampUp:                   true,
+		InitTimestamp:            time.Now().Add(-time.Hour).Format(util.QRMTimeFormat),
+		AllocationResult:         allocationResult,
+		OriginalAllocationResult: allocationResult.Clone(),
+	}, false)
+
+	req, err := policy.createGetAdviceRequest()
+	require.NoError(t, err)
+	require.False(t, req.Entries["expired-ramp-up-pod"].Entries["main"].AllocationInfo.RampUp)
+
+	allocationInfo := policy.state.GetAllocationInfo("expired-ramp-up-pod", "main")
+	require.NotNil(t, allocationInfo)
+	require.True(t, allocationInfo.RampUp)
+}
+
+func TestHasRampUpInGetAdviceRequest(t *testing.T) {
+	t.Parallel()
+
+	require.False(t, hasRampUpInGetAdviceRequest(nil))
+	require.False(t, hasRampUpInGetAdviceRequest(&advisorapi.GetAdviceRequest{
+		Entries: map[string]*advisorapi.ContainerAllocationInfoEntries{
+			"pod": {Entries: map[string]*advisorapi.ContainerAllocationInfo{
+				"container": {AllocationInfo: &advisorapi.AllocationInfo{RampUp: false}},
+			}},
+		},
+	}))
+	require.True(t, hasRampUpInGetAdviceRequest(&advisorapi.GetAdviceRequest{
+		Entries: map[string]*advisorapi.ContainerAllocationInfoEntries{
+			"pod": {Entries: map[string]*advisorapi.ContainerAllocationInfo{
+				"container": {AllocationInfo: &advisorapi.AllocationInfo{RampUp: true}},
+			}},
+		},
+	}))
+}
+
+func TestDynamicPolicy_allocateByCPUAdvisorRejectsListAndWatchWhenHardPartitionEnabled(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 2)
+	require.NoError(t, err)
+	tmpDir, err := os.MkdirTemp("", "checkpoint-TestDynamicPolicy_allocateByCPUAdvisorRejectsListAndWatchWhenHardPartitionEnabled")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+	policy.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+
+	err = policy.allocateByCPUAdvisor(nil, &advisorapi.ListAndWatchResponse{}, map[string]*advisorsvc.FeatureGate{})
+	require.ErrorContains(t, err, "legacy ListAndWatch response is not allowed")
+}
+
+func TestDynamicPolicyApplyBlocksUsesGetAdviceRampUpSnapshotForExpiredSharedCores(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+	require.NoError(t, err)
+	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, t.TempDir())
+	require.NoError(t, err)
+	policy.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+	policy.transitionPeriod = time.Millisecond
+
+	rampUpCPUSet := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
+	entries := policy.state.GetPodEntries()
+	entries["expired-ramp-up-pod"] = state.ContainerEntries{
+		"main": {
+			RequestQuantity: 1,
+			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(&pluginapi.ResourceRequest{
+				PodUid:         "expired-ramp-up-pod",
+				PodNamespace:   "default",
+				PodName:        "expired-ramp-up-pod",
+				ContainerName:  "main",
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				Labels: map[string]string{
+					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+				},
+			}, commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSharedCores),
+			RampUp:                           true,
+			InitTimestamp:                    time.Now().Add(-time.Hour).Format(util.QRMTimeFormat),
+			AllocationResult:                 rampUpCPUSet,
+			OriginalAllocationResult:         rampUpCPUSet.Clone(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{0: rampUpCPUSet.Clone()},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: rampUpCPUSet.Clone()},
+		},
+	}
+	policy.state.SetPodEntries(entries, false)
+	machineState, err := state.GenerateMachineStateFromPodEntries(cpuTopology, entries, policy.state.GetMachineState())
+	require.NoError(t, err)
+	policy.state.SetMachineState(machineState, false)
+	setAdvisorCgroupTargetTestPods(policy, entries)
+
+	req, err := policy.createGetAdviceRequest()
+	require.NoError(t, err)
+	require.False(t, req.Entries["expired-ramp-up-pod"].Entries["main"].AllocationInfo.RampUp)
+	require.True(t, policy.state.GetAllocationInfo("expired-ramp-up-pod", "main").RampUp)
+
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{
+			commonstate.PoolNameShare: {Entries: map[string]*advisorapi.CalculationInfo{
+				commonstate.FakedContainerName: {
+					OwnerPoolName: commonstate.PoolNameShare,
+					CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+						commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "share-block", Result: 2}}},
+					},
+				},
+			}},
+			commonstate.PoolNameReclaim: {Entries: map[string]*advisorapi.CalculationInfo{
+				commonstate.FakedContainerName: {
+					OwnerPoolName: commonstate.PoolNameReclaim,
+					CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+						commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "reclaim-block", Result: 2}}},
+					},
+				},
+			}},
+			"expired-ramp-up-pod": {Entries: map[string]*advisorapi.CalculationInfo{
+				"main": {
+					OwnerPoolName: commonstate.PoolNameShare,
+				},
+			}},
+		},
+	}
+	blocks := advisorapi.BlockCPUSet{
+		"share-block":   machine.NewCPUSet(2, 3),
+		"reclaim-block": machine.NewCPUSet(4, 5),
+	}
+
+	require.NoError(t, policy.applyBlocks(blocks, resp, req))
+	committed := policy.state.GetAllocationInfo("expired-ramp-up-pod", "main")
+	require.NotNil(t, committed)
+	require.False(t, committed.RampUp)
+	require.Equal(t, commonstate.PoolNameShare, committed.OwnerPoolName)
+	require.True(t, committed.AllocationResult.Equals(machine.NewCPUSet(2, 3)))
+}
 
 func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {
 	t.Parallel()
@@ -1185,7 +1394,7 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 				conf:  conf,
 			}
 
-			blockCPUSet, err := policy.generateBlockCPUSet(tc.advisorResponse)
+			blockCPUSet, err := policy.generateBlockCPUSet(tc.advisorResponse, false)
 			if tc.expectedError {
 				as.Error(err)
 				if tc.expectedErrorStr != "" {
@@ -1222,6 +1431,7 @@ func TestDynamicPolicy_generateReclaimBlockCPUSet_NUMAAwareInsufficientCPUsRetur
 		machine.NewCPUSet(0),
 		machine.NewCPUSet(),
 		blockCPUSet,
+		machine.NewCPUSet(),
 	)
 
 	require.Error(t, err)
@@ -1661,7 +1871,34 @@ func TestDynamicPolicyApplyBlocksHookFailureDoesNotUpdateStateOrRunCPUSetAdjustm
 	require.Zero(t, handlerCalls)
 }
 
-func TestDynamicPolicyApplyBlocksDoesNotRunCPUSetAdjustmentHandlers(t *testing.T) {
+func TestDynamicPolicyApplyBlocksStoreFailureRollsBackStateAndSkipsCPUSetAdjustment(t *testing.T) {
+	policy, blocks, resp := prepareAdvisorBlocksFixture(t)
+	storeErr := errors.New("store advisor state failed")
+	wrappedState := &rollbackStoreState{
+		State:    policy.state,
+		storeErr: storeErr,
+	}
+	policy.state = wrappedState
+	before := cloneAdvisorState(policy.state)
+	handlerCalls := 0
+	require.NoError(t, policy.RegisterCPUSetAdjustmentHandler("test", func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+		handlerCalls++
+		return nil
+	}))
+
+	err := policy.applyBlocks(blocks, resp)
+	require.ErrorIs(t, err, storeErr)
+	require.ErrorContains(t, err, "store advisor target state failed")
+
+	require.Equal(t, 1, wrappedState.storeCalls)
+	require.Equal(t, []bool{false, false}, wrappedState.setPodEntryPersists)
+	require.Equal(t, []bool{false, false}, wrappedState.setMachinePersists)
+	require.Equal(t, before, cloneAdvisorState(policy.state))
+	require.Empty(t, policy.cgroupClient.(*recordingAdvisorCgroupClient).applied)
+	require.Zero(t, handlerCalls)
+}
+
+func TestDynamicPolicyApplyBlocksRunsCPUSetAdjustmentHandlersAfterCommit(t *testing.T) {
 	policy, blocks, resp := prepareAdvisorBlocksFixture(t)
 	handlerCalls := 0
 	require.NoError(t, policy.RegisterCPUSetAdjustmentHandler("test", func(_ context.Context, handlerCtx cpusetutil.CPUSetAdjustmentHandlerCtx) error {
@@ -1673,10 +1910,105 @@ func TestDynamicPolicyApplyBlocksDoesNotRunCPUSetAdjustmentHandlers(t *testing.T
 	}))
 
 	require.NoError(t, policy.applyBlocks(blocks, resp))
-	require.Zero(t, handlerCalls)
+	require.Equal(t, 1, handlerCalls)
 	cgroup := policy.cgroupClient.(*recordingAdvisorCgroupClient)
 	require.Empty(t, cgroup.applied)
 	require.Empty(t, cgroup.read)
+}
+
+func TestDynamicPolicyApplyBlocksCPUSetAdjustmentFailureKeepsCommittedState(t *testing.T) {
+	policy, blocks, resp := prepareAdvisorBlocksFixture(t)
+	require.NoError(t, policy.RegisterCPUSetAdjustmentHandler("test", func(_ context.Context, handlerCtx cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+		committed := cloneAdvisorState(policy.state)
+		require.Equal(t, machine.NewCPUSet(6, 7), committed.PodEntries["pod-dedicated"]["container"].AllocationResult)
+		return errors.New("cpuset adjustment failed")
+	}))
+
+	err := policy.applyBlocks(blocks, resp)
+	require.ErrorContains(t, err, "cpuset adjustment failed")
+
+	committed := cloneAdvisorState(policy.state)
+	require.Equal(t, machine.NewCPUSet(6, 7), committed.PodEntries["pod-dedicated"]["container"].AllocationResult)
+}
+
+func TestDynamicPolicyApplyBlocksStableCandidatePersistsCheckpoint(t *testing.T) {
+	topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+	require.NoError(t, err)
+	stateDir := t.TempDir()
+	policy, err := getTestDynamicPolicyWithInitialization(topology, stateDir)
+	require.NoError(t, err)
+
+	entries := policy.state.GetPodEntries()
+	entries["pod-dedicated"] = state.ContainerEntries{
+		"container": {
+			AllocationResult:         machine.NewCPUSet(0, 1),
+			OriginalAllocationResult: machine.NewCPUSet(0, 1),
+			TopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(0, 1)},
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        "pod-dedicated",
+				ContainerName: "container",
+				ContainerType: pluginapi.ContainerType_MAIN.String(),
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				OwnerPoolName: commonstate.PoolNameDedicated,
+			},
+			RampUp: true,
+		},
+	}
+	policy.state.SetPodEntries(entries, true)
+	machineState, err := state.GenerateMachineStateFromPodEntries(topology, entries, policy.state.GetMachineState())
+	require.NoError(t, err)
+	policy.state.SetMachineState(machineState, true)
+	require.NoError(t, policy.state.StoreState())
+
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
+		"pod-dedicated": {Entries: map[string]*advisorapi.CalculationInfo{
+			"container": {
+				OwnerPoolName: commonstate.PoolNameDedicated,
+				CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "dedicated-block", Result: 2}}},
+				},
+			},
+		}},
+		commonstate.PoolNameShare: {Entries: map[string]*advisorapi.CalculationInfo{
+			commonstate.FakedContainerName: {
+				OwnerPoolName: commonstate.PoolNameShare,
+				CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "share-block", Result: 2}}},
+				},
+			},
+		}},
+		commonstate.PoolNameReclaim: {Entries: map[string]*advisorapi.CalculationInfo{
+			commonstate.FakedContainerName: {
+				OwnerPoolName: commonstate.PoolNameReclaim,
+				CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "reclaim-block", Result: 2}}},
+				},
+			},
+		}},
+	}}
+	blocks := advisorapi.BlockCPUSet{
+		"dedicated-block": machine.NewCPUSet(6, 7),
+		"share-block":     machine.NewCPUSet(2, 3),
+		"reclaim-block":   machine.NewCPUSet(4, 5),
+	}
+
+	require.NoError(t, policy.applyBlocks(blocks, resp))
+	committed := cloneAdvisorState(policy.state)
+	require.False(t, committed.PodEntries["pod-dedicated"]["container"].RampUp)
+	require.True(t, committed.PodEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.Equals(machine.NewCPUSet(4, 5)))
+
+	restoredState, err := state.NewCheckpointState(
+		&statedirectory.StateDirectoryConfiguration{StateFileDirectory: stateDir},
+		cpuPluginStateFileName,
+		cpuconsts.CPUResourcePluginPolicyNameDynamic,
+		topology,
+		false,
+		state.GenerateMachineStateFromPodEntries,
+		metrics.DummyMetrics{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, committed.PodEntries, restoredState.GetPodEntries())
+	require.Equal(t, committed.MachineState, restoredState.GetMachineState())
 }
 
 func TestDynamicPolicyAllocateByCPUAdvisorReturnsNilResponseErrorWithoutPendingCgroupTargets(t *testing.T) {

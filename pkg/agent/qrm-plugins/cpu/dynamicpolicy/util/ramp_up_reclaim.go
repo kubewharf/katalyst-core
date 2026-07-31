@@ -21,7 +21,7 @@ import (
 	"math"
 )
 
-func CalculateRampUpReclaimTarget(eligible, reserve, cap int, ratio float64, exclusive bool) (int, error) {
+func CalculateRampUpReclaimTarget(eligible, reserve, cap int, ratio float64, podReclaimEnabled, exclusive bool) (int, error) {
 	if eligible <= 0 {
 		return 0, fmt.Errorf("eligible CPU count must be positive, got %d", eligible)
 	}
@@ -31,12 +31,12 @@ func CalculateRampUpReclaimTarget(eligible, reserve, cap int, ratio float64, exc
 	if cap < 0 {
 		return 0, fmt.Errorf("cap must be non-negative, got %d", cap)
 	}
-	if ratio < 0 || ratio > 1 {
+	if podReclaimEnabled && (ratio < 0 || ratio > 1) {
 		return 0, fmt.Errorf("initial ramp-up reclaim ratio must be in [0,1], got %f", ratio)
 	}
 
 	target := reserve
-	if ratio > 0 {
+	if podReclaimEnabled && ratio > 0 {
 		ratioTarget := int(math.Floor(ratio * float64(eligible)))
 		ratioTarget -= ratioTarget % 2
 		target = int(math.Max(float64(target), float64(ratioTarget)))

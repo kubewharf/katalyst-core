@@ -142,7 +142,7 @@ func TestGenerateBlockCPUSet_FakeNUMANormalShareDoesNotConsumePreviousReclaim(t 
 		},
 	}
 
-	blockCPUSet, err := p.generateBlockCPUSet(resp)
+	blockCPUSet, err := p.generateBlockCPUSet(resp, false)
 	require.NoError(t, err)
 	require.Equal(t, shareCPUSet, blockCPUSet["new-share-block"])
 	require.Equal(t, reclaimCPUSet, blockCPUSet["new-reclaim-block"])
