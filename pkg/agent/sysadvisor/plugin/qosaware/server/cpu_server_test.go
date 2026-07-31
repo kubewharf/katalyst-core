@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -130,6 +131,69 @@ func TestCPUServerStartAndStop(t *testing.T) {
 
 	err = cs.Stop()
 	assert.NoError(t, err)
+}
+
+func TestAssemblePoolEntriesKeepsRampUpHardReclaimMinimum(t *testing.T) {
+	t.Parallel()
+
+	cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
+	cs.conf.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+	require.NoError(t, cs.metaCache.AddContainer("ramp-up-pod", "main", &types.ContainerInfo{
+		PodUID:        "ramp-up-pod",
+		ContainerName: "main",
+		RampUp:        true,
+	}))
+	require.NoError(t, cs.metaCache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+		PoolName: commonstate.PoolNameReclaim,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(0, 1),
+		},
+	}))
+
+	entries := make(map[string]*cpuadvisor.CalculationEntries)
+	bs := NewBlockSet()
+	cs.assemblePoolEntries(&types.InternalCPUCalculationResult{
+		PoolEntries: map[string]map[int]types.CPUResource{
+			commonstate.PoolNameReclaim: {
+				0: {Size: 1, Quota: -1},
+			},
+		},
+	}, entries, bs)
+
+	reclaimResult := entries[commonstate.PoolNameReclaim].Entries[commonstate.FakedContainerName].CalculationResultsByNumas[0]
+	require.Len(t, reclaimResult.Blocks, 1)
+	require.Equal(t, uint64(2), reclaimResult.Blocks[0].Result)
+}
+
+func TestAssemblePoolEntriesDoesNotKeepRampUpHardReclaimMinimumWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	cs := newTestCPUServer(t, &mockCPUResourceAdvisor{}, nil)
+	require.NoError(t, cs.metaCache.AddContainer("ramp-up-pod", "main", &types.ContainerInfo{
+		PodUID:        "ramp-up-pod",
+		ContainerName: "main",
+		RampUp:        true,
+	}))
+	require.NoError(t, cs.metaCache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+		PoolName: commonstate.PoolNameReclaim,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(0, 1),
+		},
+	}))
+
+	entries := make(map[string]*cpuadvisor.CalculationEntries)
+	bs := NewBlockSet()
+	cs.assemblePoolEntries(&types.InternalCPUCalculationResult{
+		PoolEntries: map[string]map[int]types.CPUResource{
+			commonstate.PoolNameReclaim: {
+				0: {Size: 1, Quota: -1},
+			},
+		},
+	}, entries, bs)
+
+	reclaimResult := entries[commonstate.PoolNameReclaim].Entries[commonstate.FakedContainerName].CalculationResultsByNumas[0]
+	require.Len(t, reclaimResult.Blocks, 1)
+	require.Equal(t, uint64(1), reclaimResult.Blocks[0].Result)
 }
 
 func TestCPUServerAddContainer(t *testing.T) {

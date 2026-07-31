@@ -895,6 +895,7 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 
 	if reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]; ok {
 		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameReclaim)
+		hardReclaimByNUMA := cs.getRampUpHardReclaimSizeByNUMA()
 		for numaID, reclaimCPU := range reclaimEntries {
 			reclaimNUMACalculationResult, ok := poolEntry.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[int64(numaID)]
 			if !ok {
@@ -903,6 +904,9 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 			}
 
 			// first init reclaim pool if reclaim size is greater than 0
+			if hardSize, ok := hardReclaimByNUMA[numaID]; ok && reclaimCPU.Size < hardSize {
+				reclaimCPU.Size = hardSize
+			}
 			if reclaimCPU.Size > 0 {
 				block := NewBlock(uint64(reclaimCPU.Size), "")
 				innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, reclaimNUMACalculationResult)
@@ -950,6 +954,41 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 	} else {
 		general.Warningf("cpu server meta cache does not exist interrupt pool")
 	}
+}
+
+func (cs *cpuServer) getRampUpHardReclaimSizeByNUMA() map[int]int {
+	dyn := cs.conf.GetDynamicConfiguration()
+	if dyn == nil || !dyn.EnableRampUpReclaimHardPartition {
+		return nil
+	}
+	if !cs.hasActiveRampUpContainer() {
+		return nil
+	}
+	poolInfo, ok := cs.metaCache.GetPoolInfo(commonstate.PoolNameReclaim)
+	if !ok || poolInfo == nil {
+		return nil
+	}
+
+	result := make(map[int]int)
+	for numaID, cpuset := range poolInfo.TopologyAwareAssignments {
+		if cpuset.IsEmpty() {
+			continue
+		}
+		result[numaID] = cpuset.Size()
+	}
+	return result
+}
+
+func (cs *cpuServer) hasActiveRampUpContainer() bool {
+	active := false
+	cs.metaCache.RangeContainer(func(_ string, _ string, ci *types.ContainerInfo) bool {
+		if ci != nil && ci.RampUp {
+			active = true
+			return false
+		}
+		return true
+	})
+	return active
 }
 
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo
