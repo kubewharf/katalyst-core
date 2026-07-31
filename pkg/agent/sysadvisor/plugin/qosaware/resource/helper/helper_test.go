@@ -22,7 +22,9 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -223,9 +225,12 @@ func (p *fakePodFetcher) GetPod(ctx context.Context, podUID string) (*v1.Pod, er
 
 type fakeServiceProfilingManager struct {
 	*spd.DummyServiceProfilingManager
-	err        error
-	indicators *v1alpha1.ReclaimResourceIndicators
-	baseline   bool
+	err         error
+	indicators  *v1alpha1.ReclaimResourceIndicators
+	baseline    bool
+	level       spd.PerformanceLevel
+	levelErr    error
+	baselineErr error
 }
 
 func (p *fakeServiceProfilingManager) ServiceExtendedIndicator(_ context.Context, _ metav1.ObjectMeta, indicators interface{}) (bool, error) {
@@ -238,6 +243,126 @@ func (p *fakeServiceProfilingManager) ServiceExtendedIndicator(_ context.Context
 	}
 
 	return p.baseline, nil
+}
+
+func (p *fakeServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, _ metav1.ObjectMeta) (spd.PerformanceLevel, error) {
+	return p.level, p.levelErr
+}
+
+func (p *fakeServiceProfilingManager) ServiceBaseline(_ context.Context, _ metav1.ObjectMeta) (bool, error) {
+	return p.baseline, p.baselineErr
+}
+
+func TestPodEnableReclaim(t *testing.T) {
+	t.Parallel()
+
+	podUID := "pod-uid"
+	spdNotFoundErr := apierrors.NewNotFound(schema.GroupResource{
+		Group:    "workload.katalyst.kubewharf.io",
+		Resource: "serviceprofiledescriptors",
+	}, "test-spd")
+
+	tests := []struct {
+		name              string
+		metaServer        *metaserver.MetaServer
+		nodeEnableReclaim bool
+		want              bool
+		wantErr           bool
+	}{
+		{
+			name:              "node disabled returns false",
+			nodeEnableReclaim: false,
+			want:              false,
+		},
+		{
+			name: "get pod error passthrough",
+			metaServer: &metaserver.MetaServer{
+				MetaAgent: &agent.MetaAgent{
+					PodFetcher: &fakePodFetcher{err: fmt.Errorf("get pod failed")},
+				},
+			},
+			nodeEnableReclaim: true,
+			wantErr:           true,
+		},
+		{
+			name: "spd not found returns true",
+			metaServer: newPodEnableReclaimTestMetaServer(podUID, &fakeServiceProfilingManager{
+				levelErr: spdNotFoundErr,
+			}),
+			nodeEnableReclaim: true,
+			want:              true,
+		},
+		{
+			name: "poor performance returns false",
+			metaServer: newPodEnableReclaimTestMetaServer(podUID, &fakeServiceProfilingManager{
+				level: spd.PerformanceLevelPoor,
+			}),
+			nodeEnableReclaim: true,
+			want:              false,
+		},
+		{
+			name: "baseline returns false",
+			metaServer: newPodEnableReclaimTestMetaServer(podUID, &fakeServiceProfilingManager{
+				level:    spd.PerformanceLevelGood,
+				baseline: true,
+			}),
+			nodeEnableReclaim: true,
+			want:              false,
+		},
+		{
+			name: "performance level error passthrough",
+			metaServer: newPodEnableReclaimTestMetaServer(podUID, &fakeServiceProfilingManager{
+				levelErr: fmt.Errorf("performance level failed"),
+			}),
+			nodeEnableReclaim: true,
+			wantErr:           true,
+		},
+		{
+			name: "baseline error passthrough",
+			metaServer: newPodEnableReclaimTestMetaServer(podUID, &fakeServiceProfilingManager{
+				level:       spd.PerformanceLevelGood,
+				baselineErr: fmt.Errorf("baseline failed"),
+			}),
+			nodeEnableReclaim: true,
+			wantErr:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := PodEnableReclaim(context.Background(), tt.metaServer, podUID, tt.nodeEnableReclaim)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("PodEnableReclaim() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("PodEnableReclaim() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func newPodEnableReclaimTestMetaServer(podUID string, profilingManager *fakeServiceProfilingManager) *metaserver.MetaServer {
+	return &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &fakePodFetcher{
+				PodFetcherStub: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-pod",
+								Namespace: "default",
+								UID:       types.UID(podUID),
+							},
+						},
+					},
+				},
+			},
+		},
+		ServiceProfilingManager: profilingManager,
+	}
 }
 
 func TestPodDisableReclaimLevel(t *testing.T) {

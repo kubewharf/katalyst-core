@@ -24,8 +24,8 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/reclaimpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -49,31 +49,7 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 		return false, err
 	}
 
-	// get current service performance level of the pod
-	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, pod.ObjectMeta)
-	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
-		return false, err
-	} else if err != nil {
-		return true, nil
-	} else if pLevel == spd.PerformanceLevelPoor {
-		// if performance level is poor, it can not be reclaimed
-		general.InfoS("performance level is poor, reclaim disabled", "podUID", podUID)
-		return false, nil
-	}
-
-	// check whether current pod is service baseline
-	baseline, err := metaServer.ServiceBaseline(ctx, pod.ObjectMeta)
-	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
-		return false, err
-	} else if err != nil {
-		return true, nil
-	} else if baseline {
-		// if pod is baseline, it can not be reclaimed
-		general.InfoS("pod is regarded as baseline, reclaim disabled", "podUID", podUID)
-		return false, nil
-	}
-
-	return true, nil
+	return reclaimpolicy.EvaluatePodReclaimPolicy(ctx, metaServer, pod.ObjectMeta, nodeEnableReclaim)
 }
 
 // PodDisableReclaimLevel returns the disable reclaim level for a pod.
