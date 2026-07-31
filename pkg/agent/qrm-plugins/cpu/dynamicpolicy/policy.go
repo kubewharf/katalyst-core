@@ -1042,6 +1042,10 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 		if err := p.state.StoreState(); err != nil {
 			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
+			resp = nil
+			respErr = fmt.Errorf("store state failed: %w", err)
+			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)})
 		}
 
 		p.Unlock()
@@ -1128,6 +1132,9 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 
 	podEntries := p.state.GetPodEntries()
 	if len(podEntries[req.PodUid]) == 0 {
+		if err := p.state.StoreState(); err != nil {
+			return nil, fmt.Errorf("store state failed: %w", err)
+		}
 		return &pluginapi.RemovePodResponse{}, nil
 	}
 
@@ -1158,6 +1165,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	}
 	if err := p.state.StoreState(); err != nil {
 		general.ErrorS(err, "store state failed", "podUID", req.PodUid)
+		return nil, fmt.Errorf("store state failed: %w", err)
 	}
 
 	return &pluginapi.RemovePodResponse{}, nil

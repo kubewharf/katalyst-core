@@ -602,7 +602,7 @@ func (p *NativePolicy) RemovePod(ctx context.Context,
 func (p *NativePolicy) removePod(podUID string) error {
 	podEntries := p.state.GetPodEntries()
 	if len(podEntries[podUID]) == 0 {
-		return nil
+		return p.state.StoreState()
 	}
 	delete(podEntries, podUID)
 
