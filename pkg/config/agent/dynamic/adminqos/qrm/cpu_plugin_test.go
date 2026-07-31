@@ -126,6 +126,96 @@ func TestCPUPluginConfigurationApplyDynamicBulkheadEnable(t *testing.T) {
 	}
 }
 
+func TestCPUPluginConfigurationApplyRampUpReclaimHardPartitionConfig(t *testing.T) {
+	t.Parallel()
+
+	boolPtr := func(v bool) *bool { return &v }
+	floatPtr := func(v float64) *float64 { return &v }
+
+	tests := []struct {
+		name        string
+		initialOn   bool
+		initialRate float64
+		config      *configv1alpha1.CPUPluginConfig
+		wantOn      bool
+		wantRate    float64
+	}{
+		{
+			name:        "nil switch keeps legacy disabled and default ratio",
+			initialRate: 0.25,
+			config:      &configv1alpha1.CPUPluginConfig{},
+			wantRate:    0.25,
+		},
+		{
+			name:        "explicit disabled keeps disabled but does not clear default ratio",
+			initialOn:   true,
+			initialRate: 0.25,
+			config: &configv1alpha1.CPUPluginConfig{
+				EnableRampUpReclaimHardPartition: boolPtr(false),
+			},
+			wantRate: 0.25,
+		},
+		{
+			name:        "enabled nil ratio keeps flag default",
+			initialRate: 0.25,
+			config: &configv1alpha1.CPUPluginConfig{
+				EnableRampUpReclaimHardPartition: boolPtr(true),
+			},
+			wantOn:   true,
+			wantRate: 0.25,
+		},
+		{
+			name:        "enabled explicit zero uses reserve floor",
+			initialRate: 0.25,
+			config: &configv1alpha1.CPUPluginConfig{
+				EnableRampUpReclaimHardPartition: boolPtr(true),
+				InitialRampUpReclaimCPUSetRatio:  floatPtr(0),
+			},
+			wantOn:   true,
+			wantRate: 0,
+		},
+		{
+			name:        "enabled positive ratio overrides default",
+			initialRate: 0.25,
+			config: &configv1alpha1.CPUPluginConfig{
+				EnableRampUpReclaimHardPartition: boolPtr(true),
+				InitialRampUpReclaimCPUSetRatio:  floatPtr(0.5),
+			},
+			wantOn:   true,
+			wantRate: 0.5,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := NewCPUPluginConfiguration()
+			c.EnableRampUpReclaimHardPartition = tt.initialOn
+			c.InitialRampUpReclaimCPUSetRatio = tt.initialRate
+			c.ApplyConfiguration(&crd.DynamicConfigCRD{
+				AdminQoSConfiguration: &configv1alpha1.AdminQoSConfiguration{
+					Spec: configv1alpha1.AdminQoSConfigurationSpec{
+						Config: configv1alpha1.AdminQoSConfig{
+							QRMPluginConfig: &configv1alpha1.QRMPluginConfig{
+								CPUPluginConfig: tt.config,
+							},
+						},
+					},
+				},
+			})
+
+			if c.EnableRampUpReclaimHardPartition != tt.wantOn {
+				t.Fatalf("EnableRampUpReclaimHardPartition = %t, want %t", c.EnableRampUpReclaimHardPartition, tt.wantOn)
+			}
+			if c.InitialRampUpReclaimCPUSetRatio != tt.wantRate {
+				t.Fatalf("InitialRampUpReclaimCPUSetRatio = %f, want %f", c.InitialRampUpReclaimCPUSetRatio, tt.wantRate)
+			}
+		})
+	}
+}
+
 func TestCPUPluginConfigurationApplyDynamicBulkheadNonReclaimPoolMinSize(t *testing.T) {
 	t.Parallel()
 

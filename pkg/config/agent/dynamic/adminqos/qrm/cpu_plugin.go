@@ -29,11 +29,13 @@ type CPUPluginConfiguration struct {
 	BulkheadConfig               DynamicBulkheadConfiguration
 	// DisableSharedCoresRampUp disables initial full-pool cpuset binding for newly
 	// scheduled shared_cores pods.
-	DisableSharedCoresRampUp       bool
-	SystemExclusivePool            map[string]int
-	SystemExclusivePoolShrinkRatio *float64
-	SystemExclusivePoolShrinkMin   *int64
-	SystemExclusivePoolShrinkMax   *int64
+	DisableSharedCoresRampUp         bool
+	EnableRampUpReclaimHardPartition bool
+	InitialRampUpReclaimCPUSetRatio  float64
+	SystemExclusivePool              map[string]int
+	SystemExclusivePoolShrinkRatio   *float64
+	SystemExclusivePoolShrinkMin     *int64
+	SystemExclusivePoolShrinkMax     *int64
 	// BindIRQToReclaimedPool, when true, forces GetIRQForbiddenCores to return
 	// "machine cpuset - reclaimed pool cpuset (still unioned with reservedCPUs
 	// and other unconditional forbidden sources)" so that network IRQs are
@@ -92,6 +94,12 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		}
 		if config.DisableSharedCoresRampUp != nil {
 			c.DisableSharedCoresRampUp = *config.DisableSharedCoresRampUp
+		}
+		if config.EnableRampUpReclaimHardPartition != nil {
+			c.EnableRampUpReclaimHardPartition = *config.EnableRampUpReclaimHardPartition
+		}
+		if config.InitialRampUpReclaimCPUSetRatio != nil {
+			c.InitialRampUpReclaimCPUSetRatio = *config.InitialRampUpReclaimCPUSetRatio
 		}
 		c.SystemExclusivePool = config.SystemExclusivePool
 		c.SystemExclusivePoolShrinkRatio = config.SystemExclusivePoolShrinkRatio

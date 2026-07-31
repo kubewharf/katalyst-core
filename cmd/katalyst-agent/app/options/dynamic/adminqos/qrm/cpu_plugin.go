@@ -17,22 +17,26 @@ limitations under the License.
 package qrm
 
 import (
+	"fmt"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 )
 
 type CPUPluginOptions struct {
-	PreferUseExistNUMAHintResult  bool
-	EnableBypassCPUSetAdjustment  bool
-	DisableSharedCoresRampUp      bool
-	EnableBulkhead                bool
-	EnableBulkheadCpusetTopology  bool
-	EnableBulkheadCpusetMems      bool
-	EnableBulkheadWorkqueue       bool
-	EnableBulkheadSystemService   bool
-	BulkheadNonReclaimPoolMinSize int64
-	BindIRQToReclaimedPool        bool
+	PreferUseExistNUMAHintResult     bool
+	EnableBypassCPUSetAdjustment     bool
+	DisableSharedCoresRampUp         bool
+	EnableRampUpReclaimHardPartition bool
+	InitialRampUpReclaimCPUSetRatio  float64
+	EnableBulkhead                   bool
+	EnableBulkheadCpusetTopology     bool
+	EnableBulkheadCpusetMems         bool
+	EnableBulkheadWorkqueue          bool
+	EnableBulkheadSystemService      bool
+	BulkheadNonReclaimPoolMinSize    int64
+	BindIRQToReclaimedPool           bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
@@ -51,6 +55,10 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 			"allocation responses returned by Allocate/AllocateForPod keep their cpuset unchanged.")
 	fs.BoolVar(&o.DisableSharedCoresRampUp, "disable-shared-cores-ramp-up", o.DisableSharedCoresRampUp,
 		"if true, shared_cores pods skip initial RampUp full-pool cpuset binding and are allocated from their target pool directly.")
+	fs.BoolVar(&o.EnableRampUpReclaimHardPartition, "enable-ramp-up-reclaim-hard-partition", o.EnableRampUpReclaimHardPartition,
+		"if true, enable hard reclaim partitioning while a workload is in ramp-up.")
+	fs.Float64Var(&o.InitialRampUpReclaimCPUSetRatio, "initial-ramp-up-reclaim-cpuset-ratio", o.InitialRampUpReclaimCPUSetRatio,
+		"ratio target used by ramp-up hard reclaim partitioning; 0 uses reserve floors only.")
 	fs.BoolVar(&o.EnableBulkhead, "enable-bulkhead", o.EnableBulkhead,
 		"if true, enable bulkhead.")
 	fs.BoolVar(&o.EnableBulkheadCpusetTopology, "enable-bulkhead-cpuset-topology", o.EnableBulkheadCpusetTopology,
@@ -69,9 +77,15 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
+	if o.InitialRampUpReclaimCPUSetRatio < 0 || o.InitialRampUpReclaimCPUSetRatio > 1 {
+		return fmt.Errorf("initial-ramp-up-reclaim-cpuset-ratio must be in [0,1], got %f", o.InitialRampUpReclaimCPUSetRatio)
+	}
+
 	c.PreferUseExistNUMAHintResult = o.PreferUseExistNUMAHintResult
 	c.EnableBypassCPUSetAdjustment = o.EnableBypassCPUSetAdjustment
 	c.DisableSharedCoresRampUp = o.DisableSharedCoresRampUp
+	c.EnableRampUpReclaimHardPartition = o.EnableRampUpReclaimHardPartition
+	c.InitialRampUpReclaimCPUSetRatio = o.InitialRampUpReclaimCPUSetRatio
 	c.BulkheadConfig.Enable = o.EnableBulkhead
 	c.BulkheadConfig.EnableBulkheadCpusetTopology = o.EnableBulkheadCpusetTopology
 	c.BulkheadConfig.EnableBulkheadCpusetMems = o.EnableBulkheadCpusetMems

@@ -55,12 +55,70 @@ func TestQRMPluginOptions_AddFlags(t *testing.T) {
 		"enable-bulkhead-cpuset-mems",
 		"enable-bulkhead-workqueue",
 		"enable-bulkhead-system-service",
+		"enable-ramp-up-reclaim-hard-partition",
+		"initial-ramp-up-reclaim-cpuset-ratio",
 		"bind-irq-to-reclaimed-pool",
 		"bulkhead-non-reclaim-pool-min-size",
 	} {
 		if cpuPluginFlagSet.Lookup(name) == nil {
 			t.Errorf("qrm-cpu-plugin flag %q not found", name)
 		}
+	}
+}
+
+func TestQRMPluginOptions_ApplyToRampUpReclaimHardPartitionConfig(t *testing.T) {
+	t.Parallel()
+
+	options := NewQRMPluginOptions()
+	options.EnableRampUpReclaimHardPartition = true
+	options.InitialRampUpReclaimCPUSetRatio = 0.25
+	config := qrm.NewQRMPluginConfiguration()
+
+	if err := options.ApplyTo(config); err != nil {
+		t.Fatalf("ApplyTo failed: %v", err)
+	}
+	if !config.CPUPluginConfiguration.EnableRampUpReclaimHardPartition {
+		t.Fatalf("EnableRampUpReclaimHardPartition = false, want true")
+	}
+	if config.CPUPluginConfiguration.InitialRampUpReclaimCPUSetRatio != 0.25 {
+		t.Fatalf("InitialRampUpReclaimCPUSetRatio = %f, want 0.25", config.CPUPluginConfiguration.InitialRampUpReclaimCPUSetRatio)
+	}
+}
+
+func TestQRMPluginOptions_ParseRampUpReclaimHardPartitionFlags(t *testing.T) {
+	t.Parallel()
+
+	options := NewQRMPluginOptions()
+	fss := &cliflag.NamedFlagSets{}
+	options.AddFlags(fss)
+
+	if err := fss.FlagSet("qrm-cpu-plugin").Parse([]string{
+		"--enable-ramp-up-reclaim-hard-partition=true",
+		"--initial-ramp-up-reclaim-cpuset-ratio=0.5",
+	}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	config := qrm.NewQRMPluginConfiguration()
+	if err := options.ApplyTo(config); err != nil {
+		t.Fatalf("ApplyTo failed: %v", err)
+	}
+	if !config.CPUPluginConfiguration.EnableRampUpReclaimHardPartition {
+		t.Fatalf("EnableRampUpReclaimHardPartition = false, want true")
+	}
+	if config.CPUPluginConfiguration.InitialRampUpReclaimCPUSetRatio != 0.5 {
+		t.Fatalf("InitialRampUpReclaimCPUSetRatio = %f, want 0.5", config.CPUPluginConfiguration.InitialRampUpReclaimCPUSetRatio)
+	}
+}
+
+func TestQRMPluginOptions_RejectInvalidInitialRampUpReclaimCPUSetRatio(t *testing.T) {
+	t.Parallel()
+
+	options := NewQRMPluginOptions()
+	options.InitialRampUpReclaimCPUSetRatio = 1.1
+
+	if err := options.ApplyTo(qrm.NewQRMPluginConfiguration()); err == nil {
+		t.Fatalf("ApplyTo succeeded with invalid InitialRampUpReclaimCPUSetRatio")
 	}
 }
 
