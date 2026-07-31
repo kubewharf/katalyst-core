@@ -19,6 +19,7 @@ package topology
 import (
 	"context"
 	"reflect"
+	"syscall"
 	"testing"
 
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -247,6 +248,34 @@ func TestDomainPhaseExecutorFiltersExpandTargetThroughGate(t *testing.T) {
 	wantWrites := []cpusetWrite{{rel: "primary", cpus: "0-1", mems: "0"}}
 	if !reflect.DeepEqual(cg.writes, wantWrites) {
 		t.Fatalf("writes after release = %#v, want %#v", cg.writes, wantWrites)
+	}
+}
+
+func TestDomainPhaseExecutorUsesSafeShrinkForMixedExpandTransition(t *testing.T) {
+	t.Parallel()
+
+	dag, err := BuildDAG([]NodeSpec{
+		{Rel: "reclaim", Role: TopoNodeRoleReclaim, CPUs: machine.NewCPUSet(0, 2), Mems: "0"},
+	})
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	transition := nodeTransition{
+		node:               dag.index["reclaim"],
+		domain:             cpusetDomainReclaim,
+		observed:           machine.NewCPUSet(0, 1),
+		target:             machine.NewCPUSet(0, 2),
+		entering:           machine.NewCPUSet(2),
+		crossDomainLeaving: machine.NewCPUSet(1),
+	}
+	gate := domainGate{releasedToReclaim: machine.NewCPUSet(2)}
+	cg := newTopologyFakeCgroup()
+	cg.cpus["reclaim"] = machine.NewCPUSet(0, 1)
+	cg.applyErr["reclaim"] = syscall.EBUSY
+	executor := newDomainPhaseExecutor(newSafeCPUSetWriter(context.Background(), cg, "0", &DAGApplyResult{}))
+
+	if err := executor.executeExpandPhase([]nodeTransition{transition}, gate); err != nil {
+		t.Fatalf("executeExpandPhase mixed transition error = %v, want safe deferred convergence", err)
 	}
 }
 

@@ -207,7 +207,7 @@ func (w safeCPSetWriter) shrinkParentWithLiveChildUnion(node *TopoNode, target m
 		bridgeTarget := parentActual.Union(controlledChildUnion)
 		if !parentActual.Equals(bridgeTarget) {
 			if err := w.writeBridgeNode(node, target, bridgeTarget); err != nil {
-				return err
+				return w.deferSafeParentBusy(node, err, "controlled_child_bridge")
 			}
 		}
 		general.Infof("topo_dag_writer: keep_parent_bridge_for_controlled_children rel=%q target=%s controlledChildUnion=%s bridgeTarget=%s",
@@ -230,7 +230,7 @@ func (w safeCPSetWriter) shrinkParentWithLiveChildUnion(node *TopoNode, target m
 	}
 	if !bridgeTarget.Equals(parentActual) {
 		if err := w.writeBridgeNode(node, target, bridgeTarget); err != nil {
-			return err
+			return w.deferSafeParentBusy(node, err, "live_child_bridge")
 		}
 	}
 	var parked machine.CPUSet
@@ -267,7 +267,7 @@ func (w safeCPSetWriter) shrinkParentWithLiveChildUnion(node *TopoNode, target m
 		}
 		if !current.Equals(deferBridgeTarget) {
 			if err := w.writeBridgeNode(node, effectiveTarget, deferBridgeTarget); err != nil {
-				return err
+				return w.deferSafeParentBusy(node, err, "defer_bridge")
 			}
 		}
 		if w.parentSupersetHeld(node) {
@@ -290,6 +290,15 @@ func (w safeCPSetWriter) shrinkParentWithLiveChildUnion(node *TopoNode, target m
 	// EBUSY here means a child bucket still holds a previous generation that a
 	// later reconcile will drain.
 	return w.finalParentShrink(node, effectiveTarget)
+}
+
+func (w safeCPSetWriter) deferSafeParentBusy(node *TopoNode, err error, stage string) error {
+	if !isCgroupBusyError(err) || !w.parentSupersetHeld(node) {
+		return err
+	}
+	general.Warningf("topo_dag_writer: defer_convergence_parent_busy stage=%q rel=%q err=%v",
+		stage, node.Rel, err)
+	return errDeferConvergence
 }
 
 func (w safeCPSetWriter) shrinkControlledChildrenToTargets(parentRel string) error {
@@ -1145,5 +1154,8 @@ func (w safeCPSetWriter) reconcileLiveChildrenBeforeRetry(parentRel string, pare
 }
 
 func isCgroupBusyError(err error) bool {
-	return errors.Is(err, syscall.EBUSY)
+	if errors.Is(err, syscall.EBUSY) {
+		return true
+	}
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "device or resource busy")
 }

@@ -134,6 +134,44 @@ func TestFinalParentShrinkDefersOnPersistentEBUSY(t *testing.T) {
 	}
 }
 
+func TestFinalParentShrinkDefersOnTextWrappedEBUSY(t *testing.T) {
+	t.Parallel()
+
+	node := singleParentNode(t, machine.NewCPUSet(0, 1))
+	cg := newTopologyFakeCgroup()
+	cg.cpus["parent"] = machine.NewCPUSet(0, 1)
+	cg.cpus["parent/child"] = machine.NewCPUSet(0)
+	cg.children["parent"] = []string{"child"}
+	cg.applyErr["parent"] = errors.New(`write /sys/fs/cgroup/cpuset/parent/cpuset.cpus: device or resource busy`)
+	res := DAGApplyResult{}
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0", &res)
+
+	err := writer.finalParentShrink(node, machine.NewCPUSet(0, 1))
+	if !IsDeferConvergenceError(err) {
+		t.Fatalf("finalParentShrink error = %v, want deferred-convergence sentinel for text-wrapped EBUSY", err)
+	}
+	if res.Failed != maxSafeCPUSetWriteAttempts {
+		t.Fatalf("res.Failed = %d, want %d bounded EBUSY attempts", res.Failed, maxSafeCPUSetWriteAttempts)
+	}
+}
+
+func TestShrinkParentDefersWhenInitialBridgeHitsTextWrappedEBUSY(t *testing.T) {
+	t.Parallel()
+
+	parent := singleParentNode(t, machine.NewCPUSet(0))
+	cg := newTopologyFakeCgroup()
+	cg.cpus["parent"] = machine.NewCPUSet(0, 1, 2)
+	cg.cpus["parent/child"] = machine.NewCPUSet(0, 1)
+	cg.children["parent"] = []string{"child"}
+	cg.applyErr["parent"] = errors.New(`write /sys/fs/cgroup/cpuset/parent/cpuset.cpus: device or resource busy`)
+	writer := newSafeCPUSetWriter(context.Background(), cg, "0", &DAGApplyResult{})
+
+	err := writer.shrinkParentWithLiveChildUnion(parent, machine.NewCPUSet(0))
+	if !IsDeferConvergenceError(err) {
+		t.Fatalf("shrinkParentWithLiveChildUnion error = %v, want deferred convergence for safe bridge EBUSY", err)
+	}
+}
+
 // TestFinalParentShrinkDoesNotMaskParentBelowChild verifies that a persistent
 // EBUSY is NOT deferred when the parent is not a valid superset of its live
 // children: the illegal state must surface as a raw error, never be hidden.

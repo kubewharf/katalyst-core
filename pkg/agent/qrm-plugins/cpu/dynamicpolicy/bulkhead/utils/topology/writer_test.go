@@ -542,13 +542,16 @@ func TestApplyDAGDiffGuardsSiblingGrowWhenSourceShrinkFails(t *testing.T) {
 		}
 	}
 
-	_, err = ApplyDAGDiff(context.Background(), DAGApplyInputs{
+	res, err := ApplyDAGDiff(context.Background(), DAGApplyInputs{
 		DAG:        dag,
 		Cgroup:     cg,
 		CPUDetails: testCPUDetails(),
 	})
-	if err == nil {
-		t.Fatalf("expected source shrink error, got nil; writes=%#v", cg.writes)
+	if err != nil {
+		t.Fatalf("ApplyDAGDiff error = %v, want safe deferred convergence", err)
+	}
+	if res.ConvergenceReport.FullyConverged {
+		t.Fatalf("convergence report = %+v, want non-converged source shrink", res.ConvergenceReport)
 	}
 	for _, w := range cg.writes {
 		if w.rel == "kubesandbox" && strings.Contains(w.cpus, "99") {

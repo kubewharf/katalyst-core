@@ -285,7 +285,7 @@ func TestSafeCPUSetWriterReturnsNonEBUSYImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildDAG: %v", err)
 	}
-	wantErr := errors.New("device or resource busy")
+	wantErr := errors.New("permission denied")
 	cg := newTopologyFakeCgroup()
 	cg.applyErr["parent"] = wantErr
 	attempts := 0

@@ -148,6 +148,15 @@ func (e domainPhaseExecutor) executeExpandPhase(transitions []nodeTransition, ga
 			continue
 		}
 		logTransitionTarget("expand", transition, target, e.writer.targetByRel)
+		if !transition.observed.IsSubsetOf(target) {
+			if err := e.writer.shrinkParentWithLiveChildUnion(transition.node, target); err != nil {
+				if IsDeferConvergenceError(err) {
+					continue
+				}
+				return err
+			}
+			continue
+		}
 		if err := e.writer.growNodeWithParentBridge(transition.node, target); err != nil {
 			return err
 		}
