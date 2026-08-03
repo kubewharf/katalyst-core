@@ -104,7 +104,7 @@ func (c *MalachiteClient) GetSystemIOStats() (*types.SystemIoData, error) {
 	return &rsp.Data, nil
 }
 
-func (c *MalachiteClient) GetSystemNetStats() (*types.SystemNetworkData, error) {
+func (c *MalachiteClient) GetSystemNetStats() ([]types.SystemNetworkData, error) {
 	statsData, err := c.getSystemStats(Net)
 	if err != nil {
 		return nil, err
@@ -119,8 +119,18 @@ func (c *MalachiteClient) GetSystemNetStats() (*types.SystemNetworkData, error) 
 		return nil, fmt.Errorf("system network stats status is not ok, %d", rsp.Status)
 	}
 
-	c.checkSystemStatsOutOfDate("network", UpdateTimeout, rsp.Data.UpdateTime)
-	return &rsp.Data, nil
+	c.checkSystemStatsOutOfDate("network", UpdateTimeout, getLatestSystemNetworkUpdateTime(rsp.Data))
+	return rsp.Data, nil
+}
+
+func getLatestSystemNetworkUpdateTime(data []types.SystemNetworkData) int64 {
+	var updateTime int64
+	for _, item := range data {
+		if item.UpdateTime > updateTime {
+			updateTime = item.UpdateTime
+		}
+	}
+	return updateTime
 }
 
 func (c *MalachiteClient) getSystemStats(kind SystemResourceKind) ([]byte, error) {

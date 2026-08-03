@@ -17,6 +17,7 @@ limitations under the License.
 package eviction
 
 import (
+	"fmt"
 	"time"
 
 	cliflag "k8s.io/component-base/cli/flag"
@@ -25,14 +26,24 @@ import (
 )
 
 type NetworkEvictionOptions struct {
-	EnableNICHealthEviction       bool
-	NICUnhealthyToleranceDuration time.Duration
-	GracePeriod                   int64
+	EnableNICHealthEviction            bool
+	NICUnhealthyToleranceDuration      time.Duration
+	GracePeriod                        int64
+	EnableNICBandwidthEviction         bool
+	NICBandwidthUtilizationThreshold   float64
+	NICBandwidthContinuousMetThreshold int
+	NICBandwidthRingSize               int
+	NICBandwidthRingMetThreshold       int
+	NICBandwidthGracePeriod            int64
 }
 
 func NewNetworkEvictionOptions() *NetworkEvictionOptions {
 	return &NetworkEvictionOptions{
-		NICUnhealthyToleranceDuration: 5 * time.Minute,
+		NICUnhealthyToleranceDuration:      5 * time.Minute,
+		NICBandwidthUtilizationThreshold:   0.75,
+		NICBandwidthContinuousMetThreshold: 3,
+		NICBandwidthRingSize:               6,
+		NICBandwidthRingMetThreshold:       4,
 	}
 }
 
@@ -41,13 +52,31 @@ func (o *NetworkEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.BoolVar(&o.EnableNICHealthEviction, "eviction-network-nic-health-enable", o.EnableNICHealthEviction, "enable nic health eviction")
 	fs.DurationVar(&o.NICUnhealthyToleranceDuration, "eviction-network-nic-unhealthy-tolerance-duration", o.NICUnhealthyToleranceDuration, "nic unhealthy tolerance duration")
-	fs.Int64Var(&o.GracePeriod, "eviction-network-grace-period", o.GracePeriod, "the grace period of pod deletion")
+	fs.Int64Var(&o.GracePeriod, "eviction-network-grace-period", o.GracePeriod, "the grace period of nic health eviction")
+	fs.BoolVar(&o.EnableNICBandwidthEviction, "eviction-network-nic-bandwidth-enable", o.EnableNICBandwidthEviction, "enable nic bandwidth eviction")
+	fs.Float64Var(&o.NICBandwidthUtilizationThreshold, "eviction-network-nic-bandwidth-utilization-threshold", o.NICBandwidthUtilizationThreshold, "nic bandwidth utilization threshold")
+	fs.IntVar(&o.NICBandwidthContinuousMetThreshold, "eviction-network-nic-bandwidth-continuous-met-threshold", o.NICBandwidthContinuousMetThreshold, "continuous met threshold for nic bandwidth eviction")
+	fs.IntVar(&o.NICBandwidthRingSize, "eviction-network-nic-bandwidth-ring-size", o.NICBandwidthRingSize, "ring size for nic bandwidth eviction")
+	fs.IntVar(&o.NICBandwidthRingMetThreshold, "eviction-network-nic-bandwidth-ring-met-threshold", o.NICBandwidthRingMetThreshold, "ring met threshold for nic bandwidth eviction")
+	fs.Int64Var(&o.NICBandwidthGracePeriod, "eviction-network-nic-bandwidth-grace-period", o.NICBandwidthGracePeriod, "the grace period of nic bandwidth eviction")
 }
 
 func (o *NetworkEvictionOptions) ApplyTo(c *eviction.NetworkEvictionConfiguration) error {
 	c.EnableNICHealthEviction = o.EnableNICHealthEviction
 	c.NICUnhealthyToleranceDuration = o.NICUnhealthyToleranceDuration
 	c.GracePeriod = o.GracePeriod
+	c.EnableNICBandwidthEviction = o.EnableNICBandwidthEviction
+	c.NICBandwidthUtilizationThreshold = o.NICBandwidthUtilizationThreshold
+	if o.NICBandwidthContinuousMetThreshold <= 0 || o.NICBandwidthContinuousMetThreshold > o.NICBandwidthRingSize {
+		return fmt.Errorf("continuous met threshold must be greater than 0 and less than or equal to ring size")
+	}
+	c.NICBandwidthContinuousMetThreshold = o.NICBandwidthContinuousMetThreshold
+	c.NICBandwidthRingSize = o.NICBandwidthRingSize
+	if o.NICBandwidthRingMetThreshold <= 0 || o.NICBandwidthRingMetThreshold > o.NICBandwidthRingSize {
+		return fmt.Errorf("ring met threshold must be greater than 0 and less than or equal to ring size")
+	}
+	c.NICBandwidthRingMetThreshold = o.NICBandwidthRingMetThreshold
+	c.NICBandwidthGracePeriod = o.NICBandwidthGracePeriod
 
 	return nil
 }

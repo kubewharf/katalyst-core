@@ -513,7 +513,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	identifier := allocationInfo.Identifier
 	if identifier == "" {
 		// backup to use ifName and interfaceInfo.NSName as identifier
-		identifier = getResourceIdentifier(interfaceInfo.NSName, interfaceInfo.Name)
+		identifier = machine.FormatNICIdentifier(interfaceInfo.NSName, interfaceInfo.Name)
 	}
 
 	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
@@ -591,7 +591,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			}
 
 			var allocatable uint32
-			resourceIdentifier := getResourceIdentifier(iface.NSName, iface.Name)
+			resourceIdentifier := machine.FormatNICIdentifier(iface.NSName, iface.Name)
 			if health {
 				allocatable = general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
 			}
@@ -835,7 +835,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			commonstate.EmptyOwnerPoolName, qosLevel),
 		Egress:     uint32(reqInt),
 		Ingress:    uint32(reqInt),
-		Identifier: getResourceIdentifier(selectedNIC.NSName, selectedNIC.Name),
+		Identifier: machine.FormatNICIdentifier(selectedNIC.NSName, selectedNIC.Name),
 		NSName:     selectedNIC.NSName,
 		IfName:     selectedNIC.Name,
 		NumaNodes:  allocateNUMAs,

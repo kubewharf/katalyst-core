@@ -32,7 +32,7 @@ const (
 	CgroupPathParamKey = "cgroup_user_path"
 
 	SystemIOResource      = "system/io"
-	SystemNetResource     = "system/network"
+	SystemNetResource     = "system/network/all_netns"
 	SystemMemoryResource  = "system/memory"
 	SystemComputeResource = "system/compute"
 	SystemInfoResource    = "system/info"

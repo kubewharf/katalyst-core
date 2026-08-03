@@ -330,6 +330,10 @@ func (f *MetricsFetcherImpl) GetNetworkMetric(networkName string, metricName str
 	return f.checkMetricDataExpire(f.metricStore.GetNetworkMetric(networkName, metricName))
 }
 
+func (f *MetricsFetcherImpl) GetNSNetworkMetric(netns, networkName string, metricName string) (utilmetric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetNSNetworkMetric(netns, networkName, metricName))
+}
+
 func (f *MetricsFetcherImpl) GetCPUMetric(coreID int, metricName string) (utilmetric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetCPUMetric(coreID, metricName))
 }

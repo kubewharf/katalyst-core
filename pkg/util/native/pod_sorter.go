@@ -56,6 +56,17 @@ func PodPriorityCmpFunc(i1, i2 interface{}) int {
 	return general.CmpInt32(priority1, priority2)
 }
 
+// PodSaleModeCmpFunc sorts pods by sale mode with the highest eviction priority first.
+func PodSaleModeCmpFunc(annotationKey string) general.CmpFunc {
+	saleModePriority := GetPodSaleModePriority()
+	return func(i1, i2 interface{}) int {
+		p1SaleMode := GetPodSaleMode(i1.(*v1.Pod), annotationKey)
+		p2SaleMode := GetPodSaleMode(i2.(*v1.Pod), annotationKey)
+
+		return -general.CmpInt32(saleModePriority[p1SaleMode], saleModePriority[p2SaleMode])
+	}
+}
+
 // PodCPURequestCmpFunc sorts cpu request of pods with less comparison
 func PodCPURequestCmpFunc(i1, i2 interface{}) int {
 	p1Request := SumUpPodRequestResources(i1.(*v1.Pod))
@@ -76,6 +87,7 @@ func PodUniqKeyCmpFunc(i1, i2 interface{}) int {
 }
 
 var (
+	_ general.CmpFunc = PodSaleModeCmpFunc("")
 	_ general.CmpFunc = PodPriorityCmpFunc
 	_ general.CmpFunc = PodCPURequestCmpFunc
 	_ general.CmpFunc = PodUniqKeyCmpFunc

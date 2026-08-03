@@ -72,8 +72,10 @@ type MetricsReader interface {
 	GetNumaMetric(numaID int, metricName string) (metric.MetricData, error)
 	// GetDeviceMetric get metric of device.
 	GetDeviceMetric(deviceName string, metricName string) (metric.MetricData, error)
-	// GetDeviceMetric get metric of network.
+	// GetNetworkMetric get metric of network in the default namespace.
 	GetNetworkMetric(networkName string, metricName string) (metric.MetricData, error)
+	// GetNSNetworkMetric get metric of network in the specified namespace.
+	GetNSNetworkMetric(netns, networkName string, metricName string) (metric.MetricData, error)
 	// GetCPUMetric get metric of cpu.
 	GetCPUMetric(coreID int, metricName string) (metric.MetricData, error)
 	// GetContainerMetric get metric of container.

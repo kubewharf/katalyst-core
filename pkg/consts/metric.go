@@ -260,6 +260,7 @@ const (
 	MetricCPUNrRunnableContainer        = "cpu.nr.runnable.container"
 	MetricCPUNrUninterruptibleContainer = "cpu.nr.uninterruptible.container"
 	MetricCPUNrIOWaitContainer          = "cpu.nr.iowait.container"
+	MetricCPUNrSleepingContainer        = "cpu.nr.sleeping.container"
 
 	MetricLoad1MinContainer  = "cpu.load.1min.container"
 	MetricLoad5MinContainer  = "cpu.load.5min.container"

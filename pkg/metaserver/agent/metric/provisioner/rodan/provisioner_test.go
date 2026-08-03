@@ -126,6 +126,10 @@ func TestSample(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 54.0, data.Value)
 
+	data, err = f.metricStore.GetContainerMetric("2126079c-8e0a-4cfe-9a0b-583199c14027", "testContainer", consts.MetricCPUNrSleepingContainer)
+	require.NoError(t, err)
+	require.Equal(t, 54.0, data.Value)
+
 	data, err = f.metricStore.GetContainerMetric("2126079c-8e0a-4cfe-9a0b-583199c14027", "testContainer", consts.MetricCPUUsageContainer)
 	require.NoError(t, err)
 	require.Equal(t, 0.99, data.Value)

@@ -64,6 +64,32 @@ func TestStore_SetAndGeDeviceMetric(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestStore_SetAndGetNSNetworkMetric(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	store := NewMetricStore()
+	store.SetNetworkMetric("eth0", "test-metric-name", MetricData{Value: 1.0, Time: &now})
+	store.SetNSNetworkMetric("ns1", "eth0", "test-metric-name", MetricData{Value: 2.0, Time: &now})
+	store.SetNSNetworkMetric("ns2", "eth0", "test-metric-name", MetricData{Value: 3.0, Time: &now})
+
+	value, err := store.GetNetworkMetric("eth0", "test-metric-name")
+	assert.NoError(t, err)
+	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
+
+	value, err = store.GetNSNetworkMetric("ns1", "eth0", "test-metric-name")
+	assert.NoError(t, err)
+	assert.Equal(t, MetricData{Value: 2.0, Time: &now}, value)
+
+	value, err = store.GetNSNetworkMetric("ns2", "eth0", "test-metric-name")
+	assert.NoError(t, err)
+	assert.Equal(t, MetricData{Value: 3.0, Time: &now}, value)
+
+	_, err = store.GetNSNetworkMetric("ns3", "eth0", "test-metric-name")
+	assert.Error(t, err)
+}
+
 func TestStore_SetAndGetCPUMetric(t *testing.T) {
 	t.Parallel()
 

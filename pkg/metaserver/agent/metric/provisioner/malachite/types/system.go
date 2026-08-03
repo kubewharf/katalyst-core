@@ -64,11 +64,12 @@ type ZramStat struct {
 }
 
 type MalachiteSystemNetworkResponse struct {
-	Status int               `json:"status"`
-	Data   SystemNetworkData `json:"data"`
+	Status int                 `json:"status"`
+	Data   []SystemNetworkData `json:"data"`
 }
 
 type SystemNetworkData struct {
+	NetNS       string        `json:"netns"`
 	NetworkCard []NetworkCard `json:"networkcard"`
 	TCP         TCP           `json:"tcp"`
 	UpdateTime  int64         `json:"update_time"`

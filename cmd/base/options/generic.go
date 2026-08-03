@@ -25,6 +25,7 @@ import (
 	componentbaseconfig "k8s.io/component-base/config"
 	"k8s.io/klog/v2"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -42,6 +43,7 @@ type GenericOptions struct {
 	// todo actually those auth info should be stored in secrets or somewhere like that
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
+	PodSaleModeAnnotationKey    string
 
 	qosOptions     *QoSOptions
 	metricsOptions *MetricsOptions
@@ -57,6 +59,7 @@ func NewGenericOptions() *GenericOptions {
 		EnableHealthzCheck:        false,
 		TransformedInformerForPod: false,
 		GenericEndpoint:           ":9316",
+		PodSaleModeAnnotationKey:  apiconsts.PodAnnotationSaleModeKey,
 		qosOptions:                NewQoSOptions(),
 		metricsOptions:            NewMetricsOptions(),
 		logsOptions:               NewLogsOptions(),
@@ -92,6 +95,8 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the endpoint of generic purpose, which will use as prometheus, health check and profiling")
 	fs.StringSliceVar(&o.GenericEndpointHandleChains, "generic-handler-chains", o.GenericEndpointHandleChains,
 		"this flag defines the handler chains that should be enabled")
+	fs.StringVar(&o.PodSaleModeAnnotationKey, "pod-sale-mode-annotation-key", o.PodSaleModeAnnotationKey,
+		"The pod annotation key used to read pod sale mode")
 
 	o.qosOptions.AddFlags(fs)
 	o.metricsOptions.AddFlags(fs)
@@ -111,6 +116,7 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 
 	c.GenericEndpoint = o.GenericEndpoint
 	c.GenericEndpointHandleChains = o.GenericEndpointHandleChains
+	c.PodSaleModeAnnotationKey = o.PodSaleModeAnnotationKey
 
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))

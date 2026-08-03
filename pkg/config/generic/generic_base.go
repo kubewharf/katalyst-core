@@ -18,6 +18,8 @@ package generic
 
 import (
 	componentbaseconfig "k8s.io/component-base/config"
+
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 // GenericConfiguration stores all the generic configurations needed
@@ -32,6 +34,7 @@ type GenericConfiguration struct {
 
 	GenericEndpoint             string
 	GenericEndpointHandleChains []string
+	PodSaleModeAnnotationKey    string
 
 	*QoSConfiguration
 	*MetricsConfiguration
@@ -46,10 +49,11 @@ type GenericConfiguration struct {
 // NewGenericConfiguration creates a new generic configuration.
 func NewGenericConfiguration() *GenericConfiguration {
 	return &GenericConfiguration{
-		DryRun:               false,
-		QoSConfiguration:     NewQoSConfiguration(),
-		MetricsConfiguration: NewMetricsConfiguration(),
-		AuthConfiguration:    NewAuthConfiguration(),
-		LogConfiguration:     NewLogConfiguration(),
+		DryRun:                   false,
+		PodSaleModeAnnotationKey: apiconsts.PodAnnotationSaleModeKey,
+		QoSConfiguration:         NewQoSConfiguration(),
+		MetricsConfiguration:     NewMetricsConfiguration(),
+		AuthConfiguration:        NewAuthConfiguration(),
+		LogConfiguration:         NewLogConfiguration(),
 	}
 }

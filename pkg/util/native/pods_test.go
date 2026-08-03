@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func TestFilterPodAnnotations(t *testing.T) {
@@ -389,4 +390,134 @@ func TestGetPodRequestResources(t *testing.T) {
 	res := GetPodRequestResources(pods[0], consts.ReclaimedResourceMilliCPU)
 	assert.NotEqual(t, res, (*resource.Quantity)(nil))
 	assert.Equal(t, res.Value(), int64(100))
+}
+
+func TestGetPodSaleMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		pod           *v1.Pod
+		annotationKey string
+		want          string
+	}{
+		{
+			name: "nil pod returns default",
+			want: consts.PodSaleModeDefault,
+		},
+		{
+			name: "missing annotations returns default",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod-without-annotations"},
+			},
+			annotationKey: consts.PodAnnotationSaleModeKey,
+			want:          consts.PodSaleModeDefault,
+		},
+		{
+			name: "empty annotation key falls back to default api key",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-with-default-key",
+					Annotations: map[string]string{
+						consts.PodAnnotationSaleModeKey: consts.PodSaleModeScheduled,
+					},
+				},
+			},
+			want: consts.PodSaleModeScheduled,
+		},
+		{
+			name: "custom annotation key is respected",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-with-custom-key",
+					Annotations: map[string]string{
+						"bytedance.quota.salemode":      consts.PodSaleModeReserved,
+						consts.PodAnnotationSaleModeKey: consts.PodSaleModeSpot,
+					},
+				},
+			},
+			annotationKey: "bytedance.quota.salemode",
+			want:          consts.PodSaleModeReserved,
+		},
+		{
+			name: "invalid sale mode falls back to default",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-with-invalid-sale-mode",
+					Annotations: map[string]string{
+						consts.PodAnnotationSaleModeKey: "invalid-sale-mode",
+					},
+				},
+			},
+			annotationKey: consts.PodAnnotationSaleModeKey,
+			want:          consts.PodSaleModeDefault,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, GetPodSaleMode(tt.pod, tt.annotationKey))
+		})
+	}
+}
+
+func TestPodSaleModeCmpFunc(t *testing.T) {
+	t.Parallel()
+
+	spotPod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-b",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"salemode": consts.PodSaleModeSpot,
+			},
+		},
+	}
+	scheduledPod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-d",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"salemode": consts.PodSaleModeScheduled,
+			},
+		},
+	}
+	reservedPod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-a",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"salemode": consts.PodSaleModeReserved,
+			},
+		},
+	}
+	defaultPod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-c",
+			Namespace: "default",
+		},
+	}
+
+	cmp := PodSaleModeCmpFunc("salemode")
+	assert.Less(t, cmp(spotPod, reservedPod), 0)
+	assert.Greater(t, cmp(defaultPod, scheduledPod), 0)
+
+	pods := []*v1.Pod{defaultPod, reservedPod, scheduledPod, spotPod}
+	general.NewMultiSorter(PodSaleModeCmpFunc("salemode"), PodUniqKeyCmpFunc).Sort(NewPodSourceImpList(pods))
+
+	assert.Equal(t, []string{"pod-b", "pod-d", "pod-a", "pod-c"}, getPodNamesBySaleMode(pods))
+}
+
+func getPodNamesBySaleMode(pods []*v1.Pod) []string {
+	podNames := make([]string, 0, len(pods))
+	for _, pod := range pods {
+		if pod == nil {
+			continue
+		}
+		podNames = append(podNames, pod.Name)
+	}
+	return podNames
 }
