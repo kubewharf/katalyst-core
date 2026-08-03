@@ -742,6 +742,7 @@ func (nm NUMANodeMap) String() string {
 
 // reader is used to get information from local states
 type reader interface {
+	GetReservedCPUs() machine.CPUSet
 	GetMachineState() NUMANodeMap
 	GetNUMAHeadroom() map[int]float64
 	GetPodEntries() PodEntries
@@ -752,6 +753,7 @@ type reader interface {
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
+	SetReservedCPUs(reservedCPUs machine.CPUSet)
 	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
 	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
 	SetPodEntries(podEntries PodEntries, writeThrough bool)

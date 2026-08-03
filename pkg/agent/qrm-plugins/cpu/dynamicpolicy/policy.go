@@ -80,6 +80,7 @@ const (
 	syncCPUIdlePeriod             = 30 * time.Second
 	syncCPUBurstPeriod            = 10 * time.Second
 	syncSystemExclusivePoolPeriod = 10 * time.Second
+	syncReservedCPUsPeriod        = 30 * time.Second
 	syncCPUWeightPeriod           = 10 * time.Second
 
 	healthCheckTolerationTimes = 3
@@ -131,7 +132,6 @@ type DynamicPolicy struct {
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor                          bool
 	getAdviceInterval                         time.Duration
-	reservedCPUs                              machine.CPUSet
 	cpuAdvisorSocketAbsPath                   string
 	cpuPluginSocketAbsPath                    string
 	extraStateFileAbsPath                     string
@@ -171,7 +171,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d, reservedCPUList: %s failed with error: %v",
 			conf.ReservedCPUCores, conf.ReservedCPUList, reserveErr)
 	}
-
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
 		Val: cpuconsts.CPUResourcePluginPolicyNameDynamic,
@@ -182,6 +181,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
+	stateImpl.SetReservedCPUs(reservedCPUs)
 
 	state.SetReadonlyState(stateImpl)
 	state.SetReadWriteState(stateImpl)
@@ -198,10 +198,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		}
 	}
 
-	// since the reservedCPUs won't influence stateImpl directly.
-	// so we don't modify stateImpl with reservedCPUs here.
-	// for those pods have already been allocated reservedCPUs,
-	// we won't touch them and wait them to be deleted the next update.
 	policyImplement := &DynamicPolicy{
 		name:   fmt.Sprintf("%s_%s", agentName, cpuconsts.CPUResourcePluginPolicyNameDynamic),
 		stopCh: make(chan struct{}),
@@ -229,7 +225,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSNBHighNumaPreference:   conf.EnableSNBHighNumaPreference,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
 		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,
-		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
 		enableCPUBurst:                conf.CPUQRMPluginConfig.EnableCPUBurst,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
@@ -405,6 +400,17 @@ func (p *DynamicPolicy) Start() (err error) {
 		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncSystemExclusivePool, syncSystemExclusivePoolPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.SyncSystemExclusivePool, err)
+	}
+
+	// Runtime reserved CPU sync is only meaningful when kubelet /configz is the
+	// source of truth. Static Katalyst reservation mode intentionally keeps the
+	// startup value unchanged.
+	if p.conf.UseKubeletReservedConfig {
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncReservedCPUs, general.HealthzCheckStateNotReady,
+			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncReservedCPUs, syncReservedCPUsPeriod, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("start %v failed,err:%v", cpuconsts.SyncReservedCPUs, err)
+		}
 	}
 
 	// start cpu-idle syncing if needed
@@ -588,9 +594,10 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 
 	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	// rumpUpPooledCPUs is the total available cpu cores minus those that are reserved
-	rumpUpPooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+	rumpUpPooledCPUs := machineState.GetFilteredAvailableCPUSet(reservedCPUs,
 		func(ai *state.AllocationInfo) bool {
 			return ai.CheckDedicated() || ai.CheckSharedNUMABinding()
 		},
@@ -790,13 +797,14 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	general.Infof("is called")
 
 	numaNodes := p.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
+	reservedCPUs := p.state.GetReservedCPUs()
 	topologyAwareAllocatableQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
 	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
 
 	for _, numaNode := range numaNodes {
 		numaNodeCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaNode).Clone()
 		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(numaNodeCPUs.Difference(p.reservedCPUs).Size()),
+			ResourceValue: float64(numaNodeCPUs.Difference(reservedCPUs).Size()),
 			Node:          uint64(numaNode),
 		})
 		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
@@ -810,7 +818,7 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			string(v1.ResourceCPU): {
 				IsNodeResource:                       false,
 				IsScalarResource:                     true,
-				AggregatedAllocatableQuantity:        float64(p.machineInfo.NumCPUs - p.reservedCPUs.Size()),
+				AggregatedAllocatableQuantity:        float64(p.machineInfo.NumCPUs - reservedCPUs.Size()),
 				TopologyAwareAllocatableQuantityList: topologyAwareAllocatableQuantityList,
 				AggregatedCapacityQuantity:           float64(p.machineInfo.NumCPUs),
 				TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
@@ -1257,7 +1265,7 @@ func (p *DynamicPolicy) generateHintOptimizerFactoryOptions() policy.HintOptimiz
 		MetaServer:             p.metaServer,
 		ResourcePackageManager: p.resourcePackageManager,
 		State:                  p.state,
-		ReservedCPUs:           p.reservedCPUs,
+		ReservedCPUs:           p.state.GetReservedCPUs(),
 	}
 }
 
@@ -1319,23 +1327,24 @@ func (p *DynamicPolicy) cleanPools() error {
 
 // initReservePool initializes reserve pool for system cores workload
 func (p *DynamicPolicy) initReservePool() error {
+	reservedCPUs := p.state.GetReservedCPUs()
 	reserveAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
 	if reserveAllocationInfo != nil && !reserveAllocationInfo.AllocationResult.IsEmpty() {
 		general.Infof("pool: %s allocation result transform from %s to %s",
-			commonstate.PoolNameReserve, reserveAllocationInfo.AllocationResult.String(), p.reservedCPUs)
+			commonstate.PoolNameReserve, reserveAllocationInfo.AllocationResult.String(), reservedCPUs)
 	}
 
-	general.Infof("initReservePool %s: %s", commonstate.PoolNameReserve, p.reservedCPUs)
-	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, p.reservedCPUs)
+	general.Infof("initReservePool %s: %s", commonstate.PoolNameReserve, reservedCPUs)
+	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, reservedCPUs)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, result cpuset: %s, error: %v",
-			commonstate.PoolNameReserve, p.reservedCPUs.String(), err)
+			commonstate.PoolNameReserve, reservedCPUs.String(), err)
 	}
 
 	curReserveAllocationInfo := &state.AllocationInfo{
 		AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
-		AllocationResult:                 p.reservedCPUs.Clone(),
-		OriginalAllocationResult:         p.reservedCPUs.Clone(),
+		AllocationResult:                 reservedCPUs.Clone(),
+		OriginalAllocationResult:         reservedCPUs.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
@@ -1347,8 +1356,9 @@ func (p *DynamicPolicy) initReservePool() error {
 // initReclaimPool initializes pools for reclaimed-cores.
 // if this info already exists in state-file, just use it, otherwise calculate right away
 func (p *DynamicPolicy) initReclaimPool() error {
+	reservedCPUs := p.state.GetReservedCPUs()
 	// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
-	allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
+	allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(reservedCPUs)
 	defaultReservedReclaimedCPUSet, _, tErr := calculator.TakeHTByNUMABalance(p.machineInfo, allAvailableCPUs, p.reservedReclaimedCPUsSize)
 	if tErr != nil {
 		return fmt.Errorf("fallback TakeHTByNUMABalance faild in generatePoolsAndIsolation for defaultReservedReclaimedCPUSet with error: %v", tErr)
@@ -1368,7 +1378,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		noneResidentCPUs := podEntries.GetFilteredPoolsCPUSet(state.ResidentPools)
 
 		machineState := p.state.GetMachineState()
-		availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+		availableCPUs := machineState.GetFilteredAvailableCPUSet(reservedCPUs,
 			func(ai *state.AllocationInfo) bool {
 				return ai.CheckDedicated() || ai.CheckSharedNUMABinding()
 			},
@@ -1443,7 +1453,8 @@ func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(req *pluginapi.Reso
 	shareCoresAllocatedInt := state.GetNonBindingSharedRequestedQuantityFromPodEntries(p.state.GetPodEntries(), map[string]float64{req.PodUid: reqFloat64}, p.getContainerRequestedCores)
 
 	machineState := p.state.GetMachineState()
-	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+	reservedCPUs := p.state.GetReservedCPUs()
+	pooledCPUs := machineState.GetFilteredAvailableCPUSet(reservedCPUs,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 
@@ -1557,5 +1568,88 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 	}
 
 	p.state.SetAllocationInfo(podUID, containerName, allocationInfo, persist)
+	return nil
+}
+
+// applyReservedCPUs publishes a validated reserved CPU set
+// without changing existing allocation entries.
+func (p *DynamicPolicy) applyReservedCPUs(nextReservedCPUs machine.CPUSet) error {
+	p.state.SetReservedCPUs(nextReservedCPUs)
+	if err := p.initReservePool(); err != nil {
+		general.Errorf("initReservePool failed with error: %v", err)
+		return err
+	}
+	return nil
+}
+
+// syncReservedCPUs is the periodical handler entrypoint for kubelet reserved CPU sync.
+//
+// The periodical handler framework does not consume returned errors, so the
+// actual reconciliation lives in syncReservedCPUsOnce for testability and this
+// wrapper only logs failures.
+func (p *DynamicPolicy) syncReservedCPUs(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+) {
+	if err := p.syncReservedCPUsOnce(); err != nil {
+		general.Errorf("sync reserved CPUs failed with error: %v", err)
+	}
+}
+
+// syncReservedCPUsOnce reconciles DynamicPolicy with kubelet reserved CPU configuration.
+// If the reserved cpus did not change, it returns early.
+func (p *DynamicPolicy) syncReservedCPUsOnce() error {
+	currentReservedCPUList := p.conf.ReservedCPUList
+	currentReservedCPUCores := p.conf.ReservedCPUCores
+	currentReservedCPUs := p.state.GetReservedCPUs()
+	// Calculate the new reserved cpus.
+	nextReservedCPUs, err := cpuutil.GetCoresReservedForSystem(
+		p.conf,
+		p.metaServer,
+		p.machineInfo,
+		p.machineInfo.CPUDetails.CPUs().Clone(),
+	)
+	if err != nil {
+		_ = general.UpdateHealthzStateByError(cpuconsts.SyncReservedCPUs, err)
+		return err
+	}
+
+	if nextReservedCPUs.Equals(currentReservedCPUs) {
+		// No kubelet change was observed. Mark the handler healthy and return early.
+		_ = general.UpdateHealthzState(cpuconsts.SyncReservedCPUs, general.HealthzCheckStateReady, "")
+		return nil
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	// this function rollbacks reserved cpus with previous values if there are any errors
+	rollbackReservedCPUConfig := func() error {
+		p.conf.ReservedCPUList = currentReservedCPUList
+		p.conf.ReservedCPUCores = currentReservedCPUCores
+		p.state.SetReservedCPUs(currentReservedCPUs)
+		if err := p.initReservePool(); err != nil {
+			general.Errorf("initReservePool failed with error: %v", err)
+			return err
+		}
+		return nil
+	}
+
+	// Apply the new reserved cpus without changing existing allocations.
+	if applyErr := p.applyReservedCPUs(nextReservedCPUs); applyErr != nil {
+		if rollbackErr := rollbackReservedCPUConfig(); rollbackErr != nil {
+			general.Errorf("rollbackReservedCPUConfig failed with error: %v", rollbackErr)
+			_ = general.UpdateHealthzStateByError(cpuconsts.SyncReservedCPUs, rollbackErr)
+			return rollbackErr
+		}
+		general.Errorf("applyReservedCPUs failed with error: %v", applyErr)
+		_ = general.UpdateHealthzStateByError(cpuconsts.SyncReservedCPUs, applyErr)
+		return applyErr
+	}
+
+	general.Infof("sync reserved CPUs from %q to %q", currentReservedCPUs.String(), nextReservedCPUs.String())
+	_ = general.UpdateHealthzState(cpuconsts.SyncReservedCPUs, general.HealthzCheckStateReady, "")
 	return nil
 }

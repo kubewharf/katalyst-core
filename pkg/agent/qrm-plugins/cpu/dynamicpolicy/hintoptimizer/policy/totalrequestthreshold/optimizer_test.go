@@ -41,6 +41,11 @@ type fakeState struct {
 	podEntries   state.PodEntries
 	allocations  map[string]map[string]*state.AllocationInfo
 	allowOverlap bool
+	reservedCPUs machine.CPUSet
+}
+
+func (f *fakeState) GetReservedCPUs() machine.CPUSet {
+	return f.reservedCPUs.Clone()
 }
 
 func (f *fakeState) GetMachineState() state.NUMANodeMap {
@@ -64,6 +69,10 @@ func (f *fakeState) GetAllocationInfo(podUID string, containerName string) *stat
 
 func (f *fakeState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return f.allowOverlap
+}
+
+func (f *fakeState) SetReservedCPUs(reservedCPUs machine.CPUSet) {
+	f.reservedCPUs = reservedCPUs.Clone()
 }
 
 func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) {
@@ -182,10 +191,17 @@ func TestGetTotalAllocatableUsesTopologyCPUDetails(t *testing.T) {
 				PodFetcher: &pod.PodFetcherStub{},
 			},
 		},
+		state:        &fakeState{},
 		reservedCPUs: machine.NewCPUSet(0),
 	}
+	optimizer.state.SetReservedCPUs(optimizer.reservedCPUs)
 
 	require.Equal(t, float64(cpuTopology.CPUDetails.CPUsInNUMANodes(0).Difference(optimizer.reservedCPUs).Size()),
+		optimizer.getTotalAllocatable(machine.NewCPUSet(0)))
+
+	dynamicReservedCPUs := machine.NewCPUSet(1)
+	optimizer.state.SetReservedCPUs(dynamicReservedCPUs)
+	require.Equal(t, float64(cpuTopology.CPUDetails.CPUsInNUMANodes(0).Difference(dynamicReservedCPUs).Size()),
 		optimizer.getTotalAllocatable(machine.NewCPUSet(0)))
 }
 

@@ -47,6 +47,17 @@ type memoryPluginState struct {
 	extraResourceNames []string
 }
 
+func cloneReservedMemory(reservedMemory map[v1.ResourceName]map[int]uint64) map[v1.ResourceName]map[int]uint64 {
+	clonedReservedMemory := make(map[v1.ResourceName]map[int]uint64, len(reservedMemory))
+	for resourceName, numaReserved := range reservedMemory {
+		clonedReservedMemory[resourceName] = make(map[int]uint64, len(numaReserved))
+		for numaID, reservedQuantity := range numaReserved {
+			clonedReservedMemory[resourceName][numaID] = reservedQuantity
+		}
+	}
+	return clonedReservedMemory
+}
+
 func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.MachineInfo,
 	memoryTopology *machine.MemoryTopology, reservedMemory map[v1.ResourceName]map[int]uint64, extraResourceNames []string,
 ) (*memoryPluginState, error) {
@@ -78,16 +89,14 @@ func (s *memoryPluginState) GetReservedMemory() map[v1.ResourceName]map[int]uint
 	s.RLock()
 	defer s.RUnlock()
 
-	clonedReservedMemory := make(map[v1.ResourceName]map[int]uint64)
-	for resourceName, numaReserved := range s.reservedMemory {
-		clonedReservedMemory[resourceName] = make(map[int]uint64)
+	return cloneReservedMemory(s.reservedMemory)
+}
 
-		for numaId, reservedQuantity := range numaReserved {
-			clonedReservedMemory[resourceName][numaId] = reservedQuantity
-		}
-	}
+func (s *memoryPluginState) SetReservedMemory(reservedMemory map[v1.ResourceName]map[int]uint64) {
+	s.Lock()
+	defer s.Unlock()
 
-	return clonedReservedMemory
+	s.reservedMemory = cloneReservedMemory(reservedMemory)
 }
 
 func (s *memoryPluginState) GetMachineState() NUMANodeResourcesMap {

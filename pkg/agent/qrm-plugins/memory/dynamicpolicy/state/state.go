@@ -565,6 +565,7 @@ type reader interface {
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
+	SetReservedMemory(reservedMemory map[v1.ResourceName]map[int]uint64)
 	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap, persist bool)
 	SetNUMAHeadroom(m map[int]int64, persist bool)
 	SetPodResourceEntries(podResourceEntries PodResourceEntries, persist bool)

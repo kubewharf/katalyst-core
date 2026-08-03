@@ -670,7 +670,8 @@ func (p *DynamicPolicy) calculateSystemExclusivePoolChanges(
 }
 
 func (p *DynamicPolicy) applySystemExclusivePoolChanges(toCreate, toUpdate map[string]int, toDelete sets.String) error {
-	availableCPUs := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.reservedCPUs,
+	reservedCPUs := p.state.GetReservedCPUs()
+	availableCPUs := p.state.GetMachineState().GetFilteredAvailableCPUSet(reservedCPUs,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)

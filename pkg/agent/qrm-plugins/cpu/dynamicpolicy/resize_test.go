@@ -780,7 +780,7 @@ func TestNonBindingShareCoresInplaceUpdateResize(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 10,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 3,
 			uint64(1): 3,
@@ -858,7 +858,7 @@ func TestNonBindingShareCoresInplaceUpdateResize(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 10,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 3,
 			uint64(1): 3,
@@ -950,7 +950,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 42,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 11,
 			uint64(1): 11,
@@ -1009,7 +1009,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 42,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 11,
 			uint64(1): 11,
@@ -1077,7 +1077,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 42,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 11,
 			uint64(1): 11,
@@ -1099,7 +1099,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 42,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 11,
 			uint64(1): 11,
@@ -1176,7 +1176,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 42,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 11,
 			uint64(1): 11,
@@ -1198,7 +1198,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 42,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			uint64(0): 11,
 			uint64(1): 11,

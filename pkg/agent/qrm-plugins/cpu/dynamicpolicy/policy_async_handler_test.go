@@ -520,7 +520,7 @@ func TestApplySystemExclusivePoolChanges(t *testing.T) {
 	t.Parallel()
 
 	policy := newTestDynamicPolicy(t, "apply-system-exclusive-pool-changes")
-	policy.reservedCPUs = machine.NewCPUSet()
+	policy.state.SetReservedCPUs(machine.NewCPUSet())
 	defaultSystemCPUs := policy.machineInfo.CPUDetails.CPUs()
 
 	policy.state.SetAllocationInfo("pod-with-pool", "main",

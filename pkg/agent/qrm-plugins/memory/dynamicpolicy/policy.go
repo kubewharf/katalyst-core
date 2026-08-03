@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -127,6 +128,7 @@ type DynamicPolicy struct {
 
 	topology *machine.CPUTopology
 	state    state.State
+	conf     *config.Configuration
 
 	migrateMemoryLock sync.Mutex
 	migratingMemory   map[string]map[string]bool
@@ -219,6 +221,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		emitter:                     wrappedEmitter,
 		metaServer:                  agentCtx.MetaServer,
 		state:                       stateImpl,
+		conf:                        conf,
 		stopCh:                      make(chan struct{}),
 		migratingMemory:             make(map[string]map[string]bool),
 		residualHitMap:              make(map[string]int64),
@@ -355,6 +358,15 @@ func (p *DynamicPolicy) Start() (err error) {
 		p.clearResidualState, stateCheckPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed, err: %v", memconsts.ClearResidualState, err)
+	}
+
+	if p.conf != nil && p.conf.UseKubeletReservedConfig {
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SyncReservedMemory,
+			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+			p.syncReservedMemory, stateCheckPeriod, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("start %v failed, err: %v", memconsts.SyncReservedMemory, err)
+		}
 	}
 
 	// TODO: we should remove this healthy check when we support inplace update resize in all clusters.
@@ -557,6 +569,65 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.BackoffUntil(communicateWithMemoryAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
+	return nil
+}
+
+func (p *DynamicPolicy) syncReservedMemory(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+) {
+	if err := p.syncReservedMemoryOnce(); err != nil {
+		general.Errorf("sync reserved memory failed with error: %v", err)
+	}
+}
+
+// syncReservedMemoryOnce dynamically syncs reserved memory from kubelet.
+func (p *DynamicPolicy) syncReservedMemoryOnce() error {
+	nextReservedMemory, err := getResourcesReservedMemory(
+		p.conf,
+		p.metaServer,
+		p.state.GetMachineInfo(),
+		p.extraResourceNames,
+	)
+	if err != nil {
+		_ = general.UpdateHealthzStateByError(memconsts.SyncReservedMemory, err)
+		return err
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	currentReservedMemory := p.state.GetReservedMemory()
+	if reflect.DeepEqual(currentReservedMemory, nextReservedMemory) {
+		// Early exit if no change to reserved memory.
+		_ = general.UpdateHealthzState(memconsts.SyncReservedMemory, general.HealthzCheckStateReady, "")
+		return nil
+	}
+
+	machineState, err := state.GenerateMachineStateFromPodEntries(
+		p.state.GetMachineInfo(),
+		p.state.GetMemoryTopology(),
+		p.state.GetPodResourceEntries(),
+		p.state.GetMachineState(),
+		nextReservedMemory,
+		p.extraResourceNames,
+	)
+	if err != nil {
+		_ = general.UpdateHealthzStateByError(memconsts.SyncReservedMemory, err)
+		return err
+	}
+
+	p.state.SetReservedMemory(nextReservedMemory)
+	p.state.SetMachineState(machineState, false)
+	if err := p.state.StoreState(); err != nil {
+		_ = general.UpdateHealthzStateByError(memconsts.SyncReservedMemory, err)
+		return err
+	}
+
+	general.Infof("sync reserved memory from %v to %v", currentReservedMemory, nextReservedMemory)
+	_ = general.UpdateHealthzState(memconsts.SyncReservedMemory, general.HealthzCheckStateReady, "")
 	return nil
 }
 
