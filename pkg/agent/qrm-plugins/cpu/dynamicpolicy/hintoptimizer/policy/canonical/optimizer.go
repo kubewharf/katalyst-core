@@ -119,7 +119,7 @@ func (o *canonicalHintOptimizer) populateHintsByPreferPolicy(numaNodes []int, pr
 			general.Warningf("NUMA node %d not found in machineState, skipping", nodeID)
 			continue
 		}
-		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(o.reservedCPUs)
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(o.state.GetReservedCPUs())
 		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
 			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %.3f request: %.3f",
 				nodeID, availableCPUQuantity, request)
@@ -170,8 +170,9 @@ func (o *canonicalHintOptimizer) filterNUMANodesByHintPreferLowThreshold(request
 			general.Warningf("NUMA node %d not found in machineState, skipping", nodeID)
 			continue
 		}
-		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(o.reservedCPUs)
-		allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(o.reservedCPUs).Size()
+		reservedCPUs := o.state.GetReservedCPUs()
+		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(reservedCPUs)
+		allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(reservedCPUs).Size()
 
 		if allocatableCPUQuantity == 0 {
 			general.Warningf("numa: %d allocatable cpu quantity is zero", nodeID)

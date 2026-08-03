@@ -227,6 +227,14 @@ func (sc *stateCheckpoint) GetPodResourceEntries() PodResourceEntries {
 	return sc.cache.GetPodResourceEntries()
 }
 
+func (sc *stateCheckpoint) SetReservedMemory(reservedMemory map[v1.ResourceName]map[int]uint64) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.reservedMemory = cloneReservedMemory(reservedMemory)
+	sc.cache.SetReservedMemory(reservedMemory)
+}
+
 func (sc *stateCheckpoint) SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()

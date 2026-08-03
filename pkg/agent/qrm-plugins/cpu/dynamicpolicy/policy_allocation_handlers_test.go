@@ -546,8 +546,8 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 
 			p, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
 			as.Nil(err)
-			p.reservedCPUs = machine.NewCPUSet()
-			t.Logf("Reserved: %s", p.reservedCPUs.String())
+			p.state.SetReservedCPUs(machine.NewCPUSet())
+			t.Logf("Reserved: %s", p.state.GetReservedCPUs().String())
 
 			got, err := p.allocateNumaBindingCPUs(tt.args.numCPUs, tt.args.hint, tt.args.machineState, tt.args.reqAnnotations)
 			if (err != nil) != tt.wantErr {
@@ -665,7 +665,7 @@ func TestDynamicPolicy_generateNUMABindingPoolsCPUSetInPlace(t *testing.T) {
 
 			// Clear state to ensure clean slate
 			p.state.SetPodEntries(state.PodEntries{}, false)
-			p.reservedCPUs = machine.NewCPUSet()
+			p.state.SetReservedCPUs(machine.NewCPUSet())
 
 			p.dynamicConfig.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
 
@@ -703,7 +703,7 @@ func TestDynamicPolicy_adjustPoolsAndIsolatedEntries_Pinned(t *testing.T) {
 	as.Nil(err)
 
 	// Clear reserved CPUs to ensure deterministic allocation for test
-	p.reservedCPUs = machine.NewCPUSet()
+	p.state.SetReservedCPUs(machine.NewCPUSet())
 
 	// Enable Reclaim
 	p.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
@@ -947,7 +947,7 @@ func TestDynamicPolicy_groupAndAllocatePools(t *testing.T) {
 
 			// Clear state
 			p.state.SetPodEntries(state.PodEntries{}, false)
-			p.reservedCPUs = machine.NewCPUSet()
+			p.state.SetReservedCPUs(machine.NewCPUSet())
 
 			gotPools, gotIsolated, err := p.groupAndAllocatePools(tt.args.poolsQuantityMap, tt.args.isolatedQuantityMap, tt.args.availableCPUs, tt.args.rpPinnedCPUSet, tt.args.reclaimOverlapShareRatio)
 			if (err != nil) != tt.wantErr {

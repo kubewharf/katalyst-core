@@ -178,7 +178,7 @@ func (o *metricBasedHintOptimizer) isNUMAOverThreshold(numa int, threshold, requ
 
 	used += request
 
-	allocatable := float64(machineState[numa].GetFilteredDefaultCPUSet(nil, nil).Difference(o.reservedCPUs).Size())
+	allocatable := float64(machineState[numa].GetFilteredDefaultCPUSet(nil, nil).Difference(o.state.GetReservedCPUs()).Size())
 
 	if allocatable == 0 {
 		return false, fmt.Errorf("invalid allocatable")
