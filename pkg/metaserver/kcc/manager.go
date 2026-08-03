@@ -168,12 +168,15 @@ func (c *DynamicConfigManager) AddConfigWatcher(gvrs ...metav1.GroupVersionResou
 	defer c.mux.Unlock()
 
 	for _, gvr := range gvrs {
+		klog.Infof("[DEBUG-AQC] AddConfigWatcher called with GVR: Group=%s, Version=%s, Resource=%s", gvr.Group, gvr.Version, gvr.Resource)
 		if oldGVR, ok := c.resourceGVRMap[gvr.Resource]; ok && gvr != oldGVR {
+			klog.Errorf("[DEBUG-AQC] GVR %s already registered with different value: old=%+v, new=%+v", gvr.Resource, oldGVR, gvr)
 			return fmt.Errorf("resource %s already registered by gvr %s which is different with %s",
 				gvr.Resource, oldGVR.String(), gvr.String())
 		}
 
 		c.resourceGVRMap[gvr.Resource] = gvr
+		klog.Infof("[DEBUG-AQC] successfully added GVR to resourceGVRMap, current map size: %d", len(c.resourceGVRMap))
 	}
 
 	return nil
@@ -240,19 +243,22 @@ func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bo
 
 // updateConfig is used to get dynamic agent config from remote
 func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
+	klog.Infof("[DEBUG-AQC] updateConfig called, resourceGVRMap size: %d", len(c.resourceGVRMap))
 	dynamicConfigCRD, success, err := c.updateDynamicConfig(c.resourceGVRMap, katalystConfigGVRToGVKMap,
 		func(gvr metav1.GroupVersionResource, conf interface{}) error {
+			klog.Infof("[DEBUG-AQC] loading config for GVR: %+v", gvr)
 			return c.configLoader.LoadConfig(ctx, gvr, conf)
 		},
 	)
 	if !success {
+		klog.Warningf("[DEBUG-AQC] updateDynamicConfig returned success=false, err: %v", err)
 		return err
 	} else if apiequality.Semantic.DeepEqual(c.lastDynamicConfigCRD, dynamicConfigCRD) {
 		klog.V(4).Infof("dynamic config is not changed")
 		return nil
 	}
 
-	klog.Infof("dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
+	klog.Infof("[DEBUG-AQC] dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
 	currentConfig := deepCopy(c.defaultConfig)
 	applyDynamicConfig(currentConfig, dynamicConfigCRD)
 
@@ -270,6 +276,7 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 
 	c.conf.SetDynamicConfiguration(currentConfig)
 	c.lastDynamicConfigCRD = dynamicConfigCRD
+	klog.Infof("[DEBUG-AQC] dynamic config updated and set successfully")
 	return err
 }
 
@@ -388,7 +395,12 @@ func getGVRToGVKMap() map[schema.GroupVersionResource]schema.GroupVersionKind {
 func applyDynamicConfig(config *dynamic.Configuration,
 	dynamicConfigCRD *crd.DynamicConfigCRD,
 ) {
+	klog.Infof("[DEBUG-AQC] applyDynamicConfig called, dynamicConfigCRD is nil: %v", dynamicConfigCRD == nil)
+	if dynamicConfigCRD != nil {
+		klog.Infof("[DEBUG-AQC] dynamicConfigCRD.AdminQoSConfiguration is nil: %v", dynamicConfigCRD.AdminQoSConfiguration == nil)
+	}
 	config.ApplyConfiguration(dynamicConfigCRD)
+	klog.Infof("[DEBUG-AQC] applyDynamicConfig finished")
 }
 
 func deepCopy(src *dynamic.Configuration) *dynamic.Configuration {

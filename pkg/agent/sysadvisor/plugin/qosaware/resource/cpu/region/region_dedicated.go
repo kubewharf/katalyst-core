@@ -82,7 +82,6 @@ func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, 
 		string(workloadapis.ServiceSystemIndicatorNameCPUUsageRatio): r.getCPUUsageRatio,
 	}
 	r.enableReclaim = r.EnableReclaim
-
 	return r
 }
 
