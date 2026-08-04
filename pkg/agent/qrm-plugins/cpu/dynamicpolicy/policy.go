@@ -78,6 +78,7 @@ const (
 	stateCheckPeriod              = 30 * time.Second
 	maxResidualTime               = 5 * time.Minute
 	syncCPUIdlePeriod             = 30 * time.Second
+	syncContainerCPUIdlePeriod    = 30 * time.Second
 	syncCPUBurstPeriod            = 10 * time.Second
 	syncSystemExclusivePoolPeriod = 10 * time.Second
 	syncCPUWeightPeriod           = 10 * time.Second
@@ -139,6 +140,7 @@ type DynamicPolicy struct {
 	enableSNBHighNumaPreference               bool
 	enableCPUIdle                             bool
 	enableSyncingCPUIdle                      bool
+	enableContainerCPUIdle                    bool
 	enableCPUBurst                            bool
 	reclaimRelativeRootCgroupPath             string
 	numaBindingReclaimRelativeRootCgroupPaths map[int]string
@@ -234,6 +236,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableCPUBurst:                conf.CPUQRMPluginConfig.EnableCPUBurst,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
+		enableContainerCPUIdle:        conf.CPUQRMPluginConfig.EnableContainerCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
@@ -419,6 +422,17 @@ func (p *DynamicPolicy) Start() (err error) {
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUIdle, syncCPUIdlePeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUIdle, err)
+		}
+	}
+
+	if p.enableContainerCPUIdle {
+		general.Infof("container cpu idle is enabled")
+
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncContainerCPUIdle, general.HealthzCheckStateNotReady,
+			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncContainerCPUIdle, syncContainerCPUIdlePeriod, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("start %v failed,err:%v", cpuconsts.SyncContainerCPUIdle, err)
+			return err
 		}
 	}
 
