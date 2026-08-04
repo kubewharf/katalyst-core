@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,7 @@ import (
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
@@ -7513,6 +7515,66 @@ func TestStart(t *testing.T) {
 	err = dynamicPolicy.Start()
 	defer dynamicPolicy.Stop()
 	as.Nil(err)
+}
+
+func TestStartWithContainerCPUIdle(t *testing.T) {
+	t.Parallel()
+
+	policyTestMutex.Lock()
+	defer policyTestMutex.Unlock()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestStartWithContainerCPUIdle")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.enableContainerCPUIdle = true
+
+	err = dynamicPolicy.Start()
+	defer dynamicPolicy.Stop()
+	as.Nil(err)
+}
+
+func TestStartWithContainerCPUIdleRegisterFailure(t *testing.T) {
+	t.Parallel()
+
+	policyTestMutex.Lock()
+	defer policyTestMutex.Unlock()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint_TestStartWithContainerCPUIdleRegisterFailure")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.enableContainerCPUIdle = true
+
+	expectedErr := fmt.Errorf("register sync container cpu idle failed")
+	mockey.PatchConvey("return container cpu idle registration error", t, func() {
+		mockey.Mock(periodicalhandler.RegisterPeriodicalHandlerWithHealthz).To(
+			func(handlerName string, _ general.HealthzCheckState, _ string, _ periodicalhandler.Handler, _ time.Duration, _ int64) error {
+				if handlerName == cpuconsts.SyncContainerCPUIdle {
+					return expectedErr
+				}
+				return nil
+			},
+		).Build()
+
+		err = dynamicPolicy.Start()
+		as.ErrorIs(err, expectedErr)
+		as.False(dynamicPolicy.started)
+	})
 }
 
 func TestStop(t *testing.T) {

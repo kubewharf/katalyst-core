@@ -254,6 +254,15 @@ func TestEmitExceededMetrics(t *testing.T) {
 	})
 }
 
+func TestSyncContainerCPUIdle(t *testing.T) {
+	t.Parallel()
+
+	p := &DynamicPolicy{}
+	assert.NotPanics(t, func() {
+		p.syncContainerCPUIdle(nil, nil, nil, nil, nil)
+	})
+}
+
 type stubNodeFetcher struct {
 	node *v1.Node
 	err  error
