@@ -32,6 +32,9 @@ func TestNewQRMPluginOptions(t *testing.T) {
 	if options.CPUPluginOptions == nil {
 		t.Errorf("CPUPluginOptions is nil")
 	}
+	if options.MemoryPluginOptions == nil {
+		t.Errorf("MemoryPluginOptions is nil")
+	}
 }
 
 func TestQRMPluginOptions_AddFlags(t *testing.T) {
@@ -45,6 +48,10 @@ func TestQRMPluginOptions_AddFlags(t *testing.T) {
 	cpuPluginFlagSet := fss.FlagSet("qrm-cpu-plugin")
 	if cpuPluginFlagSet == nil {
 		t.Errorf("qrm-cpu-plugin flag set not found")
+	}
+	memoryPluginFlagSet := fss.FlagSet("memory_resource_plugin")
+	if memoryPluginFlagSet == nil {
+		t.Errorf("memory_resource_plugin flag set not found")
 	}
 }
 
@@ -62,5 +69,8 @@ func TestQRMPluginOptions_ApplyTo(t *testing.T) {
 	// Verify that config is updated
 	if config.CPUPluginConfiguration == nil {
 		t.Errorf("CPUPluginConfiguration is nil after ApplyTo")
+	}
+	if config.MemoryPluginConfiguration == nil {
+		t.Errorf("MemoryPluginConfiguration is nil after ApplyTo")
 	}
 }

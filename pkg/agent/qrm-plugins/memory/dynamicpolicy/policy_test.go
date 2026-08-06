@@ -339,7 +339,7 @@ func TestCheckMemorySet(t *testing.T) {
 	dynamicPolicy.checkMemorySet(nil, nil, nil, nil, nil)
 }
 
-func TestDynamicPolicyStart_EnableHostWatermark(t *testing.T) {
+func TestDynamicPolicyStart(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
@@ -347,7 +347,7 @@ func TestDynamicPolicyStart_EnableHostWatermark(t *testing.T) {
 	// createMap() requires BPF test initialization (memlock rlimit, etc.).
 	once.Do(bpfTestInit)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicyStart_EnableHostWatermark")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestDynamicPolicyStart")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -359,7 +359,6 @@ func TestDynamicPolicyStart_EnableHostWatermark(t *testing.T) {
 	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
 	as.Nil(err)
 
-	dynamicPolicy.enableSettingHostWatermark = true
 	// DynamicPolicy.Stop() always closes oomPriorityMap; make it non-nil to avoid panics.
 	dynamicPolicy.oomPriorityMap = createMap(t)
 

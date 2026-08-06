@@ -14,15 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hostwatermark
+package qrm
 
-const (
-	watermarkScaleFactorMin = 10.0
-	watermarkScaleFactorMax = 500.0
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-const (
-	metricNameVMWatermarkScaleFactor = "async_handler_vm_watermark_scale_factor"
-	metricNameVMWatermarkBoostFactor = "async_handler_vm_watermark_boost_factor"
-	metricNameVMExtFragThreshold     = "async_handler_vm_extfrag_threshold"
-)
+func TestNewMemoryPluginConfiguration(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	conf := NewMemoryPluginConfiguration()
+	as.NotNil(conf.FragMemConfiguration)
+	as.NotNil(conf.HostWatermarkConfiguration)
+}

@@ -39,6 +39,10 @@ const (
 
 	// VMWatermarkScaleFactorPath is a procfs sysctl to configure kswapd watermark scale factor.
 	VMWatermarkScaleFactorPath = "/proc/sys/vm/watermark_scale_factor"
+	// VMWatermarkBoostFactorPath is a procfs sysctl to configure kswapd watermark boost factor.
+	VMWatermarkBoostFactorPath = "/proc/sys/vm/watermark_boost_factor"
+	// VMExtFragThresholdPath is a procfs sysctl to configure extfrag threshold.
+	VMExtFragThresholdPath = "/proc/sys/vm/extfrag_threshold"
 
 	// TransparentHugepageEnabledPath is a kernel sysfs interface to configure THP behavior.
 	TransparentHugepageEnabledPath = "/sys/kernel/mm/transparent_hugepage/enabled"
@@ -214,18 +218,32 @@ func (m *manager) ApplyProcInterrupts(irqNumber int, cpuset string) error {
 // ApplyVMWatermarkScaleFactorAtPath writes vm.watermark_scale_factor to the given sysctl file path.
 // It uses the same audit + idempotent write pattern as ApplyProcInterrupts.
 func (m *manager) ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error {
+	return m.applyVMInt64AtPath(path, scaleFactor, "vm.watermark_scale_factor")
+}
+
+// ApplyVMWatermarkBoostFactorAtPath writes vm.watermark_boost_factor to the given sysctl file path.
+func (m *manager) ApplyVMWatermarkBoostFactorAtPath(path string, boostFactor int64) error {
+	return m.applyVMInt64AtPath(path, boostFactor, "vm.watermark_boost_factor")
+}
+
+// ApplyVMExtFragThresholdAtPath writes vm.extfrag_threshold to the given sysctl file path.
+func (m *manager) ApplyVMExtFragThresholdAtPath(path string, threshold int64) error {
+	return m.applyVMInt64AtPath(path, threshold, "vm.extfrag_threshold")
+}
+
+func (m *manager) applyVMInt64AtPath(path string, value int64, knob string) error {
 	if path == "" {
-		return fmt.Errorf("invalid watermark_scale_factor path")
+		return fmt.Errorf("invalid %s path", knob)
 	}
 
 	dir := filepath.Dir(path)
 	file := filepath.Base(path)
-	data := fmt.Sprintf("%d\n", scaleFactor)
+	data := fmt.Sprintf("%d\n", value)
 
 	if err, applied, oldData := common.InstrumentedWriteFileIfChange(dir, file, data); err != nil {
 		return err
 	} else if applied {
-		general.Infof("[Procfs] apply vm.watermark_scale_factor successfully, data: %v, old data: %v\n", strings.TrimSpace(data), oldData)
+		general.Infof("[Procfs] apply %s successfully, data: %v, old data: %v\n", knob, strings.TrimSpace(data), oldData)
 	}
 
 	return nil

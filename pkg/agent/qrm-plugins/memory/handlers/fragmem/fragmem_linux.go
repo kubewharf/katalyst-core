@@ -28,6 +28,7 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -69,8 +70,19 @@ func isHighSystemLoad(metaServer *metaserver.MetaServer, emitter metrics.MetricE
 	return loadPerCPU > minHostLoad
 }
 
-func memCompacWithBestEffort(conf *coreconfig.Configuration, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
-	fragScoreWatermark := uint64(general.Clamp(float64(conf.SetMemFragScoreAsync), fragScoreMin, fragScoreMax))
+func getFragMemConfiguration(dynamicConf *dynamicconfig.DynamicAgentConfiguration) *dynamicqrm.FragMemConfiguration {
+	if dynamicConf == nil {
+		return nil
+	}
+	conf := dynamicConf.GetDynamicConfiguration()
+	if conf == nil {
+		return nil
+	}
+	return conf.FragMemConfiguration
+}
+
+func memCompacWithBestEffort(fragScoreAsync int, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) {
+	fragScoreWatermark := uint64(general.Clamp(float64(fragScoreAsync), fragScoreMin, fragScoreMax))
 	for _, numaID := range metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		// Step 1.0, get fragScore from Malachite
 		score, err := helper.GetNumaMetricWithTime(metaServer.MetricsFetcher, emitter, consts.MetricMemFragScoreNuma, numaID)
@@ -123,7 +135,7 @@ func memCompacWithBestEffort(conf *coreconfig.Configuration, metaServer *metaser
 * 3, if no proactive compaction feature, then use the threshold of fragmentation score to trigger manually memory compaction.
  */
 func SetMemCompact(conf *coreconfig.Configuration,
-	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	_ interface{}, dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 ) {
 	general.Infof("called")
@@ -138,6 +150,12 @@ func SetMemCompact(conf *coreconfig.Configuration,
 		return
 	}
 
+	fragMemConf := getFragMemConfiguration(dynamicConf)
+	if fragMemConf == nil {
+		general.Infof("dynamic fragmem configuration not found")
+		return
+	}
+
 	if delay := GetDelayTimes(); delay > 0 {
 		general.Infof("No memory fragmentation in this node, skip this scanning cycle, delay=%d", delay)
 		SetDelayTimes(delay - 1)
@@ -145,10 +163,11 @@ func SetMemCompact(conf *coreconfig.Configuration,
 	}
 
 	// EnableSettingMemCompact featuregate.
-	if !conf.EnableSettingFragMem {
-		general.Infof("EnableSettingFragMem disabled")
+	if !fragMemConf.EnableFragMem {
+		general.Infof("SetMemCompact skipped: EnableFragMem disabled")
 		return
 	}
+	general.Infof("SetMemCompact: EnableFragMem enabled")
 
 	// Step1, check proactive compaction.
 	// if proactive compaction feature enabled, then return.
@@ -163,5 +182,5 @@ func SetMemCompact(conf *coreconfig.Configuration,
 	}
 
 	// Step3, user space memory compaction will be trigger while exceeding fragScoreWatermark(default:80).
-	memCompacWithBestEffort(conf, metaServer, emitter)
+	memCompacWithBestEffort(fragMemConf.MemFragScoreAsync, metaServer, emitter)
 }

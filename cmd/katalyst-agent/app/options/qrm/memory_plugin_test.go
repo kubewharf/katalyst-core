@@ -25,18 +25,18 @@ import (
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
-func TestNewMemoryOptions_Defaults_HostWatermark(t *testing.T) {
+func TestNewMemoryOptions_Defaults_LogCache(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 	o := NewMemoryOptions()
 
-	as.False(o.EnableSettingHostWatermark)
-	as.Equal(0, o.SetVMWatermarkScaleFactor)
-	as.Equal(uint64(0), o.ReservedKswapdWatermarkGB)
+	as.False(o.EnableEvictingLogCache)
+	as.Equal(uint64(30), o.HighThreshold)
+	as.Equal(uint64(5), o.LowThreshold)
 }
 
-func TestMemoryOptions_AddFlags_ParseHostWatermark(t *testing.T) {
+func TestMemoryOptions_AddFlags_ParseLogCache(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
@@ -46,34 +46,34 @@ func TestMemoryOptions_AddFlags_ParseHostWatermark(t *testing.T) {
 	o.AddFlags(&fss)
 	fs := fss.FlagSet("memory_resource_plugin")
 
-	as.NotNil(fs.Lookup("enable-setting-host-watermark"))
-	as.NotNil(fs.Lookup("qrm-memory-vm-watermark-scale-factor"))
-	as.NotNil(fs.Lookup("qrm-memory-kswapd-watermark-reserved-gb"))
+	as.NotNil(fs.Lookup("enable-evicting-logcache"))
+	as.NotNil(fs.Lookup("qrm-memory-logcache-high-threshold"))
+	as.NotNil(fs.Lookup("qrm-memory-logcache-low-threshold"))
 
 	as.NoError(fs.Parse([]string{
-		"--enable-setting-host-watermark=true",
-		"--qrm-memory-vm-watermark-scale-factor=1234",
-		"--qrm-memory-kswapd-watermark-reserved-gb=10",
+		"--enable-evicting-logcache=true",
+		"--qrm-memory-logcache-high-threshold=123",
+		"--qrm-memory-logcache-low-threshold=12",
 	}))
 
-	as.True(o.EnableSettingHostWatermark)
-	as.Equal(1234, o.SetVMWatermarkScaleFactor)
-	as.Equal(uint64(10), o.ReservedKswapdWatermarkGB)
+	as.True(o.EnableEvictingLogCache)
+	as.Equal(uint64(123), o.HighThreshold)
+	as.Equal(uint64(12), o.LowThreshold)
 }
 
-func TestMemoryOptions_ApplyTo_CopiesHostWatermark(t *testing.T) {
+func TestMemoryOptions_ApplyTo_CopiesLogCache(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 	o := NewMemoryOptions()
-	o.EnableSettingHostWatermark = true
-	o.SetVMWatermarkScaleFactor = 333
-	o.ReservedKswapdWatermarkGB = 42
+	o.EnableEvictingLogCache = true
+	o.HighThreshold = 333
+	o.LowThreshold = 42
 
 	conf := qrmconfig.NewMemoryQRMPluginConfig()
 	as.NoError(o.ApplyTo(conf))
 
-	as.True(conf.EnableSettingHostWatermark)
-	as.Equal(333, conf.SetVMWatermarkScaleFactor)
-	as.Equal(uint64(42), conf.ReservedKswapdWatermarkGB)
+	as.True(conf.EnableEvictingLogCache)
+	as.Equal(uint64(333), conf.HighThreshold)
+	as.Equal(uint64(42), conf.LowThreshold)
 }

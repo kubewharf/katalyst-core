@@ -31,7 +31,7 @@ import (
 
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
-	configqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -64,22 +64,20 @@ func makeNilMemInfo() procfs.Meminfo {
 	return procfs.Meminfo{}
 }
 
-func makeTestCoreConf(watermarkScaleFactor int, reservedGB uint64) *coreconfig.Configuration {
+func makeTestCoreConf(watermarkScaleFactor, boostFactor, extFragThreshold int, reservedGB uint64) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
+	dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
+	hostWatermarkConf := dynamicConf.GetDynamicConfiguration().HostWatermarkConfiguration
+	hostWatermarkConf.EnableHostWatermark = true
+	hostWatermarkConf.VMWatermarkScaleFactor = watermarkScaleFactor
+	hostWatermarkConf.VMWatermarkBoostFactor = boostFactor
+	hostWatermarkConf.VMExtFragThreshold = extFragThreshold
+	hostWatermarkConf.ReservedKswapdWatermarkGB = reservedGB
+
 	return &coreconfig.Configuration{
 		AgentConfiguration: &configagent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &configqrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &configqrm.MemoryQRMPluginConfig{
-						HostWatermarkQRMPluginConfig: configqrm.HostWatermarkQRMPluginConfig{
-							SetVMWatermarkScaleFactor:  watermarkScaleFactor,
-							ReservedKswapdWatermarkGB:  reservedGB,
-							EnableSettingHostWatermark: true,
-						},
-					},
-				},
-			},
+			DynamicAgentConfiguration: dynamicConf,
 		},
-	}
+	}, dynamicConf
 }
 
 func makeTestMetaServerWithNumaTotal(t *testing.T, numaID int, totalBytes uint64) *metaserver.MetaServer {
@@ -103,14 +101,14 @@ func makeTestMetaServerWithNumaTotal(t *testing.T, numaID int, totalBytes uint64
 func TestDetermineTargetWatermarkScaleFactor_DirectValue(t *testing.T) {
 	t.Parallel()
 
-	conf := makeTestCoreConf(123, 10)
+	conf, _ := makeTestCoreConf(123, 0, 0, 10)
 
 	hostWatermarkTestMu.Lock()
 	defer hostWatermarkTestMu.Unlock()
 	mockey.PatchConvey("test determine target watermark scale factor with direct_value", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		target, err := determineTargetWatermarkScaleFactor(conf, metrics.DummyMetrics{}, nil)
+		target, err := determineTargetWatermarkScaleFactor(conf.GetDynamicConfiguration().HostWatermarkConfiguration, metrics.DummyMetrics{}, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(123), target)
 	})
@@ -120,14 +118,14 @@ func TestDetermineTargetWatermarkScaleFactor_AutoCalc_10G_100G(t *testing.T) {
 	t.Parallel()
 
 	server := makeTestMetaServerWithNumaTotal(t, 0, 100<<30)
-	conf := makeTestCoreConf(0, 10)
+	conf, _ := makeTestCoreConf(0, 0, 0, 10)
 
 	hostWatermarkTestMu.Lock()
 	defer hostWatermarkTestMu.Unlock()
 	mockey.PatchConvey("test determine target watermark scale factor with auto_calc_10G/100G", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		target, err := determineTargetWatermarkScaleFactor(conf, metrics.DummyMetrics{}, server)
+		target, err := determineTargetWatermarkScaleFactor(conf.GetDynamicConfiguration().HostWatermarkConfiguration, metrics.DummyMetrics{}, server)
 		require.NoError(t, err)
 		require.Equal(t, int64(1000), target)
 	})
@@ -137,14 +135,14 @@ func TestDetermineTargetWatermarkScaleFactor_AutoCalc_ZeroTotal(t *testing.T) {
 	t.Parallel()
 
 	server := makeTestMetaServerWithNumaTotal(t, 0, 0)
-	conf := makeTestCoreConf(0, 10)
+	conf, _ := makeTestCoreConf(0, 0, 0, 10)
 
 	hostWatermarkTestMu.Lock()
 	defer hostWatermarkTestMu.Unlock()
 	mockey.PatchConvey("test determine target watermark scale factor with auto_calc_zero_total", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		_, err := determineTargetWatermarkScaleFactor(conf, metrics.DummyMetrics{}, server)
+		_, err := determineTargetWatermarkScaleFactor(conf.GetDynamicConfiguration().HostWatermarkConfiguration, metrics.DummyMetrics{}, server)
 		require.Error(t, err)
 	})
 }
@@ -152,14 +150,14 @@ func TestDetermineTargetWatermarkScaleFactor_AutoCalc_ZeroTotal(t *testing.T) {
 func TestDetermineTargetWatermarkScaleFactor_AutoCalc_NilMetaServer(t *testing.T) {
 	t.Parallel()
 
-	conf := makeTestCoreConf(0, 10)
+	conf, _ := makeTestCoreConf(0, 0, 0, 10)
 
 	hostWatermarkTestMu.Lock()
 	defer hostWatermarkTestMu.Unlock()
 	mockey.PatchConvey("test determine target watermark scale factor with auto_calc_nil_meta_server", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		_, err := determineTargetWatermarkScaleFactor(conf, metrics.DummyMetrics{}, nil)
+		_, err := determineTargetWatermarkScaleFactor(conf.GetDynamicConfiguration().HostWatermarkConfiguration, metrics.DummyMetrics{}, nil)
 		require.Error(t, err)
 	})
 }
@@ -182,8 +180,8 @@ func TestSetHostWatermark_NoTarget_Skipped(t *testing.T) {
 	mockey.PatchConvey("test set host watermark with no_target", t, func() {
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		conf := makeTestCoreConf(0, 0)
-		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, nil)
+		conf, dynamicConf := makeTestCoreConf(0, 0, 0, 0)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 	})
 }
 
@@ -206,8 +204,8 @@ func TestSetHostWatermark_SetScaleFactor_WritesFile(t *testing.T) {
 		watermarkScaleFactorPath = targetFile
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		conf := makeTestCoreConf(200, 0)
-		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, nil)
+		conf, dynamicConf := makeTestCoreConf(200, 0, 0, 0)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 
 		val, err := general.ReadInt64FromFile(targetFile)
 		require.NoError(t, err)
@@ -234,8 +232,8 @@ func TestSetHostWatermark_SetScaleFactor_NoClamp(t *testing.T) {
 		watermarkScaleFactorPath = targetFile
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
 
-		conf := makeTestCoreConf(1, 0)
-		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, nil)
+		conf, dynamicConf := makeTestCoreConf(1, 0, 0, 0)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 
 		val, err := general.ReadInt64FromFile(targetFile)
 		require.NoError(t, err)
@@ -264,8 +262,8 @@ func TestSetHostWatermark_AutoCalc_ClampMin(t *testing.T) {
 
 		// total=10000GB, reserved=1GB => raw scale=1, should be clamped to watermarkScaleFactorMin(10)
 		server := makeTestMetaServerWithNumaTotal(t, 0, 10000<<30)
-		conf := makeTestCoreConf(0, 1)
-		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, server)
+		conf, dynamicConf := makeTestCoreConf(0, 0, 0, 1)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, server)
 
 		val, err := general.ReadInt64FromFile(targetFile)
 		require.NoError(t, err)
@@ -294,8 +292,8 @@ func TestSetHostWatermark_AutoCalc_ClampMax(t *testing.T) {
 
 		// total=10GB, reserved=10GB => raw scale=10000, should be clamped to watermarkScaleFactorMax(500)
 		server := makeTestMetaServerWithNumaTotal(t, 0, 10<<30)
-		conf := makeTestCoreConf(0, 10)
-		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, server)
+		conf, dynamicConf := makeTestCoreConf(0, 0, 0, 10)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, server)
 
 		val, err := general.ReadInt64FromFile(targetFile)
 		require.NoError(t, err)
@@ -322,12 +320,49 @@ func TestSetHostWatermark_SetScaleFactor_WithHugePagesAdjustment(t *testing.T) {
 		watermarkScaleFactorPath = targetFile
 		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNormalMemInfo(), nil).Build()
 
-		conf := makeTestCoreConf(500, 0)
-		SetHostWatermark(conf, nil, nil, metrics.DummyMetrics{}, nil)
+		conf, dynamicConf := makeTestCoreConf(500, 0, 0, 0)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 
 		val, err := general.ReadInt64FromFile(targetFile)
 		require.NoError(t, err)
 		require.Equal(t, int64(450), val)
+	})
+}
+
+func TestSetHostWatermark_WritesBoostAndExtFrag(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	boostFile := filepath.Join(tmpDir, "watermark_boost_factor")
+	extfragFile := filepath.Join(tmpDir, "extfrag_threshold")
+	require.NoError(t, os.WriteFile(boostFile, []byte("0\n"), 0o644))
+	require.NoError(t, os.WriteFile(extfragFile, []byte("0\n"), 0o644))
+
+	var oldBoostPath, oldExtFragPath string
+	hostWatermarkTestMu.Lock()
+	defer func() {
+		watermarkBoostFactorPath = oldBoostPath
+		extFragThresholdPath = oldExtFragPath
+		hostWatermarkTestMu.Unlock()
+	}()
+
+	mockey.PatchConvey("test set host watermark boost/extfrag", t, func() {
+		oldBoostPath = watermarkBoostFactorPath
+		oldExtFragPath = extFragThresholdPath
+		watermarkBoostFactorPath = boostFile
+		extFragThresholdPath = extfragFile
+		mockey.Mock(procm.GetMemInfo).IncludeCurrentGoRoutine().Return(makeNilMemInfo(), nil).Build()
+
+		conf, dynamicConf := makeTestCoreConf(0, 99, 500, 0)
+		SetHostWatermark(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
+
+		boostVal, err := general.ReadInt64FromFile(boostFile)
+		require.NoError(t, err)
+		require.Equal(t, int64(99), boostVal)
+
+		extfragVal, err := general.ReadInt64FromFile(extfragFile)
+		require.NoError(t, err)
+		require.Equal(t, int64(500), extfragVal)
 	})
 }
 
