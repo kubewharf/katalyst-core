@@ -184,12 +184,14 @@ func GetPodRelativeCgroupPath(podUID string) (string, error) {
 	return GetKubernetesAnyExistRelativeCgroupPath(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID))
 }
 
-func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
-	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (string, bool, error) {
+	cgroupPath, err := GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+	return cgroupPath, false, err
 }
 
-func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
-	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (string, bool, error) {
+	cgroupPath, err := GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+	return cgroupPath, false, err
 }
 
 // GetContainerAbsCgroupPath returns absolute cgroup path for container level
@@ -201,7 +203,10 @@ func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, erro
 			errors = append(errors, fmt.Errorf("absolute cgroup path Handler for %s is nil", handler.Name))
 			continue
 		}
-		cgroupPath, err := handler.Handler(subsys, podUID, containerId)
+		cgroupPath, skip, err := handler.Handler(subsys, podUID, containerId)
+		if skip {
+			continue
+		}
 		if err == nil {
 			return cgroupPath, nil
 		}
@@ -219,7 +224,10 @@ func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) 
 			errors = append(errors, fmt.Errorf("relative cgroup path Handler for %s is nil", handler.Name))
 			continue
 		}
-		cgroupPath, err := handler.Handler(podUID, containerId)
+		cgroupPath, skip, err := handler.Handler(podUID, containerId)
+		if skip {
+			continue
+		}
 		if err == nil {
 			return cgroupPath, nil
 		}

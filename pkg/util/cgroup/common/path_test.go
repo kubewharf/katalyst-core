@@ -20,6 +20,7 @@ limitations under the License.
 package common
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,6 +69,88 @@ func TestGetContainerAbsCgroupPath(t *testing.T) {
 	as := require.New(t)
 	_, err := GetContainerAbsCgroupPath("cpuset", "", "")
 	as.NotNil(err)
+}
+
+func TestGetContainerAbsCgroupPathSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	const (
+		podUID      = "skip-handler-pod"
+		containerID = "skip-handler-container"
+	)
+
+	absoluteCgroupPathHandlerLock.Lock()
+	oldHandlers := absoluteCgroupPathHandlerList
+	absoluteCgroupPathHandlerList = []AbsoluteCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+		{
+			Name: "success",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				if podUID != "skip-handler-pod" || containerId != "skip-handler-container" {
+					return "", false, fmt.Errorf("unexpected container")
+				}
+				return "/sys/fs/cgroup/cpu/pod/container", false, nil
+			},
+		},
+	}
+	absoluteCgroupPathHandlerLock.Unlock()
+	defer func() {
+		absoluteCgroupPathHandlerLock.Lock()
+		absoluteCgroupPathHandlerList = oldHandlers
+		absoluteCgroupPathHandlerLock.Unlock()
+	}()
+
+	cgroupPath, err := GetContainerAbsCgroupPath("cpu", podUID, containerID)
+	as.NoError(err)
+	as.Equal("/sys/fs/cgroup/cpu/pod/container", cgroupPath)
+}
+
+func TestGetContainerRelativeCgroupPathSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	const (
+		podUID      = "skip-handler-pod"
+		containerID = "skip-handler-container"
+	)
+
+	relativeCgroupPathHandlerLock.Lock()
+	oldHandlers := relativeCgroupPathHandlerList
+	relativeCgroupPathHandlerList = []RelativeCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+		{
+			Name: "success",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				if podUID != "skip-handler-pod" || containerId != "skip-handler-container" {
+					return "", false, fmt.Errorf("unexpected container")
+				}
+				return "/kubepods/pod/container", false, nil
+			},
+		},
+	}
+	relativeCgroupPathHandlerLock.Unlock()
+	defer func() {
+		relativeCgroupPathHandlerLock.Lock()
+		relativeCgroupPathHandlerList = oldHandlers
+		relativeCgroupPathHandlerLock.Unlock()
+	}()
+
+	cgroupPath, err := GetContainerRelativeCgroupPath(podUID, containerID)
+	as.NoError(err)
+	as.Equal("/kubepods/pod/container", cgroupPath)
 }
 
 func TestIsContainerCgroupExist(t *testing.T) {
