@@ -25,19 +25,18 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gogo/protobuf/proto"
-	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	cpmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -612,21 +611,13 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 		return fmt.Errorf("kubelet checkpoint manager is nil")
 	}
 
-	checkpointData, err := native.GetKubeletCheckpoint(p.checkpointManager)
+	kubeletAllocations, err := kubelet.ReadAllocations(p.checkpointManager, sets.NewString(p.gpuDeviceNames...))
 	if err != nil {
-		if errors.Is(err, cpmerrors.ErrCheckpointNotFound) {
-			general.Infof("kubelet checkpoint not found, skip")
-			return nil
-		}
-		return fmt.Errorf("failed to get kubelet checkpoint: %v", err)
+		return err
 	}
-
-	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
-	if len(podDeviceEntries) == 0 {
+	if len(kubeletAllocations) == 0 {
 		return nil
 	}
-
-	validDeviceNames := sets.NewString(p.gpuDeviceNames...)
 
 	activePods, err := p.metaServer.GetPodList(context.WithValue(p.ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue), native.PodIsActive)
 	if err != nil {
@@ -639,13 +630,7 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 		return string(obj.GetUID())
 	})
 
-	for _, entry := range podDeviceEntries {
-		// Check if the reported resource is a valid GPU device name.
-		// If not in gpuDeviceNames, skip it to avoid reporting invalid devices.
-		if !validDeviceNames.Has(entry.ResourceName) {
-			continue
-		}
-
+	for _, entry := range kubeletAllocations {
 		resourceName := v1.ResourceName(entry.ResourceName)
 
 		pod, ok := activePodMap[entry.PodUID]
@@ -657,30 +642,27 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 		// Generate consumer key using namespace, name and podUID
 		consumer := native.GenerateNamespaceNameUIDKey(pod.Namespace, pod.Name, entry.PodUID)
 
-		// Iterate through all devices per NUMA node
-		for numaNode, deviceIDs := range entry.DeviceIDs {
-			for _, deviceID := range deviceIDs {
-				if _, ok := idToAllocations[deviceID]; !ok {
-					idToAllocations[deviceID] = make(util.ZoneAllocations, 0)
-				}
-
-				// Check if there's already an allocation for this pod UID
-				if hasExistingPodAllocation(idToAllocations[deviceID], entry.PodUID) {
-					continue
-				}
-
-				// Create resource list - quantity is 1 since each device entry represents one device
-				gpuResourceList := make(v1.ResourceList)
-				gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
-
-				idToAllocations[deviceID] = append(idToAllocations[deviceID], &nodev1alpha1.Allocation{
-					Consumer: consumer,
-					Requests: &gpuResourceList,
-				})
-
-				general.Infof("added allocation from checkpoint: consumer=%s, container=%s, device=%s, numa=%d",
-					consumer, entry.ContainerName, deviceID, numaNode)
+		for _, deviceID := range entry.DeviceIDs {
+			if _, ok := idToAllocations[deviceID]; !ok {
+				idToAllocations[deviceID] = make(util.ZoneAllocations, 0)
 			}
+
+			// Check if there's already an allocation for this pod UID
+			if hasExistingPodAllocation(idToAllocations[deviceID], entry.PodUID) {
+				continue
+			}
+
+			// Create resource list - quantity is 1 since each device entry represents one device
+			gpuResourceList := make(v1.ResourceList)
+			gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
+
+			idToAllocations[deviceID] = append(idToAllocations[deviceID], &nodev1alpha1.Allocation{
+				Consumer: consumer,
+				Requests: &gpuResourceList,
+			})
+
+			general.Infof("added allocation from checkpoint: consumer=%s, container=%s, device=%s",
+				consumer, entry.ContainerName, deviceID)
 		}
 	}
 

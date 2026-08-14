@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 const (
@@ -167,6 +168,13 @@ func (p *BasePlugin) InitState() error {
 		gpuconsts.GPUResourcePluginPolicyNameStatic, p.DefaultResourceStateGeneratorRegistry, p.Conf.SkipGPUStateCorruption, p.Emitter)
 	if err != nil {
 		return fmt.Errorf("NewCheckpointState failed with error: %v", err)
+	}
+	if err := p.hydrateKubeletGPUAllocations(stateImpl); err != nil {
+		if p.Emitter != nil {
+			_ = p.Emitter.StoreInt64(metricKubeletGPUHydrateFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+		}
+		return fmt.Errorf("hydrate GPU state from kubelet checkpoint failed: %w", err)
 	}
 
 	p.mu.Lock()
