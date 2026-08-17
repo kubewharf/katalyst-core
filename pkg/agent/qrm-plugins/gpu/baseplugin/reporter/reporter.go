@@ -79,8 +79,10 @@ var _ GPUReporter = (*gpuReporterImpl)(nil)
 
 func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
+	kubeletCheckpointManager checkpointmanager.CheckpointManager,
 ) (GPUReporter, error) {
-	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
+	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames,
+		kubeletCheckpointManager)
 	if err != nil {
 		return nil, fmt.Errorf("create reporter failed: %v", err)
 	}
@@ -126,7 +128,7 @@ type gpuReporterPlugin struct {
 	reportNotifyCh                  chan struct{}
 	reportRetryInterval             time.Duration
 	lastReportContent               *v1alpha1.GetReportContentResponse
-	checkpointManager               checkpointmanager.CheckpointManager
+	kubeletCheckpointManager        checkpointmanager.CheckpointManager
 	kubeletDevicePluginPath         string
 	enableKubeletCheckpointFallback bool
 }
@@ -138,12 +140,8 @@ var (
 
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
+	kubeletCheckpointManager checkpointmanager.CheckpointManager,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
-	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("new checkpoint manager failed: %v", err)
-	}
-
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:                  conf.GPUDeviceNames,
 		rdmaDeviceNames:                 conf.RDMADeviceNames,
@@ -155,7 +153,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		reportNotifyCh:                  make(chan struct{}, 1),
 		reportRetryInterval:             defaultReportRetryInterval,
 		metaServer:                      metaServer,
-		checkpointManager:               checkpointManager,
+		kubeletCheckpointManager:        kubeletCheckpointManager,
 		kubeletDevicePluginPath:         conf.KubeletDevicePluginPath,
 		enableKubeletCheckpointFallback: conf.EnableKubeletCheckpointFallback,
 	}
@@ -607,11 +605,11 @@ func (p *gpuReporterPlugin) addStateAllocations(topologiesMap map[string]*machin
 // into the target idToAllocations map. This prevents reporting inconsistencies where a device is already
 // allocated to a pod by kubelet, but the local QRM state has not yet fully synced or recorded the allocation.
 func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[string]util.ZoneAllocations) error {
-	if p.checkpointManager == nil {
+	if p.kubeletCheckpointManager == nil {
 		return fmt.Errorf("kubelet checkpoint manager is nil")
 	}
 
-	kubeletAllocations, err := kubelet.ReadAllocations(p.checkpointManager, sets.NewString(p.gpuDeviceNames...))
+	kubeletAllocations, err := kubelet.ReadAllocations(p.kubeletCheckpointManager, sets.NewString(p.gpuDeviceNames...))
 	if err != nil {
 		return err
 	}

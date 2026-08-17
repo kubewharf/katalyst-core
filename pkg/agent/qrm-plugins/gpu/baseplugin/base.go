@@ -24,6 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin/reporter"
@@ -46,6 +47,10 @@ type BasePlugin struct {
 	reporter reporter.GPUReporter
 	mu       sync.RWMutex
 	Conf     *config.Configuration
+
+	// kubeletCheckpointManager is used to sync checkpoint entries from kubelet to QRM.
+	// It makes sure that the state of both components are in sync.
+	kubeletCheckpointManager checkpointmanager.CheckpointManager
 
 	Emitter    metrics.MetricEmitter
 	MetaServer *metaserver.MetaServer
@@ -97,8 +102,14 @@ func NewBasePlugin(
 		stateInitializedCh: make(chan struct{}),
 	}
 
+	kubeletCheckpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
+	if err != nil {
+		return nil, fmt.Errorf("new kubelet checkpoint manager failed: %w", err)
+	}
+	basePlugin.kubeletCheckpointManager = kubeletCheckpointManager
+
 	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry, basePlugin.GetState,
-		basePlugin.deviceTypeToNames)
+		basePlugin.deviceTypeToNames, kubeletCheckpointManager)
 	if err != nil {
 		return nil, fmt.Errorf("newGPUReporterPlugin failed with error: %v", err)
 	}
