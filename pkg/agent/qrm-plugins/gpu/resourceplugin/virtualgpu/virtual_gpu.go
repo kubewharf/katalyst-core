@@ -915,7 +915,8 @@ func (p *VirtualGPUPlugin) allocate(
 		}
 
 		// Calculate the environment variables
-		envs := p.calculateEnvVariables(resName, result.AllocatedDevices, resQuantityPerGPU, resourceReq.PodUid)
+		envs := p.calculateEnvVariables(
+			resName, result.AllocatedDevices, resQuantityPerGPU, resourceReq.PodUid, resourceReq.Annotations)
 		if len(envs) > 0 {
 			resourceAllocationEnvs[string(resName)] = envs
 		}
@@ -946,14 +947,20 @@ func (p *VirtualGPUPlugin) shouldSkipEnvInjection(resourceReq *pluginapi.Resourc
 }
 
 // calculateEnvVariables computes the environment variable map for a given GPU resource.
-func (p *VirtualGPUPlugin) calculateEnvVariables(resName v1.ResourceName, allocatedDevices []string, resQuantityPerGPU float64, podUID string) map[string]string {
+func (p *VirtualGPUPlugin) calculateEnvVariables(
+	resName v1.ResourceName,
+	allocatedDevices []string,
+	resQuantityPerGPU float64,
+	podUID string,
+	annotations map[string]string,
+) map[string]string {
 	envs := make(map[string]string)
 
 	switch resName {
 	case consts.ResourceGPUMemory:
 		p.injectGPUMemoryEnvVariables(envs, allocatedDevices, resQuantityPerGPU)
 	case consts.ResourceMilliGPU:
-		p.injectMilliGPUEnvVariables(envs, allocatedDevices, resQuantityPerGPU, podUID)
+		p.injectMilliGPUEnvVariables(envs, allocatedDevices, resQuantityPerGPU, podUID, annotations)
 	}
 
 	if len(envs) > 0 {
@@ -984,12 +991,18 @@ func (p *VirtualGPUPlugin) injectGPUMemoryEnvVariables(envs map[string]string, a
 
 // injectMilliGPUEnvVariables injects the compute allocation weight, timeslice configuration, compute policy,
 // pod UID, and visible devices environment variables.
-func (p *VirtualGPUPlugin) injectMilliGPUEnvVariables(envs map[string]string, allocatedDevices []string, resQuantityPerGPU float64, podUID string) {
+func (p *VirtualGPUPlugin) injectMilliGPUEnvVariables(
+	envs map[string]string,
+	allocatedDevices []string,
+	resQuantityPerGPU float64,
+	podUID string,
+	annotations map[string]string,
+) {
 	p.injectWeightEnvVariable(envs, consts.ResourceMilliGPU, p.Conf.VirtualGPUComputeWeightEnvName, allocatedDevices, resQuantityPerGPU)
 
 	// Inject timeslice configuration for Virtual GPU isolation if the environment name is configured
 	if p.Conf.VirtualGPUTimesliceEnvName != "" {
-		envs[p.Conf.VirtualGPUTimesliceEnvName] = strconv.Itoa(p.Conf.VirtualGPUTimesliceEnvValue)
+		envs[p.Conf.VirtualGPUTimesliceEnvName] = strconv.Itoa(p.getVirtualGPUTimesliceEnvValue(annotations))
 	}
 
 	// Inject compute policy configuration for Virtual GPU isolation if the environment name is configured
@@ -1008,6 +1021,23 @@ func (p *VirtualGPUPlugin) injectMilliGPUEnvVariables(envs map[string]string, al
 			envs[env] = visibleDevices
 		}
 	}
+}
+
+// getVirtualGPUTimesliceEnvValue returns a valid annotation override or the configured static fallback.
+func (p *VirtualGPUPlugin) getVirtualGPUTimesliceEnvValue(annotations map[string]string) int {
+	key := p.Conf.VirtualGPUTimesliceAnnotationKey
+	if key == "" || annotations == nil {
+		return p.Conf.VirtualGPUTimesliceEnvValue
+	}
+
+	value, err := strconv.Atoi(annotations[key])
+	if err != nil ||
+		value < p.Conf.VirtualGPUTimesliceAnnotationMinValue ||
+		value > p.Conf.VirtualGPUTimesliceAnnotationMaxValue {
+		return p.Conf.VirtualGPUTimesliceEnvValue
+	}
+
+	return value
 }
 
 // generateDeviceRequestForMilliGPU fabricates a DeviceRequest for milligpu-only requests (which arrive

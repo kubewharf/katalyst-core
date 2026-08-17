@@ -2401,6 +2401,9 @@ func TestVirtualGPUPlugin_calculateEnvVariables(t *testing.T) {
 	basePlugin.Conf.VirtualGPUComputeWeightEnvName = "KUBE_GPU_COMPUTE_WEIGHT"
 	basePlugin.Conf.VirtualGPUTimesliceEnvName = "KUBE_GPU_TIMESLICE"
 	basePlugin.Conf.VirtualGPUTimesliceEnvValue = 1
+	basePlugin.Conf.VirtualGPUTimesliceAnnotationKey = "example.com/gpu-timeslice"
+	basePlugin.Conf.VirtualGPUTimesliceAnnotationMinValue = 100
+	basePlugin.Conf.VirtualGPUTimesliceAnnotationMaxValue = 50000
 	basePlugin.Conf.VirtualGPUComputePolicyEnvName = "KUBE_GPU_COMPUTE_POLICY"
 	basePlugin.Conf.VirtualGPUComputePolicyEnvValue = 2
 	basePlugin.Conf.VirtualGPUVisibleDevicesEnvNames = []string{"NVIDIA_VISIBLE_DEVICES"}
@@ -2416,6 +2419,7 @@ func TestVirtualGPUPlugin_calculateEnvVariables(t *testing.T) {
 		allocatedDevices  []string
 		podUID            string
 		resQuantityPerGPU float64
+		annotations       map[string]string
 		expectedEnvs      map[string]string
 	}{
 		{
@@ -2451,6 +2455,23 @@ func TestVirtualGPUPlugin_calculateEnvVariables(t *testing.T) {
 			},
 		},
 		{
+			name:              "milligpu annotation overrides timeslice",
+			resName:           consts.ResourceMilliGPU,
+			allocatedDevices:  []string{"gpu-0"},
+			podUID:            "test-pod-uid",
+			resQuantityPerGPU: 250,
+			annotations: map[string]string{
+				"example.com/gpu-timeslice": "100",
+			},
+			expectedEnvs: map[string]string{
+				"KUBE_GPU_COMPUTE_WEIGHT": "gpu-0:25",
+				"KUBE_GPU_TIMESLICE":      "100",
+				"KUBE_GPU_COMPUTE_POLICY": "2",
+				"KUBE_POD_UID":            "test-pod-uid",
+				"NVIDIA_VISIBLE_DEVICES":  "gpu-0",
+			},
+		},
+		{
 			name:              "milligpu multiple devices",
 			resName:           consts.ResourceMilliGPU,
 			allocatedDevices:  []string{"gpu-0", "gpu-1"},
@@ -2477,8 +2498,121 @@ func TestVirtualGPUPlugin_calculateEnvVariables(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			envs := plugin.calculateEnvVariables(tt.resName, tt.allocatedDevices, tt.resQuantityPerGPU, tt.podUID)
+			envs := plugin.calculateEnvVariables(tt.resName, tt.allocatedDevices, tt.resQuantityPerGPU, tt.podUID, tt.annotations)
 			assert.Equal(t, tt.expectedEnvs, envs)
+		})
+	}
+}
+
+func TestVirtualGPUPlugin_getVirtualGPUTimesliceEnvValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		key         string
+		minValue    int
+		maxValue    int
+		staticValue int
+		annotations map[string]string
+		want        int
+	}{
+		{
+			name:        "empty annotation key uses static value",
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "100"},
+			want:        300,
+		},
+		{
+			name:        "nil annotations use static value",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			want:        300,
+		},
+		{
+			name:        "missing annotation uses static value",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/other": "100"},
+			want:        300,
+		},
+		{
+			name:        "minimum annotation is valid",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "100"},
+			want:        100,
+		},
+		{
+			name:        "maximum annotation is valid",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "50000"},
+			want:        50000,
+		},
+		{
+			name:        "annotation below minimum uses static value",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "99"},
+			want:        300,
+		},
+		{
+			name:        "annotation above maximum uses static value",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "50001"},
+			want:        300,
+		},
+		{
+			name:        "non-integer annotation uses static value",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "abc"},
+			want:        300,
+		},
+		{
+			name:        "negative annotation uses static value",
+			key:         "example.com/timeslice",
+			minValue:    100,
+			maxValue:    50000,
+			staticValue: 300,
+			annotations: map[string]string{"example.com/timeslice": "-1"},
+			want:        300,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			basePlugin := makeTestBasePlugin(t)
+			basePlugin.Conf.VirtualGPUTimesliceAnnotationKey = tt.key
+			basePlugin.Conf.VirtualGPUTimesliceAnnotationMinValue = tt.minValue
+			basePlugin.Conf.VirtualGPUTimesliceAnnotationMaxValue = tt.maxValue
+			basePlugin.Conf.VirtualGPUTimesliceEnvValue = tt.staticValue
+
+			resourcePlugin := NewVirtualGPUPlugin(basePlugin)
+			plugin, ok := resourcePlugin.(*VirtualGPUPlugin)
+			if !assert.True(t, ok) {
+				return
+			}
+
+			assert.Equal(t, tt.want, plugin.getVirtualGPUTimesliceEnvValue(tt.annotations))
 		})
 	}
 }
