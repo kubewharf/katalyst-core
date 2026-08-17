@@ -32,6 +32,8 @@ import (
 const (
 	resyncInterval = 30 * time.Second
 	DimensionNuma  = "numa"
+	// FallbackNUMANodeID is used when a device has no reported NUMA topology.
+	FallbackNUMANodeID = 0
 )
 
 // DeviceTopologyRegistry is a registry of all topology providers that knows how to provide topology information of machine devices
@@ -439,6 +441,30 @@ func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
 		return false, false
 	}
 	return deviceInfo.Health == pluginapi.Healthy, true
+}
+
+// GetDeviceNUMANodes returns the NUMA nodes associated with the given devices,
+// falling back to FallbackNUMANodeID when a device has no NUMA topology.
+func (t *DeviceTopology) GetDeviceNUMANodes(deviceIDs ...string) CPUSet {
+	numaNodes := NewCPUSet()
+	if t == nil || len(deviceIDs) == 0 {
+		return numaNodes
+	}
+
+	for _, deviceID := range deviceIDs {
+		device, ok := t.Devices[deviceID]
+		if !ok {
+			general.Errorf("device %q not found in topology", deviceID)
+			return NewCPUSet()
+		}
+		if len(device.NumaNodes) == 0 {
+			general.Warningf("device %q has no NUMA nodes; defaulting to NUMA %d", deviceID, FallbackNUMANodeID)
+			numaNodes.Add(FallbackNUMANodeID)
+			continue
+		}
+		numaNodes.Add(device.NumaNodes...)
+	}
+	return numaNodes
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.

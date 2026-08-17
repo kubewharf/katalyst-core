@@ -528,6 +528,57 @@ func TestHasAnyDeviceAffinity(t *testing.T) {
 	}
 }
 
+func TestDeviceTopology_GetDeviceNUMANodes(t *testing.T) {
+	t.Parallel()
+
+	topology := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"device-0": {NumaNodes: []int{0}},
+			"device-1": {NumaNodes: []int{0, 1}},
+			"device-2": {},
+			"device-3": {NumaNodes: []int{2}},
+		},
+	}
+	tests := []struct {
+		name      string
+		deviceIDs []string
+		expected  CPUSet
+	}{
+		{
+			name:      "combine device NUMA nodes",
+			deviceIDs: []string{"device-0", "device-1"},
+			expected:  NewCPUSet(0, 1),
+		},
+		{
+			name:     "no devices",
+			expected: NewCPUSet(),
+		},
+		{
+			name:      "unknown device",
+			deviceIDs: []string{"unknown"},
+			expected:  NewCPUSet(),
+		},
+		{
+			name:      "device without NUMA nodes",
+			deviceIDs: []string{"device-2"},
+			expected:  NewCPUSet(FallbackNUMANodeID),
+		},
+		{
+			name:      "continue after device without NUMA nodes",
+			deviceIDs: []string{"device-2", "device-3"},
+			expected:  NewCPUSet(FallbackNUMANodeID, 2),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.True(t, topology.GetDeviceNUMANodes(tt.deviceIDs...).Equals(tt.expected))
+		})
+	}
+}
+
 func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 	t.Parallel()
 

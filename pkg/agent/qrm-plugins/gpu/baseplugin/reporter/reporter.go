@@ -58,9 +58,6 @@ const (
 	metricAddKubeletCheckpointAllocationsFailed = "qrm_gpu_reporter_add_kubelet_checkpoint_allocations_failed"
 	metricEnsureKubeletDevicePluginPathFailed   = "qrm_gpu_reporter_ensure_kubelet_device_plugin_path_failed"
 	metricAddGPUZoneNodesFallbackNUMA           = "qrm_gpu_reporter_add_gpu_zone_nodes_fallback_numa"
-	// fallbackNUMANodeID is used when a device has no NUMA nodes reported;
-	// the device is attached under this NUMA node so its zone is still emitted.
-	fallbackNUMANodeID = 0
 )
 
 var zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
@@ -699,15 +696,15 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 		deviceNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
 
 		numaNodes := device.NumaNodes
-		// If a device has no NUMA nodes, it is attached under NUMA fallbackNUMANodeID
+		// If a device has no NUMA nodes, it is attached under NUMA machine.FallbackNUMANodeID
 		// so its zone is still emitted; a warning log and a counter metric are recorded.
 		if len(numaNodes) == 0 {
-			general.Warningf("device %s has no NUMA nodes; defaulting to NUMA %d", id, fallbackNUMANodeID)
+			general.Warningf("device %s has no NUMA nodes; defaulting to NUMA %d", id, machine.FallbackNUMANodeID)
 			if p.emitter != nil {
 				_ = p.emitter.StoreInt64(metricAddGPUZoneNodesFallbackNUMA, 1, metrics.MetricTypeNameCount,
 					metrics.MetricTag{Key: "device_id", Val: id})
 			}
-			numaNodes = []int{fallbackNUMANodeID}
+			numaNodes = []int{machine.FallbackNUMANodeID}
 		}
 
 		for _, numaNode := range numaNodes {

@@ -1253,6 +1253,92 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			},
 		},
 		{
+			name:          "device without NUMA nodes generates fallback NUMA hint",
+			podUID:        "test-uid",
+			containerName: "test-container",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {Health: pluginapi.Healthy},
+				},
+			},
+			deviceReq: &pluginapi.AssociatedDeviceRequest{
+				ResourceRequest: &pluginapi.ResourceRequest{
+					PodUid:        "test-uid",
+					ContainerName: "test-container",
+					Annotations:   map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+					Labels:        map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				},
+				DeviceName: "test-gpu",
+				DeviceRequest: []*pluginapi.DeviceRequest{
+					{
+						DeviceName:       "test-gpu",
+						AvailableDevices: []string{"test-gpu-0"},
+						DeviceRequest:    1,
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceHintsResponse{
+				PodUid:        "test-uid",
+				ContainerName: "test-container",
+				DeviceName:    "test-gpu",
+				Annotations:   map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				Labels:        map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				DeviceHints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						{Nodes: []uint64{machine.FallbackNUMANodeID}, Preferred: true},
+					},
+				},
+			},
+		},
+		{
+			name:                      "scheduler-selected device without NUMA nodes prefers fallback NUMA hint",
+			podUID:                    "test-uid",
+			containerName:             "test-container",
+			gpuSelectionAnnotationKey: "gpu-selection",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+				},
+			},
+			deviceReq: &pluginapi.AssociatedDeviceRequest{
+				ResourceRequest: &pluginapi.ResourceRequest{
+					PodUid:        "test-uid",
+					ContainerName: "test-container",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						"gpu-selection":                 "test-gpu-0",
+					},
+					Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				},
+				DeviceName: "test-gpu",
+				DeviceRequest: []*pluginapi.DeviceRequest{
+					{
+						DeviceName:       "test-gpu",
+						AvailableDevices: []string{"test-gpu-0", "test-gpu-1"},
+						DeviceRequest:    1,
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceHintsResponse{
+				PodUid:        "test-uid",
+				ContainerName: "test-container",
+				DeviceName:    "test-gpu",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					"gpu-selection":                 "test-gpu-0",
+				},
+				Labels: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				DeviceHints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						{Nodes: []uint64{machine.FallbackNUMANodeID}, Preferred: true},
+						{Nodes: []uint64{1}, Preferred: false},
+						{Nodes: []uint64{machine.FallbackNUMANodeID, 1}, Preferred: false},
+					},
+				},
+			},
+		},
+		{
 			name:                      "scheduler selection annotation matches one hint, only that hint preferred",
 			podUID:                    "test-uid",
 			containerName:             "test-container",

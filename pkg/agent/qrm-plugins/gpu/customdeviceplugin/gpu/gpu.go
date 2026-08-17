@@ -209,6 +209,30 @@ func (p *GPUDevicePlugin) generateHintsFromAllocation(allocationInfo *state.Allo
 	}
 }
 
+// setPreferredHints sets hints to be preferred, prioritizing hints with NUMA nodes that match the selected NUMANodes.
+// Otherwise, it sets hints with NUMA nodes that match the minAffinitySize to be preferred.
+func setPreferredHints(
+	hints []*pluginapi.TopologyHint,
+	selectedNUMANodes machine.CPUSet,
+	minAffinitySize int,
+) {
+	if !selectedNUMANodes.IsEmpty() {
+		for _, hint := range hints {
+			hintNUMANodes, err := machine.NewCPUSetUint64(hint.Nodes...)
+			if err == nil && hintNUMANodes.Equals(selectedNUMANodes) {
+				hint.Preferred = true
+				return
+			}
+		}
+	}
+
+	for _, hint := range hints {
+		if len(hint.Nodes) == minAffinitySize {
+			hint.Preferred = true
+		}
+	}
+}
+
 func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 	deviceReq *pluginapi.DeviceRequest,
 	gpuTopology *machine.DeviceTopology,
@@ -227,12 +251,20 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 
 	// Gather all NUMA nodes that have healthy GPUs
 	numaNodesSet := sets.NewInt()
-	for _, dev := range gpuTopology.Devices {
+	numaNodesByDevice := make(map[string][]int, len(gpuTopology.Devices))
+	for deviceID, dev := range gpuTopology.Devices {
+		numaNodes := dev.NumaNodes
+		// When there are no numa nodes in a device, fallback to the FallbackNUMANodeID
+		if len(numaNodes) == 0 {
+			numaNodes = []int{machine.FallbackNUMANodeID}
+		}
+		numaNodesByDevice[deviceID] = numaNodes
+
 		if dev.Health != pluginapi.Healthy {
 			continue
 		}
 
-		numaNodesSet.Insert(dev.NumaNodes...)
+		numaNodesSet.Insert(numaNodes...)
 	}
 	numaNodes := numaNodesSet.List()
 
@@ -240,19 +272,22 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 	minAffinitySize := len(numaNodes)
 	var hints []*pluginapi.TopologyHint
 
-	selectedDevices := gpuutil.ParseGPUSelection(resReq.Annotations, p.Conf.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey)
-	matched := false
+	selectedDevices := gpuutil.ParseGPUSelection(
+		resReq.Annotations,
+		p.Conf.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey,
+	)
+	selectedNUMANodes := gpuTopology.GetDeviceNUMANodes(selectedDevices.UnsortedList()...)
 
 	// Iterate through all combinations of NUMA Nodes and build hints from them.
 	machine.IterateBitMasks(numaNodes, len(numaNodes), func(mask machine.BitMask) {
 		// Fast Path: Check to see if all of the reusable devices are part of the bitmask.
 		numMatching := 0
 		for d := range reusable {
-			dev, ok := gpuTopology.Devices[d]
-			if !ok || len(dev.NumaNodes) == 0 {
+			deviceNUMANodes, ok := numaNodesByDevice[d]
+			if !ok {
 				continue
 			}
-			if !mask.AnySet(dev.NumaNodes) {
+			if !mask.AnySet(deviceNUMANodes) {
 				return
 			}
 			numMatching++
@@ -261,11 +296,11 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 		// Fast Path: Check to see if enough available devices remain on the
 		// current NUMA node combination to satisfy the device request.
 		for d := range available {
-			dev, ok := gpuTopology.Devices[d]
-			if !ok || len(dev.NumaNodes) == 0 {
+			deviceNUMANodes, ok := numaNodesByDevice[d]
+			if !ok {
 				continue
 			}
-			if mask.AnySet(dev.NumaNodes) {
+			if mask.AnySet(deviceNUMANodes) {
 				numMatching++
 			}
 		}
@@ -316,28 +351,15 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 			minAffinitySize = mask.Count()
 		}
 
-		// Add it to the list of hints. Preferred stays false unless this mask's
-		// allocated devices match the scheduler's selection exactly.
-		hint := &pluginapi.TopologyHint{
+		// First set all hints' preferred to be false
+		hints = append(hints, &pluginapi.TopologyHint{
 			Nodes:     nodes,
 			Preferred: false,
-		}
-		if selectedDevices != nil && !matched && sets.NewString(result.AllocatedDevices...).Equal(selectedDevices) {
-			hint.Preferred = true
-			matched = true
-		}
-		hints = append(hints, hint)
+		})
 	})
 
-	// If no hint matched the scheduler's selection, fall back to preferring hints
-	// with the minimum affinity mask size.
-	if !matched {
-		for i := range hints {
-			if len(hints[i].Nodes) == minAffinitySize {
-				hints[i].Preferred = true
-			}
-		}
-	}
+	// Iterate through all of the hints and set preferred to be true
+	setPreferredHints(hints, selectedNUMANodes, minAffinitySize)
 
 	return hints
 }
