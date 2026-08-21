@@ -17,7 +17,7 @@ limitations under the License.
 package qrm
 
 import (
-	"github.com/kubewharf/katalyst-api/pkg/consts"
+	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 )
 
@@ -60,8 +60,9 @@ type QRMPluginsConfiguration struct {
 func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
 	return &GenericQRMPluginConfiguration{
 		PodAnnotationKeptKeys: []string{
-			consts.PodAnnotationAggregatedRequestsKey,
-			consts.PodAnnotationInplaceUpdateResizingKey,
+			katalystapiconsts.PodAnnotationAggregatedRequestsKey,
+			katalystapiconsts.PodAnnotationInplaceUpdateResizingKey,
+			katalystapiconsts.PodAnnotationContainerCPUIdleRateKey,
 		},
 		PodLabelKeptKeys:            []string{},
 		StateDirectoryConfiguration: statedirectory.NewStateDirectoryConfiguration(),
