@@ -203,7 +203,7 @@ status:
     resourceCapacity:
         resource.katalyst.kubewharf.io/reclaimed_millicpu: 4k
 ```
-```
+```text
 $ kubectl get event -A | grep evict
 default     43s         Normal   EvictCreated     pod/reclaimed-large-pod-2   Successfully create eviction; reason: met threshold in scope: resource.katalyst.kubewharf.io/reclaimed_millicpu from plugin: reclaimed-resource-pressure-eviction-plugin
 default     8s          Normal   EvictSucceeded   pod/reclaimed-large-pod-2   Evicted pod has been deleted physically; reason: met threshold in scope: resource.katalyst.kubewharf.io/reclaimed_millicpu from plugin: reclaimed-resource-pressure-eviction-plugin
