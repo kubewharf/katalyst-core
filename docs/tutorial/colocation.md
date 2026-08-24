@@ -27,11 +27,11 @@ When you refer to CNR, reclaimed resources will be as follows, and it means that
 ```
 status:
     resourceAllocatable:
-        katalyst.kubewharf.io/reclaimed_memory: "195257901056"
-        katalyst.kubewharf.io/reclaimed_millicpu: 44k
+        resource.katalyst.kubewharf.io/reclaimed_memory: "195257901056"
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 44k
     resourceCapacity:
-        katalyst.kubewharf.io/reclaimed_memory: "195257901056"
-        katalyst.kubewharf.io/reclaimed_millicpu: 44k
+        resource.katalyst.kubewharf.io/reclaimed_memory: "195257901056"
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 44k
 ```
 
 Submit several pods with shared_cores, and put pressure on those workloads to make reclaimed resources fluctuate along with the running state of workload.
@@ -46,9 +46,9 @@ After successfully scheduled, the pod starts running with cpu-usage ~= 1cores an
 ```
 status:
     resourceAllocatable:
-        katalyst.kubewharf.io/reclaimed_millicpu: 42k
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 42k
     resourceCapacity:
-        katalyst.kubewharf.io/reclaimed_millicpu: 42k
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 42k
 ```
    
 You can then put pressure on those pods to simulate requested peaks with `stress`, and the cpu-load will rise to approximately 3 to make the reclaimed cpu shrink to 40k.
@@ -59,9 +59,9 @@ $ kubectl exec shared-normal-pod -it -- stress -c 2
 ```
 status:
     resourceAllocatable:
-        katalyst.kubewharf.io/reclaimed_millicpu: 40k
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 40k
     resourceCapacity:
-        katalyst.kubewharf.io/reclaimed_millicpu: 40k
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 40k
 ```
 
 ### Scheduling Strategy
@@ -199,14 +199,14 @@ $ kubectl exec shared-large-pod-2 -it -- stress -c 40
 ```
 status:
     resourceAllocatable:
-        katalyst.kubewharf.io/reclaimed_millicpu: 4k
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 4k
     resourceCapacity:
-        katalyst.kubewharf.io/reclaimed_millicpu: 4k
+        resource.katalyst.kubewharf.io/reclaimed_millicpu: 4k
 ```
 ```
 $ kubectl get event -A | grep evict
-default     43s         Normal   EvictCreated     pod/reclaimed-large-pod-2   Successfully create eviction; reason: met threshold in scope: katalyst.kubewharf.io/reclaimed_millicpu from plugin: reclaimed-resource-pressure-eviction-plugin
-default     8s          Normal   EvictSucceeded   pod/reclaimed-large-pod-2   Evicted pod has been deleted physically; reason: met threshold in scope: katalyst.kubewharf.io/reclaimed_millicpu from plugin: reclaimed-resource-pressure-eviction-plugin
+default     43s         Normal   EvictCreated     pod/reclaimed-large-pod-2   Successfully create eviction; reason: met threshold in scope: resource.katalyst.kubewharf.io/reclaimed_millicpu from plugin: reclaimed-resource-pressure-eviction-plugin
+default     8s          Normal   EvictSucceeded   pod/reclaimed-large-pod-2   Evicted pod has been deleted physically; reason: met threshold in scope: resource.katalyst.kubewharf.io/reclaimed_millicpu from plugin: reclaimed-resource-pressure-eviction-plugin
 ```
 
 The default threshold for reclaimed resources 5, you can change it dynamically with KCC.
