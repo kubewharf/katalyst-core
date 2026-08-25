@@ -82,7 +82,8 @@ const (
 
 	UserUnknown = "unknown"
 
-	MetricsPodLabelPrefix = "pod"
+	MetricsPodLabelPrefix      = "pod"
+	MetricsPodAnnotationPrefix = "pod_anno"
 
 	evictionManagerHealthCheckName = "eviction_manager_sync"
 	reportTaintHealthCheckName     = "eviction_manager_report_taint"
@@ -559,7 +560,8 @@ func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.
 	general.Infof(" evict %d pods in evictionmanager", len(rpList))
 	_ = m.emitter.StoreInt64(MetricsNameVictimPodCNT, int64(len(rpList)), metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "type", Val: "total"})
-	metricPodsToEvict(m.emitter, rpList, m.conf.GenericConfiguration.QoSConfiguration, m.conf.GenericEvictionConfiguration.PodMetricLabels)
+	metricPodsToEvict(m.emitter, rpList, m.conf.GenericConfiguration.QoSConfiguration,
+		m.conf.GenericEvictionConfiguration.PodMetricLabels, m.conf.GenericEvictionConfiguration.PodMetricAnnotations)
 	return nil
 }
 
@@ -878,7 +880,9 @@ func logConfirmedThresholdMet(thresholds map[string]*pluginapi.ThresholdMetRespo
 	}
 }
 
-func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodList, qosConfig *generic.QoSConfiguration, podMetricLabels sets.String) {
+func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodList, qosConfig *generic.QoSConfiguration,
+	podMetricLabels, podMetricAnnotations sets.String,
+) {
 	if emitter == nil {
 		general.Errorf(" metricPodsToEvict got nil emitter")
 		return
@@ -886,12 +890,14 @@ func metricPodsToEvict(emitter metrics.MetricEmitter, rpList rule.RuledEvictPodL
 
 	for _, rp := range rpList {
 		if rp != nil && rp.EvictionPluginName != "" {
-			metricsPodToEvict(emitter, qosConfig, rp.EvictionPluginName, rp.Pod, false, podMetricLabels)
+			metricsPodToEvict(emitter, qosConfig, rp.EvictionPluginName, rp.Pod, false, podMetricLabels, podMetricAnnotations)
 		}
 	}
 }
 
-func metricsPodToEvict(emitter metrics.MetricEmitter, qosConfig *generic.QoSConfiguration, pluginName string, pod *v1.Pod, dryRun bool, podMetricLabels sets.String) {
+func metricsPodToEvict(emitter metrics.MetricEmitter, qosConfig *generic.QoSConfiguration, pluginName string, pod *v1.Pod,
+	dryRun bool, podMetricLabels, podMetricAnnotations sets.String,
+) {
 	podQosLevel := "unknown"
 	if qosConfig != nil {
 		qosLevel, err := qosConfig.GetQoSLevelForPod(pod)
@@ -923,12 +929,29 @@ func metricsPodToEvict(emitter metrics.MetricEmitter, qosConfig *generic.QoSConf
 			}
 		}
 	}
+	for _, metricAnnotation := range podMetricAnnotations.List() {
+		metricValue := UserUnknown
+		if pod.Annotations != nil {
+			if val, ok := pod.Annotations[metricAnnotation]; ok && val != "" {
+				metricValue = val
+			}
+		}
+		metricTags = append(metricTags, metrics.MetricTag{
+			Key: genPodAnnotationMetricKey(metricAnnotation),
+			Val: metricValue,
+		})
+	}
 	_ = emitter.StoreInt64(metricKey, 1, metrics.MetricTypeNameRaw, metricTags...)
 }
 
 func genPodLabelMetricKey(key string) string {
 	key = strings.ReplaceAll(key, "-", "_")
 	return strings.Join([]string{MetricsPodLabelPrefix, key}, "_")
+}
+
+func genPodAnnotationMetricKey(key string) string {
+	key = strings.ReplaceAll(key, "-", "_")
+	return strings.Join([]string{MetricsPodAnnotationPrefix, key}, "_")
 }
 
 func genPodPriorityMetricValue(pod *v1.Pod) string {

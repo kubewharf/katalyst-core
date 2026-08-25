@@ -97,7 +97,8 @@ func (e *evictionRespCollector) collectEvictPods(dryRunPlugins []string, pluginN
 			e.getLogPrefix(dryRun), pluginName, evictPod.Pod.Namespace, evictPod.Pod.Name, evictPod.Reason, evictPod.ForceEvict)
 
 		if dryRun {
-			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, evictPod.Pod, dryRun, e.conf.GenericEvictionConfiguration.PodMetricLabels)
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, evictPod.Pod, dryRun,
+				e.conf.GenericEvictionConfiguration.PodMetricLabels, e.conf.GenericEvictionConfiguration.PodMetricAnnotations)
 		} else {
 			evictPods = append(evictPods, resp.EvictPods[i])
 		}
@@ -183,7 +184,8 @@ func (e *evictionRespCollector) collectTopSoftEvictionPods(dryRunPlugins []strin
 		general.Infof("%v plugin %v request to notify topN pod %v/%v, reason: met threshold in scope [%v]",
 			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
 		if dryRun {
-			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun, e.conf.GenericEvictionConfiguration.PodMetricLabels)
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun,
+				e.conf.GenericEvictionConfiguration.PodMetricLabels, e.conf.GenericEvictionConfiguration.PodMetricAnnotations)
 		} else {
 			targetPods = append(targetPods, resp.TargetPods[i])
 		}
@@ -219,7 +221,8 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 		general.Infof("%v plugin %v request to evict topN pod %v/%v, reason: met threshold in scope [%v]",
 			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
 		if dryRun {
-			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun, e.conf.GenericEvictionConfiguration.PodMetricLabels)
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun,
+				e.conf.GenericEvictionConfiguration.PodMetricLabels, e.conf.GenericEvictionConfiguration.PodMetricAnnotations)
 		} else {
 			targetPods = append(targetPods, resp.TargetPods[i])
 		}
