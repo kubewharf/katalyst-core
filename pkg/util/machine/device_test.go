@@ -17,6 +17,7 @@ limitations under the License.
 package machine
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -26,6 +27,75 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+func TestDeviceTopologyClone(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil topology", func(t *testing.T) {
+		t.Parallel()
+		var topology *DeviceTopology
+		assert.Nil(t, topology.Clone())
+	})
+
+	t.Run("deep copy", func(t *testing.T) {
+		t.Parallel()
+		topology := &DeviceTopology{
+			Devices: map[string]DeviceInfo{
+				"gpu-0": {
+					Health:     "Healthy",
+					NumaNodes:  []int{0, 1},
+					Dimensions: DeviceDimensions{"socket": "0"},
+				},
+			},
+			PriorityDimensions: []string{"socket"},
+			UpdateTime:         100,
+		}
+
+		cloned := topology.Clone()
+		cloned.Devices["gpu-1"] = DeviceInfo{}
+		clonedInfo := cloned.Devices["gpu-0"]
+		clonedInfo.NumaNodes[0] = 2
+		clonedInfo.Dimensions["socket"] = "1"
+		cloned.Devices["gpu-0"] = clonedInfo
+		cloned.PriorityDimensions[0] = "numa"
+
+		assert.NotContains(t, topology.Devices, "gpu-1")
+		assert.Equal(t, []int{0, 1}, topology.Devices["gpu-0"].NumaNodes)
+		assert.Equal(t, "0", topology.Devices["gpu-0"].Dimensions["socket"])
+		assert.Equal(t, []string{"socket"}, topology.PriorityDimensions)
+		assert.Equal(t, int64(100), cloned.UpdateTime)
+	})
+
+	t.Run("preserves nil nested fields", func(t *testing.T) {
+		t.Parallel()
+		topology := &DeviceTopology{
+			Devices: map[string]DeviceInfo{"gpu-0": {}},
+		}
+
+		cloned := topology.Clone()
+
+		assert.Nil(t, cloned.Devices["gpu-0"].NumaNodes)
+		assert.Nil(t, cloned.Devices["gpu-0"].Dimensions)
+		assert.Nil(t, cloned.PriorityDimensions)
+	})
+
+	t.Run("preserves non-nil empty slices", func(t *testing.T) {
+		t.Parallel()
+		topology := &DeviceTopology{
+			Devices: map[string]DeviceInfo{
+				"gpu-0": {NumaNodes: []int{}},
+			},
+			PriorityDimensions: []string{},
+		}
+
+		cloned := topology.Clone()
+
+		assert.NotNil(t, cloned.Devices["gpu-0"].NumaNodes)
+		assert.Empty(t, cloned.Devices["gpu-0"].NumaNodes)
+		assert.NotNil(t, cloned.PriorityDimensions)
+		assert.Empty(t, cloned.PriorityDimensions)
+	})
+}
 
 func TestDeviceTopologyRegistry_TopologyChangeNotifiers(t *testing.T) {
 	t.Parallel()
@@ -69,6 +139,180 @@ func TestDeviceTopologyRegistry_TopologyChangeNotifiers(t *testing.T) {
 	err = registry.SetDeviceTopology("gpu", gpuTopology2)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, callCount)
+}
+
+func TestDeviceTopologyRegistry_SetDeviceTopologyUsesCallerClone(t *testing.T) {
+	t.Parallel()
+
+	registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+	registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
+
+	input := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}, Dimensions: DeviceDimensions{"socket": "0"}},
+		},
+	}
+	topology := input.Clone()
+	assert.NoError(t, registry.SetDeviceTopology("gpu", topology))
+
+	input.Devices["gpu-1"] = DeviceInfo{}
+	info := input.Devices["gpu-0"]
+	info.NumaNodes[0] = 1
+	info.Dimensions["socket"] = "1"
+	input.Devices["gpu-0"] = info
+
+	published, err := registry.GetDeviceTopology("gpu")
+	assert.NoError(t, err)
+	assert.Same(t, topology, published)
+	assert.NotContains(t, published.Devices, "gpu-1")
+	assert.Equal(t, []int{0}, published.Devices["gpu-0"].NumaNodes)
+	assert.Equal(t, "0", published.Devices["gpu-0"].Dimensions["socket"])
+}
+
+type retainingDeviceTopologyProvider struct {
+	topology *DeviceTopology
+	setCalls int
+	setErr   error
+}
+
+func (p *retainingDeviceTopologyProvider) SetDeviceTopology(topology *DeviceTopology) error {
+	p.setCalls++
+	p.topology = topology
+	return p.setErr
+}
+
+func (p *retainingDeviceTopologyProvider) GetDeviceTopology() (*DeviceTopology, error) {
+	return p.topology, nil
+}
+
+func TestDeviceTopologyRegistry_SetDeviceTopologyIsolatesCachedTopologyFromProvider(t *testing.T) {
+	t.Parallel()
+
+	registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+	provider := &retainingDeviceTopologyProvider{}
+	registry.RegisterDeviceTopologyProvider("gpu", provider)
+
+	topology := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"gpu-0": {
+				NumaNodes:  []int{0},
+				Dimensions: DeviceDimensions{"socket": "0"},
+			},
+		},
+		PriorityDimensions: []string{"socket"},
+		UpdateTime:         100,
+	}
+	expected := topology.Clone()
+	assert.NoError(t, registry.SetDeviceTopology("gpu", topology))
+
+	provider.topology.Devices["gpu-1"] = DeviceInfo{}
+	info := provider.topology.Devices["gpu-0"]
+	info.NumaNodes[0] = 1
+	info.Dimensions["socket"] = "1"
+	provider.topology.Devices["gpu-0"] = info
+	provider.topology.PriorityDimensions[0] = "numa"
+	provider.topology.UpdateTime = 200
+
+	cached, err := registry.getLastTopology("gpu")
+	assert.NoError(t, err)
+	assert.NotSame(t, provider.topology, cached)
+	assert.Equal(t, expected, cached)
+}
+
+type mutatingDeviceAffinityProvider struct {
+	dimensionValue string
+}
+
+func (p *mutatingDeviceAffinityProvider) SetDeviceAffinity(topology *DeviceTopology) {
+	info := topology.Devices["gpu-0"]
+	info.Dimensions = DeviceDimensions{"socket": p.dimensionValue}
+	topology.Devices["gpu-0"] = info
+}
+
+func (*mutatingDeviceAffinityProvider) WatchTopologyChanged(stopCh <-chan struct{}) <-chan struct{} {
+	return nil
+}
+
+func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
+	t.Run("clones cached topology before updating affinity", func(t *testing.T) {
+		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+		registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
+		affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
+		registry.RegisterTopologyAffinityProvider("gpu", affinityProvider)
+
+		assert.NoError(t, registry.SetDeviceTopology("gpu", &DeviceTopology{
+			Devices: map[string]DeviceInfo{"gpu-0": {}},
+		}))
+		previous, err := registry.getLastTopology("gpu")
+		assert.NoError(t, err)
+
+		affinityProvider.dimensionValue = "1"
+		registry.updateTopology("gpu")
+
+		current, err := registry.getLastTopology("gpu")
+		assert.NoError(t, err)
+		assert.NotSame(t, previous, current)
+		assert.Equal(t, "0", previous.Devices["gpu-0"].Dimensions["socket"])
+		assert.Equal(t, "1", current.Devices["gpu-0"].Dimensions["socket"])
+	})
+
+	t.Run("does nothing without cached topology", func(t *testing.T) {
+		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+		provider := &retainingDeviceTopologyProvider{}
+		registry.RegisterDeviceTopologyProvider("gpu", provider)
+
+		registry.updateTopology("gpu")
+
+		assert.Zero(t, provider.setCalls)
+		assert.Nil(t, provider.topology)
+	})
+
+	t.Run("preserves cached topology when provider update fails", func(t *testing.T) {
+		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+		provider := &retainingDeviceTopologyProvider{}
+		registry.RegisterDeviceTopologyProvider("gpu", provider)
+		affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
+		registry.RegisterTopologyAffinityProvider("gpu", affinityProvider)
+
+		assert.NoError(t, registry.SetDeviceTopology("gpu", &DeviceTopology{
+			Devices: map[string]DeviceInfo{"gpu-0": {}},
+		}))
+		cached, err := registry.getLastTopology("gpu")
+		assert.NoError(t, err)
+
+		provider.setErr = errors.New("set topology failed")
+		affinityProvider.dimensionValue = "1"
+		registry.updateTopology("gpu")
+
+		current, err := registry.getLastTopology("gpu")
+		assert.NoError(t, err)
+		assert.Same(t, cached, current)
+		assert.NotSame(t, cached, provider.topology)
+		assert.Equal(t, "0", current.Devices["gpu-0"].Dimensions["socket"])
+		assert.Equal(t, "1", provider.topology.Devices["gpu-0"].Dimensions["socket"])
+	})
+}
+
+func TestDeviceTopologyRegistry_UpdateTopologyDoesNotMutatePublishedSnapshot(t *testing.T) {
+	registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+	registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
+	affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
+	registry.RegisterTopologyAffinityProvider("gpu", affinityProvider)
+
+	assert.NoError(t, registry.SetDeviceTopology("gpu", &DeviceTopology{
+		Devices: map[string]DeviceInfo{"gpu-0": {}},
+	}))
+	previous, err := registry.GetDeviceTopology("gpu")
+	assert.NoError(t, err)
+
+	affinityProvider.dimensionValue = "1"
+	registry.updateTopology("gpu")
+
+	current, err := registry.GetDeviceTopology("gpu")
+	assert.NoError(t, err)
+	assert.NotSame(t, previous, current)
+	assert.Equal(t, "0", previous.Devices["gpu-0"].Dimensions["socket"])
+	assert.Equal(t, "1", current.Devices["gpu-0"].Dimensions["socket"])
 }
 
 func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
@@ -539,34 +783,47 @@ func TestDeviceTopology_GetDeviceNUMANodes(t *testing.T) {
 			"device-3": {NumaNodes: []int{2}},
 		},
 	}
+	var nilTopology *DeviceTopology
 	tests := []struct {
 		name      string
+		topology  *DeviceTopology
 		deviceIDs []string
 		expected  CPUSet
 	}{
 		{
 			name:      "combine device NUMA nodes",
+			topology:  topology,
 			deviceIDs: []string{"device-0", "device-1"},
 			expected:  NewCPUSet(0, 1),
 		},
 		{
 			name:     "no devices",
+			topology: topology,
 			expected: NewCPUSet(),
 		},
 		{
 			name:      "unknown device",
+			topology:  topology,
 			deviceIDs: []string{"unknown"},
 			expected:  NewCPUSet(),
 		},
 		{
 			name:      "device without NUMA nodes",
+			topology:  topology,
 			deviceIDs: []string{"device-2"},
 			expected:  NewCPUSet(FallbackNUMANodeID),
 		},
 		{
 			name:      "continue after device without NUMA nodes",
+			topology:  topology,
 			deviceIDs: []string{"device-2", "device-3"},
 			expected:  NewCPUSet(FallbackNUMANodeID, 2),
+		},
+		{
+			name:      "nil topology",
+			topology:  nilTopology,
+			deviceIDs: []string{"device-0"},
+			expected:  NewCPUSet(),
 		},
 	}
 
@@ -574,7 +831,7 @@ func TestDeviceTopology_GetDeviceNUMANodes(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.True(t, topology.GetDeviceNUMANodes(tt.deviceIDs...).Equals(tt.expected))
+			assert.True(t, tt.topology.GetDeviceNUMANodes(tt.deviceIDs...).Equals(tt.expected))
 		})
 	}
 }

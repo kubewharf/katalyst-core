@@ -142,7 +142,9 @@ func (r *DeviceTopologyRegistry) updateTopology(deviceName string) {
 		return
 	}
 
-	if err = r.SetDeviceTopology(deviceName, lastDeviceTopology); err != nil {
+	clonedTopology := lastDeviceTopology.Clone()
+
+	if err = r.SetDeviceTopology(deviceName, clonedTopology); err != nil {
 		general.Errorf("failed to set new device topology for device %q: %v", deviceName, err)
 	}
 
@@ -176,6 +178,7 @@ func (r *DeviceTopologyRegistry) RegisterTopologyChangeNotifier(notifier func())
 }
 
 // SetDeviceTopology sets the device topology for the specified device name.
+// To prevent race conditions, the device topology passed in should be cloned.
 func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopology *DeviceTopology) error {
 	r.mux.Lock()
 
@@ -203,7 +206,7 @@ func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopo
 		changed := !reflect.DeepEqual(r.lastDeviceTopologies[deviceName], deviceTopology)
 
 		// Cache the device topology only when SetDeviceTopology succeeds
-		r.lastDeviceTopologies[deviceName] = deviceTopology
+		r.lastDeviceTopologies[deviceName] = deviceTopology.Clone()
 
 		if changed {
 			general.Infof("device topology changed for device %s, triggering %d notifiers", deviceName, len(r.topologyChangeNotifiers))
@@ -433,6 +436,41 @@ type DeviceTopology struct {
 	PriorityDimensions []string
 	// UpdateTime is the timestamp when the topology was last updated.
 	UpdateTime int64
+}
+
+// Clone returns a deep copy of the device topology.
+func (t *DeviceTopology) Clone() *DeviceTopology {
+	if t == nil {
+		return nil
+	}
+
+	cloned := &DeviceTopology{
+		UpdateTime: t.UpdateTime,
+	}
+	if t.PriorityDimensions != nil {
+		cloned.PriorityDimensions = make([]string, len(t.PriorityDimensions))
+		copy(cloned.PriorityDimensions, t.PriorityDimensions)
+	}
+	if t.Devices == nil {
+		return cloned
+	}
+
+	cloned.Devices = make(map[string]DeviceInfo, len(t.Devices))
+	for id, info := range t.Devices {
+		clonedInfo := info
+		if info.NumaNodes != nil {
+			clonedInfo.NumaNodes = make([]int, len(info.NumaNodes))
+			copy(clonedInfo.NumaNodes, info.NumaNodes)
+		}
+		if info.Dimensions != nil {
+			clonedInfo.Dimensions = make(DeviceDimensions, len(info.Dimensions))
+			for key, value := range info.Dimensions {
+				clonedInfo.Dimensions[key] = value
+			}
+		}
+		cloned.Devices[id] = clonedInfo
+	}
+	return cloned
 }
 
 func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
