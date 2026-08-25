@@ -31,7 +31,7 @@ func TestGetPodContainerCPUIdleRateConfig(t *testing.T) {
 		name           string
 		podAnnotations map[string]string
 		wantFound      bool
-		wantConfig     ContainerCPUIdleRateConfig
+		wantConfig     katalystapiconsts.ContainerCPUIdleRateConfig
 		wantErr        bool
 	}{
 		{
@@ -52,7 +52,7 @@ func TestGetPodContainerCPUIdleRateConfig(t *testing.T) {
 				katalystapiconsts.PodAnnotationContainerCPUIdleRateKey: `{"hdfsfuse-sidecar": 50, "another-sidecar": 30}`,
 			},
 			wantFound: true,
-			wantConfig: ContainerCPUIdleRateConfig{
+			wantConfig: katalystapiconsts.ContainerCPUIdleRateConfig{
 				"hdfsfuse-sidecar": 50,
 				"another-sidecar":  30,
 			},

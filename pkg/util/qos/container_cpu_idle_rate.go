@@ -22,16 +22,12 @@ import (
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
-// ContainerCPUIdleRateConfig defines the annotation value schema for
-// katalystapiconsts.PodAnnotationContainerCPUIdleRateKey.
-type ContainerCPUIdleRateConfig map[string]int64
-
 // GetPodContainerCPUIdleRateConfig parses the per-container cpu idle rate config
 // from an independent pod annotation.
 //
 // This helper is intentionally kept lightweight for now and only handles JSON
 // parsing. The actual consumption path can be added later.
-func GetPodContainerCPUIdleRateConfig(podAnnotations map[string]string, annotationKey string) (bool, ContainerCPUIdleRateConfig, error) {
+func GetPodContainerCPUIdleRateConfig(podAnnotations map[string]string, annotationKey string) (bool, katalystapiconsts.ContainerCPUIdleRateConfig, error) {
 	if len(podAnnotations) == 0 {
 		return false, nil, nil
 	}
@@ -41,7 +37,7 @@ func GetPodContainerCPUIdleRateConfig(podAnnotations map[string]string, annotati
 		return false, nil, nil
 	}
 
-	var cfg ContainerCPUIdleRateConfig
+	var cfg katalystapiconsts.ContainerCPUIdleRateConfig
 	if err := json.Unmarshal([]byte(annotationValue), &cfg); err != nil {
 		return true, nil, err
 	}
@@ -49,6 +45,6 @@ func GetPodContainerCPUIdleRateConfig(podAnnotations map[string]string, annotati
 	return true, cfg, nil
 }
 
-func GetPodContainerCPUIdleRateConfigFromAnnotation(podAnnotations map[string]string) (bool, ContainerCPUIdleRateConfig, error) {
+func GetPodContainerCPUIdleRateConfigFromAnnotation(podAnnotations map[string]string) (bool, katalystapiconsts.ContainerCPUIdleRateConfig, error) {
 	return GetPodContainerCPUIdleRateConfig(podAnnotations, katalystapiconsts.PodAnnotationContainerCPUIdleRateKey)
 }

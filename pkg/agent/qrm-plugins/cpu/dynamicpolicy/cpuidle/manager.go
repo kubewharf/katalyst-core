@@ -110,7 +110,7 @@ func (m *managerImpl) UpdateContainerCPUIdle(conf *config.Configuration) error {
 	return nil
 }
 
-func (m *managerImpl) applyCPUIdleSettingsForPod(conf *config.Configuration, pod *v1.Pod, idleConfig qosutil.ContainerCPUIdleRateConfig) error {
+func (m *managerImpl) applyCPUIdleSettingsForPod(conf *config.Configuration, pod *v1.Pod, idleConfig katalystapiconsts.ContainerCPUIdleRateConfig) error {
 	if pod == nil {
 		return fmt.Errorf("nil pod")
 	}
