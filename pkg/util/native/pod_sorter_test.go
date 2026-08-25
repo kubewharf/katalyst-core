@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 func TestPodUniqKeyCmpFunc(t *testing.T) {
@@ -98,4 +100,124 @@ func TestPodUniqKeyCmpFunc(t *testing.T) {
 			assert.Equalf(t, tt.want, PodUniqKeyCmpFunc(tt.args.i1, tt.args.i2), "PodUniqKeyCmpFunc(%v, %v)", tt.args.i1, tt.args.i2)
 		})
 	}
+}
+
+func TestPodQoSCmpFunc(t *testing.T) {
+	t.Parallel()
+
+	pods := []*v1.Pod{
+		makePodSorterTestPod("unknown", "unknown", ""),
+		makePodSorterTestPod("system", apiconsts.PodAnnotationQoSLevelSystemCores, ""),
+		makePodSorterTestPod("dedicated", apiconsts.PodAnnotationQoSLevelDedicatedCores, ""),
+		makePodSorterTestPod("shared", apiconsts.PodAnnotationQoSLevelSharedCores, ""),
+		makePodSorterTestPod("reclaimed", apiconsts.PodAnnotationQoSLevelReclaimedCores, ""),
+	}
+
+	sortedPods := NewPodSourceList(pods).Sort(PodQoSCmpFunc).Pods()
+
+	assert.Equal(t, []string{"reclaimed", "shared", "dedicated", "system", "unknown"}, podNamesForSourceListTest(sortedPods))
+}
+
+func TestPodSaleModeCmpFunc(t *testing.T) {
+	t.Parallel()
+
+	pods := []*v1.Pod{
+		makePodSorterTestPod("unknown", "", "default"),
+		makePodSorterTestPod("reserved", "", apiconsts.PodSaleModeReserved),
+		makePodSorterTestPod("scheduled", "", apiconsts.PodSaleModeScheduled),
+		makePodSorterTestPod("spot", "", apiconsts.PodSaleModeSpot),
+	}
+
+	sortedPods := NewPodSourceList(pods).Sort(PodSaleModeCmpFunc, PodUniqKeyCmpFunc).Pods()
+
+	assert.Equal(t, []string{"spot", "scheduled", "reserved", "unknown"}, podNamesForSourceListTest(sortedPods))
+}
+
+func TestNewPodSaleModeCmpFuncUsesCustomAnnotationKey(t *testing.T) {
+	t.Parallel()
+
+	customAnnotationKey := "custom.sale.mode"
+	pods := []*v1.Pod{
+		makePodSorterTestPod("default-key-spot", "", apiconsts.PodSaleModeSpot),
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "namespace-1",
+				Name:      "custom-key-spot",
+				Annotations: map[string]string{
+					customAnnotationKey: apiconsts.PodSaleModeSpot,
+				},
+			},
+		},
+	}
+
+	sortedPods := NewPodSourceList(pods).Sort(NewPodSaleModeCmpFunc(customAnnotationKey), PodUniqKeyCmpFunc).Pods()
+
+	assert.Equal(t, []string{"custom-key-spot", "default-key-spot"}, podNamesForSourceListTest(sortedPods))
+}
+
+func TestNewPodSourceListCopiesPodsBeforeSort(t *testing.T) {
+	t.Parallel()
+
+	pods := []*v1.Pod{
+		makePodForSourceListTest("pod-c"),
+		makePodForSourceListTest("pod-a"),
+		makePodForSourceListTest("pod-b"),
+	}
+
+	sortedPods := NewPodSourceList(pods).Sort(PodUniqKeyCmpFunc).Pods()
+
+	assert.Equal(t, []string{"pod-c", "pod-b", "pod-a"}, podNamesForSourceListTest(sortedPods))
+	assert.Equal(t, []string{"pod-c", "pod-a", "pod-b"}, podNamesForSourceListTest(pods))
+}
+
+func TestPodSourceListFilterCopiesPodsBeforeSort(t *testing.T) {
+	t.Parallel()
+
+	pods := []*v1.Pod{
+		makePodForSourceListTest("pod-c"),
+		makePodForSourceListTest("pod-a"),
+		makePodForSourceListTest("pod-b"),
+	}
+
+	filteredPods := NewPodSourceList(pods).Filter(func(pod *v1.Pod) (bool, error) {
+		return pod.Name != "pod-a", nil
+	}).Sort(PodUniqKeyCmpFunc).TopN(1)
+
+	assert.Equal(t, []string{"pod-c"}, podNamesForSourceListTest(filteredPods))
+	assert.Equal(t, []string{"pod-c", "pod-a", "pod-b"}, podNamesForSourceListTest(pods))
+}
+
+func makePodForSourceListTest(name string) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "namespace-1",
+			Name:      name,
+		},
+	}
+}
+
+func makePodSorterTestPod(name, qosLevel, saleMode string) *v1.Pod {
+	annotations := map[string]string{}
+	if qosLevel != "" {
+		annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
+	}
+	if saleMode != "" {
+		annotations[apiconsts.PodAnnotationSaleModeKey] = saleMode
+	}
+
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "namespace-1",
+			Name:        name,
+			Annotations: annotations,
+		},
+	}
+}
+
+func podNamesForSourceListTest(pods []*v1.Pod) []string {
+	names := make([]string, 0, len(pods))
+	for _, pod := range pods {
+		names = append(names, pod.Name)
+	}
+	return names
 }

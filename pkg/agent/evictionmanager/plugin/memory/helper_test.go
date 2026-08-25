@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -235,4 +236,39 @@ func TestEvictionHelper_getEvictionCmpFuncs(t *testing.T) {
 	for i := range pods {
 		assert.Equal(t, wantPodNameList[i], pods[i].Name)
 	}
+}
+
+func TestEvictionHelper_getEvictionCmpFuncs_SaleMode(t *testing.T) {
+	t.Parallel()
+
+	metaServer := makeMetaServer()
+	helper, err := makeHelper(metaServer)
+	assert.NoError(t, err)
+	assert.NotNil(t, helper)
+
+	pods := []*v1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:  "000001",
+				Name: "reserved",
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationSaleModeKey: apiconsts.PodSaleModeReserved,
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:  "000002",
+				Name: "spot",
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationSaleModeKey: apiconsts.PodSaleModeSpot,
+				},
+			},
+		},
+	}
+
+	general.NewMultiSorter(helper.getEvictionCmpFuncs([]string{evictionconfig.FakeMetricSaleMode}, nonExistNumaID)...).
+		Sort(native.NewPodSourceImpList(pods))
+
+	assert.Equal(t, []string{"spot", "reserved"}, []string{pods[0].Name, pods[1].Name})
 }

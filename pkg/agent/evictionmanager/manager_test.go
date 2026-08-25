@@ -104,6 +104,40 @@ var (
 	}
 )
 
+type recordingMetricEmitter struct {
+	key      string
+	val      int64
+	emitType metrics.MetricTypeName
+	tags     []metrics.MetricTag
+}
+
+func (r *recordingMetricEmitter) StoreInt64(key string, val int64, emitType metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	r.key = key
+	r.val = val
+	r.emitType = emitType
+	r.tags = append([]metrics.MetricTag(nil), tags...)
+	return nil
+}
+
+func (r *recordingMetricEmitter) StoreFloat64(_ string, _ float64, _ metrics.MetricTypeName, _ ...metrics.MetricTag) error {
+	return nil
+}
+
+func (r *recordingMetricEmitter) WithTags(unit string, commonTags ...metrics.MetricTag) metrics.MetricEmitter {
+	wrapper := &metrics.MetricTagWrapper{MetricEmitter: r}
+	return wrapper.WithTags(unit, commonTags...)
+}
+
+func (r *recordingMetricEmitter) Run(_ context.Context) {}
+
+func metricTagsToMap(tags []metrics.MetricTag) map[string]string {
+	res := make(map[string]string, len(tags))
+	for _, tag := range tags {
+		res[tag.Key] = tag.Val
+	}
+	return res
+}
+
 func makeConf() *config.Configuration {
 	conf := config.NewConfiguration()
 	conf.EvictionManagerSyncPeriod = evictionManagerSyncPeriod
@@ -735,4 +769,36 @@ func TestEvictionManager_Run(t *testing.T) {
 	assert.Contains(t, res, general.HealthzCheckName(reportCNRTaintHealthCheckName))
 	assert.Contains(t, res, general.HealthzCheckName(reportTaintHealthCheckName))
 	assert.Contains(t, res, general.HealthzCheckName(evictionManagerHealthCheckName))
+}
+
+func TestMetricsPodToEvictAddsPodMetricAnnotations(t *testing.T) {
+	t.Parallel()
+
+	emitter := &recordingMetricEmitter{}
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "pod-1",
+			Labels: map[string]string{
+				"app": "test",
+			},
+			Annotations: map[string]string{
+				apiconsts.PodAnnotationSaleModeKey: apiconsts.PodSaleModeSpot,
+			},
+		},
+	}
+
+	metricsPodToEvict(emitter, nil, "plugin-a", pod, false,
+		sets.NewString("app"),
+		sets.NewString(apiconsts.PodAnnotationSaleModeKey, "missing.annotation"))
+
+	assert.Equal(t, MetricsNameVictimPodCNT, emitter.key)
+	assert.Equal(t, int64(1), emitter.val)
+	assert.Equal(t, metrics.MetricTypeNameRaw, emitter.emitType)
+
+	tagMap := metricTagsToMap(emitter.tags)
+	assert.Equal(t, "plugin-a", tagMap["name"])
+	assert.Equal(t, "test", tagMap["pod_app"])
+	assert.Equal(t, apiconsts.PodSaleModeSpot, tagMap["pod_anno_"+apiconsts.PodAnnotationSaleModeKey])
+	assert.Equal(t, UserUnknown, tagMap["pod_anno_missing.annotation"])
 }
