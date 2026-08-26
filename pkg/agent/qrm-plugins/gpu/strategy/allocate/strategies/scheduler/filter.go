@@ -17,11 +17,10 @@ limitations under the License.
 package scheduler
 
 import (
-	"strings"
-
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
+	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -37,17 +36,9 @@ func (s *SchedulerStrategy) Filter(
 
 	// Read the scheduled GPU selection result (e.g., a comma-separated list of device IDs)
 	// from the pod's annotations injected by the control plane scheduler.
-	key := ctx.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey
-	selectionResult, ok := ctx.ResourceReq.Annotations[key]
-	if !ok || selectionResult == "" {
+	selectedSet := gpuutil.ParseGPUSelection(ctx.ResourceReq.Annotations, ctx.GPUQRMPluginConfig.GPUSelectionResultAnnotationKey)
+	if selectedSet == nil {
 		return allAvailableDevices, nil
-	}
-
-	selectedSet := sets.NewString()
-	for _, deviceID := range strings.Split(selectionResult, ",") {
-		if deviceID = strings.TrimSpace(deviceID); deviceID != "" {
-			selectedSet.Insert(deviceID)
-		}
 	}
 	availableSet := sets.NewString(allAvailableDevices...)
 

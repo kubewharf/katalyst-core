@@ -32,6 +32,8 @@ import (
 const (
 	resyncInterval = 30 * time.Second
 	DimensionNuma  = "numa"
+	// FallbackNUMANodeID is used when a device has no reported NUMA topology.
+	FallbackNUMANodeID = 0
 )
 
 // DeviceTopologyRegistry is a registry of all topology providers that knows how to provide topology information of machine devices
@@ -140,7 +142,9 @@ func (r *DeviceTopologyRegistry) updateTopology(deviceName string) {
 		return
 	}
 
-	if err = r.SetDeviceTopology(deviceName, lastDeviceTopology); err != nil {
+	clonedTopology := lastDeviceTopology.Clone()
+
+	if err = r.SetDeviceTopology(deviceName, clonedTopology); err != nil {
 		general.Errorf("failed to set new device topology for device %q: %v", deviceName, err)
 	}
 
@@ -174,6 +178,7 @@ func (r *DeviceTopologyRegistry) RegisterTopologyChangeNotifier(notifier func())
 }
 
 // SetDeviceTopology sets the device topology for the specified device name.
+// To prevent race conditions, the device topology passed in should be cloned.
 func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopology *DeviceTopology) error {
 	r.mux.Lock()
 
@@ -201,7 +206,7 @@ func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopo
 		changed := !reflect.DeepEqual(r.lastDeviceTopologies[deviceName], deviceTopology)
 
 		// Cache the device topology only when SetDeviceTopology succeeds
-		r.lastDeviceTopologies[deviceName] = deviceTopology
+		r.lastDeviceTopologies[deviceName] = deviceTopology.Clone()
 
 		if changed {
 			general.Infof("device topology changed for device %s, triggering %d notifiers", deviceName, len(r.topologyChangeNotifiers))
@@ -433,12 +438,71 @@ type DeviceTopology struct {
 	UpdateTime int64
 }
 
+// Clone returns a deep copy of the device topology.
+func (t *DeviceTopology) Clone() *DeviceTopology {
+	if t == nil {
+		return nil
+	}
+
+	cloned := &DeviceTopology{
+		UpdateTime: t.UpdateTime,
+	}
+	if t.PriorityDimensions != nil {
+		cloned.PriorityDimensions = make([]string, len(t.PriorityDimensions))
+		copy(cloned.PriorityDimensions, t.PriorityDimensions)
+	}
+	if t.Devices == nil {
+		return cloned
+	}
+
+	cloned.Devices = make(map[string]DeviceInfo, len(t.Devices))
+	for id, info := range t.Devices {
+		clonedInfo := info
+		if info.NumaNodes != nil {
+			clonedInfo.NumaNodes = make([]int, len(info.NumaNodes))
+			copy(clonedInfo.NumaNodes, info.NumaNodes)
+		}
+		if info.Dimensions != nil {
+			clonedInfo.Dimensions = make(DeviceDimensions, len(info.Dimensions))
+			for key, value := range info.Dimensions {
+				clonedInfo.Dimensions[key] = value
+			}
+		}
+		cloned.Devices[id] = clonedInfo
+	}
+	return cloned
+}
+
 func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
 	deviceInfo, ok := t.Devices[id]
 	if !ok {
 		return false, false
 	}
 	return deviceInfo.Health == pluginapi.Healthy, true
+}
+
+// GetDeviceNUMANodes returns the NUMA nodes associated with the given devices,
+// falling back to FallbackNUMANodeID when a device has no NUMA topology.
+func (t *DeviceTopology) GetDeviceNUMANodes(deviceIDs ...string) CPUSet {
+	numaNodes := NewCPUSet()
+	if t == nil || len(deviceIDs) == 0 {
+		return numaNodes
+	}
+
+	for _, deviceID := range deviceIDs {
+		device, ok := t.Devices[deviceID]
+		if !ok {
+			general.Errorf("device %q not found in topology", deviceID)
+			return NewCPUSet()
+		}
+		if len(device.NumaNodes) == 0 {
+			general.Warningf("device %q has no NUMA nodes; defaulting to NUMA %d", deviceID, FallbackNUMANodeID)
+			numaNodes.Add(FallbackNUMANodeID)
+			continue
+		}
+		numaNodes.Add(device.NumaNodes...)
+	}
+	return numaNodes
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
