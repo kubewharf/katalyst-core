@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
@@ -105,6 +106,14 @@ type ctxKey string
 
 const ctxKeyTest ctxKey = "test"
 
+func testConf() *dynamic.DynamicAgentConfiguration {
+	conf := dynamic.NewDynamicAgentConfiguration()
+	c := conf.GetDynamicConfiguration()
+	c.DisablePowerAdvisor = false
+	conf.SetDynamicConfiguration(c)
+	return conf
+}
+
 func (d *dummySpecFetcher) GetPowerSpec(ctx context.Context) (*spec.PowerSpec, error) {
 	d.called = true
 	switch ctx.Value(ctxKeyTest) {
@@ -138,6 +147,7 @@ func Test_powerAwareAdvisor_run_normal(t *testing.T) {
 	depPowerCapper := &dummyPowerReconciler{}
 
 	advisor := powerAwareAdvisor{
+		dynamicConf: testConf(),
 		emitter:     dummyEmitter,
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
@@ -169,6 +179,7 @@ func Test_powerAwareAdvisor_run_abort_on_spec_fetcher_error(t *testing.T) {
 	depPowerReader := &dummyPowerReader{}
 
 	advisor := powerAwareAdvisor{
+		dynamicConf: testConf(),
 		emitter:     &metrics.DummyMetrics{},
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
@@ -194,6 +205,7 @@ func Test_powerAwareAdvisor_run_return_on_None_alert(t *testing.T) {
 	depInitResetter := &dummyPowerCapper{}
 
 	advisor := powerAwareAdvisor{
+		dynamicConf: testConf(),
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		powerCapper: depInitResetter,
@@ -223,6 +235,7 @@ func Test_powerAwareAdvisor_run_return_on_Pause_op(t *testing.T) {
 	depInitResetter := &dummyPowerCapper{}
 
 	advisor := powerAwareAdvisor{
+		dynamicConf: testConf(),
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		powerCapper: depInitResetter,
@@ -252,6 +265,7 @@ func Test_powerAwareAdvisor_Run_does_Init_Cleanup(t *testing.T) {
 	depPodEvictor := &dummyPodEvictor{}
 
 	advisor := powerAwareAdvisor{
+		dynamicConf: testConf(),
 		emitter:     &metrics.DummyMetrics{},
 		powerReader: depPowerReader,
 		podEvictor:  depPodEvictor,

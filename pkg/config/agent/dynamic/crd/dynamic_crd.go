@@ -37,6 +37,7 @@ type DynamicConfigCRD struct {
 	TransparentMemoryOffloadingConfiguration *v1alpha1.TransparentMemoryOffloadingConfiguration
 	StrategyGroup                            *v1alpha1.StrategyGroup
 	IRQTuningConfiguration                   *v1alpha1.IRQTuningConfiguration
+	PowerManagementConfiguration             *v1alpha1.PowerManagementConfiguration
 }
 
 var (
@@ -50,4 +51,6 @@ var (
 	StrategyGroupGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameStrategyGroups))
 	// IRQTuningConfigurationGVR is the group version resource for IRQTuningConfiguration
 	IRQTuningConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameIRQTuningConfigurations))
+	// PowerManagementConfigurationGVR is the group version resource for PowerManagementConfiguration
+	PowerManagementConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNamePowerManagementConfigurations))
 )

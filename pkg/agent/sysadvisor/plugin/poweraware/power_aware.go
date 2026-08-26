@@ -33,6 +33,7 @@ import (
 	evictserver "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor/server"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -88,13 +89,14 @@ func NewPowerAwarePlugin(
 		}
 	}
 
-	var powerCapper capper.PowerCapper
-	if conf.DisablePowerCapping {
-		powerCapper = capper.NewNoopCapper()
-	} else {
-		if powerCapper, err = capserver.NewPowerCapPlugin(conf, emitter); err != nil {
-			return nil, errors.Wrap(err, "pap: failed to create power aware plugin")
-		}
+	powerCapper, err := capserver.NewPowerCapPlugin(conf, emitter)
+	if err != nil {
+		return nil, errors.Wrap(err, "pap: failed to create power aware plugin")
+	}
+	powerCapper = capper.NewDynamicPowerCapper(conf.DynamicAgentConfiguration, powerCapper)
+
+	if err := metaServer.ConfigurationManager.AddConfigWatcher(crd.PowerManagementConfigurationGVR); err != nil {
+		return nil, errors.Wrap(err, "pap: failed to watch for pmc")
 	}
 
 	var assessor assess.Assessor
@@ -108,10 +110,19 @@ func NewPowerAwarePlugin(
 
 	powerReader := reader.NewMetricStorePowerReader(metaServer)
 	percentageEvictor := evictor.NewPowerLoadEvict(conf.QoSConfiguration, emitter, metaServer.PodFetcher, podEvictor)
-	powerStrategy := strategy.NewEvictFirstStrategy(emitter, percentageEvictor, metaServer, powerCapper, assessor)
+	powerStrategy := strategy.NewEvictFirstStrategy(
+		emitter,
+		percentageEvictor,
+		metaServer,
+		powerCapper,
+		assessor,
+		conf.DynamicAgentConfiguration,
+	)
 	reconciler := advisor.NewReconciler(conf.PowerAwarePluginConfiguration.DryRun, emitter,
 		percentageEvictor, powerCapper, powerStrategy)
-	powerAdvisor := advisor.NewAdvisor(conf.PowerAwarePluginConfiguration.DryRun,
+	powerAdvisor := advisor.NewAdvisor(
+		conf.DynamicAgentConfiguration,
+		conf.PowerAwarePluginConfiguration.DryRun,
 		conf.PowerAwarePluginConfiguration.AnnotationKeyPrefix,
 		podEvictor,
 		emitter,
