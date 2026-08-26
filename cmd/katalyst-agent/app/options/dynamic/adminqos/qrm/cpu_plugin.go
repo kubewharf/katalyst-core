@@ -24,6 +24,7 @@ import (
 
 type CPUPluginOptions struct {
 	PreferUseExistNUMAHintResult bool
+	EnableBypassCPUSetAdjustment bool
 }
 
 func NewCPUPluginOptions() *CPUPluginOptions {
@@ -34,10 +35,15 @@ func (o *CPUPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("qrm-cpu-plugin")
 	fs.BoolVar(&o.PreferUseExistNUMAHintResult, "prefer-use-exist-numa-hint-result", o.PreferUseExistNUMAHintResult,
 		"prefer to use existing numa hint results")
+	fs.BoolVar(&o.EnableBypassCPUSetAdjustment, "enable-bypass-cpuset-adjustment", o.EnableBypassCPUSetAdjustment,
+		"if true, QRM CPU plugin clears the cpuset string in PackAllocationResponse "+
+			"for shared_cores/reclaimed_cores/system_cores; cpuset adjustment is delegated "+
+			"to the reconcile plugin. Dedicated pools are unaffected.")
 }
 
 func (o *CPUPluginOptions) ApplyTo(c *qrm.CPUPluginConfiguration) error {
 	c.PreferUseExistNUMAHintResult = o.PreferUseExistNUMAHintResult
+	c.EnableBypassCPUSetAdjustment = o.EnableBypassCPUSetAdjustment
 
 	return nil
 }

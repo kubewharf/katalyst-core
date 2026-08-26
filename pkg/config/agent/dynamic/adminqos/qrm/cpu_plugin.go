@@ -21,7 +21,12 @@ import (
 )
 
 type CPUPluginConfiguration struct {
-	PreferUseExistNUMAHintResult   bool
+	PreferUseExistNUMAHintResult bool
+	// EnableBypassCPUSetAdjustment controls whether QRM's PackAllocationResponse
+	// clears the cpuset string for shared_cores / reclaimed_cores / system_cores
+	// pools. When enabled, cpuset adjustment is delegated to the reconcile plugin
+	// and dedicated_cores are unaffected.
+	EnableBypassCPUSetAdjustment   bool
 	SystemExclusivePool            map[string]int
 	SystemExclusivePoolShrinkRatio *float64
 	SystemExclusivePoolShrinkMin   *int64
@@ -38,6 +43,9 @@ func (c *CPUPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		config := aqc.Spec.Config.QRMPluginConfig.CPUPluginConfig
 		if config.PreferUseExistNUMAHintResult != nil {
 			c.PreferUseExistNUMAHintResult = *config.PreferUseExistNUMAHintResult
+		}
+		if config.EnableBypassCPUSetAdjustment != nil {
+			c.EnableBypassCPUSetAdjustment = *config.EnableBypassCPUSetAdjustment
 		}
 		c.SystemExclusivePool = config.SystemExclusivePool
 		c.SystemExclusivePoolShrinkRatio = config.SystemExclusivePoolShrinkRatio

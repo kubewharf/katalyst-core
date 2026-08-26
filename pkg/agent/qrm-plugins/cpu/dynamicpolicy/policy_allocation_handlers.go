@@ -205,7 +205,7 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	return resp, nil
+	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelSharedCores), nil
 }
 
 func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
@@ -337,7 +337,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
 
-	return resp, nil
+	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelReclaimedCores), nil
 }
 
 // updateReclaimAllocationResultByPoolEntry updates non-actual numa binding reclaimed allocation result by pool entry
@@ -513,7 +513,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
 
-	return resp, nil
+	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelDedicatedCores), nil
 }
 
 // allocationSidecarHandler currently we set cpuset of sidecar to the cpuset of its main container
@@ -571,7 +571,7 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	return resp, nil
+	return p.applyCPUSetBypass(resp, qosLevel), nil
 }
 
 func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.Context,
@@ -612,7 +612,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
 
-	return resp, nil
+	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelSharedCores), nil
 }
 
 // allocateNumaBindingCPUs allocates CPUs for NUMA binding containers.
@@ -2192,7 +2192,7 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	return resp, nil
+	return p.applyCPUSetBypass(resp, apiconsts.PodAnnotationQoSLevelSystemCores), nil
 }
 
 // getSystemPoolCPUSetAndNumaAwareAssignments gets the system pool cpuset and topologyAwareAssignments for the allocationInfo.
