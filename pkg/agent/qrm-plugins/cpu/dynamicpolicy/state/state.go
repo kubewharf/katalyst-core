@@ -740,6 +740,80 @@ func (nm NUMANodeMap) String() string {
 	return string(contentBytes)
 }
 
+// cpuPluginStateData is a lock-free plain-field container that holds the
+// non-topology portion of the cpu-plugin state. It is shared between the
+// in-memory cpuPluginState (which wraps it with an RWMutex and clones on
+// every getter) and ReadonlyStateSnapshot (which pre-clones once and then
+// exposes the fields directly). Grouping the fields into a single value
+// makes it trivial to deep-copy the whole set in one place (see Clone) and
+// to satisfy the reader interface via struct embedding.
+type cpuPluginStateData struct {
+	podEntries                            PodEntries
+	machineState                          NUMANodeMap
+	numaHeadroom                          map[int]float64
+	allowSharedCoresOverlapReclaimedCores bool
+}
+
+// Clone deep-copies every field of cpuPluginStateData. The caller receives a
+// fresh, fully-owned copy that is safe to hand off to another goroutine
+// without extra synchronization.
+func (d *cpuPluginStateData) Clone() cpuPluginStateData {
+	if d == nil {
+		return cpuPluginStateData{}
+	}
+	return cpuPluginStateData{
+		podEntries:                            d.podEntries.Clone(),
+		machineState:                          d.machineState.Clone(),
+		numaHeadroom:                          general.DeepCopyIntToFloat64Map(d.numaHeadroom),
+		allowSharedCoresOverlapReclaimedCores: d.allowSharedCoresOverlapReclaimedCores,
+	}
+}
+
+// GetMachineState returns the raw machine-state reference held by the data
+// container. Callers that need a mutable copy must Clone() it themselves.
+func (d *cpuPluginStateData) GetMachineState() NUMANodeMap {
+	if d == nil {
+		return nil
+	}
+	return d.machineState
+}
+
+// GetNUMAHeadroom returns the raw NUMA-headroom map reference.
+func (d *cpuPluginStateData) GetNUMAHeadroom() map[int]float64 {
+	if d == nil {
+		return nil
+	}
+	return d.numaHeadroom
+}
+
+// GetPodEntries returns the raw pod-entries reference.
+func (d *cpuPluginStateData) GetPodEntries() PodEntries {
+	if d == nil {
+		return nil
+	}
+	return d.podEntries
+}
+
+// GetAllocationInfo looks up an allocation for the given pod/container using
+// the raw pod-entries map.
+func (d *cpuPluginStateData) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
+	if d == nil {
+		return nil
+	}
+	if entries, ok := d.podEntries[podUID]; ok {
+		return entries[containerName]
+	}
+	return nil
+}
+
+// GetAllowSharedCoresOverlapReclaimedCores returns the flag value.
+func (d *cpuPluginStateData) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	if d == nil {
+		return false
+	}
+	return d.allowSharedCoresOverlapReclaimedCores
+}
+
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
@@ -765,13 +839,43 @@ type writer interface {
 
 // State interface provides methods for tracking and setting pod assignments
 type State interface {
-	reader
+	ReadonlyState
 	writer
 }
 
 // ReadonlyState interface only provides methods for tracking pod assignments
 type ReadonlyState interface {
 	reader
+	// Snapshot returns a deep-copied, lock-free view of the reader's data so
+	// downstream consumers (e.g. periodical handlers that fan out across
+	// multiple goroutines within a single tick) can iterate over a stable
+	// snapshot without contending for the underlying lock or paying repeated
+	// clone costs. Every read on the returned snapshot is a plain field access.
+	Snapshot() ReadonlyState
+}
+
+// ReadonlyStateSnapshot is a deep-copied, lock-free view of the cpu-plugin
+// state at a single point in time. It implements the reader interface so it
+// can be passed through the same channels as a live ReadonlyState while
+// guaranteeing that every read observes the same stable value.
+//
+// The struct is intentionally not thread-safe for writes: build it once via
+// Snapshot() at the top of a tick and treat every field as immutable
+// afterwards. Consumers that need a modified view should call Clone() on the
+// individual sub-fields they care about.
+//
+// The embedded cpuPluginStateData provides the reader-interface methods
+// (GetMachineState / GetPodEntries / ...) as plain-field accessors, so no
+// per-call locking or cloning happens on a snapshot.
+type ReadonlyStateSnapshot struct {
+	cpuPluginStateData
+}
+
+// Snapshot is idempotent on a snapshot: returning the receiver keeps the
+// reader interface satisfiable and lets tick-scoped code pass the snapshot
+// through helpers that expect any reader without extra copies.
+func (s *ReadonlyStateSnapshot) Snapshot() ReadonlyState {
+	return s
 }
 
 type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error)
@@ -791,6 +895,20 @@ func GetReadonlyState() (ReadonlyState, error) {
 		return nil, fmt.Errorf("readonlyState isn't set")
 	}
 	return readonlyState, nil
+}
+
+// GetReadonlyStateSnapshot is a convenience wrapper that fetches the current
+// process-wide ReadonlyState and immediately materializes a deep-copied,
+// lock-free snapshot from it. Tick-scoped consumers (e.g. periodical handlers
+// that fan out multiple concurrent reads within a single tick) should prefer
+// this helper over calling GetReadonlyState().Snapshot() manually so that
+// snapshot semantics stay centralized.
+func GetReadonlyStateSnapshot() (ReadonlyState, error) {
+	s, err := GetReadonlyState()
+	if err != nil {
+		return nil, err
+	}
+	return s.Snapshot(), nil
 }
 
 // SetReadonlyState updates the readonlyState in a thread-safe manner.

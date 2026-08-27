@@ -33,11 +33,16 @@ type cpuPluginState struct {
 
 	cpuTopology *machine.CPUTopology
 
-	podEntries                            PodEntries
-	machineState                          NUMANodeMap
-	numaHeadroom                          map[int]float64
-	allowSharedCoresOverlapReclaimedCores bool
-	socketTopology                        map[int]string
+	// cpuPluginStateData holds the mutable, lock-free portion of the plugin
+	// state (pod entries, machine state, NUMA headroom, overlap flag). The
+	// outer cpuPluginState wraps every read with an RLock+Clone and every
+	// write with a Lock+Clone to keep its long-standing external contract:
+	// callers receive fully-owned copies. The lock-free reader methods
+	// promoted from cpuPluginStateData are intentionally shadowed below to
+	// preserve those semantics.
+	cpuPluginStateData
+
+	socketTopology map[int]string
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
@@ -59,8 +64,10 @@ func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 	klog.InfoS("[cpu_plugin] initializing new cpu plugin in-memory state store")
 	return &cpuPluginState{
-		podEntries:     make(PodEntries),
-		machineState:   GetDefaultMachineState(topology),
+		cpuPluginStateData: cpuPluginStateData{
+			podEntries:   make(PodEntries),
+			machineState: GetDefaultMachineState(topology),
+		},
 		socketTopology: topology.GetSocketTopology(),
 		cpuTopology:    topology,
 	}
@@ -70,31 +77,28 @@ func (s *cpuPluginState) GetMachineState() NUMANodeMap {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.machineState.Clone()
+	return s.cpuPluginStateData.GetMachineState().Clone()
 }
 
 func (s *cpuPluginState) GetNUMAHeadroom() map[int]float64 {
 	s.RLock()
 	defer s.RUnlock()
 
-	return general.DeepCopyIntToFloat64Map(s.numaHeadroom)
+	return general.DeepCopyIntToFloat64Map(s.cpuPluginStateData.GetNUMAHeadroom())
 }
 
 func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
 	s.RLock()
 	defer s.RUnlock()
 
-	if res, ok := s.podEntries[podUID][containerName]; ok {
-		return res.Clone()
-	}
-	return nil
+	return s.cpuPluginStateData.GetAllocationInfo(podUID, containerName).Clone()
 }
 
 func (s *cpuPluginState) GetPodEntries() PodEntries {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.podEntries.Clone()
+	return s.cpuPluginStateData.GetPodEntries().Clone()
 }
 
 func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
@@ -155,7 +159,19 @@ func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.allowSharedCoresOverlapReclaimedCores
+	return s.cpuPluginStateData.GetAllowSharedCoresOverlapReclaimedCores()
+}
+
+// Snapshot returns a lock-free deep-copied view of the in-memory state. It is
+// intended for periodical tick-scoped consumers that want to observe a stable
+// picture without repeatedly re-acquiring the RWMutex during their fan-out.
+func (s *cpuPluginState) Snapshot() ReadonlyState {
+	s.RLock()
+	defer s.RUnlock()
+
+	return &ReadonlyStateSnapshot{
+		cpuPluginStateData: s.cpuPluginStateData.Clone(),
+	}
 }
 
 func (s *cpuPluginState) Delete(podUID string, containerName string) {

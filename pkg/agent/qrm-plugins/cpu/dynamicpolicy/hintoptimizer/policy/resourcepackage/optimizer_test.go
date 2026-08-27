@@ -58,6 +58,7 @@ func (m *MockState) GetAllocationInfo(podUID string, containerName string) *stat
 	return nil
 }
 func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool               { return false }
+func (m *MockState) Snapshot() state.ReadonlyState                                { return &state.ReadonlyStateSnapshot{} }
 func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool)  {}
 func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)   {}
 func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) {}

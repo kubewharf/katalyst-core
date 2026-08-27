@@ -215,6 +215,13 @@ func (m *manager) ApplyCPUSetPartition(absCgroupPath string, partitionFlag commo
 	return nil
 }
 
+// ApplySchedLoadBalance is a no-op on cgroup v2: the unified hierarchy removed
+// the cpuset.sched_load_balance knob in favor of the partition mechanism.
+// Callers that need equivalent semantics on v2 should use ApplyCPUSetPartition.
+func (m *manager) ApplySchedLoadBalance(_ string, _ bool) error {
+	return fmt.Errorf("cpuset.sched_load_balance: %w on cgroup v2", common.ErrNotSupported)
+}
+
 func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return errors.New("cgroups v2 does not support net_cls cgroup, please use eBPF via external manager")
 }

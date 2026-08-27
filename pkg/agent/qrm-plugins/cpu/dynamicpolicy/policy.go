@@ -722,6 +722,9 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					},
 				},
 			}
+			if p.shouldBypassCPUSetAdjustment(allocationInfo.QoSLevel) {
+				clearCPUSetInAllocation(podResources[podUID].ContainerResources[containerName])
+			}
 		}
 	}
 
@@ -1079,7 +1082,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 		}
 
-		return resp, nil
+		return p.applyCPUSetBypass(resp, allocationInfo.QoSLevel), nil
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {
@@ -1558,4 +1561,52 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 
 	p.state.SetAllocationInfo(podUID, containerName, allocationInfo, persist)
 	return nil
+}
+
+// shouldBypassCPUSetAdjustment reports whether the cpuset string for the given
+// QoS level should be cleared before returning to kubelet. Only shared_cores /
+// reclaimed_cores / system_cores are affected when EnableBypassCPUSetAdjustment
+// is on; dedicated_cores always keep their cpuset backfill.
+func (p *DynamicPolicy) shouldBypassCPUSetAdjustment(qosLevel string) bool {
+	if p.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.dynamicConfig.GetDynamicConfiguration()
+	if dyn == nil || !dyn.EnableBypassCPUSetAdjustment {
+		return false
+	}
+	switch qosLevel {
+	case consts.PodAnnotationQoSLevelSharedCores,
+		consts.PodAnnotationQoSLevelReclaimedCores,
+		consts.PodAnnotationQoSLevelSystemCores:
+		return true
+	default:
+		return false
+	}
+}
+
+// clearCPUSetInAllocation clears the cpuset string on every entry of a
+// *pluginapi.ResourceAllocation in place, leaving TopologyAssignments,
+// AllocatedQuantity, ResourceHints and Annotations untouched. It is a no-op
+// when the input is nil.
+func clearCPUSetInAllocation(alloc *pluginapi.ResourceAllocation) {
+	if alloc == nil {
+		return
+	}
+	for _, info := range alloc.ResourceAllocation {
+		if info != nil {
+			info.AllocationResult = ""
+		}
+	}
+}
+
+// applyCPUSetBypass clears the cpuset string on a ResourceAllocationResponse
+// when bypass is required for the given QoS level. All other fields are
+// preserved; nil / empty responses are returned unchanged.
+func (p *DynamicPolicy) applyCPUSetBypass(resp *pluginapi.ResourceAllocationResponse, qosLevel string) *pluginapi.ResourceAllocationResponse {
+	if resp == nil || !p.shouldBypassCPUSetAdjustment(qosLevel) {
+		return resp
+	}
+	clearCPUSetInAllocation(resp.AllocationResult)
+	return resp
 }

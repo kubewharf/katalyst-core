@@ -36,6 +36,10 @@ func (f *FakeCgroupManager) ApplyCPUSetPartition(absCgroupPath string, partition
 	return nil
 }
 
+func (f *FakeCgroupManager) ApplySchedLoadBalance(absCgroupPath string, enabled bool) error {
+	return nil
+}
+
 func (f *FakeCgroupManager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
 	return nil
 }
