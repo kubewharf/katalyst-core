@@ -49,6 +49,8 @@ func TestBind(t *testing.T) {
 		ctx                                     *allocate.AllocationContext
 		sortedDevices                           []string
 		expectedResult                          *allocate.AllocationResult
+		expectedAllocatedDeviceCandidates       []string
+		expectedAllocatedDeviceCount            int
 		expectedErr                             bool
 		preAllocatedResourceToTargetDeviceRatio float64
 	}{
@@ -368,7 +370,7 @@ func TestBind(t *testing.T) {
 			expectedErr: true,
 		},
 		{
-			name: "not enough devices to allocate returns success with empty allocation",
+			name: "not enough devices to allocate returns success with partial allocation",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
 				ResourceName:          "gpu",
@@ -397,7 +399,7 @@ func TestBind(t *testing.T) {
 			// Need 2 devices (2 accompany rdmas, ratio 1) but only "0" is available -> not enough.
 			sortedDevices: []string{"0"},
 			expectedResult: &allocate.AllocationResult{
-				AllocatedDevices: []string{},
+				AllocatedDevices: sets.NewString("0").UnsortedList(),
 				Success:          true,
 			},
 		},
@@ -502,7 +504,7 @@ func TestBind(t *testing.T) {
 			},
 		},
 		{
-			name: "ratio 2/3 with affinity: need 3 but limit 1 per device -> success with empty allocation",
+			name: "ratio 2/3 with affinity: need 3 but limit 1 per device -> success with partial allocation",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
 				ResourceName:          "gpu",
@@ -530,12 +532,13 @@ func TestBind(t *testing.T) {
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
-				AllocatedDevices: []string{},
-				Success:          true,
+				Success: true,
 			},
+			expectedAllocatedDeviceCandidates: []string{"g0", "g1", "g2"},
+			expectedAllocatedDeviceCount:      2,
 		},
 		{
-			name: "ratio 2/5 with affinity: need 5 but total per-device capacity 4 -> success with empty allocation",
+			name: "ratio 2/5 with affinity: need 5 but total per-device capacity 4 -> success with partial allocation",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
 				ResourceName:          "gpu",
@@ -565,9 +568,10 @@ func TestBind(t *testing.T) {
 			},
 			sortedDevices: []string{"g0", "g1", "g2", "g3", "g4"},
 			expectedResult: &allocate.AllocationResult{
-				AllocatedDevices: []string{},
-				Success:          true,
+				Success: true,
 			},
+			expectedAllocatedDeviceCandidates: []string{"g0", "g1", "g2", "g3", "g4"},
+			expectedAllocatedDeviceCount:      4,
 		},
 		{
 			name: "fractional ratio returns error",
@@ -757,7 +761,12 @@ func TestBind(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.expectedResult.Success, result.Success)
-				assert.ElementsMatch(t, tc.expectedResult.AllocatedDevices, result.AllocatedDevices)
+				if tc.expectedAllocatedDeviceCandidates != nil {
+					assert.Len(t, result.AllocatedDevices, tc.expectedAllocatedDeviceCount)
+					assert.Subset(t, tc.expectedAllocatedDeviceCandidates, result.AllocatedDevices)
+				} else {
+					assert.ElementsMatch(t, tc.expectedResult.AllocatedDevices, result.AllocatedDevices)
+				}
 			}
 		})
 	}

@@ -235,8 +235,8 @@ func (s *AccompanyResourceStrategy) allocateWithAffinity(
 
 	// Not enough affinity devices are currently available to satisfy the proportional accompany allocation.
 	// Rather than failing pod admission, we log a warning, emit a metric for visibility, and return
-	// success with an empty allocation. This lets the pod proceed to be allocated (e.g. without RDMA devices in this
-	// scenario) instead of being rejected.
+	// success with a partial allocation. This lets the pod proceed to be allocated (e.g. without the full expected number of RDMA devices)
+	// instead of being rejected.
 	general.Warningf("not enough devices to allocate: need %d, have %d, pod: %s/%s, container: %s, resourceName: %s, accompanyResource: %s",
 		devicesToAllocate, len(selected),
 		ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName,
@@ -245,7 +245,7 @@ func (s *AccompanyResourceStrategy) allocateWithAffinity(
 
 	return &allocate.AllocationResult{
 		Success:          true,
-		AllocatedDevices: []string{},
+		AllocatedDevices: selected.UnsortedList(),
 	}, nil
 }
 
