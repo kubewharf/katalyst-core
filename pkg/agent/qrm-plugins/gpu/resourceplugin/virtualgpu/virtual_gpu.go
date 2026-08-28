@@ -962,30 +962,51 @@ func (p *VirtualGPUPlugin) calculateEnvVariables(resName v1.ResourceName, alloca
 	return nil
 }
 
-// injectWeightEnvVariable calculates the allocated percentage of the given GPU resource and injects it as an environment variable.
-// It only applies when a single GPU device is allocated and the corresponding environment name is configured.
-func (p *VirtualGPUPlugin) injectWeightEnvVariable(envs map[string]string, resName v1.ResourceName, envName string, allocatedDevices []string, resQuantityPerGPU float64) {
-	if envName == "" || len(allocatedDevices) != 1 {
+// injectWeightEnvVariable calculates the allocated percentage of the given GPU resource and injects it as one or more
+// environment variables. The target env-var names are resolved as follows:
+//  1. If envNames is non-empty, every name in envNames receives the value.
+//  2. Otherwise, fall back to defaultEnvName (may be empty, in which case nothing is injected).
+//
+// It only applies when exactly one GPU device is allocated.
+func (p *VirtualGPUPlugin) injectWeightEnvVariable(envs map[string]string, resName v1.ResourceName, defaultEnvName string, envNames []string, allocatedDevices []string, resQuantityPerGPU float64) {
+	if len(allocatedDevices) != 1 {
 		return
 	}
 
+	targets := envNames
+	if len(targets) == 0 {
+		// Fallback to the default env name if list of env names is empty
+		if defaultEnvName == "" {
+			return
+		}
+		targets = []string{defaultEnvName}
+	}
+
 	allocatableQuantity := p.getResourceAllocatableQuantity(resName)
-	if !allocatableQuantity.IsZero() {
-		// Calculate the allocated percentage of the GPU resource (minimum 1, max 100)
-		fraction := (resQuantityPerGPU / float64(allocatableQuantity.Value())) * 100
-		envs[envName] = fmt.Sprintf("%s:%.0f", allocatedDevices[0], fraction)
+	if allocatableQuantity.IsZero() {
+		return
+	}
+
+	// Calculate the allocated percentage of the GPU resource (minimum 1, max 100)
+	fraction := (resQuantityPerGPU / float64(allocatableQuantity.Value())) * 100
+	value := fmt.Sprintf("%s:%.0f", allocatedDevices[0], fraction)
+	for _, envName := range targets {
+		if envName == "" {
+			continue
+		}
+		envs[envName] = value
 	}
 }
 
 // injectGPUMemoryEnvVariables injects the GPU memory allocation weight environment variable.
 func (p *VirtualGPUPlugin) injectGPUMemoryEnvVariables(envs map[string]string, allocatedDevices []string, resQuantityPerGPU float64) {
-	p.injectWeightEnvVariable(envs, consts.ResourceGPUMemory, p.Conf.VirtualGPUMemoryWeightEnvName, allocatedDevices, resQuantityPerGPU)
+	p.injectWeightEnvVariable(envs, consts.ResourceGPUMemory, p.Conf.VirtualGPUMemoryWeightEnvName, p.Conf.VirtualGPUMemoryWeightEnvNames, allocatedDevices, resQuantityPerGPU)
 }
 
 // injectMilliGPUEnvVariables injects the compute allocation weight, timeslice configuration, compute policy,
 // pod UID, and visible devices environment variables.
 func (p *VirtualGPUPlugin) injectMilliGPUEnvVariables(envs map[string]string, allocatedDevices []string, resQuantityPerGPU float64, podUID string) {
-	p.injectWeightEnvVariable(envs, consts.ResourceMilliGPU, p.Conf.VirtualGPUComputeWeightEnvName, allocatedDevices, resQuantityPerGPU)
+	p.injectWeightEnvVariable(envs, consts.ResourceMilliGPU, p.Conf.VirtualGPUComputeWeightEnvName, p.Conf.VirtualGPUComputeWeightEnvNames, allocatedDevices, resQuantityPerGPU)
 
 	// Inject timeslice configuration for Virtual GPU isolation if the environment name is configured
 	if p.Conf.VirtualGPUTimesliceEnvName != "" {
