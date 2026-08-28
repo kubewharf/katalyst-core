@@ -135,6 +135,40 @@ func TestNewCPUPressureLoadEviction(t *testing.T) {
 	as.Nil(createPluginErr)
 	as.Nil(err)
 	as.NotNil(plugin)
+	stateImpl.SetReservedCPUs(plugin.(*CPUPressureLoadEviction).systemReservedCPUs)
+}
+
+func TestCPUPressureLoadEvictionGetCurrentSystemReservedCPUs(t *testing.T) {
+	t.Parallel()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+	conf := makeConf(defaultMetricRingSize, int64(defaultCPUPressureEvictionPodGracePeriodSeconds),
+		defaultLoadUpperBoundRatio, defaultLoadLowerBoundRatio,
+		defaultLoadThresholdMetPercentage, defaultReservedForReclaim,
+		defaultReservedForAllocate, 2)
+	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
+	stateImpl, err := makeState(cpuTopology)
+	require.NoError(t, err)
+
+	plugin, err := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+	require.NoError(t, err)
+	eviction := plugin.(*CPUPressureLoadEviction)
+
+	stateImpl.SetReservedCPUs(eviction.systemReservedCPUs)
+	assert.True(t, eviction.state.GetReservedCPUs().Equals(eviction.systemReservedCPUs))
+	staticSharedPoolsLimit := eviction.accumulateSharedPoolsLimit()
+
+	dynamicReservedCPUs := machine.NewCPUSet(0, 2, 4, 6)
+	stateImpl.SetReservedCPUs(dynamicReservedCPUs)
+	assert.True(t, eviction.state.GetReservedCPUs().Equals(dynamicReservedCPUs))
+	assert.Equal(t,
+		staticSharedPoolsLimit+eviction.systemReservedCPUs.Size()-dynamicReservedCPUs.Size(),
+		eviction.accumulateSharedPoolsLimit(),
+	)
+
+	stateImpl.SetReservedCPUs(machine.NewCPUSet())
+	assert.True(t, eviction.state.GetReservedCPUs().IsEmpty())
 }
 
 func TestThresholdMet(t *testing.T) {
@@ -155,6 +189,7 @@ func TestThresholdMet(t *testing.T) {
 	plugin, createPluginErr := NewCPUPressureLoadEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
 	as.Nil(createPluginErr)
 	as.NotNil(plugin)
+	stateImpl.SetReservedCPUs(plugin.(*CPUPressureLoadEviction).systemReservedCPUs)
 
 	pod1UID := string(uuid.NewUUID())
 	testName := "test"
@@ -445,6 +480,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 	as.Nil(createPluginErr)
 	as.Nil(err)
 	as.NotNil(plugin)
+	stateImpl.SetReservedCPUs(plugin.(*CPUPressureLoadEviction).systemReservedCPUs)
 
 	pod1UID := string(uuid.NewUUID())
 	pod2UID := string(uuid.NewUUID())
@@ -1655,6 +1691,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			as.Nil(err)
 			as.NotNil(plugin)
 			p := plugin.(*CPUPressureLoadEviction)
+			stateImpl.SetReservedCPUs(p.systemReservedCPUs)
 			p.collectMetrics(context.TODO())
 			metricRing := p.metricsHistory[consts.MetricLoad1MinContainer][commonstate.PoolNameShare][""]
 
