@@ -56,6 +56,9 @@ type GenericEvictionOptions struct {
 	// PodMetricLabels defines the pod labels to be added into metric selector list.
 	PodMetricLabels []string
 
+	// PodMetricAnnotations defines the pod annotations to be added into metric selector list.
+	PodMetricAnnotations []string
+
 	// RecordManager specifies the eviction record manager to use
 	RecordManager string
 
@@ -120,6 +123,8 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.PodMetricLabels, "eviction-pod-metric-labels", o.PodMetricLabels,
 		"The pod labels to be added into metric selector list")
+	fs.StringSliceVar(&o.PodMetricAnnotations, "eviction-pod-metric-annotations", o.PodMetricAnnotations,
+		"The pod annotations to be added into metric selector list")
 
 	fs.StringVar(&o.RecordManager, "eviction-record-manager", o.RecordManager,
 		"the eviction record manager to use")
@@ -151,6 +156,7 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.QoSPodKillers = o.QoSPodKillers
 	c.StrictAuthentication = o.StrictAuthentication
 	c.PodMetricLabels.Insert(o.PodMetricLabels...)
+	c.PodMetricAnnotations.Insert(o.PodMetricAnnotations...)
 	c.RecordManager = o.RecordManager
 	c.HostPathNotifierRootPath = o.HostPathNotifierRootPath
 	c.EvictionExplicitTriggerAnnotationKey = o.EvictionExplicitTriggerAnnotationKey

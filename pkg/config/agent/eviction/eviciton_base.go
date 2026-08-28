@@ -55,6 +55,9 @@ type GenericEvictionConfiguration struct {
 	// PodMetricLabels defines the pod labels to be added in metric selector lists
 	PodMetricLabels sets.String
 
+	// PodMetricAnnotations defines the pod annotations to be added in metric selector lists
+	PodMetricAnnotations sets.String
+
 	// RecordManager specifies the eviction record manager to use
 	RecordManager string
 
@@ -82,6 +85,7 @@ func NewGenericEvictionConfiguration() *GenericEvictionConfiguration {
 		EvictionSkippedAnnotationKeys: sets.NewString(),
 		EvictionSkippedLabelKeys:      sets.NewString(),
 		PodMetricLabels:               sets.NewString(),
+		PodMetricAnnotations:          sets.NewString(),
 	}
 }
 
