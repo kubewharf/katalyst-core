@@ -26,11 +26,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -167,6 +169,161 @@ func TestIsAnyResourceQuantityExist(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.want, IsAnyResourceQuantityExist(tc.resourceRequests, tc.resourceNames))
+		})
+	}
+}
+
+func TestFilterQoSRelatedLabelsAndAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		annotations     map[string]string
+		labels          map[string]string
+		wantAnnotations map[string]string
+		wantLabels      map[string]string
+	}{
+		{
+			name: "filters and keeps qos values",
+			annotations: map[string]string{
+				"kept-annotation": "annotation-value",
+				"ignored":         "ignored-value",
+			},
+			labels: map[string]string{
+				"kept-label": "label-value",
+				"ignored":    "ignored-value",
+			},
+			wantAnnotations: map[string]string{
+				"kept-annotation":               "annotation-value",
+				consts.PodAnnotationQoSLevelKey: "shared_cores",
+			},
+			wantLabels: map[string]string{
+				"kept-label":                    "label-value",
+				consts.PodAnnotationQoSLevelKey: "shared_cores",
+			},
+		},
+		{
+			name:            "initializes nil maps",
+			wantAnnotations: map[string]string{consts.PodAnnotationQoSLevelKey: "shared_cores"},
+			wantLabels:      map[string]string{consts.PodAnnotationQoSLevelKey: "shared_cores"},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			annotations, labels := FilterQoSRelatedLabelsAndAnnotations(
+				generic.NewQoSConfiguration(),
+				tc.annotations,
+				tc.labels,
+				"shared_cores",
+				[]string{"kept-annotation"},
+				[]string{"kept-label"},
+			)
+			assert.Equal(t, tc.wantAnnotations, annotations)
+			assert.Equal(t, tc.wantLabels, labels)
+		})
+	}
+}
+
+func TestGetContainerTypeAndIndex(t *testing.T) {
+	t.Parallel()
+
+	const mainContainerAnnotationKey = "main-container"
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "pod",
+			Annotations: map[string]string{
+				mainContainerAnnotationKey: "main",
+			},
+		},
+		Spec: v1.PodSpec{
+			InitContainers: []v1.Container{{Name: "init"}},
+			Containers: []v1.Container{
+				{Name: "sidecar"},
+				{Name: "main"},
+			},
+		},
+	}
+
+	tests := []struct {
+		name               string
+		pod                *v1.Pod
+		containerName      string
+		annotationKey      string
+		wantContainerType  pluginapi.ContainerType
+		wantContainerIndex uint64
+		wantErr            bool
+	}{
+		{
+			name:               "init container",
+			pod:                pod,
+			containerName:      "init",
+			annotationKey:      mainContainerAnnotationKey,
+			wantContainerType:  pluginapi.ContainerType_INIT,
+			wantContainerIndex: 0,
+		},
+		{
+			name:               "configured main container",
+			pod:                pod,
+			containerName:      "main",
+			annotationKey:      mainContainerAnnotationKey,
+			wantContainerType:  pluginapi.ContainerType_MAIN,
+			wantContainerIndex: 1,
+		},
+		{
+			name:               "sidecar container",
+			pod:                pod,
+			containerName:      "sidecar",
+			annotationKey:      mainContainerAnnotationKey,
+			wantContainerType:  pluginapi.ContainerType_SIDECAR,
+			wantContainerIndex: 0,
+		},
+		{
+			name: "falls back to first app container",
+			pod: &v1.Pod{Spec: v1.PodSpec{
+				Containers: []v1.Container{{Name: "main"}, {Name: "sidecar"}},
+			}},
+			containerName:      "main",
+			annotationKey:      mainContainerAnnotationKey,
+			wantContainerType:  pluginapi.ContainerType_MAIN,
+			wantContainerIndex: 0,
+		},
+		{
+			name:          "nil pod",
+			containerName: "main",
+			annotationKey: mainContainerAnnotationKey,
+			wantErr:       true,
+		},
+		{
+			name:          "container not found",
+			pod:           pod,
+			containerName: "missing",
+			annotationKey: mainContainerAnnotationKey,
+			wantErr:       true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			containerType, containerIndex, err := GetContainerTypeAndIndex(
+				tc.pod, tc.containerName, tc.annotationKey,
+			)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantContainerType, containerType)
+			assert.Equal(t, tc.wantContainerIndex, containerIndex)
 		})
 	}
 }

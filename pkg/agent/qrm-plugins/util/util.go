@@ -138,6 +138,35 @@ func IsReallocation(podAnnotations map[string]string) (bool, string) {
 	return exists, value
 }
 
+// FilterQoSRelatedLabelsAndAnnotations keeps configured labels and annotations,
+// together with the QoS level and QoS enhancement values.
+func FilterQoSRelatedLabelsAndAnnotations(
+	qosConf *generic.QoSConfiguration,
+	annotations, labels map[string]string,
+	qosLevel string,
+	podAnnotationKeptKeys, podLabelKeptKeys []string,
+) (map[string]string, map[string]string) {
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
+	annotations = general.MergeMap(
+		general.FilterStringToStringMapByKeys(podAnnotationKeptKeys, annotations),
+		qosConf.FilterQoSAndEnhancementMap(annotations),
+	)
+
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
+	labels = general.MergeMap(
+		general.FilterStringToStringMapByKeys(podLabelKeptKeys, labels),
+		qosConf.FilterQoSMap(labels),
+	)
+
+	return annotations, labels
+}
+
 // GetKatalystQoSLevelFromResourceReq retrieves QoS Level for a given request
 func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest,
 	podAnnotationKeptKeys, podLabelKeptKeys []string,
@@ -154,20 +183,14 @@ func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *
 		return
 	}
 
-	// setting annotations and labels to only keep katalyst QoS related values
-	if req.Annotations == nil {
-		req.Annotations = make(map[string]string)
-	}
-	req.Annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
-	req.Annotations = general.MergeMap(general.FilterStringToStringMapByKeys(podAnnotationKeptKeys, req.Annotations),
-		qosConf.FilterQoSAndEnhancementMap(req.Annotations))
-
-	if req.Labels == nil {
-		req.Labels = make(map[string]string)
-	}
-	req.Labels[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
-	req.Labels = general.MergeMap(general.FilterStringToStringMapByKeys(podLabelKeptKeys, req.Labels),
-		qosConf.FilterQoSMap(req.Labels))
+	req.Annotations, req.Labels = FilterQoSRelatedLabelsAndAnnotations(
+		qosConf,
+		req.Annotations,
+		req.Labels,
+		qosLevel,
+		podAnnotationKeptKeys,
+		podLabelKeptKeys,
+	)
 	return
 }
 
@@ -546,6 +569,34 @@ func GetMainContainer(pod *v1.Pod, mainContainerAnnotationKey string) string {
 	}
 
 	return mainContainerName
+}
+
+// GetContainerTypeAndIndex returns the type and index of the named container in the pod.
+func GetContainerTypeAndIndex(
+	pod *v1.Pod, containerName, mainContainerAnnotationKey string,
+) (pluginapi.ContainerType, uint64, error) {
+	if pod == nil {
+		return 0, 0, fmt.Errorf("got nil pod")
+	}
+
+	for i, container := range pod.Spec.InitContainers {
+		if container.Name == containerName {
+			return pluginapi.ContainerType_INIT, uint64(i), nil
+		}
+	}
+
+	mainContainerName := GetMainContainer(pod, mainContainerAnnotationKey)
+	for i, container := range pod.Spec.Containers {
+		if container.Name != containerName {
+			continue
+		}
+		if containerName == mainContainerName {
+			return pluginapi.ContainerType_MAIN, uint64(i), nil
+		}
+		return pluginapi.ContainerType_SIDECAR, uint64(i), nil
+	}
+
+	return 0, 0, fmt.Errorf("container %q not found in pod %s/%s", containerName, pod.Namespace, pod.Name)
 }
 
 // IsNetworkAffinityRestricted returns true if allocated network interface must have affinity with allocated numa

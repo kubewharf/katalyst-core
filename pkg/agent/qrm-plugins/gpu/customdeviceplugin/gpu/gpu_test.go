@@ -22,11 +22,15 @@ import (
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager/checkpoint"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -42,8 +46,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -183,6 +189,68 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	expectedDeviceTopology.UpdateTime = deviceTopology.UpdateTime
 
 	assert.Equal(t, expectedDeviceTopology, deviceTopology)
+}
+
+func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHintsFromKubeletState(t *testing.T) {
+	t.Parallel()
+
+	conf := generateTestConfiguration(t)
+	conf.GPUDeviceNames = []string{"test-gpu"}
+	conf.EnableKubeletCheckpointFallback = true
+	conf.StateDirectoryConfiguration = &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: t.TempDir(),
+	}
+	agentCtx := generateTestGenericContext(t, conf)
+	agentCtx.MetaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: "pod-uid", Namespace: "default", Name: "pod",
+		},
+		Status: v1.PodStatus{Phase: v1.PodRunning},
+	}}}
+
+	basePlugin, err := baseplugin.NewBasePlugin(agentCtx, conf, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	devicePlugin := NewGPUDevicePlugin(basePlugin).(*GPUDevicePlugin)
+	_, err = devicePlugin.UpdateAllocatableAssociatedDevices(context.Background(), &pluginapi.UpdateAllocatableAssociatedDevicesRequest{
+		DeviceName: "test-gpu",
+		Devices: []*pluginapi.AssociatedDevice{{
+			ID:       "gpu-0",
+			Topology: &pluginapi.TopologyInfo{Nodes: []*pluginapi.NUMANode{{ID: 0}}},
+		}},
+	})
+	require.NoError(t, err)
+
+	manager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
+	require.NoError(t, err)
+	require.NoError(t, manager.CreateCheckpoint(native.KubeletDeviceManagerCheckpoint, checkpoint.New(
+		[]checkpoint.PodDevicesEntry{{
+			PodUID:        "pod-uid",
+			ContainerName: "container",
+			ResourceName:  "test-gpu",
+			DeviceIDs:     checkpoint.DevicesPerNUMA{0: {"gpu-0"}},
+		}}, nil,
+	)))
+
+	require.NoError(t, basePlugin.InitState())
+	allocationInfo := basePlugin.GetState().GetAllocationInfo(gpuconsts.GPUDeviceType, "pod-uid", "container")
+	require.NotNil(t, allocationInfo)
+	assert.Contains(t, allocationInfo.TopologyAwareAllocations, "gpu-0")
+
+	resp, err := devicePlugin.GetAssociatedDeviceTopologyHints(context.Background(), &pluginapi.AssociatedDeviceRequest{
+		ResourceRequest: &pluginapi.ResourceRequest{
+			PodUid:        "pod-uid",
+			ContainerName: "container",
+			Annotations:   map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+			Labels:        map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+		},
+		DeviceName:    "test-gpu",
+		DeviceRequest: []*pluginapi.DeviceRequest{{DeviceName: "test-gpu", DeviceRequest: 1}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.DeviceHints)
+	require.Len(t, resp.DeviceHints.Hints, 1)
+	assert.Equal(t, []uint64{0}, resp.DeviceHints.Hints[0].Nodes)
+	assert.True(t, resp.DeviceHints.Hints[0].Preferred)
 }
 
 func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {

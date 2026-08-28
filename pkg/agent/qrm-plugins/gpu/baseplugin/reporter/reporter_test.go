@@ -30,6 +30,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1920,7 +1921,10 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			deviceTypeToNames := map[string]sets.String{string(resourceTypeName): sets.NewString(gpuDeviceNames...)}
 
 			stateGetter := func() state.State { return testState }
-			reporter, err := NewGPUReporter(metrics.DummyMetrics{}, generateTestMetaServer(tt.machineTopology), testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+			kubeletCheckpointManager, err := checkpointmanager.NewCheckpointManager(testConfig.KubeletDevicePluginPath)
+			require.NoError(t, err)
+			reporter, err := NewGPUReporter(metrics.DummyMetrics{}, generateTestMetaServer(tt.machineTopology), testConfig,
+				topologyRegistry, stateGetter, deviceTypeToNames, kubeletCheckpointManager)
 			assert.NoError(t, err)
 			reporterImpl, ok := reporter.(*gpuReporterImpl)
 			assert.True(t, ok)
@@ -1928,7 +1932,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			assert.True(t, ok)
 			reporterPlugin, ok := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
 			assert.True(t, ok)
-			reporterPlugin.checkpointManager = &mockCheckpointManager{}
+			reporterPlugin.kubeletCheckpointManager = &mockCheckpointManager{}
 
 			reportContent, err := reporterPlugin.GetReportContent(context.Background(), nil)
 
@@ -2006,12 +2010,15 @@ func TestListAndWatchReportContent(t *testing.T) {
 		},
 	})
 
-	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	kubeletCheckpointManager, err := checkpointmanager.NewCheckpointManager(testConfig.KubeletDevicePluginPath)
+	require.NoError(t, err)
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter,
+		deviceTypeToNames, kubeletCheckpointManager)
 	assert.NoError(t, err)
 	reporterImpl := reporter.(*gpuReporterImpl)
 	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
 	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
-	reporterPlugin.checkpointManager = &mockCheckpointManager{}
+	reporterPlugin.kubeletCheckpointManager = &mockCheckpointManager{}
 	reporterPlugin.reportRetryInterval = 10 * time.Millisecond // Set a small interval for faster tests
 
 	_ = reporterPlugin.Start()
@@ -2113,12 +2120,15 @@ func TestListAndWatchReportContentRetry(t *testing.T) {
 		},
 	})
 
-	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	kubeletCheckpointManager, err := checkpointmanager.NewCheckpointManager(testConfig.KubeletDevicePluginPath)
+	require.NoError(t, err)
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter,
+		deviceTypeToNames, kubeletCheckpointManager)
 	assert.NoError(t, err)
 	reporterImpl := reporter.(*gpuReporterImpl)
 	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
 	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
-	reporterPlugin.checkpointManager = &mockCheckpointManager{}
+	reporterPlugin.kubeletCheckpointManager = &mockCheckpointManager{}
 	reporterPlugin.reportRetryInterval = 50 * time.Millisecond
 
 	_ = reporterPlugin.Start()
@@ -2451,7 +2461,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 		{
 			name: "get checkpoint fails",
 			p: &gpuReporterPlugin{
-				checkpointManager: &mockCheckpointManager{
+				kubeletCheckpointManager: &mockCheckpointManager{
 					getErr: fmt.Errorf("mock get error"),
 				},
 			},
@@ -2461,7 +2471,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 		{
 			name: "get checkpoint returns not found",
 			p: &gpuReporterPlugin{
-				checkpointManager: &mockCheckpointManager{
+				kubeletCheckpointManager: &mockCheckpointManager{
 					getErr: cpmerrors.ErrCheckpointNotFound,
 				},
 			},
@@ -2473,7 +2483,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			p: &gpuReporterPlugin{
 				ctx:            context.TODO(),
 				gpuDeviceNames: []string{"test-resource"},
-				checkpointManager: &mockCheckpointManager{
+				kubeletCheckpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
 						{
 							PodUID:        "test-pod-uid",
@@ -2513,7 +2523,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			p: &gpuReporterPlugin{
 				ctx:            context.TODO(),
 				gpuDeviceNames: []string{"test-resource-other"},
-				checkpointManager: &mockCheckpointManager{
+				kubeletCheckpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
 						{
 							PodUID:        "test-pod-uid",
@@ -2542,7 +2552,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			p: &gpuReporterPlugin{
 				ctx:            context.TODO(),
 				gpuDeviceNames: []string{"test-resource"},
-				checkpointManager: &mockCheckpointManager{
+				kubeletCheckpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
 						{
 							PodUID:        "test-pod-uid",
@@ -2582,7 +2592,7 @@ func TestAddKubeletCheckpointAllocations(t *testing.T) {
 			p: &gpuReporterPlugin{
 				ctx:            context.TODO(),
 				gpuDeviceNames: []string{"test-resource"},
-				checkpointManager: &mockCheckpointManager{
+				kubeletCheckpointManager: &mockCheckpointManager{
 					checkpointData: checkpoint.New([]checkpoint.PodDevicesEntry{
 						{
 							PodUID:        "test-pod-uid",
@@ -2807,7 +2817,7 @@ func TestGpuReporterPlugin_GetZoneAllocations_KubeletCheckpointFailureEmitsMetri
 		emitter:                         emitter,
 		gpuDeviceNames:                  []string{"test-resource"},
 		enableKubeletCheckpointFallback: true,
-		checkpointManager: &mockCheckpointManager{
+		kubeletCheckpointManager: &mockCheckpointManager{
 			getErr: checkpointErr,
 		},
 	}
@@ -2840,7 +2850,7 @@ func TestGpuReporterPlugin_GetZoneAllocations_KubeletCheckpointFailureNilEmitter
 		emitter:                         nil,
 		gpuDeviceNames:                  []string{"test-resource"},
 		enableKubeletCheckpointFallback: true,
-		checkpointManager: &mockCheckpointManager{
+		kubeletCheckpointManager: &mockCheckpointManager{
 			getErr: fmt.Errorf("checkpoint failure"),
 		},
 	}

@@ -25,19 +25,18 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/gogo/protobuf/proto"
-	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	cpmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -77,8 +76,10 @@ var _ GPUReporter = (*gpuReporterImpl)(nil)
 
 func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
+	kubeletCheckpointManager checkpointmanager.CheckpointManager,
 ) (GPUReporter, error) {
-	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
+	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames,
+		kubeletCheckpointManager)
 	if err != nil {
 		return nil, fmt.Errorf("create reporter failed: %v", err)
 	}
@@ -124,7 +125,7 @@ type gpuReporterPlugin struct {
 	reportNotifyCh                  chan struct{}
 	reportRetryInterval             time.Duration
 	lastReportContent               *v1alpha1.GetReportContentResponse
-	checkpointManager               checkpointmanager.CheckpointManager
+	kubeletCheckpointManager        checkpointmanager.CheckpointManager
 	kubeletDevicePluginPath         string
 	enableKubeletCheckpointFallback bool
 }
@@ -136,12 +137,8 @@ var (
 
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
+	kubeletCheckpointManager checkpointmanager.CheckpointManager,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
-	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.KubeletDevicePluginPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("new checkpoint manager failed: %v", err)
-	}
-
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:                  conf.GPUDeviceNames,
 		rdmaDeviceNames:                 conf.RDMADeviceNames,
@@ -153,7 +150,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		reportNotifyCh:                  make(chan struct{}, 1),
 		reportRetryInterval:             defaultReportRetryInterval,
 		metaServer:                      metaServer,
-		checkpointManager:               checkpointManager,
+		kubeletCheckpointManager:        kubeletCheckpointManager,
 		kubeletDevicePluginPath:         conf.KubeletDevicePluginPath,
 		enableKubeletCheckpointFallback: conf.EnableKubeletCheckpointFallback,
 	}
@@ -605,25 +602,17 @@ func (p *gpuReporterPlugin) addStateAllocations(topologiesMap map[string]*machin
 // into the target idToAllocations map. This prevents reporting inconsistencies where a device is already
 // allocated to a pod by kubelet, but the local QRM state has not yet fully synced or recorded the allocation.
 func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[string]util.ZoneAllocations) error {
-	if p.checkpointManager == nil {
+	if p.kubeletCheckpointManager == nil {
 		return fmt.Errorf("kubelet checkpoint manager is nil")
 	}
 
-	checkpointData, err := native.GetKubeletCheckpoint(p.checkpointManager)
+	kubeletAllocations, err := kubelet.ReadAllocations(p.kubeletCheckpointManager, sets.NewString(p.gpuDeviceNames...))
 	if err != nil {
-		if errors.Is(err, cpmerrors.ErrCheckpointNotFound) {
-			general.Infof("kubelet checkpoint not found, skip")
-			return nil
-		}
-		return fmt.Errorf("failed to get kubelet checkpoint: %v", err)
+		return err
 	}
-
-	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
-	if len(podDeviceEntries) == 0 {
+	if len(kubeletAllocations) == 0 {
 		return nil
 	}
-
-	validDeviceNames := sets.NewString(p.gpuDeviceNames...)
 
 	activePods, err := p.metaServer.GetPodList(context.WithValue(p.ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue), native.PodIsActive)
 	if err != nil {
@@ -636,13 +625,7 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 		return string(obj.GetUID())
 	})
 
-	for _, entry := range podDeviceEntries {
-		// Check if the reported resource is a valid GPU device name.
-		// If not in gpuDeviceNames, skip it to avoid reporting invalid devices.
-		if !validDeviceNames.Has(entry.ResourceName) {
-			continue
-		}
-
+	for _, entry := range kubeletAllocations {
 		resourceName := v1.ResourceName(entry.ResourceName)
 
 		pod, ok := activePodMap[entry.PodUID]
@@ -654,30 +637,27 @@ func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[
 		// Generate consumer key using namespace, name and podUID
 		consumer := native.GenerateNamespaceNameUIDKey(pod.Namespace, pod.Name, entry.PodUID)
 
-		// Iterate through all devices per NUMA node
-		for numaNode, deviceIDs := range entry.DeviceIDs {
-			for _, deviceID := range deviceIDs {
-				if _, ok := idToAllocations[deviceID]; !ok {
-					idToAllocations[deviceID] = make(util.ZoneAllocations, 0)
-				}
-
-				// Check if there's already an allocation for this pod UID
-				if hasExistingPodAllocation(idToAllocations[deviceID], entry.PodUID) {
-					continue
-				}
-
-				// Create resource list - quantity is 1 since each device entry represents one device
-				gpuResourceList := make(v1.ResourceList)
-				gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
-
-				idToAllocations[deviceID] = append(idToAllocations[deviceID], &nodev1alpha1.Allocation{
-					Consumer: consumer,
-					Requests: &gpuResourceList,
-				})
-
-				general.Infof("added allocation from checkpoint: consumer=%s, container=%s, device=%s, numa=%d",
-					consumer, entry.ContainerName, deviceID, numaNode)
+		for _, deviceID := range entry.DeviceIDs {
+			if _, ok := idToAllocations[deviceID]; !ok {
+				idToAllocations[deviceID] = make(util.ZoneAllocations, 0)
 			}
+
+			// Check if there's already an allocation for this pod UID
+			if hasExistingPodAllocation(idToAllocations[deviceID], entry.PodUID) {
+				continue
+			}
+
+			// Create resource list - quantity is 1 since each device entry represents one device
+			gpuResourceList := make(v1.ResourceList)
+			gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
+
+			idToAllocations[deviceID] = append(idToAllocations[deviceID], &nodev1alpha1.Allocation{
+				Consumer: consumer,
+				Requests: &gpuResourceList,
+			})
+
+			general.Infof("added allocation from checkpoint: consumer=%s, container=%s, device=%s",
+				consumer, entry.ContainerName, deviceID)
 		}
 	}
 
