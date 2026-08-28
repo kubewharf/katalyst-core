@@ -34,6 +34,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuburst"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuidle"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuweight"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -494,6 +495,25 @@ func (p *DynamicPolicy) syncCPUBurst(_ *coreconfig.Configuration,
 
 	cpuBurstManager := cpuburst.GetManager(p.metaServer)
 	err = cpuBurstManager.UpdateCPUBurst(p.conf, p.dynamicConfig)
+}
+
+// syncContainerCPUIdle is used to periodically set cpu idle for containers selected by pod annotations.
+func (p *DynamicPolicy) syncContainerCPUIdle(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+) {
+	general.Infof("exec syncContainerCPUIdle")
+
+	var err error
+
+	defer func() {
+		_ = general.UpdateHealthzStateByError(cpuconsts.SyncContainerCPUIdle, err)
+	}()
+
+	cpuIdleManager := cpuidle.GetManager(p.metaServer)
+	err = cpuIdleManager.UpdateContainerCPUIdle(p.conf)
 }
 
 func (p *DynamicPolicy) syncSystemExclusivePool(_ *coreconfig.Configuration,

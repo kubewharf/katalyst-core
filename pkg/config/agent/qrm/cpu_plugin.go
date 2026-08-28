@@ -53,6 +53,8 @@ type CPUDynamicPolicyConfig struct {
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
+	// EnableContainerCPUIdle indicates whether enabling annotation-based cpu idle reconciliation for containers
+	EnableContainerCPUIdle bool
 	// NUMABindingResultAnnotationKey is the annotation key for storing NUMA binding results of pods.
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.

@@ -46,6 +46,7 @@ type CPUDynamicPolicyOptions struct {
 	LoadPressureEvictionSkipPools                      []string
 	EnableSyncingCPUIdle                               bool
 	EnableCPUIdle                                      bool
+	EnableContainerCPUIdle                             bool
 	CPUNUMAHintPreferPolicy                            string
 	CPUNUMAHintPreferLowThreshold                      float64
 	NUMABindingResultAnnotationKey                     string
@@ -79,6 +80,7 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
+			EnableContainerCPUIdle:    false,
 			EnableCPUBurst:            false,
 			EnableCPUWeight:           false,
 			LoadPressureEvictionSkipPools: []string{
@@ -125,6 +127,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
+	fs.BoolVar(&o.EnableContainerCPUIdle, "enable-container-cpu-idle", o.EnableContainerCPUIdle,
+		"if set true, we will periodically reconcile per-container cpu idle settings from pod annotations")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -171,6 +175,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.LoadPressureEvictionSkipPools = o.LoadPressureEvictionSkipPools
 	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
 	conf.EnableCPUIdle = o.EnableCPUIdle
+	conf.EnableContainerCPUIdle = o.EnableContainerCPUIdle
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.NUMABindingResultAnnotationKey = o.NUMABindingResultAnnotationKey
