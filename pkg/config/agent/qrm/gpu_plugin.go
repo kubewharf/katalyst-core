@@ -66,6 +66,15 @@ type GPUQRMPluginConfig struct {
 	VirtualGPUComputePolicyEnvName string
 	// VirtualGPUTimesliceEnvValue is the default value of the VirtualGPUTimesliceEnvName environment variable.
 	VirtualGPUTimesliceEnvValue int
+	// VirtualGPUTimesliceAnnotationKey is the pod annotation key used to override
+	// VirtualGPUTimesliceEnvValue. An empty key disables the override.
+	VirtualGPUTimesliceAnnotationKey string
+	// VirtualGPUTimesliceAnnotationMinValue is the minimum accepted annotation value.
+	// Valid annotation values are integers in the inclusive range [min, max].
+	VirtualGPUTimesliceAnnotationMinValue int
+	// VirtualGPUTimesliceAnnotationMaxValue is the maximum accepted annotation value.
+	// Valid annotation values are integers in the inclusive range [min, max].
+	VirtualGPUTimesliceAnnotationMaxValue int
 	// VirtualGPUComputePolicyEnvValue is the default value of the VirtualGPUComputePolicyEnvName environment variable.
 	VirtualGPUComputePolicyEnvValue int
 	// GPUSelectionResultAnnotationKey is the pod annotation key used to retrieve the GPU selection result
