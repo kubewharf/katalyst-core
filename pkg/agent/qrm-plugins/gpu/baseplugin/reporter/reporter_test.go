@@ -325,18 +325,97 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		deviceTopology   *machine.DeviceTopology
-		deviceTopologies map[string]*machine.DeviceTopology
-		gpuDeviceNames   []string
-		machineTopology  []cadvisorapi.Node
-		machineState     state.AllocationResourcesMap
-		expectedSpec     []*nodev1alpha1.Property
-		expectedStatus   []*nodev1alpha1.TopologyZone
-		expectedErr      bool
+		name                   string
+		deviceTopology         *machine.DeviceTopology
+		deviceTopologies       map[string]*machine.DeviceTopology
+		gpuDeviceNames         []string
+		requiredDeviceAffinity bool
+		machineTopology        []cadvisorapi.Node
+		machineState           state.AllocationResourcesMap
+		expectedSpec           []*nodev1alpha1.Property
+		expectedStatus         []*nodev1alpha1.TopologyZone
+		expectedErr            bool
 	}{
 		{
-			name: "Able to get report content for one dimension",
+			name: "No gpu topology property when RequiredDeviceAffinity is disabled",
+			deviceTopology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"numa"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						Health:     pluginapi.Healthy,
+						NumaNodes:  []int{0},
+						Dimensions: map[string]string{"numa": "0"},
+					},
+					"gpu-1": {
+						Health:     pluginapi.Healthy,
+						NumaNodes:  []int{1},
+						Dimensions: map[string]string{"numa": "1"},
+					},
+				},
+			},
+			machineTopology: []cadvisorapi.Node{
+				{
+					Id: 0,
+					Cores: []cadvisorapi.Core{
+						{SocketID: 0, Id: 0, Threads: []int{0, 4}},
+					},
+				},
+				{
+					Id: 1,
+					Cores: []cadvisorapi.Core{
+						{SocketID: 1, Id: 1, Threads: []int{1, 5}},
+					},
+				},
+			},
+			expectedSpec: nil,
+			expectedStatus: []*nodev1alpha1.TopologyZone{
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "0",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "0",
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type:       nodev1alpha1.TopologyTypeGPU,
+									Name:       "gpu-0",
+									Attributes: []nodev1alpha1.Attribute{{Name: "numa", Value: "0"}},
+									Resources: nodev1alpha1.Resources{
+										Allocatable: &v1.ResourceList{"test-gpu": resource.MustParse("1")},
+										Capacity:    &v1.ResourceList{"test-gpu": resource.MustParse("1")},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "1",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "1",
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type:       nodev1alpha1.TopologyTypeGPU,
+									Name:       "gpu-1",
+									Attributes: []nodev1alpha1.Attribute{{Name: "numa", Value: "1"}},
+									Resources: nodev1alpha1.Resources{
+										Allocatable: &v1.ResourceList{"test-gpu": resource.MustParse("1")},
+										Capacity:    &v1.ResourceList{"test-gpu": resource.MustParse("1")},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:                   "Able to get report content for one dimension",
+			requiredDeviceAffinity: true,
 			// device topology of 1 dimension
 			// gpu-0, gpu-1, gpu-2, gpu-3 are on numa-0
 			// gpu-4, gpu-5, gpu-6, gpu-7 are on numa-1
@@ -583,7 +662,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Able to get report content for 2 dimensions",
+			name:                   "Able to get report content for 2 dimensions",
+			requiredDeviceAffinity: true,
 			// device topology for 2 dimensions
 			// gpu-0, gpu-1 in pcie 0
 			// gpu-2, gpu-3 in pcie 1
@@ -890,7 +970,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Reporting of 0 value for resources if devices are not healthy",
+			name:                   "Reporting of 0 value for resources if devices are not healthy",
+			requiredDeviceAffinity: true,
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"numa"},
 				Devices: map[string]machine.DeviceInfo{
@@ -1150,7 +1231,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "No reporting CNR when PriorityDimensions are nil",
+			name:                   "No reporting CNR when PriorityDimensions are nil",
+			requiredDeviceAffinity: true,
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: nil,
 				Devices: map[string]machine.DeviceInfo{
@@ -1357,7 +1439,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "No reporting CNR when device affinity dimensions are empty",
+			name:                   "No reporting CNR when device affinity dimensions are empty",
+			requiredDeviceAffinity: true,
 			// device topology is not populated with dimension names and values
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"pcie", "numa"},
@@ -1547,7 +1630,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Reporting allocations when pods are assigned to devices",
+			name:                   "Reporting allocations when pods are assigned to devices",
+			requiredDeviceAffinity: true,
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"numa"},
 				Devices: map[string]machine.DeviceInfo{
@@ -1631,7 +1715,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Reporting allocatable equals allocState for healthy devices",
+			name:                   "Reporting allocatable equals allocState for healthy devices",
+			requiredDeviceAffinity: true,
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"numa"},
 				Devices: map[string]machine.DeviceInfo{
@@ -1703,7 +1788,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Allocations use resourceName when allocation DeviceName is empty",
+			name:                   "Allocations use resourceName when allocation DeviceName is empty",
+			requiredDeviceAffinity: true,
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"numa"},
 				Devices: map[string]machine.DeviceInfo{
@@ -1762,7 +1848,8 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Allocations are skipped when allocation DeviceName is not a GPU device",
+			name:                   "Allocations are skipped when allocation DeviceName is not a GPU device",
+			requiredDeviceAffinity: true,
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"numa"},
 				Devices: map[string]machine.DeviceInfo{
@@ -1817,8 +1904,9 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name:           "Merge resources across multiple device names for same device type",
-			gpuDeviceNames: []string{"test-gpu-a", "test-gpu-b"},
+			name:                   "Merge resources across multiple device names for same device type",
+			gpuDeviceNames:         []string{"test-gpu-a", "test-gpu-b"},
+			requiredDeviceAffinity: true,
 			deviceTopologies: map[string]*machine.DeviceTopology{
 				"test-gpu-a": {
 					PriorityDimensions: []string{"numa"},
@@ -1902,6 +1990,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			testConfig.PluginRegistrationDir = "test"
 			testConfig.GPUDeviceNames = gpuDeviceNames
 			testConfig.EnableKubeletCheckpointFallback = true
+			testConfig.RequiredDeviceAffinity = tt.requiredDeviceAffinity
 
 			resourceTypeName := v1.ResourceName("test-gpu-resource")
 			deviceIDs := make([]string, 0)
