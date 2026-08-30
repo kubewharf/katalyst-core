@@ -1291,6 +1291,78 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				Success:          true,
 			},
 		},
+		{
+			name: "bin-packing checks lower priority levels to resolve ties at current priority",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					PriorityDimensions: []string{"0", "1"},
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-3", "gpu-4"},
+				Success:          true,
+			},
+		},
+		{
+			name: "bin-packing checks multiple lower priority levels to resolve ties",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					PriorityDimensions: []string{"0", "1", "2"},
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"), dimLevel(2, "g1-8"))},
+						"gpu-2":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"), dimLevel(2, "g1-8"))},
+						"gpu-3":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"), dimLevel(2, "g1-8"))},
+						"gpu-4":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"), dimLevel(2, "g1-8"))},
+						"gpu-5":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"), dimLevel(2, "g1-8"))},
+						"gpu-6":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"), dimLevel(2, "g1-8"))},
+						"gpu-7":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"), dimLevel(2, "g1-8"))},
+						"gpu-8":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"), dimLevel(2, "g1-8"))},
+						"gpu-9":  {Dimensions: dims(dimLevel(0, "g910"), dimLevel(1, "g9-12"), dimLevel(2, "g9-16"))},
+						"gpu-10": {Dimensions: dims(dimLevel(0, "g910"), dimLevel(1, "g9-12"), dimLevel(2, "g9-16"))},
+						"gpu-11": {Dimensions: dims(dimLevel(0, "g1112"), dimLevel(1, "g9-12"), dimLevel(2, "g9-16"))},
+						"gpu-12": {Dimensions: dims(dimLevel(0, "g1112"), dimLevel(1, "g9-12"), dimLevel(2, "g9-16"))},
+						"gpu-13": {Dimensions: dims(dimLevel(0, "g1314"), dimLevel(1, "g13-16"), dimLevel(2, "g9-16"))},
+						"gpu-14": {Dimensions: dims(dimLevel(0, "g1314"), dimLevel(1, "g13-16"), dimLevel(2, "g9-16"))},
+						"gpu-15": {Dimensions: dims(dimLevel(0, "g1516"), dimLevel(1, "g13-16"), dimLevel(2, "g9-16"))},
+						"gpu-16": {Dimensions: dims(dimLevel(0, "g1516"), dimLevel(1, "g13-16"), dimLevel(2, "g9-16"))},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu-3", "gpu-4", "gpu-11", "gpu-12", "gpu-16"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-3", "gpu-4"},
+				Success:          true,
+			},
+		},
 	}
 
 	for _, tt := range tests {
