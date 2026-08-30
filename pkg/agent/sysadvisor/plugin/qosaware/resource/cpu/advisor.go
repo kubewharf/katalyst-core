@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler/decorator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/isolation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
@@ -81,6 +82,8 @@ func init() {
 	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerCommon, headroomassembler.NewHeadroomAssemblerCommon)
 	// TODO: CPUHeadroomAssemblerDedicated policy has removed, its name is retained for compatibility.
 	headroomassembler.RegisterInitializer(types.CPUHeadroomAssemblerDedicated, headroomassembler.NewHeadroomAssemblerCommon)
+
+	decorator.RegisterInitializer(types.CPUHeadroomAssemblerDecoratorDiscount, decorator.NewAssemblerDiscountDecorator)
 }
 
 // cpuResourceAdvisor is the entrance of updating cpu resource provision advice for
@@ -114,6 +117,11 @@ type cpuResourceAdvisor struct {
 	emitter    metrics.MetricEmitter
 }
 
+func (cra *cpuResourceAdvisor) Init() error {
+	// to decorate headroom assembler if applicable decorator is enabled
+	return cra.decorateHeadroomAssembler()
+}
+
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
 func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
@@ -143,6 +151,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	if err := cra.initializeProvisionAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)
 	}
+
 	if err := cra.initializeHeadroomAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize headroom assembler failed: %v", err)
 	}

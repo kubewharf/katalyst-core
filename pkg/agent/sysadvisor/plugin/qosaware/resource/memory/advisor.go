@@ -85,6 +85,10 @@ type memoryResourceAdvisor struct {
 	emitter    metrics.MetricEmitter
 }
 
+func (ra *memoryResourceAdvisor) Init() error {
+	return nil
+}
+
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
 func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
