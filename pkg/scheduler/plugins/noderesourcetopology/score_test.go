@@ -597,3 +597,57 @@ func TestScore(t *testing.T) {
 		}
 	}
 }
+
+// TestScoreDedicatedNumaBindingEmptyInitContainerDoesNotPanic drives the real
+// TopologyMatch.Score path (not the leaf strategy) for a dedicated_cores +
+// numa_binding pod under the dynamic resource policy. Score iterates every
+// container, init containers included, and an init container with no resource
+// requests makes weightSum == 0 in the score strategies. Before the guard this
+// divides by zero and panics the scheduler; here Score must return a valid score.
+func TestScoreDedicatedNumaBindingEmptyInitContainerDoesNotPanic(t *testing.T) {
+	pod := makePodByResourceList(&v1.ResourceList{
+		v1.ResourceCPU:    resource.MustParse("2"),
+		v1.ResourceMemory: resource.MustParse("4Gi"),
+	}, map[string]string{
+		consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+		consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+	})
+	// An init container with no resource requests contributes no aligned resource.
+	pod.Spec.InitContainers = []v1.Container{{Name: "init"}}
+
+	c := cache.GetCache()
+	for _, strategy := range []config.ScoringStrategyType{config.MostAllocated, config.LeastAllocated} {
+		util.SetQoSConfig(generic.NewQoSConfiguration())
+		cnrs, nodeNames, pods := makeTestScoreNodes(v1alpha1.TopologyPolicySingleNUMANodeContainerLevel)
+		for _, cnr := range cnrs {
+			c.AddOrUpdateCNR(cnr)
+		}
+
+		nodes := make([]*v1.Node, 0)
+		for _, node := range nodeNames {
+			n := &v1.Node{}
+			n.SetName(node)
+			nodes = append(nodes, n)
+		}
+		f, err := runtime.NewFramework(nil, nil,
+			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		assert.NoError(t, err)
+		tm, err := MakeTestTm(MakeTestArgs(strategy, []string{"cpu", "memory"}, "dynamic"), f)
+		assert.NoError(t, err)
+
+		for _, node := range nodeNames {
+			var score int64
+			var status *framework.Status
+			assert.NotPanics(t, func() {
+				score, status = tm.(*TopologyMatch).Score(context.TODO(), nil, pod, node)
+			}, "strategy %v node %s", strategy, node)
+			assert.True(t, status.IsSuccess(), "strategy %v node %s status %v", strategy, node, status)
+			assert.GreaterOrEqual(t, score, int64(0))
+			assert.LessOrEqual(t, score, framework.MaxNodeScore)
+		}
+
+		for _, cnr := range cnrs {
+			c.RemoveCNR(cnr)
+		}
+	}
+}
