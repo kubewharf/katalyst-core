@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
@@ -97,6 +98,20 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		ResourcePackageManager:  resourcepackage.NewResourcePackageManager(npdFetcher),
 		NPDFetcher:              npdFetcher,
 	}, nil
+}
+
+func (m *MetaServer) SetPodFetcher(podFetcher pod.PodFetcher) {
+	if m == nil {
+		return
+	}
+
+	if m.MetaAgent != nil {
+		m.MetaAgent.SetPodFetcher(podFetcher)
+	}
+
+	if m.ExternalManager != nil {
+		m.ExternalManager.SetPodFetcher(podFetcher)
+	}
 }
 
 func (m *MetaServer) Run(ctx context.Context) {

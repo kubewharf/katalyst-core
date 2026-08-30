@@ -36,11 +36,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -114,4 +116,55 @@ func TestMetaServer_SetServiceProfilingManager(t *testing.T) {
 
 	err = meta.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
 	assert.Error(t, err)
+}
+
+func TestMetaServer_SetPodFetcher(t *testing.T) {
+	t.Parallel()
+
+	meta := &MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+		ExternalManager: &recordingExternalManager{
+			CgroupIDManager: &recordingCgroupIDManager{},
+		},
+	}
+	newPodFetcher := &pod.PodFetcherStub{}
+
+	meta.SetPodFetcher(newPodFetcher)
+
+	assert.Same(t, newPodFetcher, meta.MetaAgent.PodFetcher)
+	assert.Same(t, newPodFetcher, meta.ExternalManager.(*recordingExternalManager).CgroupIDManager.(*recordingCgroupIDManager).podFetcher)
+}
+
+type recordingExternalManager struct {
+	cgroupid.CgroupIDManager
+	network.NetworkManager
+}
+
+func (r *recordingExternalManager) CheckSupportRDT() (bool, error) { return false, nil }
+func (r *recordingExternalManager) InitRDT() error                 { return nil }
+func (r *recordingExternalManager) ApplyTasks(string, []string) error {
+	return nil
+}
+func (r *recordingExternalManager) ApplyCAT(string, map[int]int) error { return nil }
+func (r *recordingExternalManager) ApplyMBA(string, map[int]int) error { return nil }
+func (r *recordingExternalManager) Run(context.Context)                {}
+
+type recordingCgroupIDManager struct {
+	podFetcher pod.PodFetcher
+}
+
+func (r *recordingCgroupIDManager) Run(context.Context) {}
+
+func (r *recordingCgroupIDManager) SetPodFetcher(podFetcher pod.PodFetcher) {
+	r.podFetcher = podFetcher
+}
+
+func (r *recordingCgroupIDManager) GetCgroupIDForContainer(string, string) (uint64, error) {
+	return 0, nil
+}
+
+func (r *recordingCgroupIDManager) ListCgroupIDsForPod(string) ([]uint64, error) {
+	return nil, nil
 }

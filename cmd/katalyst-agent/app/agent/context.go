@@ -34,6 +34,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	katalystconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
 // InitFunc is used to construct the framework of agent component; all components
@@ -110,6 +111,14 @@ func (c *GenericContext) Run(ctx context.Context) {
 	go c.PluginManager.Run(config.NewSourcesReady(func(_ sets.String) bool { return true }), ctx.Done())
 	go c.MetaServer.Run(ctx)
 	<-ctx.Done()
+}
+
+func (c *GenericContext) SetPodFetcher(podFetcher pod.PodFetcher) {
+	if c == nil || c.MetaServer == nil {
+		return
+	}
+
+	c.MetaServer.SetPodFetcher(podFetcher)
 }
 
 // customizedPluginManager requires that handlers must be added before
