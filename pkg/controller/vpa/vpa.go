@@ -655,7 +655,13 @@ func (vc *VPAController) patchPodResources(vpa *apis.KatalystVerticalPodAutoscal
 	}
 
 	podCopy := pod.DeepCopy()
-	if native.PodResourceDiff(pod, annotationResource) {
+	needUpdate := false
+	if old, ok := podCopy.Annotations[apiconsts.PodAnnotationInplaceUpdateResourcesKey]; !ok {
+		needUpdate = native.PodResourceDiff(pod, annotationResource) // pod has no resize before, skip if no resource diff
+	} else {
+		needUpdate = old != string(marshalledResourceAnnotation) // if resize annotation changed, need update
+	}
+	if needUpdate {
 		if len(annotationResource) > 0 {
 			podCopy.Annotations[apiconsts.PodAnnotationInplaceUpdateResourcesKey] = string(marshalledResourceAnnotation)
 		} else {
