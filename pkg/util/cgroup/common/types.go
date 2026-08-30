@@ -254,10 +254,10 @@ type CgroupResources struct {
 
 type AbsoluteCgroupPathHandler struct {
 	Name    string
-	Handler func(subsys, podUID, containerId string) (string, error)
+	Handler func(subsys, podUID, containerId string) (string, bool, error)
 }
 
 type RelativeCgroupPathHandler struct {
 	Name    string
-	Handler func(podUID, containerId string) (string, error)
+	Handler func(podUID, containerId string) (string, bool, error)
 }
