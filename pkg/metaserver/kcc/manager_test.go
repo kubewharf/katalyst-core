@@ -461,6 +461,63 @@ func Test_applyDynamicConfig(t *testing.T) {
 	}
 }
 
+func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T) {
+	t.Parallel()
+
+	nodeName := "test-node"
+	dir := t.TempDir()
+	enableFragMem := true
+
+	adminQoSConfiguration := &v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default",
+			Namespace: "test-namespace",
+		},
+		Spec: v1alpha1.AdminQoSConfigurationSpec{
+			Config: v1alpha1.AdminQoSConfig{
+				QRMPluginConfig: &v1alpha1.QRMPluginConfig{
+					MemoryPluginConfig: &v1alpha1.MemoryPluginConfig{
+						FragMemConfig: &v1alpha1.FragMemConfig{
+							EnableFragMem: &enableFragMem,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), adminQoSConfiguration)
+	conf := generateTestConfiguration(t, nodeName, dir)
+	conf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = false
+	conf.GetDynamicConfiguration().FragMemConfiguration.MemFragScoreAsync = 80
+	conf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = "madvise"
+	conf.GetDynamicConfiguration().FragMemConfiguration.THPHighOrderScoreThreshold = 85
+
+	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
+		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(conf.CheckpointManagerDir)
+	require.NoError(t, err)
+
+	manager := &DynamicConfigManager{
+		conf:                conf.AgentConfiguration,
+		defaultConfig:       deepCopy(conf.GetDynamicConfiguration()),
+		configLoader:        NewKatalystCustomConfigLoader(clientSet, 1*time.Second, cncFetcher),
+		emitter:             &metrics.DummyMetrics{},
+		resourceGVRMap:      make(map[string]metav1.GroupVersionResource),
+		checkpointGraceTime: conf.ConfigCheckpointGraceTime,
+		checkpointManager:   checkpointManager,
+	}
+	require.NoError(t, manager.AddConfigWatcher(testTargetGVR))
+	require.NoError(t, manager.updateConfig(context.TODO()))
+
+	got := manager.conf.GetDynamicConfiguration().FragMemConfiguration
+	require.NotNil(t, got)
+	require.True(t, got.EnableFragMem)
+	require.Equal(t, 80, got.MemFragScoreAsync)
+	require.Equal(t, "madvise", got.THPDefaultConfig)
+	require.Equal(t, 85, got.THPHighOrderScoreThreshold)
+}
+
 func Test_getGVRToKindMap(t *testing.T) {
 	t.Parallel()
 

@@ -32,9 +32,8 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
-	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -48,22 +47,29 @@ import (
 
 var setMemTHPTestMu sync.Mutex
 
-func makeTHPConf(defaultConfig string, threshold int) *coreconfig.Configuration {
+func makeTHPConf(defaultConfig string, threshold int) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
+	dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = true
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = defaultConfig
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPHighOrderScoreThreshold = threshold
+
 	return &coreconfig.Configuration{
 		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem:       true,
-							THPDefaultConfig:           defaultConfig,
-							THPHighOrderScoreThreshold: threshold,
-						},
-					},
-				},
-			},
+			DynamicAgentConfiguration: dynamicConf,
 		},
-	}
+	}, dynamicConf
+}
+
+func makeFragMemCoreConf(enable bool, score int) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
+	dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = enable
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.MemFragScoreAsync = score
+
+	return &coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			DynamicAgentConfiguration: dynamicConf,
+		},
+	}, dynamicConf
 }
 
 func makeMetaServer() (*metaserver.MetaServer, error) {
@@ -85,93 +91,26 @@ func makeMetaServer() (*metaserver.MetaServer, error) {
 
 func TestSetMemCompact(t *testing.T) {
 	t.Parallel()
-	SetMemCompact(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: false,
-						},
-					},
-				},
-			},
-		},
-	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+	conf, dynamicConf := makeFragMemCoreConf(false, 0)
+	SetMemCompact(conf, nil, dynamicConf, nil, nil)
 
-	SetMemCompact(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: true,
-						},
-					},
-				},
-			},
-		},
-	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, nil)
+	conf, dynamicConf = makeFragMemCoreConf(true, 0)
+	SetMemCompact(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 
-	SetMemCompact(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: true,
-						},
-					},
-				},
-			},
-		},
-	}, metrics.DummyMetrics{}, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, nil)
+	conf, dynamicConf = makeFragMemCoreConf(true, 0)
+	SetMemCompact(conf, metrics.DummyMetrics{}, dynamicConf, metrics.DummyMetrics{}, nil)
 
 	metaServer, err := makeMetaServer()
 	assert.NoError(t, err)
 	metaServer.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{}}
-	SetMemCompact(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: true,
-						},
-					},
-				},
-			},
-		},
-	}, metrics.DummyMetrics{}, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, metaServer)
+	conf, dynamicConf = makeFragMemCoreConf(true, 0)
+	SetMemCompact(conf, metrics.DummyMetrics{}, dynamicConf, metrics.DummyMetrics{}, metaServer)
 
-	SetMemCompact(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: false,
-						},
-					},
-				},
-			},
-		},
-	}, metrics.DummyMetrics{}, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, metaServer)
+	conf, dynamicConf = makeFragMemCoreConf(false, 0)
+	SetMemCompact(conf, metrics.DummyMetrics{}, dynamicConf, metrics.DummyMetrics{}, metaServer)
 
-	SetMemCompact(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: true,
-							SetMemFragScoreAsync: 80,
-						},
-					},
-				},
-			},
-		},
-	}, metrics.DummyMetrics{}, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, metaServer)
+	conf, dynamicConf = makeFragMemCoreConf(true, 80)
+	SetMemCompact(conf, metrics.DummyMetrics{}, dynamicConf, metrics.DummyMetrics{}, metaServer)
 }
 
 func TestSetMemTHP(t *testing.T) {
@@ -183,35 +122,12 @@ func TestSetMemTHP(t *testing.T) {
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
 
-	SetMemTHP(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: false,
-						},
-					},
-				},
-			},
-		},
-	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+	conf, dynamicConf := makeFragMemCoreConf(false, 0)
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig empty: skip THP tuning entirely.
-	SetMemTHP(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: true,
-							THPDefaultConfig:     "",
-						},
-					},
-				},
-			},
-		},
-	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+	conf, dynamicConf = makeTHPConf("", 85)
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig=never: fast-path to disable THP directly.
 	oldPath := thpEnabledPath
@@ -220,20 +136,8 @@ func TestSetMemTHP(t *testing.T) {
 	defer func() { thpEnabledPath = oldPath }()
 	thpEnabledPath = f
 
-	SetMemTHP(&coreconfig.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
-				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
-					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
-						FragMemOptions: qrm.FragMemOptions{
-							EnableSettingFragMem: true,
-							THPDefaultConfig:     "never",
-						},
-					},
-				},
-			},
-		},
-	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+	conf, dynamicConf = makeTHPConf("never", 85)
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	b, rerr := os.ReadFile(f)
 	assert.NoError(t, rerr)
@@ -243,6 +147,40 @@ func TestSetMemTHP(t *testing.T) {
 	check, ok := res[general.HealthzCheckName(memconsts.SetMemTHP)]
 	assert.True(t, ok)
 	assert.True(t, check.Ready)
+}
+
+func TestSetMemTHP_HotUpdateEnableFragMem(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldPath := thpEnabledPath
+	defer func() { thpEnabledPath = oldPath }()
+
+	thpFile := createTempFile(t, "always [madvise] never\n")
+	defer os.Remove(thpFile)
+	thpEnabledPath = thpFile
+
+	conf, dynamicConf := makeFragMemCoreConf(false, 0)
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = "never"
+
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
+
+	content, err := os.ReadFile(thpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "always [madvise] never\n", string(content))
+
+	updatedConf := dynamicconfig.NewConfiguration()
+	updatedConf.FragMemConfiguration.EnableFragMem = true
+	updatedConf.FragMemConfiguration.THPDefaultConfig = "never"
+	dynamicConf.SetDynamicConfiguration(updatedConf)
+
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
+
+	content, err = os.ReadFile(thpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "never\n", string(content))
 }
 
 func TestSetMemTHPNilConf(t *testing.T) {
@@ -262,8 +200,8 @@ func TestSetMemTHPNilEmitter(t *testing.T) {
 	defer setMemTHPTestMu.Unlock()
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
-	conf := makeTHPConf("madvise", 85)
-	SetMemTHP(conf, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, &metaserver.MetaServer{})
+	conf, dynamicConf := makeTHPConf("madvise", 85)
+	SetMemTHP(conf, nil, dynamicConf, nil, &metaserver.MetaServer{})
 }
 
 func TestSetMemTHPNilMetaServer(t *testing.T) {
@@ -273,8 +211,8 @@ func TestSetMemTHPNilMetaServer(t *testing.T) {
 	defer setMemTHPTestMu.Unlock()
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
-	conf := makeTHPConf("madvise", 85)
-	SetMemTHP(conf, nil, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, nil)
+	conf, dynamicConf := makeTHPConf("madvise", 85)
+	SetMemTHP(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 }
 
 func TestDoMemTHPDisable(t *testing.T) {
@@ -297,7 +235,8 @@ func TestDoMemTHPDisable(t *testing.T) {
 	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 90, Time: &now})
 	mf.SetNumaMetric(1, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 
-	err = doMemTHP(makeTHPConf("madvise", 85), metaServer, metrics.DummyMetrics{})
+	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 85}
+	err = doMemTHP(conf, metaServer, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
 	b, rerr := os.ReadFile(thpFile)
@@ -325,7 +264,8 @@ func TestDoMemTHPEnable(t *testing.T) {
 	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 	mf.SetNumaMetric(1, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 
-	err = doMemTHP(makeTHPConf("madvise", 85), metaServer, metrics.DummyMetrics{})
+	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 85}
+	err = doMemTHP(conf, metaServer, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
 	b, rerr := os.ReadFile(thpFile)
@@ -353,7 +293,8 @@ func TestDoMemTHPEnableSkippedDueToMissingOrders(t *testing.T) {
 	// Only set metric for NUMA 0. NUMA 1 is missing, so enable should be skipped.
 	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 
-	err = doMemTHP(makeTHPConf("madvise", 85), metaServer, metrics.DummyMetrics{})
+	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 85}
+	err = doMemTHP(conf, metaServer, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
 	b, rerr := os.ReadFile(thpFile)
@@ -365,9 +306,9 @@ func TestGetHighOrderThreshold(t *testing.T) {
 	t.Parallel()
 
 	assert.InDelta(t, 85.0, getHighOrderThreshold(nil), 1e-6)
-	assert.InDelta(t, 85.0, getHighOrderThreshold(makeTHPConf("madvise", 0)), 1e-6)
-	assert.InDelta(t, 100.0, getHighOrderThreshold(makeTHPConf("madvise", 150)), 1e-6)
-	assert.InDelta(t, 1.0, getHighOrderThreshold(makeTHPConf("madvise", 1)), 1e-6)
+	assert.InDelta(t, 85.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 0}), 1e-6)
+	assert.InDelta(t, 100.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 150}), 1e-6)
+	assert.InDelta(t, 1.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 1}), 1e-6)
 }
 
 func TestDisableTHPAtPath(t *testing.T) {

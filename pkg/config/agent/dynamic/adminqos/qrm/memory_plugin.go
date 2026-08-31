@@ -18,19 +18,19 @@ package qrm
 
 import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
-type QRMPluginConfiguration struct {
-	*CPUPluginConfiguration
-	*MemoryPluginConfiguration
+type MemoryPluginConfiguration struct {
+	*FragMemConfiguration
+	*HostWatermarkConfiguration
 }
 
-func NewQRMPluginConfiguration() *QRMPluginConfiguration {
-	return &QRMPluginConfiguration{
-		CPUPluginConfiguration:    NewCPUPluginConfiguration(),
-		MemoryPluginConfiguration: NewMemoryPluginConfiguration(),
+func NewMemoryPluginConfiguration() *MemoryPluginConfiguration {
+	return &MemoryPluginConfiguration{
+		FragMemConfiguration:       NewFragMemConfiguration(),
+		HostWatermarkConfiguration: NewHostWatermarkConfiguration(),
 	}
 }
 
-func (c *QRMPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
-	c.CPUPluginConfiguration.ApplyConfiguration(conf)
-	c.MemoryPluginConfiguration.ApplyConfiguration(conf)
+func (c *MemoryPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	c.FragMemConfiguration.ApplyConfiguration(conf)
+	c.HostWatermarkConfiguration.ApplyConfiguration(conf)
 }

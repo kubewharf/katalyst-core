@@ -27,6 +27,7 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -37,21 +38,27 @@ import (
 
 // watermarkScaleFactorPath is the procfs path for vm.watermark_scale_factor.
 // Declared as a var so tests can redirect it to a temp file.
-var watermarkScaleFactorPath = procfsm.VMWatermarkScaleFactorPath
+var (
+	watermarkScaleFactorPath = procfsm.VMWatermarkScaleFactorPath
+	watermarkBoostFactorPath = procfsm.VMWatermarkBoostFactorPath
+	extFragThresholdPath     = procfsm.VMExtFragThresholdPath
+)
 
 // SetHostWatermark tunes host vm watermark sysctls.
 // Currently supports:
 //   - /proc/sys/vm/watermark_scale_factor
+//   - /proc/sys/vm/watermark_boost_factor
+//   - /proc/sys/vm/ext_frag_threshold
 //
 // The target value is determined by the following precedence:
-//  1. If SetVMWatermarkScaleFactor is explicitly configured, use it directly.
+//  1. If VMWatermarkScaleFactor is explicitly configured, use it directly.
 //  2. Otherwise, auto-calculate from ReservedKswapdWatermarkGB and NUMA memory stats.
 //
 // Regardless of the source, the target is always adjusted for huge pages via
 // adjustWatermarkForHugePages. Clamping is only applied to auto-calculated values;
 // explicitly configured values are respected as-is.
 func SetHostWatermark(conf *coreconfig.Configuration,
-	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	_ interface{}, dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 ) {
 	general.Infof("called")
@@ -69,40 +76,94 @@ func SetHostWatermark(conf *coreconfig.Configuration,
 		return
 	}
 
-	if !conf.EnableSettingHostWatermark {
-		general.Infof("EnableSettingHostWatermark disabled")
+	hostWatermarkConf := getHostWatermarkConfiguration(dynamicConf)
+	if hostWatermarkConf == nil {
+		general.Infof("dynamic hostwatermark configuration not found")
 		return
 	}
+	if !hostWatermarkConf.EnableHostWatermark {
+		general.Infof("EnableHostWatermark disabled")
+		return
+	}
+	general.Infof("EnableHostWatermark enabled")
 
+	if err := setVMWatermarkScaleFactor(hostWatermarkConf, emitter, metaServer); err != nil {
+		errList = append(errList, err)
+	}
+
+	if err := setVMWatermarkBoostFactor(hostWatermarkConf, emitter); err != nil {
+		errList = append(errList, err)
+	}
+
+	if err := setVMExtFragThreshold(hostWatermarkConf, emitter); err != nil {
+		errList = append(errList, err)
+	}
+}
+
+func setVMWatermarkScaleFactor(conf *dynamicqrm.HostWatermarkConfiguration, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) error {
 	target, err := determineTargetWatermarkScaleFactor(conf, emitter, metaServer)
 	if err != nil {
-		errList = append(errList, err)
 		general.Errorf("determine watermark_scale_factor failed: %v", err)
-		return
+		return err
 	} else if target == 0 {
 		general.Infof("skip setting vm.watermark_scale_factor (no target specified)")
-		return
+		return nil
 	}
 
 	target = adjustWatermarkForHugePages(target)
 
-	if conf.SetVMWatermarkScaleFactor == 0 {
+	if conf.VMWatermarkScaleFactor == 0 {
 		target = clampWatermarkScaleFactor(target)
 	}
 
-	if err := procfsm.ApplyVMWatermarkScaleFactorAtPath(watermarkScaleFactorPath, target); err != nil {
-		errList = append(errList, err)
+	err = procfsm.ApplyVMWatermarkScaleFactorAtPath(watermarkScaleFactorPath, target)
+	if err != nil {
 		general.Errorf("set watermark_scale_factor failed: %v", err)
-		return
+		return err
 	}
 
 	newVal, err := general.ReadInt64FromFile(watermarkScaleFactorPath)
 	if err != nil {
-		errList = append(errList, err)
 		general.Errorf("read watermark_scale_factor after apply failed: %v", err)
-		return
+		return err
 	}
 	_ = emitter.StoreInt64(metricNameVMWatermarkScaleFactor, newVal, metrics.MetricTypeNameRaw)
+
+	return nil
+}
+
+// setVMWatermarkBoostFactor tunes vm.watermark_boost_factor. It allows the 0-value to be set explicitly, meaning no boost.
+func setVMWatermarkBoostFactor(conf *dynamicqrm.HostWatermarkConfiguration, emitter metrics.MetricEmitter) error {
+	if err := procfsm.ApplyVMWatermarkBoostFactorAtPath(watermarkBoostFactorPath, int64(conf.VMWatermarkBoostFactor)); err != nil {
+		general.Errorf("set watermark_boost_factor failed: %v", err)
+		return err
+	}
+
+	newVal, err := general.ReadInt64FromFile(watermarkBoostFactorPath)
+	if err != nil {
+		general.Errorf("read watermark_boost_factor after apply failed: %v", err)
+		return err
+	}
+	_ = emitter.StoreInt64(metricNameVMWatermarkBoostFactor, newVal, metrics.MetricTypeNameRaw)
+
+	return nil
+}
+
+// setVMExtFragThreshold tunes vm.extfrag_threshold. It allows the 0-value to be set explicitly, meaning allow compaction more easily.
+func setVMExtFragThreshold(conf *dynamicqrm.HostWatermarkConfiguration, emitter metrics.MetricEmitter) error {
+	if err := procfsm.ApplyVMExtFragThresholdAtPath(extFragThresholdPath, int64(conf.VMExtFragThreshold)); err != nil {
+		general.Errorf("set extfrag_threshold failed: %v", err)
+		return err
+	}
+
+	newVal, err := general.ReadInt64FromFile(extFragThresholdPath)
+	if err != nil {
+		general.Errorf("read extfrag_threshold after apply failed: %v", err)
+		return err
+	}
+	_ = emitter.StoreInt64(metricNameVMExtFragThreshold, newVal, metrics.MetricTypeNameRaw)
+
+	return nil
 }
 
 // clampWatermarkScaleFactor clamps target to [watermarkScaleFactorMin, watermarkScaleFactorMax].
@@ -110,13 +171,27 @@ func clampWatermarkScaleFactor(target int64) int64 {
 	return int64(general.Clamp(float64(target), watermarkScaleFactorMin, watermarkScaleFactorMax))
 }
 
+func getHostWatermarkConfiguration(dynamicConf *dynamicconfig.DynamicAgentConfiguration) *dynamicqrm.HostWatermarkConfiguration {
+	if dynamicConf == nil {
+		return nil
+	}
+	conf := dynamicConf.GetDynamicConfiguration()
+	if conf == nil {
+		return nil
+	}
+	return conf.HostWatermarkConfiguration
+}
+
 // determineTargetWatermarkScaleFactor returns the target vm.watermark_scale_factor value.
-// If SetVMWatermarkScaleFactor is explicitly configured, it is returned directly.
+// If VMWatermarkScaleFactor is explicitly configured, it is returned directly.
 // Otherwise, the value is auto-calculated as ceil(reservedBytes / totalBytes * 10000)
 // based on ReservedKswapdWatermarkGB and the first NUMA node's memory stats.
-func determineTargetWatermarkScaleFactor(conf *coreconfig.Configuration, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) (int64, error) {
-	if conf.SetVMWatermarkScaleFactor != 0 {
-		return int64(conf.SetVMWatermarkScaleFactor), nil
+func determineTargetWatermarkScaleFactor(conf *dynamicqrm.HostWatermarkConfiguration, emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) (int64, error) {
+	if conf == nil {
+		return 0, nil
+	}
+	if conf.VMWatermarkScaleFactor != 0 {
+		return int64(conf.VMWatermarkScaleFactor), nil
 	}
 
 	if conf.ReservedKswapdWatermarkGB == 0 {

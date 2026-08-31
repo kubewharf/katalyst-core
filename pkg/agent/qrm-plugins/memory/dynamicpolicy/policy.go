@@ -151,8 +151,6 @@ type DynamicPolicy struct {
 
 	enableSettingMemoryMigrate bool
 	enableSettingSockMem       bool
-	enableSettingFragMem       bool
-	enableSettingHostWatermark bool
 	enableMemoryAdvisor        bool
 	getAdviceInterval          time.Duration
 	memoryAdvisorSocketAbsPath string
@@ -233,8 +231,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		defaultAsyncLimitedWorkers:  asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
 		enableSettingMemoryMigrate:  conf.EnableSettingMemoryMigrate,
 		enableSettingSockMem:        conf.EnableSettingSockMem,
-		enableSettingFragMem:        conf.EnableSettingFragMem,
-		enableSettingHostWatermark:  conf.EnableSettingHostWatermark,
 		enableMemoryAdvisor:         conf.EnableMemoryAdvisor,
 		getAdviceInterval:           conf.GetAdviceInterval,
 		memoryAdvisorSocketAbsPath:  conf.MemoryAdvisorSocketAbsPath,
@@ -455,32 +451,29 @@ func (p *DynamicPolicy) Start() (err error) {
 			general.Errorf("evictLogCache failed, err=%v", err)
 		}
 	}
-	if p.enableSettingFragMem {
-		general.Infof("setFragMem enabled")
-		err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetMemCompact,
-			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			fragmem.SetMemCompact, 1800*time.Second, healthCheckTolerationTimes)
-		if err != nil {
-			general.Infof("setFragMem failed, err=%v", err)
-		}
 
-		// THP related handler, runs more frequently.
-		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetMemTHP,
-			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			fragmem.SetMemTHP, 60*time.Second, healthCheckTolerationTimes)
-		if err != nil {
-			general.Infof("setMemTHP failed, err=%v", err)
-		}
+	// The handlers for SetMemCompact, SetMemTHP, SetHostWatermark are always registered, whether they are enabled or not
+	// is determined by dynamically configured enable flags EnableFragMem or EnableHostWatermark.
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetMemCompact,
+		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		fragmem.SetMemCompact, 1800*time.Second, healthCheckTolerationTimes)
+	if err != nil {
+		general.Infof("setFragMem failed, err=%v", err)
 	}
 
-	if p.enableSettingHostWatermark {
-		general.Infof("setHostWatermark enabled")
-		err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetHostWatermark,
-			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			hostwatermark.SetHostWatermark, 300*time.Second, healthCheckTolerationTimes)
-		if err != nil {
-			general.Errorf("setHostWatermark failed, err=%v", err)
-		}
+	// THP related handler, runs more frequently.
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetMemTHP,
+		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		fragmem.SetMemTHP, 15*time.Second, healthCheckTolerationTimes)
+	if err != nil {
+		general.Infof("setMemTHP failed, err=%v", err)
+	}
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetHostWatermark,
+		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		hostwatermark.SetHostWatermark, 300*time.Second, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("setHostWatermark failed, err=%v", err)
 	}
 
 	go wait.Until(func() {

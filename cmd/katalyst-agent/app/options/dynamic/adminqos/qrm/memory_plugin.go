@@ -20,30 +20,30 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
+	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 )
 
-type QRMPluginOptions struct {
-	*CPUPluginOptions
-	*MemoryPluginOptions
+type MemoryPluginOptions struct {
+	*FragMemOptions
+	*HostWatermarkOptions
 }
 
-func NewQRMPluginOptions() *QRMPluginOptions {
-	return &QRMPluginOptions{
-		CPUPluginOptions:    NewCPUPluginOptions(),
-		MemoryPluginOptions: NewMemoryPluginOptions(),
+func NewMemoryPluginOptions() *MemoryPluginOptions {
+	return &MemoryPluginOptions{
+		FragMemOptions:       NewFragMemOptions(),
+		HostWatermarkOptions: NewHostWatermarkOptions(),
 	}
 }
 
-func (o *QRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
-	o.CPUPluginOptions.AddFlags(fss)
-	o.MemoryPluginOptions.AddFlags(fss)
+func (o *MemoryPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	o.FragMemOptions.AddFlags(fss)
+	o.HostWatermarkOptions.AddFlags(fss)
 }
 
-func (o *QRMPluginOptions) ApplyTo(c *qrm.QRMPluginConfiguration) error {
+func (o *MemoryPluginOptions) ApplyTo(c *dynamicqrm.MemoryPluginConfiguration) error {
 	var errList []error
 
-	errList = append(errList, o.CPUPluginOptions.ApplyTo(c.CPUPluginConfiguration))
-	errList = append(errList, o.MemoryPluginOptions.ApplyTo(c.MemoryPluginConfiguration))
+	errList = append(errList, o.FragMemOptions.ApplyTo(c.FragMemConfiguration))
+	errList = append(errList, o.HostWatermarkOptions.ApplyTo(c.HostWatermarkConfiguration))
 	return errors.NewAggregate(errList)
 }

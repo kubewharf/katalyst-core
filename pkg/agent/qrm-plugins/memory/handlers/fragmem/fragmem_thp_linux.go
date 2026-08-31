@@ -28,6 +28,7 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -61,7 +62,7 @@ const (
 
 // SetMemTHP periodically tunes host THP based on high-order extfrag scores.
 func SetMemTHP(conf *coreconfig.Configuration,
-	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	_ interface{}, dynamicConf *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 ) {
 	var errList []error
@@ -75,12 +76,18 @@ func SetMemTHP(conf *coreconfig.Configuration,
 		general.Errorf("%v", err)
 		return
 	}
-	if !conf.EnableSettingFragMem {
-		general.Infof("SetMemTHP skipped: EnableSettingFragMem disabled")
+	fragMemConf := getFragMemConfiguration(dynamicConf)
+	if fragMemConf == nil {
+		general.Infof("SetMemTHP skipped: dynamic fragmem configuration not found")
 		return
 	}
+	if !fragMemConf.EnableFragMem {
+		general.Infof("SetMemTHP skipped: EnableFragMem disabled")
+		return
+	}
+	general.Infof("SetMemTHP: EnableFragMem enabled")
 
-	mode := normalizeTHPMode(conf.THPDefaultConfig)
+	mode := normalizeTHPMode(fragMemConf.THPDefaultConfig)
 	// If THPDefaultConfig is empty, skip THP tuning entirely.
 	if mode == "" {
 		general.Infof("SetMemTHP skipped: THPDefaultConfig is empty")
@@ -102,12 +109,12 @@ func SetMemTHP(conf *coreconfig.Configuration,
 		return
 	}
 
-	if err := doMemTHP(conf, metaServer, emitter); err != nil {
+	if err := doMemTHP(fragMemConf, metaServer, emitter); err != nil {
 		errList = append(errList, err)
 	}
 }
 
-func doMemTHP(conf *coreconfig.Configuration, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) error {
+func doMemTHP(conf *dynamicqrm.FragMemConfiguration, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) error {
 	if metaServer == nil || emitter == nil {
 		return nil
 	}
@@ -166,7 +173,7 @@ func doMemTHP(conf *coreconfig.Configuration, metaServer *metaserver.MetaServer,
 	}
 }
 
-func getHighOrderThreshold(conf *coreconfig.Configuration) float64 {
+func getHighOrderThreshold(conf *dynamicqrm.FragMemConfiguration) float64 {
 	if conf == nil {
 		return defaultHighOrderThreshold
 	}
@@ -234,5 +241,12 @@ func setTHPModeAtPath(path, mode string) error {
 }
 
 func normalizeTHPMode(mode string) string {
-	return strings.TrimSpace(strings.ToLower(mode))
+	m := strings.TrimSpace(strings.ToLower(mode))
+	switch m {
+	case "", thpModeMadvise, thpModeAlways, thpModeNever:
+		return m
+	default:
+		general.Warningf("invalid THPDefaultConfig %q, expect madvise/always/never, skip THP tuning", mode)
+		return ""
+	}
 }

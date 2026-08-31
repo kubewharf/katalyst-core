@@ -173,6 +173,16 @@ func ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error {
 	return GetProcFSManager().ApplyVMWatermarkScaleFactorAtPath(path, scaleFactor)
 }
 
+// ApplyVMWatermarkBoostFactorAtPath writes vm.watermark_boost_factor to the given sysctl file path.
+func ApplyVMWatermarkBoostFactorAtPath(path string, boostFactor int64) error {
+	return GetProcFSManager().ApplyVMWatermarkBoostFactorAtPath(path, boostFactor)
+}
+
+// ApplyVMExtFragThresholdAtPath writes vm.extfrag_threshold to the given sysctl file path.
+func ApplyVMExtFragThresholdAtPath(path string, threshold int64) error {
+	return GetProcFSManager().ApplyVMExtFragThresholdAtPath(path, threshold)
+}
+
 // ApplyTransparentHugepageEnabledAtPath writes the given THP mode into the given path.
 // Typical path is TransparentHugepageEnabledPath.
 func ApplyTransparentHugepageEnabledAtPath(path, mode string) error {
