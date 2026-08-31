@@ -95,6 +95,8 @@ func SetMemTHP(conf *coreconfig.Configuration,
 	}
 	general.Infof("SetMemTHP: EnableFragMem enabled")
 
+	// Validation of the mode is done in setTHPModeAtPath, which is the only place before we write to the sysfs.
+	// THPDefaultConfig accepts any write-valid mode, including advise and deny.
 	mode := normalizeTHPMode(fragMemConf.THPDefaultConfig)
 	// If THPDefaultConfig is empty, skip THP tuning entirely.
 	if mode == "" {
@@ -271,12 +273,5 @@ func setTHPModeAtPath(path, mode string) error {
 }
 
 func normalizeTHPMode(mode string) string {
-	m := strings.TrimSpace(strings.ToLower(mode))
-	switch m {
-	case "", thpModeMadvise, thpModeAlways, thpModeNever:
-		return m
-	default:
-		general.Warningf("invalid THPDefaultConfig %q, expect madvise/always/never, skip THP tuning", mode)
-		return ""
-	}
+	return strings.TrimSpace(strings.ToLower(mode))
 }
