@@ -116,7 +116,7 @@ func TestSetMemCompact(t *testing.T) {
 func TestSetMemTHP(t *testing.T) {
 	t.Parallel()
 
-	// This test mutates package-level vars (thpEnabledPath), so serialize it.
+	// This test mutates package-level vars (thpEnabledPath/thpShmemEnabledPath), so serialize it.
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
@@ -130,11 +130,18 @@ func TestSetMemTHP(t *testing.T) {
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig=never: fast-path to disable THP directly.
-	oldPath := thpEnabledPath
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
 	f := createTempFile(t, "always [madvise] never\n")
+	shmemFile := createTempFile(t, "always within_size [advise] never deny force\n")
 	defer os.Remove(f)
-	defer func() { thpEnabledPath = oldPath }()
+	defer os.Remove(shmemFile)
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
 	thpEnabledPath = f
+	thpShmemEnabledPath = shmemFile
 
 	conf, dynamicConf = makeTHPConf("never", 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
@@ -142,6 +149,9 @@ func TestSetMemTHP(t *testing.T) {
 	b, rerr := os.ReadFile(f)
 	assert.NoError(t, rerr)
 	assert.Equal(t, "never\n", string(b))
+	b, rerr = os.ReadFile(shmemFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "deny\n", string(b))
 
 	res := general.GetRegisterReadinessCheckResult()
 	check, ok := res[general.HealthzCheckName(memconsts.SetMemTHP)]
@@ -221,12 +231,19 @@ func TestDoMemTHPDisable(t *testing.T) {
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
-	oldPath := thpEnabledPath
-	defer func() { thpEnabledPath = oldPath }()
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
 
 	thpFile := createTempFile(t, "always [madvise] never\n")
+	shmemFile := createTempFile(t, "always within_size [advise] never deny force\n")
 	defer os.Remove(thpFile)
+	defer os.Remove(shmemFile)
 	thpEnabledPath = thpFile
+	thpShmemEnabledPath = shmemFile
 
 	metaServer, err := makeMetaServer()
 	assert.NoError(t, err)
@@ -242,6 +259,9 @@ func TestDoMemTHPDisable(t *testing.T) {
 	b, rerr := os.ReadFile(thpFile)
 	assert.NoError(t, rerr)
 	assert.Equal(t, "never\n", string(b))
+	b, rerr = os.ReadFile(shmemFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "deny\n", string(b))
 }
 
 func TestDoMemTHPEnable(t *testing.T) {
@@ -250,12 +270,19 @@ func TestDoMemTHPEnable(t *testing.T) {
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
-	oldPath := thpEnabledPath
-	defer func() { thpEnabledPath = oldPath }()
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
 
 	thpFile := createTempFile(t, "always madvise [never]\n")
+	shmemFile := createTempFile(t, "always within_size advise [never] deny force\n")
 	defer os.Remove(thpFile)
+	defer os.Remove(shmemFile)
 	thpEnabledPath = thpFile
+	thpShmemEnabledPath = shmemFile
 
 	metaServer, err := makeMetaServer()
 	assert.NoError(t, err)
@@ -271,6 +298,9 @@ func TestDoMemTHPEnable(t *testing.T) {
 	b, rerr := os.ReadFile(thpFile)
 	assert.NoError(t, rerr)
 	assert.Equal(t, "madvise\n", string(b))
+	b, rerr = os.ReadFile(shmemFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "advise\n", string(b))
 }
 
 func TestDoMemTHPEnableSkippedDueToMissingOrders(t *testing.T) {
@@ -279,12 +309,19 @@ func TestDoMemTHPEnableSkippedDueToMissingOrders(t *testing.T) {
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
-	oldPath := thpEnabledPath
-	defer func() { thpEnabledPath = oldPath }()
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
 
 	thpFile := createTempFile(t, "never\n")
+	shmemFile := createTempFile(t, "never\n")
 	defer os.Remove(thpFile)
+	defer os.Remove(shmemFile)
 	thpEnabledPath = thpFile
+	thpShmemEnabledPath = shmemFile
 
 	metaServer, err := makeMetaServer()
 	assert.NoError(t, err)
@@ -298,6 +335,9 @@ func TestDoMemTHPEnableSkippedDueToMissingOrders(t *testing.T) {
 	assert.NoError(t, err)
 
 	b, rerr := os.ReadFile(thpFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "never\n", string(b))
+	b, rerr = os.ReadFile(shmemFile)
 	assert.NoError(t, rerr)
 	assert.Equal(t, "never\n", string(b))
 }
@@ -353,6 +393,57 @@ func TestEnableTHPMadviseAtPath(t *testing.T) {
 	b, rerr = os.ReadFile(f2)
 	assert.NoError(t, rerr)
 	assert.Equal(t, "madvise\n", string(b))
+}
+
+func TestEnableTHPAdviseAtPath(t *testing.T) {
+	t.Parallel()
+
+	// already advise
+	f1 := createTempFile(t, "always within_size [advise] never deny force\n")
+	defer os.Remove(f1)
+	err := setTHPModeAtPath(f1, "advise")
+	assert.NoError(t, err)
+	b, rerr := os.ReadFile(f1)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "always within_size [advise] never deny force\n", string(b))
+
+	// should set advise
+	f2 := createTempFile(t, "always within_size advise [never] deny force\n")
+	defer os.Remove(f2)
+	err = setTHPModeAtPath(f2, "advise")
+	assert.NoError(t, err)
+	b, rerr = os.ReadFile(f2)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "advise\n", string(b))
+}
+
+func TestDisableTHPDenyAtPath(t *testing.T) {
+	t.Parallel()
+
+	// already deny
+	f1 := createTempFile(t, "always within_size advise never [deny] force\n")
+	defer os.Remove(f1)
+	err := setTHPModeAtPath(f1, "deny")
+	assert.NoError(t, err)
+	b, rerr := os.ReadFile(f1)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "always within_size advise never [deny] force\n", string(b))
+
+	// should set deny
+	f2 := createTempFile(t, "always within_size [advise] never deny force\n")
+	defer os.Remove(f2)
+	err = setTHPModeAtPath(f2, "deny")
+	assert.NoError(t, err)
+	b, rerr = os.ReadFile(f2)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "deny\n", string(b))
+}
+
+func TestSetTHPModeAtPathIfExistsMissing(t *testing.T) {
+	t.Parallel()
+
+	err := setTHPModeAtPathIfExists("/tmp/path/does/not/exist/shmem_enabled", "advise")
+	assert.NoError(t, err)
 }
 
 func TestSetTHPModeAtPathInvalid(t *testing.T) {
