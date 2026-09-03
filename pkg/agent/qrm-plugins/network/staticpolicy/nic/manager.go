@@ -19,6 +19,7 @@ package nic
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic/checker"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic/filter"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -55,6 +57,11 @@ type nicManagerImpl struct {
 
 func NewNICManager(metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) (NICManager, error) {
 	defaultAllocatableNICs := metaServer.ExtraNetworkInfo.GetAllocatableNICs(conf.MachineInfoConfiguration)
+	defaultAllocatableNICs, err := filterAllocatableNICs(filter.DefaultRegistry, defaultAllocatableNICs, conf.NICFilters)
+	if err != nil {
+		return nil, err
+	}
+
 	checkers, err := initHealthCheckers(checker.DefaultRegistry, conf.NICHealthCheckers)
 	if err != nil {
 		return nil, err
@@ -123,6 +130,86 @@ func initHealthCheckers(registry checker.Registry, enableCheckers []string) (map
 	}
 
 	return checkers, nil
+}
+
+func filterAllocatableNICs(registry filter.Registry, nics []machine.InterfaceInfo, enableFilters []string) ([]machine.InterfaceInfo, error) {
+	filters, err := initAllocatableNICFilters(registry, enableFilters)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredNICs := nics
+	for _, f := range filters {
+		before := append([]machine.InterfaceInfo(nil), filteredNICs...)
+		filteredNICs, err = f.Handler.Filter(append([]machine.InterfaceInfo(nil), filteredNICs...))
+		if err != nil {
+			general.Errorf("failed to filter allocatable NICs with %s: %v", f.Name, err)
+			return nil, err
+		}
+		emitAllocatableNICFilterLog(f.Name, before, filteredNICs)
+	}
+
+	return filteredNICs, nil
+}
+
+func emitAllocatableNICFilterLog(filterName string, before, after []machine.InterfaceInfo) {
+	keptNICs := sets.NewString()
+	for _, nic := range after {
+		keptNICs.Insert(nicKey(nic))
+	}
+
+	filteredNICs := make([]string, 0, len(before))
+	for _, nic := range before {
+		if !keptNICs.Has(nicKey(nic)) {
+			filteredNICs = append(filteredNICs, nicKey(nic))
+		}
+	}
+
+	general.Infof("allocatable NIC filter %s filtered NICs: %v", filterName, filteredNICs)
+}
+
+func nicKey(nic machine.InterfaceInfo) string {
+	if nic.NSName == "" {
+		return nic.Name
+	}
+	return nic.NSName + "/" + nic.Name
+}
+
+type namedAllocatableNICFilter struct {
+	Name    string
+	Handler filter.AllocatableNICFilter
+}
+
+func initAllocatableNICFilters(registry filter.Registry, enableFilters []string) ([]namedAllocatableNICFilter, error) {
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	filters := make([]namedAllocatableNICFilter, 0, len(registry))
+	for _, name := range names {
+		if !general.IsNameEnabled(name, nil, enableFilters) {
+			general.Warningf("allocatable NIC filter %q is disabled", name)
+			continue
+		}
+
+		factory := registry[name]
+		if factory == nil {
+			return nil, fmt.Errorf("allocatable NIC filter %q has nil factory", name)
+		}
+
+		f, err := factory()
+		if err != nil {
+			general.Errorf("failed to initialize allocatable NIC filter %s: %v", name, err)
+			return nil, err
+		}
+
+		filters = append(filters, namedAllocatableNICFilter{Name: name, Handler: f})
+		general.Infof("successfully registered allocatable NIC filter: %s", name)
+	}
+
+	return filters, nil
 }
 
 func (n *nicManagerImpl) checkNICs(nics []machine.InterfaceInfo) (*NICs, error) {
