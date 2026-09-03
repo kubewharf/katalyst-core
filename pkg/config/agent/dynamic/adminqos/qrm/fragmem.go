@@ -22,6 +22,7 @@ type FragMemConfiguration struct {
 	EnableFragMem              bool
 	MemFragScoreAsync          int
 	THPDefaultConfig           string
+	THPConfigPolicy            string
 	THPHighOrderScoreThreshold int
 }
 
@@ -43,6 +44,9 @@ func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		}
 		if config.THPDefaultConfig != nil {
 			c.THPDefaultConfig = *config.THPDefaultConfig
+		}
+		if config.THPConfigPolicy != nil {
+			c.THPConfigPolicy = *config.THPConfigPolicy
 		}
 		if config.THPHighOrderScoreThreshold != nil {
 			c.THPHighOrderScoreThreshold = int(*config.THPHighOrderScoreThreshold)

@@ -33,6 +33,7 @@ func TestFragMemOptionsDefaultsAndFlags(t *testing.T) {
 	as.False(options.EnableFragMem)
 	as.Equal(80, options.MemFragScoreAsync)
 	as.Equal("madvise", options.THPDefaultConfig)
+	as.Equal("dynamic", options.THPConfigPolicy)
 	as.Equal(85, options.THPHighOrderScoreThreshold)
 
 	fss := cliflag.NamedFlagSets{}
@@ -41,11 +42,13 @@ func TestFragMemOptionsDefaultsAndFlags(t *testing.T) {
 	as.NotNil(fs.Lookup("enable-setting-mem-compaction"))
 	as.NotNil(fs.Lookup("qrm-memory-frag-score-async"))
 	as.NotNil(fs.Lookup("qrm-memory-thp-default-config"))
+	as.NotNil(fs.Lookup("qrm-memory-thp-config-policy"))
 	as.NotNil(fs.Lookup("qrm-memory-thp-high-order-score-threshold"))
 	as.NoError(fs.Parse([]string{
 		"--enable-setting-mem-compaction=true",
 		"--qrm-memory-frag-score-async=70",
 		"--qrm-memory-thp-default-config=always",
+		"--qrm-memory-thp-config-policy=static",
 		"--qrm-memory-thp-high-order-score-threshold=90",
 	}))
 
@@ -54,5 +57,6 @@ func TestFragMemOptionsDefaultsAndFlags(t *testing.T) {
 	as.True(conf.EnableFragMem)
 	as.Equal(70, conf.MemFragScoreAsync)
 	as.Equal("always", conf.THPDefaultConfig)
+	as.Equal("static", conf.THPConfigPolicy)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
 }

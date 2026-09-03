@@ -26,6 +26,7 @@ type FragMemOptions struct {
 	EnableFragMem              bool
 	MemFragScoreAsync          int
 	THPDefaultConfig           string
+	THPConfigPolicy            string
 	THPHighOrderScoreThreshold int
 }
 
@@ -34,6 +35,7 @@ func NewFragMemOptions() *FragMemOptions {
 		EnableFragMem:              false,
 		MemFragScoreAsync:          80,
 		THPDefaultConfig:           "madvise",
+		THPConfigPolicy:            "dynamic",
 		THPHighOrderScoreThreshold: 85,
 	}
 }
@@ -46,6 +48,8 @@ func (o *FragMemOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.MemFragScoreAsync, "set the threshold of frag score for async memory compaction")
 	fs.StringVar(&o.THPDefaultConfig, "qrm-memory-thp-default-config",
 		o.THPDefaultConfig, "default host THP config to recover to (madvise/always/never)")
+	fs.StringVar(&o.THPConfigPolicy, "qrm-memory-thp-config-policy",
+		o.THPConfigPolicy, "host THP config policy (dynamic/static)")
 	fs.IntVar(&o.THPHighOrderScoreThreshold, "qrm-memory-thp-high-order-score-threshold",
 		o.THPHighOrderScoreThreshold, "disable THP when max highOrderScore > threshold")
 }
@@ -54,6 +58,7 @@ func (o *FragMemOptions) ApplyTo(c *dynamicqrm.FragMemConfiguration) error {
 	c.EnableFragMem = o.EnableFragMem
 	c.MemFragScoreAsync = o.MemFragScoreAsync
 	c.THPDefaultConfig = o.THPDefaultConfig
+	c.THPConfigPolicy = o.THPConfigPolicy
 	c.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
 	return nil
 }
