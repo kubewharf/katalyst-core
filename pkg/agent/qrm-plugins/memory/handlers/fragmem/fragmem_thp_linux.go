@@ -40,6 +40,9 @@ import (
 )
 
 const (
+	thpConfigPolicyDynamic = "dynamic"
+	thpConfigPolicyStatic  = "static"
+
 	thpModeAdvise  = "advise"
 	thpModeDeny    = "deny"
 	thpModeMadvise = "madvise"
@@ -98,9 +101,18 @@ func SetMemTHP(conf *coreconfig.Configuration,
 	// Validation of the mode is done in setTHPModeAtPath, which is the only place before we write to the sysfs.
 	// THPDefaultConfig accepts any write-valid mode, including advise and deny.
 	mode := normalizeTHPMode(fragMemConf.THPDefaultConfig)
+	policy := normalizeTHPConfigPolicy(fragMemConf.THPConfigPolicy)
 	// If THPDefaultConfig is empty, skip THP tuning entirely.
 	if mode == "" {
 		general.Infof("SetMemTHP skipped: THPDefaultConfig is empty")
+		return
+	}
+	if policy == thpConfigPolicyStatic {
+		general.Infof("SetMemTHP: THPConfigPolicy=static, enforce THPDefaultConfig=%s", mode)
+		enabledMode, shmemMode := getStaticTHPModes(mode)
+		if err := setTHPMode(enabledMode, shmemMode); err != nil {
+			errList = append(errList, err)
+		}
 		return
 	}
 	// If THPDefaultConfig is "never", fast-path to disable THP directly.
@@ -274,4 +286,24 @@ func setTHPModeAtPath(path, mode string) error {
 
 func normalizeTHPMode(mode string) string {
 	return strings.TrimSpace(strings.ToLower(mode))
+}
+
+func normalizeTHPConfigPolicy(policy string) string {
+	normalized := strings.TrimSpace(strings.ToLower(policy))
+	switch normalized {
+	case "", thpConfigPolicyDynamic:
+		return thpConfigPolicyDynamic
+	case thpConfigPolicyStatic:
+		return thpConfigPolicyStatic
+	default:
+		general.Warningf("unknown THPConfigPolicy %q, fallback to %s", policy, thpConfigPolicyDynamic)
+		return thpConfigPolicyDynamic
+	}
+}
+
+func getStaticTHPModes(mode string) (string, string) {
+	if mode == thpModeNever {
+		return thpModeNever, thpModeDeny
+	}
+	return mode, thpModeAdvise
 }

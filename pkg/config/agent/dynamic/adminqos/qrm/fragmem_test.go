@@ -32,6 +32,7 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	enable := true
 	score := int64(70)
 	mode := "always"
+	policy := "static"
 	threshold := int64(90)
 
 	conf := NewFragMemConfiguration()
@@ -45,6 +46,7 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 								EnableFragMem:              &enable,
 								MemFragScoreAsync:          &score,
 								THPDefaultConfig:           &mode,
+								THPConfigPolicy:            &policy,
 								THPHighOrderScoreThreshold: &threshold,
 							},
 						},
@@ -57,5 +59,6 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	as.True(conf.EnableFragMem)
 	as.Equal(70, conf.MemFragScoreAsync)
 	as.Equal("always", conf.THPDefaultConfig)
+	as.Equal("static", conf.THPConfigPolicy)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
 }

@@ -47,10 +47,11 @@ import (
 
 var setMemTHPTestMu sync.Mutex
 
-func makeTHPConf(defaultConfig string, threshold int) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
+func makeTHPConf(defaultConfig, policy string, threshold int) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
 	dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = true
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = defaultConfig
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPConfigPolicy = policy
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPHighOrderScoreThreshold = threshold
 
 	return &coreconfig.Configuration{
@@ -126,7 +127,7 @@ func TestSetMemTHP(t *testing.T) {
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig empty: skip THP tuning entirely.
-	conf, dynamicConf = makeTHPConf("", 85)
+	conf, dynamicConf = makeTHPConf("", thpConfigPolicyDynamic, 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig=never: fast-path to disable THP directly.
@@ -143,7 +144,7 @@ func TestSetMemTHP(t *testing.T) {
 	thpEnabledPath = f
 	thpShmemEnabledPath = shmemFile
 
-	conf, dynamicConf = makeTHPConf("never", 85)
+	conf, dynamicConf = makeTHPConf("never", thpConfigPolicyDynamic, 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	b, rerr := os.ReadFile(f)
@@ -210,7 +211,7 @@ func TestSetMemTHPNilEmitter(t *testing.T) {
 	defer setMemTHPTestMu.Unlock()
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
-	conf, dynamicConf := makeTHPConf("madvise", 85)
+	conf, dynamicConf := makeTHPConf("madvise", thpConfigPolicyDynamic, 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, &metaserver.MetaServer{})
 }
 
@@ -221,8 +222,79 @@ func TestSetMemTHPNilMetaServer(t *testing.T) {
 	defer setMemTHPTestMu.Unlock()
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
-	conf, dynamicConf := makeTHPConf("madvise", 85)
+	conf, dynamicConf := makeTHPConf("madvise", thpConfigPolicyDynamic, 85)
 	SetMemTHP(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
+}
+
+func TestSetMemTHPStaticPolicy(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
+
+	thpFile := createTempFile(t, "always madvise [never]\n")
+	shmemFile := createTempFile(t, "always within_size advise [never] deny force\n")
+	defer os.Remove(thpFile)
+	defer os.Remove(shmemFile)
+	thpEnabledPath = thpFile
+	thpShmemEnabledPath = shmemFile
+
+	conf, dynamicConf := makeTHPConf("madvise", thpConfigPolicyStatic, 85)
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
+
+	b, err := os.ReadFile(thpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "madvise\n", string(b))
+	b, err = os.ReadFile(shmemFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "advise\n", string(b))
+}
+
+func TestSetMemTHPStaticPolicyNever(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
+
+	thpFile := createTempFile(t, "always [madvise] never\n")
+	shmemFile := createTempFile(t, "always within_size [advise] never deny force\n")
+	defer os.Remove(thpFile)
+	defer os.Remove(shmemFile)
+	thpEnabledPath = thpFile
+	thpShmemEnabledPath = shmemFile
+
+	conf, dynamicConf := makeTHPConf("never", thpConfigPolicyStatic, 85)
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
+
+	b, err := os.ReadFile(thpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "never\n", string(b))
+	b, err = os.ReadFile(shmemFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "deny\n", string(b))
+}
+
+func TestNormalizeTHPConfigPolicy(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, thpConfigPolicyDynamic, normalizeTHPConfigPolicy(""))
+	assert.Equal(t, thpConfigPolicyDynamic, normalizeTHPConfigPolicy("dynamic"))
+	assert.Equal(t, thpConfigPolicyStatic, normalizeTHPConfigPolicy(" static "))
+	assert.Equal(t, thpConfigPolicyDynamic, normalizeTHPConfigPolicy("invalid"))
 }
 
 func TestDoMemTHPDisable(t *testing.T) {
