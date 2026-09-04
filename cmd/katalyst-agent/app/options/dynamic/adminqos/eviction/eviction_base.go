@@ -30,6 +30,7 @@ type EvictionOptions struct {
 
 	*CPUPressureEvictionOptions
 	*MemoryPressureEvictionOptions
+	*MemorySetEvictionOptions
 	*ReclaimedResourcesEvictionOptions
 	*CPUSystemPressureEvictionOptions
 	*SystemLoadPressureEvictionOptions
@@ -41,6 +42,7 @@ func NewEvictionOptions() *EvictionOptions {
 	return &EvictionOptions{
 		CPUPressureEvictionOptions:        NewCPUPressureEvictionOptions(),
 		MemoryPressureEvictionOptions:     NewMemoryPressureEvictionOptions(),
+		MemorySetEvictionOptions:          NewMemorySetEvictionOptions(),
 		ReclaimedResourcesEvictionOptions: NewReclaimedResourcesEvictionOptions(),
 		CPUSystemPressureEvictionOptions:  NewCPUSystemPressureEvictionOptions(),
 		SystemLoadPressureEvictionOptions: NewSystemLoadPressureEvictionOptions(),
@@ -56,6 +58,7 @@ func (o *EvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	o.CPUPressureEvictionOptions.AddFlags(fss)
 	o.MemoryPressureEvictionOptions.AddFlags(fss)
+	o.MemorySetEvictionOptions.AddFlags(fss)
 	o.ReclaimedResourcesEvictionOptions.AddFlags(fss)
 	o.CPUSystemPressureEvictionOptions.AddFlags(fss)
 	o.SystemLoadPressureEvictionOptions.AddFlags(fss)
@@ -68,6 +71,7 @@ func (o *EvictionOptions) ApplyTo(c *eviction.EvictionConfiguration) error {
 	c.DryRun = o.DryRun
 	errList = append(errList, o.CPUPressureEvictionOptions.ApplyTo(c.CPUPressureEvictionConfiguration))
 	errList = append(errList, o.MemoryPressureEvictionOptions.ApplyTo(c.MemoryPressureEvictionConfiguration))
+	errList = append(errList, o.MemorySetEvictionOptions.ApplyTo(c.MemorySetEvictionConfiguration))
 	errList = append(errList, o.ReclaimedResourcesEvictionOptions.ApplyTo(c.ReclaimedResourcesEvictionConfiguration))
 	errList = append(errList, o.CPUSystemPressureEvictionOptions.ApplyTo(c.CPUSystemPressureEvictionPluginConfiguration))
 	errList = append(errList, o.SystemLoadPressureEvictionOptions.ApplyTo(c.SystemLoadEvictionPluginConfiguration))
