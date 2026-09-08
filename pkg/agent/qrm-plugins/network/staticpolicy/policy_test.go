@@ -1816,7 +1816,6 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 }
 
 func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
-	t.Parallel()
 	defer mockey.UnPatchAll()
 
 	policy := makeStaticPolicy(t, true)
@@ -1875,6 +1874,14 @@ func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
 
 	entered := make(chan struct{}, 2)
 	release := make(chan struct{})
+	releaseCalls := func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}
+	defer releaseCalls()
 	applied := make(chan struct {
 		containerID string
 		netClsData  common.NetClsData
@@ -1901,16 +1908,29 @@ func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
 
 	policy.applyNetClass()
 	for i := 0; i < 2; i++ {
-		<-entered
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for applyNetClassFunc call %d", i+1)
+		}
 	}
-	close(release)
+	releaseCalls()
 
 	got := make(map[string]struct {
 		netClsData common.NetClsData
 		dataPtr    *common.NetClsData
 	})
 	for i := 0; i < 2; i++ {
-		record := <-applied
+		var record struct {
+			containerID string
+			netClsData  common.NetClsData
+			dataPtr     *common.NetClsData
+		}
+		select {
+		case record = <-applied:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for applyNetClassFunc result %d", i+1)
+		}
 		got[record.containerID] = struct {
 			netClsData common.NetClsData
 			dataPtr    *common.NetClsData
