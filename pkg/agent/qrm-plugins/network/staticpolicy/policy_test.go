@@ -1815,6 +1815,116 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 	policy.applyNetClass()
 }
 
+func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
+	t.Parallel()
+	defer mockey.UnPatchAll()
+
+	policy := makeStaticPolicy(t, true)
+	assert.NotNil(t, policy)
+	policy.CgroupV2Env = true
+	policy.aliveCgroupID = make(map[uint64]time.Time)
+	policy.metaServer.PodFetcher = &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-name",
+					Namespace: "test-namespace",
+					UID:       "test-pod-uid",
+					Annotations: map[string]string{
+						consts.PodAnnotationNetClassKey: testSharedNetClsId,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-name-1",
+						},
+						{
+							Name: "test-container-name-2",
+						},
+					},
+				},
+				Status: v1.PodStatus{
+					ContainerStatuses: []v1.ContainerStatus{
+						{
+							Name:        "test-container-name-1",
+							ContainerID: "test-container-id-1",
+						},
+						{
+							Name:        "test-container-name-2",
+							ContainerID: "test-container-id-2",
+						},
+					},
+				},
+			},
+		},
+	}
+	policy.metaServer.ExternalManager = &external.DummyExternalManager{
+		CgroupIDManager: &cgroupid.CgroupIDManagerStub{
+			ContainerCGroupIDMap: map[string]map[string]uint64{
+				"test-pod-uid": {
+					"test-container-id-1": 314125,
+					"test-container-id-2": 242352,
+				},
+			},
+		},
+		NetworkManager: &network.NetworkManagerStub{
+			NetClassMap: map[string]map[string]*common.NetClsData{},
+		},
+	}
+
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	applied := make(chan struct {
+		containerID string
+		netClsData  common.NetClsData
+		dataPtr     *common.NetClsData
+	}, 2)
+	policy.applyNetClassFunc = func(_, containerID string, data *common.NetClsData) error {
+		entered <- struct{}{}
+		<-release
+		applied <- struct {
+			containerID string
+			netClsData  common.NetClsData
+			dataPtr     *common.NetClsData
+		}{
+			containerID: containerID,
+			netClsData:  *data,
+			dataPtr:     data,
+		}
+		return nil
+	}
+
+	mockey.Mock(common.IsContainerCgroupExist).To(func(podUID, containerID string) (bool, error) {
+		return true, nil
+	}).Build()
+
+	policy.applyNetClass()
+	for i := 0; i < 2; i++ {
+		<-entered
+	}
+	close(release)
+
+	got := make(map[string]struct {
+		netClsData common.NetClsData
+		dataPtr    *common.NetClsData
+	})
+	for i := 0; i < 2; i++ {
+		record := <-applied
+		got[record.containerID] = struct {
+			netClsData common.NetClsData
+			dataPtr    *common.NetClsData
+		}{
+			netClsData: record.netClsData,
+			dataPtr:    record.dataPtr,
+		}
+	}
+
+	assert.Equal(t, uint64(314125), got["test-container-id-1"].netClsData.CgroupID)
+	assert.Equal(t, uint64(242352), got["test-container-id-2"].netClsData.CgroupID)
+	assert.NotSame(t, got["test-container-id-1"].dataPtr, got["test-container-id-2"].dataPtr)
+}
+
 type errCgroupIDManager struct {
 	cgroupid.CgroupIDManagerStub
 	errListCgroupIDsForPod error

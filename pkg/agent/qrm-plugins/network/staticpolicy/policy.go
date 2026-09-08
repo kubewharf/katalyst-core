@@ -938,7 +938,7 @@ func (p *StaticPolicy) applyNetClass() {
 			general.Errorf("get net class id failed, pod: %s, err: %s", native.GenerateUniqObjectNameKey(pod), err)
 			continue
 		}
-		netClsData := &common.NetClsData{
+		baseNetClsData := &common.NetClsData{
 			ClassID:    classID,
 			Attributes: native.FilterPodAnnotations(p.podLevelNetAttributesAnnoKeys, pod),
 		}
@@ -962,6 +962,10 @@ func (p *StaticPolicy) applyNetClass() {
 				continue
 			}
 
+			netClsData := &common.NetClsData{
+				ClassID:    baseNetClsData.ClassID,
+				Attributes: baseNetClsData.Attributes,
+			}
 			if p.CgroupV2Env {
 				cgID, err := p.metaServer.ExternalManager.GetCgroupIDForContainer(podUID, containerID)
 				if err != nil {
@@ -973,16 +977,16 @@ func (p *StaticPolicy) applyNetClass() {
 				activeNetClsData[cgID] = netClsData
 			}
 
-			go func(podUID, containerName string, netClsData *common.NetClsData) {
-				if err = p.applyNetClassFunc(podUID, containerID, netClsData); err != nil {
+			go func(podUID, containerName, containerID string, netClsData *common.NetClsData) {
+				if applyErr := p.applyNetClassFunc(podUID, containerID, netClsData); applyErr != nil {
 					general.Errorf("apply net class failed, pod: %s, container: %s(%s), netClsData: %+v, err: %v",
-						podUID, containerName, containerID, *netClsData, err)
+						podUID, containerName, containerID, *netClsData, applyErr)
 					return
 				}
 
 				general.Infof("apply net class successfully, pod: %s, container: %s(%s), netClsData: %+v",
 					podUID, containerName, containerID, *netClsData)
-			}(string(pod.UID), container.Name, netClsData)
+			}(podUID, containerName, containerID, netClsData)
 		}
 	}
 
