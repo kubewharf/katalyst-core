@@ -93,6 +93,7 @@ type StaticPolicy struct {
 
 	CgroupV2Env                                     bool
 	qosLevelToNetClassMap                           map[string]uint32
+	isContainerCgroupExistFunc                      func(podUID, containerID string) (bool, error)
 	applyNetClassFunc                               func(podUID, containerID string, data *common.NetClsData) error
 	applyNetworkGroupsFunc                          func(map[string]*qrmgeneral.NetworkGroup) error
 	podLevelNetClassAnnoKey                         string
@@ -162,6 +163,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:                conf.PodLabelKeptKeys,
 		aliveCgroupID:                   make(map[uint64]time.Time),
+		isContainerCgroupExistFunc:      common.IsContainerCgroupExist,
 	}
 
 	if common.CheckCgroup2UnifiedMode() {
@@ -953,7 +955,7 @@ func (p *StaticPolicy) applyNetClass() {
 				continue
 			}
 
-			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+			if exist, err := p.isContainerCgroupExistFunc(podUID, containerID); err != nil {
 				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
 					podUID, containerName, containerID, err)
 				continue

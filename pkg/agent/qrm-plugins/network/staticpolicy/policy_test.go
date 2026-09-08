@@ -201,16 +201,17 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 			consts.PodAnnotationQoSLevelReclaimedCores: testDefaultReclaimedNetClsId,
 			consts.PodAnnotationQoSLevelDedicatedCores: testDefaultDedicatedNetClsId,
 		},
-		agentCtx:                                 agentCtx,
-		applyNetworkGroupsFunc:                   agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
-		nicManager:                               nicManager,
-		state:                                    stateImpl,
-		residualHitMap:                           make(map[string]int64),
-		podLevelNetClassAnnoKey:                  consts.PodAnnotationNetClassKey,
-		podLevelNetAttributesAnnoKeys:            []string{},
-		ipv4ResourceAllocationAnnotationKey:      testIPv4ResourceAllocationAnnotationKey,
-		ipv6ResourceAllocationAnnotationKey:      testIPv6ResourceAllocationAnnotationKey,
-		netNSPathResourceAllocationAnnotationKey: testNetNSPathResourceAllocationAnnotationKey,
+		agentCtx:                                        agentCtx,
+		isContainerCgroupExistFunc:                      common.IsContainerCgroupExist,
+		applyNetworkGroupsFunc:                          agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
+		nicManager:                                      nicManager,
+		state:                                           stateImpl,
+		residualHitMap:                                  make(map[string]int64),
+		podLevelNetClassAnnoKey:                         consts.PodAnnotationNetClassKey,
+		podLevelNetAttributesAnnoKeys:                   []string{},
+		ipv4ResourceAllocationAnnotationKey:             testIPv4ResourceAllocationAnnotationKey,
+		ipv6ResourceAllocationAnnotationKey:             testIPv6ResourceAllocationAnnotationKey,
+		netNSPathResourceAllocationAnnotationKey:        testNetNSPathResourceAllocationAnnotationKey,
 		netInterfaceNameResourceAllocationAnnotationKey: testNetInterfaceNameResourceAllocationAnnotationKey,
 		netClassIDResourceAllocationAnnotationKey:       testNetClassIDResourceAllocationAnnotationKey,
 		netBandwidthResourceAllocationAnnotationKey:     testNetBandwidthResourceAllocationAnnotationKey,
@@ -1816,12 +1817,15 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 }
 
 func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
-	defer mockey.UnPatchAll()
+	t.Parallel()
 
 	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
 	policy.CgroupV2Env = true
 	policy.aliveCgroupID = make(map[uint64]time.Time)
+	policy.isContainerCgroupExistFunc = func(_, _ string) (bool, error) {
+		return true, nil
+	}
 	policy.metaServer.PodFetcher = &pod.PodFetcherStub{
 		PodList: []*v1.Pod{
 			{
@@ -1901,10 +1905,6 @@ func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
 		}
 		return nil
 	}
-
-	mockey.Mock(common.IsContainerCgroupExist).To(func(podUID, containerID string) (bool, error) {
-		return true, nil
-	}).Build()
 
 	policy.applyNetClass()
 	for i := 0; i < 2; i++ {
