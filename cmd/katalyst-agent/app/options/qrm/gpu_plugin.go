@@ -44,6 +44,9 @@ type GPUOptions struct {
 	GPUSelectionResultAnnotationKey             string
 	VirtualGPUDisableEnvsInjectionAnnotationKey string
 	VirtualGPUTimesliceEnvValue                 int
+	VirtualGPUTimesliceAnnotationKey            string
+	VirtualGPUTimesliceAnnotationMinValue       int
+	VirtualGPUTimesliceAnnotationMaxValue       int
 	VirtualGPUComputePolicyEnvValue             int
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
@@ -64,6 +67,9 @@ func NewGPUOptions() *GPUOptions {
 		GPUSelectionResultAnnotationKey:             consts.PodAnnotationGPUSelectionResultKey,
 		VirtualGPUDisableEnvsInjectionAnnotationKey: "",
 		VirtualGPUTimesliceEnvValue:                 300,
+		VirtualGPUTimesliceAnnotationKey:            "",
+		VirtualGPUTimesliceAnnotationMinValue:       100,
+		VirtualGPUTimesliceAnnotationMaxValue:       50000,
 		VirtualGPUComputePolicyEnvValue:             0,
 	}
 }
@@ -106,6 +112,15 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"If this annotation key exists on the resource request and its value is true, skip Virtual GPU env injection")
 	fs.IntVar(&o.VirtualGPUTimesliceEnvValue, "virtual-gpu-timeslice-env-value",
 		o.VirtualGPUTimesliceEnvValue, "The environment variable value for Virtual GPU timeslice")
+	fs.StringVar(&o.VirtualGPUTimesliceAnnotationKey, "virtual-gpu-timeslice-annotation-key",
+		o.VirtualGPUTimesliceAnnotationKey,
+		"The pod annotation key used to override Virtual GPU timeslice env value; empty disables override")
+	fs.IntVar(&o.VirtualGPUTimesliceAnnotationMinValue, "virtual-gpu-timeslice-annotation-min-value",
+		o.VirtualGPUTimesliceAnnotationMinValue,
+		"The minimum accepted Virtual GPU timeslice annotation value; valid values are integers in [min, max]")
+	fs.IntVar(&o.VirtualGPUTimesliceAnnotationMaxValue, "virtual-gpu-timeslice-annotation-max-value",
+		o.VirtualGPUTimesliceAnnotationMaxValue,
+		"The maximum accepted Virtual GPU timeslice annotation value; valid values are integers in [min, max]")
 	fs.IntVar(&o.VirtualGPUComputePolicyEnvValue, "virtual-gpu-compute-policy-env-value",
 		o.VirtualGPUComputePolicyEnvValue, "The environment variable value for Virtual GPU compute policy")
 	o.GPUStrategyOptions.AddFlags(fss)
@@ -136,6 +151,9 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.VirtualGPUTimesliceEnvName = o.VirtualGPUTimesliceEnvName
 	conf.VirtualGPUComputePolicyEnvName = o.VirtualGPUComputePolicyEnvName
 	conf.VirtualGPUTimesliceEnvValue = o.VirtualGPUTimesliceEnvValue
+	conf.VirtualGPUTimesliceAnnotationKey = o.VirtualGPUTimesliceAnnotationKey
+	conf.VirtualGPUTimesliceAnnotationMinValue = o.VirtualGPUTimesliceAnnotationMinValue
+	conf.VirtualGPUTimesliceAnnotationMaxValue = o.VirtualGPUTimesliceAnnotationMaxValue
 	conf.VirtualGPUComputePolicyEnvValue = o.VirtualGPUComputePolicyEnvValue
 	conf.GPUSelectionResultAnnotationKey = o.GPUSelectionResultAnnotationKey
 	conf.VirtualGPUDisableEnvsInjectionAnnotationKey = o.VirtualGPUDisableEnvsInjectionAnnotationKey
