@@ -354,6 +354,9 @@ func TestGetHighOrderThreshold(t *testing.T) {
 func TestDisableTHPAtPath(t *testing.T) {
 	t.Parallel()
 
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
 	// already disabled
 	f1 := createTempFile(t, "always madvise [never]\n")
 	defer os.Remove(f1)
@@ -376,6 +379,9 @@ func TestDisableTHPAtPath(t *testing.T) {
 func TestEnableTHPMadviseAtPath(t *testing.T) {
 	t.Parallel()
 
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
 	// already madvise
 	f1 := createTempFile(t, "always [madvise] never\n")
 	defer os.Remove(f1)
@@ -396,6 +402,8 @@ func TestEnableTHPMadviseAtPath(t *testing.T) {
 }
 
 func TestEnableTHPMadviseAtPathRestoreMinFreeKbytes(t *testing.T) {
+	t.Parallel()
+
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
@@ -435,6 +443,8 @@ func TestEnableTHPMadviseAtPathRestoreMinFreeKbytes(t *testing.T) {
 }
 
 func TestSetTHPModeAtPathNonMadviseDoesNotRestoreMinFreeKbytes(t *testing.T) {
+	t.Parallel()
+
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
@@ -476,6 +486,9 @@ func TestSetTHPModeAtPathNonMadviseDoesNotRestoreMinFreeKbytes(t *testing.T) {
 func TestEnableTHPAdviseAtPath(t *testing.T) {
 	t.Parallel()
 
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
 	// already advise
 	f1 := createTempFile(t, "always within_size [advise] never deny force\n")
 	defer os.Remove(f1)
@@ -497,6 +510,9 @@ func TestEnableTHPAdviseAtPath(t *testing.T) {
 
 func TestDisableTHPDenyAtPath(t *testing.T) {
 	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
 
 	// already deny
 	f1 := createTempFile(t, "always within_size advise never [deny] force\n")
@@ -526,6 +542,9 @@ func TestSetTHPModeAtPathIfExistsMissing(t *testing.T) {
 
 func TestSetTHPModeAtPathInvalid(t *testing.T) {
 	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
 
 	f := createTempFile(t, "always [madvise] never\n")
 	defer os.Remove(f)
