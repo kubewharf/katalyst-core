@@ -43,6 +43,8 @@ const (
 	VMWatermarkBoostFactorPath = "/proc/sys/vm/watermark_boost_factor"
 	// VMExtFragThresholdPath is a procfs sysctl to configure extfrag threshold.
 	VMExtFragThresholdPath = "/proc/sys/vm/extfrag_threshold"
+	// VMMinFreeKbytesPath is a procfs sysctl to configure vm.min_free_kbytes.
+	VMMinFreeKbytesPath = "/proc/sys/vm/min_free_kbytes"
 
 	// TransparentHugepageEnabledPath is a kernel sysfs interface to configure THP behavior.
 	TransparentHugepageEnabledPath = "/sys/kernel/mm/transparent_hugepage/enabled"
