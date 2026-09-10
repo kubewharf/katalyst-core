@@ -201,16 +201,17 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 			consts.PodAnnotationQoSLevelReclaimedCores: testDefaultReclaimedNetClsId,
 			consts.PodAnnotationQoSLevelDedicatedCores: testDefaultDedicatedNetClsId,
 		},
-		agentCtx:                                 agentCtx,
-		applyNetworkGroupsFunc:                   agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
-		nicManager:                               nicManager,
-		state:                                    stateImpl,
-		residualHitMap:                           make(map[string]int64),
-		podLevelNetClassAnnoKey:                  consts.PodAnnotationNetClassKey,
-		podLevelNetAttributesAnnoKeys:            []string{},
-		ipv4ResourceAllocationAnnotationKey:      testIPv4ResourceAllocationAnnotationKey,
-		ipv6ResourceAllocationAnnotationKey:      testIPv6ResourceAllocationAnnotationKey,
-		netNSPathResourceAllocationAnnotationKey: testNetNSPathResourceAllocationAnnotationKey,
+		agentCtx:                                        agentCtx,
+		isContainerCgroupExistFunc:                      common.IsContainerCgroupExist,
+		applyNetworkGroupsFunc:                          agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
+		nicManager:                                      nicManager,
+		state:                                           stateImpl,
+		residualHitMap:                                  make(map[string]int64),
+		podLevelNetClassAnnoKey:                         consts.PodAnnotationNetClassKey,
+		podLevelNetAttributesAnnoKeys:                   []string{},
+		ipv4ResourceAllocationAnnotationKey:             testIPv4ResourceAllocationAnnotationKey,
+		ipv6ResourceAllocationAnnotationKey:             testIPv6ResourceAllocationAnnotationKey,
+		netNSPathResourceAllocationAnnotationKey:        testNetNSPathResourceAllocationAnnotationKey,
 		netInterfaceNameResourceAllocationAnnotationKey: testNetInterfaceNameResourceAllocationAnnotationKey,
 		netClassIDResourceAllocationAnnotationKey:       testNetClassIDResourceAllocationAnnotationKey,
 		netBandwidthResourceAllocationAnnotationKey:     testNetBandwidthResourceAllocationAnnotationKey,
@@ -1813,6 +1814,135 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 	}).Build()
 
 	policy.applyNetClass()
+}
+
+func TestStaticPolicy_applyNetClassWithMultiContainerCgroupID(t *testing.T) {
+	t.Parallel()
+
+	policy := makeStaticPolicy(t, true)
+	assert.NotNil(t, policy)
+	policy.CgroupV2Env = true
+	policy.aliveCgroupID = make(map[uint64]time.Time)
+	policy.isContainerCgroupExistFunc = func(_, _ string) (bool, error) {
+		return true, nil
+	}
+	policy.metaServer.PodFetcher = &pod.PodFetcherStub{
+		PodList: []*v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-name",
+					Namespace: "test-namespace",
+					UID:       "test-pod-uid",
+					Annotations: map[string]string{
+						consts.PodAnnotationNetClassKey: testSharedNetClsId,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "test-container-name-1",
+						},
+						{
+							Name: "test-container-name-2",
+						},
+					},
+				},
+				Status: v1.PodStatus{
+					ContainerStatuses: []v1.ContainerStatus{
+						{
+							Name:        "test-container-name-1",
+							ContainerID: "test-container-id-1",
+						},
+						{
+							Name:        "test-container-name-2",
+							ContainerID: "test-container-id-2",
+						},
+					},
+				},
+			},
+		},
+	}
+	policy.metaServer.ExternalManager = &external.DummyExternalManager{
+		CgroupIDManager: &cgroupid.CgroupIDManagerStub{
+			ContainerCGroupIDMap: map[string]map[string]uint64{
+				"test-pod-uid": {
+					"test-container-id-1": 314125,
+					"test-container-id-2": 242352,
+				},
+			},
+		},
+		NetworkManager: &network.NetworkManagerStub{
+			NetClassMap: map[string]map[string]*common.NetClsData{},
+		},
+	}
+
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	releaseCalls := func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}
+	defer releaseCalls()
+	applied := make(chan struct {
+		containerID string
+		netClsData  common.NetClsData
+		dataPtr     *common.NetClsData
+	}, 2)
+	policy.applyNetClassFunc = func(_, containerID string, data *common.NetClsData) error {
+		entered <- struct{}{}
+		<-release
+		applied <- struct {
+			containerID string
+			netClsData  common.NetClsData
+			dataPtr     *common.NetClsData
+		}{
+			containerID: containerID,
+			netClsData:  *data,
+			dataPtr:     data,
+		}
+		return nil
+	}
+
+	policy.applyNetClass()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for applyNetClassFunc call %d", i+1)
+		}
+	}
+	releaseCalls()
+
+	got := make(map[string]struct {
+		netClsData common.NetClsData
+		dataPtr    *common.NetClsData
+	})
+	for i := 0; i < 2; i++ {
+		var record struct {
+			containerID string
+			netClsData  common.NetClsData
+			dataPtr     *common.NetClsData
+		}
+		select {
+		case record = <-applied:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for applyNetClassFunc result %d", i+1)
+		}
+		got[record.containerID] = struct {
+			netClsData common.NetClsData
+			dataPtr    *common.NetClsData
+		}{
+			netClsData: record.netClsData,
+			dataPtr:    record.dataPtr,
+		}
+	}
+
+	assert.Equal(t, uint64(314125), got["test-container-id-1"].netClsData.CgroupID)
+	assert.Equal(t, uint64(242352), got["test-container-id-2"].netClsData.CgroupID)
+	assert.NotSame(t, got["test-container-id-1"].dataPtr, got["test-container-id-2"].dataPtr)
 }
 
 type errCgroupIDManager struct {
