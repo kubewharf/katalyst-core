@@ -39,6 +39,9 @@ func leastAllocatedScoreStrategy(requested, allocatable v1.ResourceList, resourc
 		weightSum += weight
 	}
 
+	if weightSum == 0 {
+		return 0
+	}
 	return score / weightSum
 }
 
