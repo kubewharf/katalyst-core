@@ -39,6 +39,7 @@ type NetworkOptions struct {
 	NetClassIDResourceAllocationAnnotationKey       string
 	NetBandwidthResourceAllocationAnnotationKey     string
 	NICHealthCheckers                               []string
+	NICFilters                                      []string
 	EnableNICAllocationReactor                      bool
 }
 
@@ -115,6 +116,8 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.NICHealthCheckers, "network-resource-plugin-nic-health-checkers",
 		o.NICHealthCheckers, "list of nic health checkers, '*' run all on-by-default checkers,"+
 			"'ip' run checker 'ip', '-ip' not run checker 'ip'")
+	fs.StringSliceVar(&o.NICFilters, "network-resource-plugin-nic-filters",
+		o.NICFilters, "list of allocatable nic filters, disabled by default")
 }
 
 func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
@@ -137,6 +140,7 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetBandwidthResourceAllocationAnnotationKey = o.NetBandwidthResourceAllocationAnnotationKey
 	conf.EnableNICAllocationReactor = o.EnableNICAllocationReactor
 	conf.NICHealthCheckers = o.NICHealthCheckers
+	conf.NICFilters = o.NICFilters
 
 	return nil
 }

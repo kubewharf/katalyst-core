@@ -44,6 +44,8 @@ type NetworkQRMPluginConfig struct {
 	EnableNICAllocationReactor bool
 	// NICHealthCheckers is the list of enabled NIC health checkers
 	NICHealthCheckers []string
+	// NICFilters is the list of enabled allocatable NIC filters
+	NICFilters []string
 }
 
 type NetClassConfig struct {
