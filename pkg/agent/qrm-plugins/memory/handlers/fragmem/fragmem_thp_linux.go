@@ -60,6 +60,14 @@ var thpEnabledPath = procfsm.TransparentHugepageEnabledPath
 // It is a var (not const) so tests can override it with a temp file.
 var thpShmemEnabledPath = procfsm.TransparentHugepageShmemEnabledPath
 
+// minFreeKbytesPath is the procfs path for vm.min_free_kbytes.
+// It is a var (not const) so tests can override it with a temp file.
+var minFreeKbytesPath = procfsm.VMMinFreeKbytesPath
+
+// applyTHPModeAtPath writes THP mode to sysfs.
+// It is a var (not const) so tests can stub side effects around THP changes.
+var applyTHPModeAtPath = procfsm.ApplyTransparentHugepageEnabledAtPath
+
 type thpDecision int
 
 const (
@@ -235,7 +243,7 @@ func setTHPModeAtPathIfExists(path, mode string) error {
 	return err
 }
 
-func setTHPModeAtPath(path, mode string) error {
+func setTHPModeAtPath(path, mode string) (retErr error) {
 	normalizedMode := normalizeTHPMode(mode)
 	switch normalizedMode {
 	case thpModeAdvise, thpModeDeny, thpModeMadvise, thpModeAlways, thpModeNever:
@@ -258,7 +266,23 @@ func setTHPModeAtPath(path, mode string) error {
 		return nil
 	}
 
-	if err := procfsm.ApplyTransparentHugepageEnabledAtPath(path, normalizedMode); err != nil {
+	if shouldPreserveMinFreeKbytes(path, normalizedMode) {
+		restoreMinFreeKbytes, err := saveMinFreeKbytes()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := restoreMinFreeKbytes(); err != nil {
+				if retErr == nil {
+					retErr = err
+				} else {
+					retErr = k8serrors.NewAggregate([]error{retErr, err})
+				}
+			}
+		}()
+	}
+
+	if err := applyTHPModeAtPath(path, normalizedMode); err != nil {
 		return fmt.Errorf("set THP mode failed, write %q to %s: %w", normalizedMode, path, err)
 	}
 
@@ -270,6 +294,29 @@ func setTHPModeAtPath(path, mode string) error {
 
 	general.Infof("THP set to %s by writing %q to %s", normalizedMode, normalizedMode, path)
 	return nil
+}
+
+func shouldPreserveMinFreeKbytes(path, mode string) bool {
+	return path == thpEnabledPath && mode == thpModeMadvise
+}
+
+func saveMinFreeKbytes() (func() error, error) {
+	content, err := procfsm.ReadFileNoStat(minFreeKbytesPath)
+	if err != nil {
+		return nil, fmt.Errorf("read vm.min_free_kbytes %s failed: %w", minFreeKbytesPath, err)
+	}
+
+	saved := append([]byte(nil), content...)
+	savedDisplay := strings.TrimSpace(string(saved))
+	general.Infof("saved vm.min_free_kbytes=%q before setting THP to %s", savedDisplay, thpModeMadvise)
+
+	return func() error {
+		if err := os.WriteFile(minFreeKbytesPath, saved, 0o644); err != nil {
+			return fmt.Errorf("restore vm.min_free_kbytes %s to %q failed: %w", minFreeKbytesPath, savedDisplay, err)
+		}
+		general.Infof("restored vm.min_free_kbytes=%q after setting THP to %s", savedDisplay, thpModeMadvise)
+		return nil
+	}, nil
 }
 
 func normalizeTHPMode(mode string) string {
