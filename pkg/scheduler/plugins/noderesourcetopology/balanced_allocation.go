@@ -41,6 +41,13 @@ func balancedAllocationScoreStrategy(requested, allocatable v1.ResourceList, res
 		resourceFractions = append(resourceFractions, resourceFraction)
 	}
 
+	if len(resourceFractions) == 0 {
+		return 0
+	}
+	// Sample variance needs two values; a single resource has no imbalance.
+	if len(resourceFractions) == 1 {
+		return framework.MaxNodeScore
+	}
 	variance := stat.Variance(resourceFractions, nil)
 
 	// Since the variance is between positive fractions, it will be positive fraction. 1-variance lets the
