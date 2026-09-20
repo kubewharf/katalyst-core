@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -812,6 +813,103 @@ func TestRegisterSubDirEventWatcher(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		select {
 		case _, ok := <-syncCh:
+			return !ok
+		default:
+			return false
+		}
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestRegisterFileEventWatcher(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stop := make(chan struct{})
+	defer close(stop)
+
+	watcherCh, err := RegisterFileEventWatcher(stop, FileWatcherInfo{
+		Path: []string{dir},
+		Op:   fsnotify.Create | fsnotify.Write,
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, watcherCh)
+
+	waitNotify := func(ch <-chan struct{}, timeout time.Duration) bool {
+		select {
+		case _, ok := <-ch:
+			return ok
+		case <-time.After(timeout):
+			return false
+		}
+	}
+
+	// Create a file in the watched directory -> expect notification.
+	created := filepath.Join(dir, "created.txt")
+	time.Sleep(200 * time.Millisecond) // allow watcher goroutine to add the path
+	assert.NoError(t, os.WriteFile(created, []byte("hello"), 0o644))
+	assert.True(t, waitNotify(watcherCh, 2*time.Second), "expect notification on file create")
+
+	// Filename filter: only notifications matching Filename should pass.
+	dir2 := t.TempDir()
+	stop2 := make(chan struct{})
+	defer close(stop2)
+
+	watcherCh2, err := RegisterFileEventWatcher(stop2, FileWatcherInfo{
+		Filename: "target.txt",
+		Path:     []string{dir2},
+		Op:       fsnotify.Create | fsnotify.Write,
+	})
+	assert.NoError(t, err)
+	time.Sleep(200 * time.Millisecond) // allow watcher goroutine to add the path
+
+	// Non-matching filename should be filtered out.
+	assert.NoError(t, os.WriteFile(filepath.Join(dir2, "other.txt"), []byte("x"), 0o644))
+	assert.False(t, waitNotify(watcherCh2, 300*time.Millisecond), "non-matching filename should be filtered")
+
+	// Matching filename should produce a notification.
+	assert.NoError(t, os.WriteFile(filepath.Join(dir2, "target.txt"), []byte("x"), 0o644))
+	assert.True(t, waitNotify(watcherCh2, 2*time.Second), "matching filename should notify")
+}
+
+func TestRegisterMultipleFileEventWatchers(t *testing.T) {
+	t.Parallel()
+
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	stop := make(chan struct{})
+
+	aggregatedCh, err := RegisterMultipleFileEventWatchers(
+		stop,
+		FileWatcherInfo{Path: []string{dirA}, Op: fsnotify.Create | fsnotify.Write},
+		FileWatcherInfo{Path: []string{dirB}, Op: fsnotify.Create | fsnotify.Write},
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, aggregatedCh)
+
+	waitNotify := func(timeout time.Duration) bool {
+		select {
+		case _, ok := <-aggregatedCh:
+			return ok
+		case <-time.After(timeout):
+			return false
+		}
+	}
+
+	time.Sleep(200 * time.Millisecond) // allow watcher goroutines to add their paths
+
+	// Event in the first underlying watcher's directory -> aggregated signal.
+	assert.NoError(t, os.WriteFile(filepath.Join(dirA, "a.txt"), []byte("x"), 0o644))
+	assert.True(t, waitNotify(2*time.Second), "expect signal from first watcher")
+
+	// Event in the second underlying watcher's directory -> aggregated signal.
+	assert.NoError(t, os.WriteFile(filepath.Join(dirB, "b.txt"), []byte("x"), 0o644))
+	assert.True(t, waitNotify(2*time.Second), "expect signal from second watcher")
+
+	// Closing stop should close the aggregated channel.
+	close(stop)
+	assert.Eventually(t, func() bool {
+		select {
+		case _, ok := <-aggregatedCh:
 			return !ok
 		default:
 			return false
