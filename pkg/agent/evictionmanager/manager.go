@@ -21,6 +21,7 @@ package evictionmanager // import "github.com/kubewharf/katalyst-core/pkg/evicti
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,7 +56,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
@@ -157,15 +157,6 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	return innerEvictionPluginInitializers
 }
 
-// NewPodKillerInitializers returns a map of pod killer initializers
-func NewPodKillerInitializers() map[string]podkiller.InitFunc {
-	podKillerInitializers := make(map[string]podkiller.InitFunc)
-	podKillerInitializers[consts.KillerNameEvictionKiller] = podkiller.NewEvictionAPIKiller
-	podKillerInitializers[consts.KillerNameDeletionKiller] = podkiller.NewDeletionAPIKiller
-	podKillerInitializers[consts.KillerNameContainerKiller] = podkiller.NewContainerKiller
-	return podKillerInitializers
-}
-
 // initializeKiller initializes a single killer instance
 func initializeKiller(killerType string, initializer podkiller.InitFunc, conf *pkgconfig.Configuration,
 	kubeClient kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter,
@@ -177,38 +168,14 @@ func initializeKiller(killerType string, initializer podkiller.InitFunc, conf *p
 	return killer, nil
 }
 
-// initializeQoSKillers initializes QoS-specific killers
-func initializeQoSKillers(conf *pkgconfig.Configuration, initializers map[string]podkiller.InitFunc,
-	kubeClient kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter,
-) (map[string]podkiller.Killer, error) {
-	killerMap := make(map[string]podkiller.Killer, len(conf.QoSPodKillers))
-
-	for qosLevel, killerType := range conf.QoSPodKillers {
-		initializer, ok := initializers[killerType]
-		if !ok {
-			return nil, fmt.Errorf("unsupported QoS killer %v for QoS %v", killerType, qosLevel)
-		}
-
-		killer, err := initializeKiller(killerType, initializer, conf,
-			kubeClient, recorder, emitter)
-		if err != nil {
-			return nil, fmt.Errorf("failed to init QoS killer %v for QoS %v: %v", killerType, qosLevel, err)
-		}
-
-		killerMap[qosLevel] = killer
-	}
-
-	return killerMap, nil
-}
-
-func initializeQoSAwareKiller(
+func initializeRuleBasedKiller(
 	initializers map[string]podkiller.InitFunc,
+	ruleInitializers map[string]podkiller.RuleInitFunc,
 	conf *pkgconfig.Configuration,
 	kubeClient kubernetes.Interface,
 	recorder events.EventRecorder,
 	emitter metrics.MetricEmitter,
 ) (podkiller.Killer, error) {
-	// Initialize default killer
 	initializer, ok := initializers[conf.PodKiller]
 	if !ok {
 		return nil, fmt.Errorf("unsupported pod killer %v", conf.PodKiller)
@@ -220,13 +187,52 @@ func initializeQoSAwareKiller(
 		return nil, err
 	}
 
-	// Initialize QoS-aware killers
-	killerMap, err := initializeQoSKillers(conf, initializers, kubeClient, recorder, emitter)
-	if err != nil {
-		return nil, err
+	killerCache := map[string]podkiller.Killer{
+		conf.PodKiller: defaultKiller,
+	}
+	factory := func(killerName string) (podkiller.Killer, error) {
+		if killer, ok := killerCache[killerName]; ok {
+			return killer, nil
+		}
+		initializer, ok := initializers[killerName]
+		if !ok {
+			return nil, fmt.Errorf("unsupported pod killer %v", killerName)
+		}
+
+		killer, err := initializeKiller(killerName, initializer, conf, kubeClient, recorder, emitter)
+		if err != nil {
+			return nil, err
+		}
+		killerCache[killerName] = killer
+		return killer, nil
 	}
 
-	return podkiller.NewQoSAwareKiller(conf.QoSConfiguration, defaultKiller, killerMap)
+	ruleNames := make([]string, 0, len(ruleInitializers))
+	for ruleName := range ruleInitializers {
+		ruleNames = append(ruleNames, ruleName)
+	}
+	sort.Strings(ruleNames)
+
+	rules := make([]podkiller.KillerRule, 0, len(ruleNames))
+	for _, ruleName := range ruleNames {
+		initRule, ok := ruleInitializers[ruleName]
+		if !ok {
+			return nil, fmt.Errorf("unsupported pod killer rule %v", ruleName)
+		}
+		if initRule == nil {
+			return nil, fmt.Errorf("killer rule initializer %q must not be nil", ruleName)
+		}
+		rule, err := initRule(conf, factory)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init killer rule %v: %v", ruleName, err)
+		}
+		if rule == nil {
+			return nil, fmt.Errorf("killer rule %q must not be nil", ruleName)
+		}
+		rules = append(rules, rule)
+	}
+
+	return podkiller.NewRuleBasedKiller(defaultKiller, rules)
 }
 
 func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.EventRecorder,
@@ -234,9 +240,10 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 ) (*EvictionManger, error) {
 	queue := rule.NewFIFOEvictionQueue(conf.EvictionBurst)
 
-	killer, err := initializeQoSAwareKiller(NewPodKillerInitializers(), conf, genericClient.KubeClient, recorder, emitter)
+	killer, err := initializeRuleBasedKiller(podkiller.GetRegisteredKillerInitializers(), podkiller.GetRegisteredKillerRuleInitializers(),
+		conf, genericClient.KubeClient, recorder, emitter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init QoS killer: %v", err)
+		return nil, fmt.Errorf("failed to init rule-based killer: %v", err)
 	}
 
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, metaServer.PodFetcher, genericClient.KubeClient)
