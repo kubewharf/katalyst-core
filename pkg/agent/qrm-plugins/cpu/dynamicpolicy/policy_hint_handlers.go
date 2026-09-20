@@ -265,6 +265,7 @@ func (p *DynamicPolicy) calculateHints(
 
 	totalAvailableCPUs := machine.NewCPUSet()
 	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req, numaNumber)
 	for _, nodeID := range numaNodes {
@@ -283,7 +284,7 @@ func (p *DynamicPolicy) calculateHints(
 			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
 		} else {
-			availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs)
+			availableCPUs := machineState[nodeID].GetAvailableCPUSet(reservedCPUs)
 			numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
 			totalAvailableCPUs.Add(availableCPUs.ToSliceNoSortInt()...)
 		}
@@ -641,6 +642,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 
 	machineState := p.state.GetMachineState()
 	podEntries := p.state.GetPodEntries()
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	var hints map[string]*pluginapi.ListOfTopologyHints
 
@@ -668,7 +670,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 				return nil, fmt.Errorf("snb port not support cross numa")
 			}
 			nodeID := numaSet.ToSliceInt()[0]
-			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(reservedCPUs)
 			originRequest, _ := allocationInfo.GetPodAggregatedRequest()
 
 			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request:%.3f->%.3f)",
@@ -731,7 +733,8 @@ func (p *DynamicPolicy) filterNUMANodesByNonBinding(
 		return machine.NewCPUSet()
 	}
 
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+	reservedCPUs := p.state.GetReservedCPUs()
+	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(reservedCPUs, nil,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding)).Size()
 	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
@@ -749,9 +752,10 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 	machineState state.NUMANodeMap, numaNodes []int, numaNumber int,
 ) machine.CPUSet {
 	filteredNUMANodes := make([]int, 0, len(numaNodes))
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	for _, nodeID := range numaNodes {
-		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(reservedCPUs)
 		if nonBindingNUMAs.Contains(nodeID) {
 			// take this non-binding NUMA for candidate shared_cores with numa_binding,
 			// won't cause non-binding shared_cores in short supply

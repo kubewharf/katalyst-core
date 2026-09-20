@@ -1309,6 +1309,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	newEntries := make(state.PodEntries)
 	dedicatedCPUSet := machine.NewCPUSet()
 	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	// calculate NUMAs without actual numa_binding reclaimed pods
 	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
@@ -1441,7 +1442,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().
-		Difference(p.reservedCPUs).
+		Difference(reservedCPUs).
 		Difference(dedicatedCPUSet).
 		Difference(sharedBindingNUMACPUs).
 		Difference(notAllocatablePoolsCPUs)
@@ -1622,11 +1623,12 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 }
 
 func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet) error {
+	reservedCPUs := p.state.GetReservedCPUs()
 	// if there is no block for state.PoolNameReclaim pool,
 	// we must make it existing here even if cause overlap
 	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
 		notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
-		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet).Difference(notAllocatablePoolsCPUs)
+		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(reservedCPUs).Difference(pooledUnionDedicatedCPUSet).Difference(notAllocatablePoolsCPUs)
 		if reclaimPoolCPUSet.IsEmpty() {
 			reclaimPoolCPUSet = p.reservedReclaimedCPUSet.Clone()
 			general.Infof("fallback takeByNUMABalance for reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())

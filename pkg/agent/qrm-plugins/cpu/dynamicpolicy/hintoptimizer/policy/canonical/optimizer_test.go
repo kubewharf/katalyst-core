@@ -62,6 +62,7 @@ func TestNewCanonicalHintOptimizer(t *testing.T) {
 		State:        stateImpl,
 		ReservedCPUs: machine.NewCPUSet(0),
 	}
+	stateImpl.SetReservedCPUs(options.ReservedCPUs)
 
 	optimizer, err := NewCanonicalHintOptimizer(options)
 	require.NoError(t, err)
@@ -746,6 +747,9 @@ func TestCanonicalHintOptimizer_OptimizeHints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			if tt.fields.state != nil {
+				tt.fields.state.SetReservedCPUs(tt.fields.reservedCPUs)
+			}
 			o := &canonicalHintOptimizer{
 				state:                         tt.fields.state,
 				reservedCPUs:                  tt.fields.reservedCPUs,

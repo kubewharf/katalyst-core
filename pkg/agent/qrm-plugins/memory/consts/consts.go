@@ -25,6 +25,7 @@ const (
 
 	MemoryPluginDynamicPolicyName = "qrm_memory_plugin_" + MemoryResourcePluginPolicyNameDynamic
 	ClearResidualState            = MemoryPluginDynamicPolicyName + "_clear_residual_state"
+	SyncReservedMemory            = MemoryPluginDynamicPolicyName + "_sync_reserved_memory"
 	SyncMemoryStateFromSpec       = MemoryPluginDynamicPolicyName + "_sync_memory_state_form_spec"
 	CheckMemSet                   = MemoryPluginDynamicPolicyName + "_check_mem_set"
 	ApplyExternalCGParams         = MemoryPluginDynamicPolicyName + "_apply_external_cg_params"

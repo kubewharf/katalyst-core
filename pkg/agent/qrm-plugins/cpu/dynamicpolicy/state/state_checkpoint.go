@@ -160,6 +160,20 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	return checkpoint
 }
 
+func (sc *stateCheckpoint) GetReservedCPUs() machine.CPUSet {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetReservedCPUs()
+}
+
+func (sc *stateCheckpoint) SetReservedCPUs(reservedCPUs machine.CPUSet) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetReservedCPUs(reservedCPUs)
+}
+
 func (sc *stateCheckpoint) GetMachineState() NUMANodeMap {
 	sc.RLock()
 	defer sc.RUnlock()

@@ -75,11 +75,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
@@ -93,6 +95,207 @@ type topoTestCase struct {
 	numaNum     int
 	fakeNUMANum int
 	memGB       int
+}
+
+type errorKubeletConfigFetcher struct {
+	err error
+}
+
+func (f *errorKubeletConfigFetcher) GetKubeletConfig(context.Context) (*native.KubeletConfiguration, error) {
+	return nil, f.err
+}
+
+func quantityBytes(value string) uint64 {
+	quantity := resource.MustParse(value)
+	return uint64(quantity.Value())
+}
+
+func makeReservedMemorySyncPolicy(t *testing.T, extraResourceNames []string,
+	initialReservedMemory map[v1.ResourceName]map[int]uint64, kubeletConfig native.KubeletConfiguration,
+) *DynamicPolicy {
+	t.Helper()
+
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+	machineInfo, err := machine.GenerateDummyMachineInfo(2, 16)
+	require.NoError(t, err)
+
+	conf := config.NewConfiguration()
+	conf.UseKubeletReservedConfig = true
+	conf.ExtraMemoryResources = extraResourceNames
+
+	stateImpl, err := state.NewCheckpointState(
+		&statedirectory.StateDirectoryConfiguration{StateFileDirectory: t.TempDir()},
+		memoryPluginStateFileName,
+		memconsts.MemoryResourcePluginPolicyNameDynamic,
+		topology,
+		machineInfo,
+		nil,
+		initialReservedMemory,
+		false,
+		metrics.DummyMetrics{},
+		extraResourceNames,
+	)
+	require.NoError(t, err)
+
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &metaserveragent.MetaAgent{
+			KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(kubeletConfig),
+		},
+	}
+	return &DynamicPolicy{
+		conf:               conf,
+		emitter:            metrics.DummyMetrics{},
+		metaServer:         metaServer,
+		topology:           topology,
+		state:              stateImpl,
+		extraResourceNames: extraResourceNames,
+	}
+}
+
+func TestDynamicPolicySyncReservedMemory(t *testing.T) {
+	t.Parallel()
+
+	memoryResource := v1.ResourceMemory
+	hugePagesResource := v1.ResourceName(v1.ResourceHugePagesPrefix + "2Mi")
+	zeroReservedMemory := func(resources ...v1.ResourceName) map[v1.ResourceName]map[int]uint64 {
+		reservedMemory := make(map[v1.ResourceName]map[int]uint64, len(resources))
+		for _, resourceName := range resources {
+			reservedMemory[resourceName] = map[int]uint64{0: 0, 1: 0}
+		}
+		return reservedMemory
+	}
+
+	t.Run("no-op keeps state unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		policy := makeReservedMemorySyncPolicy(t, nil, zeroReservedMemory(memoryResource), native.KubeletConfiguration{})
+		oldMachineState := policy.state.GetMachineState()
+		oldPodEntries := policy.state.GetPodResourceEntries()
+
+		require.NoError(t, policy.syncReservedMemoryOnce())
+
+		assert.Equal(t, zeroReservedMemory(memoryResource), policy.state.GetReservedMemory())
+		assert.Equal(t, oldMachineState, policy.state.GetMachineState())
+		assert.Equal(t, oldPodEntries, policy.state.GetPodResourceEntries())
+	})
+
+	t.Run("updates memory and hugepages and reports allocatable", func(t *testing.T) {
+		t.Parallel()
+
+		kubeletConfig := native.KubeletConfiguration{
+			SystemReserved: map[string]string{string(memoryResource): "4Gi"},
+			ReservedMemory: []native.MemoryReservation{
+				{
+					NumaNode: 0,
+					Limits: v1.ResourceList{
+						hugePagesResource: resource.MustParse("512Mi"),
+					},
+				},
+				{
+					NumaNode: 1,
+					Limits: v1.ResourceList{
+						hugePagesResource: resource.MustParse("512Mi"),
+					},
+				},
+			},
+		}
+		policy := makeReservedMemorySyncPolicy(t, []string{string(hugePagesResource)},
+			zeroReservedMemory(memoryResource, hugePagesResource), kubeletConfig)
+
+		require.NoError(t, policy.syncReservedMemoryOnce())
+
+		reservedMemory := policy.state.GetReservedMemory()
+		assert.Equal(t, quantityBytes("2Gi"), reservedMemory[memoryResource][0])
+		assert.Equal(t, quantityBytes("2Gi"), reservedMemory[memoryResource][1])
+		assert.Equal(t, quantityBytes("512Mi"), reservedMemory[hugePagesResource][0])
+		assert.Equal(t, quantityBytes("512Mi"), reservedMemory[hugePagesResource][1])
+
+		machineState := policy.state.GetMachineState()
+		assert.Equal(t, quantityBytes("6Gi"), machineState[memoryResource][0].Allocatable)
+		assert.Equal(t, quantityBytes("1536Mi"), machineState[hugePagesResource][0].Allocatable)
+
+		response, err := policy.GetTopologyAwareAllocatableResources(
+			context.Background(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+		require.NoError(t, err)
+		assert.Equal(t, float64(quantityBytes("12Gi")),
+			response.AllocatableResources[string(memoryResource)].AggregatedAllocatableQuantity)
+		assert.Equal(t, float64(quantityBytes("3Gi")),
+			response.AllocatableResources[string(hugePagesResource)].AggregatedAllocatableQuantity)
+	})
+
+	t.Run("preserves allocations when reservation exceeds free memory", func(t *testing.T) {
+		t.Parallel()
+
+		policy := makeReservedMemorySyncPolicy(t, nil, zeroReservedMemory(memoryResource), native.KubeletConfiguration{
+			SystemReserved: map[string]string{string(memoryResource): "4Gi"},
+		})
+		perNUMAMemory := quantityBytes("8Gi")
+		allNUMAs := machine.NewCPUSet(0, 1)
+		podEntries := state.PodResourceEntries{
+			memoryResource: {
+				"pod": {
+					"main": {
+						AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+							PodUid:        "pod",
+							ContainerName: "main",
+							ContainerType: pluginapi.ContainerType_MAIN,
+						}, consts.PodAnnotationQoSLevelDedicatedCores),
+						AggregatedQuantity:   perNUMAMemory * 2,
+						NumaAllocationResult: allNUMAs,
+						TopologyAwareAllocations: map[int]uint64{
+							0: perNUMAMemory,
+							1: perNUMAMemory,
+						},
+					},
+				},
+			},
+		}
+		machineState, err := state.GenerateMachineStateFromPodEntries(
+			policy.state.GetMachineInfo(), policy.state.GetMemoryTopology(), podEntries,
+			policy.state.GetMachineState(), policy.state.GetReservedMemory(), nil)
+		require.NoError(t, err)
+		policy.state.SetPodResourceEntries(podEntries, false)
+		policy.state.SetMachineState(machineState, false)
+
+		require.NoError(t, policy.syncReservedMemoryOnce())
+
+		assert.Equal(t, podEntries, policy.state.GetPodResourceEntries())
+		for _, numaID := range []int{0, 1} {
+			numaState := policy.state.GetMachineState()[memoryResource][numaID]
+			assert.Equal(t, quantityBytes("2Gi"), numaState.SystemReserved)
+			assert.Equal(t, perNUMAMemory, numaState.Allocated)
+			assert.Equal(t, perNUMAMemory, numaState.Allocatable)
+			assert.Zero(t, numaState.Free)
+		}
+	})
+
+	t.Run("invalid reservation leaves state unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		policy := makeReservedMemorySyncPolicy(t, nil, zeroReservedMemory(memoryResource), native.KubeletConfiguration{
+			SystemReserved: map[string]string{string(memoryResource): "20Gi"},
+		})
+		oldMachineState := policy.state.GetMachineState()
+
+		require.Error(t, policy.syncReservedMemoryOnce())
+
+		assert.Equal(t, zeroReservedMemory(memoryResource), policy.state.GetReservedMemory())
+		assert.Equal(t, oldMachineState, policy.state.GetMachineState())
+	})
+
+	t.Run("kubelet fetch failure leaves state unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		policy := makeReservedMemorySyncPolicy(t, nil, zeroReservedMemory(memoryResource), native.KubeletConfiguration{})
+		oldMachineState := policy.state.GetMachineState()
+		policy.metaServer.KubeletConfigFetcher = &errorKubeletConfigFetcher{err: fmt.Errorf("fetch kubelet config")}
+
+		require.Error(t, policy.syncReservedMemoryOnce())
+
+		assert.Equal(t, zeroReservedMemory(memoryResource), policy.state.GetReservedMemory())
+		assert.Equal(t, oldMachineState, policy.state.GetMachineState())
+	})
 }
 
 var fakeConf = &config.Configuration{
