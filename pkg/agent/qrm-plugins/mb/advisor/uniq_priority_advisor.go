@@ -52,7 +52,7 @@ type uniqPriorityAdvisor struct {
 	xDomGroups sets.String
 	// groupNeverThrottles are  the groups not to throttle regardless of resource pressure status
 	groupNeverThrottles sets.String
-	// groupCapacityInMB specifies domain capacity demanded by control groups other than the base capacity
+	// groupCapacityInMB specifies domain capacity demanded by control groups other than the baseline capacity
 	groupCapacityInMB map[string]int
 
 	quotaStrategy quota.Decider
@@ -64,7 +64,7 @@ type uniqPriorityAdvisor struct {
 }
 
 func (a *uniqPriorityAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
-	a.emitStatsMtrics(domainsMon)
+	a.emitStatsMetrics(domainsMon)
 
 	// identify mb incoming usage etc since the capacity applies to incoming traffic
 	domIncomingInfo, err := a.calcIncomingDomainStats(ctx, domainsMon)
