@@ -27,6 +27,7 @@ type MBQRMPluginConfig struct {
 	ActiveTrafficMBThreshold int
 
 	CCDCapKp     float64
+	CCDCapKq     float64
 	CCDCapGroups map[string]int
 
 	// DomainQoSAwareCapacityPCT keeps qos group customized mb upper capacity percentage it allows
