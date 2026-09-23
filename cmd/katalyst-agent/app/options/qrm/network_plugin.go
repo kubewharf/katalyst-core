@@ -40,6 +40,8 @@ type NetworkOptions struct {
 	NetBandwidthResourceAllocationAnnotationKey     string
 	NICHealthCheckers                               []string
 	EnableNICAllocationReactor                      bool
+	NICSelectionPolicy                              string
+	NICNameEnv                                      string
 }
 
 type NetClassOptions struct {
@@ -70,6 +72,8 @@ func NewNetworkOptions() *NetworkOptions {
 		NetBandwidthResourceAllocationAnnotationKey:     "qrm.katalyst.kubewharf.io/net_bandwidth",
 		EnableNICAllocationReactor:                      true,
 		NICHealthCheckers:                               []string{"*"},
+		NICSelectionPolicy:                              "random",
+		NICNameEnv:                                      "KATALYST_NIC_NAME",
 	}
 }
 
@@ -115,6 +119,10 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.NICHealthCheckers, "network-resource-plugin-nic-health-checkers",
 		o.NICHealthCheckers, "list of nic health checkers, '*' run all on-by-default checkers,"+
 			"'ip' run checker 'ip', '-ip' not run checker 'ip'")
+	fs.StringVar(&o.NICSelectionPolicy, "network-resource-plugin-nic-selection-policy",
+		o.NICSelectionPolicy, "the policy to pick one NIC from filtered candidates, supported: random, first, last, balance")
+	fs.StringVar(&o.NICNameEnv, "network-resource-plugin-nic-name-env",
+		o.NICNameEnv, "the env name used to pass the selected NIC name to the container, empty to disable")
 }
 
 func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
@@ -137,6 +145,8 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetBandwidthResourceAllocationAnnotationKey = o.NetBandwidthResourceAllocationAnnotationKey
 	conf.EnableNICAllocationReactor = o.EnableNICAllocationReactor
 	conf.NICHealthCheckers = o.NICHealthCheckers
+	conf.NICSelectionPolicy = o.NICSelectionPolicy
+	conf.NICNameEnv = o.NICNameEnv
 
 	return nil
 }
