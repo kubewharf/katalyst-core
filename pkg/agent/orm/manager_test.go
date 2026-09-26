@@ -35,6 +35,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
@@ -277,6 +278,104 @@ func TestIsSkippedContainer(t *testing.T) {
 			t.Parallel()
 			res := isSkippedContainer(tc.Pod, tc.Container)
 			assert.Equal(t, res, tc.Expected)
+		})
+	}
+}
+
+func TestIsSkippedPod(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		Name      string
+		Pod       *v1.Pod
+		Expected  bool
+		ExpectErr bool
+	}{
+		{
+			Name: "daemon and shared",
+			Pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testpod",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind: "DaemonSet",
+						},
+					},
+				},
+			},
+			ExpectErr: false,
+			Expected:  true,
+		},
+		{
+			Name: "daemon and system",
+			Pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testpod",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind: "DaemonSet",
+						},
+					},
+				},
+			},
+			ExpectErr: false,
+			Expected:  false,
+		},
+		{
+			Name: "deployment",
+			Pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testpod",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind: "Deployment",
+						},
+					},
+				},
+			},
+			ExpectErr: false,
+			Expected:  false,
+		},
+		{
+			Name: "fail",
+			Pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testpod",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: "unknow value",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind: "DaemonSet",
+						},
+					},
+				},
+			},
+			ExpectErr: true,
+			Expected:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+			qosCfg := generic.NewQoSConfiguration()
+			skip, err := isSkippedPod(tc.Pod, qosCfg)
+			if tc.ExpectErr {
+				assert.Error(t, err)
+			} else {
+				assert.Equal(t, tc.Expected, skip)
+			}
 		})
 	}
 }
