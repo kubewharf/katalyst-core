@@ -18,6 +18,7 @@ package qrm
 
 import (
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 )
 
@@ -44,10 +45,14 @@ type GenericQRMPluginConfiguration struct {
 	EnableInMemoryState bool
 	// TopologyAllocationAnnotationKey is the annotation key that indicates the topology-aware allocations of containers.
 	TopologyAllocationAnnotationKey string
+	// EnableReclaimedResourceAllocatableReporting controls both headroom feature-gate
+	// negotiation and reclaimed CPU/memory allocatable reporting.
+	EnableReclaimedResourceAllocatableReporting bool
 	*statedirectory.StateDirectoryConfiguration
 }
 
 type QRMPluginsConfiguration struct {
+	ResctrlConfig *resctrl.ResctrlConfig
 	*CPUQRMPluginConfig
 	*MemoryQRMPluginConfig
 	*NetworkQRMPluginConfig
@@ -71,6 +76,7 @@ func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
 
 func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 	return &QRMPluginsConfiguration{
+		ResctrlConfig:          resctrl.NewResctrlConfig(),
 		CPUQRMPluginConfig:     NewCPUQRMPluginConfig(),
 		MemoryQRMPluginConfig:  NewMemoryQRMPluginConfig(),
 		NetworkQRMPluginConfig: NewNetworkQRMPluginConfig(),

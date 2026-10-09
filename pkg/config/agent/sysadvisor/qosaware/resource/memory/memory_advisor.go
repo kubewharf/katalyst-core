@@ -28,6 +28,9 @@ type MemoryAdvisorConfiguration struct {
 	*headroom.MemoryHeadroomPolicyConfiguration
 	MemoryAdvisorPlugins []types.MemoryAdvisorPluginName
 	MinCriticalWatermark int64
+	// ReclaimedMemoryLimitMargin reserves bytes above active per-NUMA reclaimed
+	// usage. Zero preserves the original memory limit calculation.
+	ReclaimedMemoryLimitMargin int64
 	*plugins.MemoryAdvisorPluginsConfiguration
 }
 

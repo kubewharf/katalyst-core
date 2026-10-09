@@ -178,7 +178,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 }
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
-	if len(data.CPUs) != 0 {
+	if len(data.CPUs) != 0 || data.WriteEmptyCPUs {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
@@ -194,7 +194,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 		}
 	}
 
-	if len(data.Mems) != 0 {
+	if len(data.Mems) != 0 || data.WriteEmptyMems {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {
@@ -213,6 +213,13 @@ func (m *manager) ApplyCPUSetPartition(absCgroupPath string, partitionFlag commo
 	}
 
 	return nil
+}
+
+// ApplySchedLoadBalance is a no-op on cgroup v2: the unified hierarchy removed
+// the cpuset.sched_load_balance knob in favor of the partition mechanism.
+// Callers that need equivalent semantics on v2 should use ApplyCPUSetPartition.
+func (m *manager) ApplySchedLoadBalance(_ string, _ bool) error {
+	return fmt.Errorf("cpuset.sched_load_balance: %w on cgroup v2", common.ErrNotSupported)
 }
 
 func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {
@@ -312,15 +319,9 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 }
 
 func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
-	const fileName = "memory.numa_stat"
-	content, err := libcgroups.ReadFile(absCgroupPath, fileName)
+	numaStat, err := common.ReadCgroupNumaStat(absCgroupPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", fileName, err)
-	}
-
-	numaStat, err := common.ParseCgroupNumaValue(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse numa stat: %w", err)
+		return nil, err
 	}
 
 	result := make(map[int]*common.MemoryNumaMetrics)
@@ -352,6 +353,36 @@ func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNum
 		general.Warningf("no file in numa stat,cgroup path:%v", absCgroupPath)
 	}
 
+	return result, nil
+}
+
+func (m *manager) GetHierarchicalNumaMemoryUsage(absCgroupPath string, _ uint64) (map[int]uint64, error) {
+	numaStat, err := common.ReadCgroupNumaStat(absCgroupPath)
+	if err != nil {
+		return nil, err
+	}
+
+	anon, anonOK := numaStat["anon"]
+	file, fileOK := numaStat["file"]
+	if !anonOK || !fileOK {
+		return nil, fmt.Errorf("anon or file is missing from memory.numa_stat")
+	}
+
+	// unevictable is absent on kernels whose memory.numa_stat predates the
+	// counter; treat it as zero to stay compatible with the older reader that
+	// never summed it, rather than failing the reconcile.
+	unevictable := numaStat["unevictable"]
+
+	result := make(map[int]uint64)
+	for numaID, value := range anon {
+		result[numaID] += value
+	}
+	for numaID, value := range file {
+		result[numaID] += value
+	}
+	for numaID, value := range unevictable {
+		result[numaID] += value
+	}
 	return result, nil
 }
 

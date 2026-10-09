@@ -165,6 +165,37 @@ func TestCPUSet_Equals(t *testing.T) {
 	if cs1.Equals(cs3) {
 		t.Error("sets with different elements should not be equal")
 	}
+
+	if (CPUSet{}).Equals(NewCPUSet()) {
+		t.Error("Equals must distinguish uninitialized from initialized empty")
+	}
+}
+
+func TestCPUSet_ElementsEqual(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  CPUSet
+		right CPUSet
+		want  bool
+	}{
+		{name: "same elements different order", left: NewCPUSet(1, 2, 3), right: NewCPUSet(3, 2, 1), want: true},
+		{name: "different elements", left: NewCPUSet(1, 2, 3), right: NewCPUSet(1, 2, 4), want: false},
+		{name: "both uninitialized", left: CPUSet{}, right: CPUSet{}, want: true},
+		{name: "both initialized empty", left: NewCPUSet(), right: NewCPUSet(), want: true},
+		{name: "uninitialized and initialized empty", left: CPUSet{}, right: NewCPUSet(), want: true},
+		{name: "empty and non-empty", left: CPUSet{}, right: NewCPUSet(1), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.left.ElementsEqual(tt.right); got != tt.want {
+				t.Fatalf("ElementsEqual() = %v, want %v", got, tt.want)
+			}
+			if got := tt.right.ElementsEqual(tt.left); got != tt.want {
+				t.Fatalf("ElementsEqual() reverse = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestCPUSet_Filter(t *testing.T) {

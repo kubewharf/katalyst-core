@@ -16,6 +16,12 @@ limitations under the License.
 
 package rdt
 
+import "errors"
+
+// ErrCATUnsupported indicates that this host cannot safely use the L3 CAT
+// interface exposed by this manager.
+var ErrCATUnsupported = errors.New("RDT CAT is unsupported")
+
 // RDTManager provides methods that control RDT related resources.
 // Note: OCI Spec and runC already support the configuration of RDT-related parameters, but CRI and containerd do not yet support it.
 // Therefore, we plan to support the configuration of RDT-related parameters through NRI or CRI in the future.
@@ -23,6 +29,8 @@ type RDTManager interface {
 	CheckSupportRDT() (bool, error)
 	InitRDT() error
 	ApplyTasks(clos string, tasks []string) error
-	ApplyCAT(clos string, cat map[int]int) error
+	ApplyCAT(clos string, cat map[int]uint64) error
 	ApplyMBA(clos string, mba map[int]int) error
+	RunClosResourceUpdate(clos string, update func() (bool, error)) error
+	InvalidateClos(clos string)
 }
