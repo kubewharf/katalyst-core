@@ -1,0 +1,11 @@
+{
+  "source": "reconstructed from RUN_TAG=snbratio02r2 overlap-churn r1 a-to-b admission window",
+  "cpu_count": 96,
+  "primary_current": [0, 47],
+  "reclaim_current": [48, 95],
+  "primary_desired": [48, 95],
+  "reclaim_desired": [0, 47],
+  "pending_leaf_count": 96,
+  "protected_rel_count": 12,
+  "deadlock_probe_budget": 4096
+}

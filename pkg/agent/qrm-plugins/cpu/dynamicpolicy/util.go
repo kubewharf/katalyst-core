@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -58,4 +59,14 @@ func updateAllocationInfoByReq(req *pluginapi.ResourceRequest, allocationInfo *s
 
 	allocationInfo.Annotations = general.DeepCopyMap(req.Annotations)
 	return nil
+}
+
+// sortedByKey returns a copy of items sorted ascending by the string key
+// extracted by keyFn, leaving the input slice untouched.
+func sortedByKey[T any](items []T, keyFn func(T) string) []T {
+	sorted := append([]T(nil), items...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return keyFn(sorted[i]) < keyFn(sorted[j])
+	})
+	return sorted
 }

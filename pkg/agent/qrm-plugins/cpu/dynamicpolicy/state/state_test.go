@@ -17,6 +17,8 @@ limitations under the License.
 package state
 
 import (
+	"encoding/json"
+	stderrors "errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -25,6 +27,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,6 +51,784 @@ const (
 	cpuPluginStateFileName = "cpu_plugin_state"
 	policyName             = "dynamic"
 )
+
+type advisorCommitCheckpointManager struct {
+	mu          sync.Mutex
+	createCalls int
+	createErr   error
+	checkpoint  *CPUPluginCheckpoint
+}
+
+func (m *advisorCommitCheckpointManager) CreateCheckpoint(_ string, checkpoint checkpointmanager.Checkpoint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.createCalls++
+	if checkpoint, ok := checkpoint.(*CPUPluginCheckpoint); ok {
+		m.checkpoint = checkpoint
+	}
+	return m.createErr
+}
+
+func (m *advisorCommitCheckpointManager) GetCheckpoint(string, checkpointmanager.Checkpoint) error {
+	return nil
+}
+
+func (m *advisorCommitCheckpointManager) RemoveCheckpoint(string) error {
+	return nil
+}
+
+func (m *advisorCommitCheckpointManager) ListCheckpoints() ([]string, error) {
+	return nil, nil
+}
+
+func (m *advisorCommitCheckpointManager) calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.createCalls
+}
+
+func (m *advisorCommitCheckpointManager) lastCheckpoint() *CPUPluginCheckpoint {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.checkpoint
+}
+
+func TestCPUPluginStateCommitAdvisorStateIsAtomic(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+
+	makeVersion := func(version int) (PodEntries, NUMANodeMap, bool) {
+		allowOverlap := version%2 == 1
+		cpuID := version % 2
+		entries := PodEntries{
+			fmt.Sprintf("version-%d", cpuID): {
+				"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(cpuID)},
+			},
+		}
+		numaMap := NUMANodeMap{
+			0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(cpuID)},
+		}
+		return entries, numaMap, allowOverlap
+	}
+
+	entries, machineState, allowOverlap := makeVersion(0)
+	require.NoError(t, s.CommitAdvisorState(entries, machineState, allowOverlap, false, false))
+
+	const iterations = 1000
+	var wg sync.WaitGroup
+	errCh := make(chan error, iterations)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= iterations; i++ {
+			entries, machineState, allowOverlap := makeVersion(i)
+			if err := s.CommitAdvisorState(entries, machineState, allowOverlap, false, false); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			s.RLock()
+			entries := s.cpuPluginStateData.GetPodEntries()
+			machineState := s.cpuPluginStateData.GetMachineState()
+			allowOverlap := s.cpuPluginStateData.GetAllowSharedCoresOverlapReclaimedCores()
+			hasVersionOne := entries["version-1"] != nil
+			machineHasVersionOne := machineState[0].AllocatedCPUSet.Equals(machine.NewCPUSet(1))
+			s.RUnlock()
+			if hasVersionOne != machineHasVersionOne || hasVersionOne != allowOverlap {
+				errCh <- fmt.Errorf("observed mixed advisor state: entries=%v machine=%v overlap=%v",
+					hasVersionOne, machineHasVersionOne, allowOverlap)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+}
+
+func TestCPUPluginStateCommitAdvisorStateIfRevisionRejectsStaleSnapshot(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+
+	baseEntries := PodEntries{
+		"old-pod": {
+			"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)},
+		},
+	}
+	baseMachineState := NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)},
+	}
+	require.NoError(t, s.CommitAdvisorState(baseEntries, baseMachineState, false, false, false))
+
+	staleRevision := s.GetRevision()
+	staleEntries := s.GetPodEntries()
+	staleMachineState := s.GetMachineState()
+
+	s.SetAllocationInfo("new-pod", "main", &AllocationInfo{
+		AllocationResult: machine.NewCPUSet(1),
+	})
+	require.NotNil(t, s.GetAllocationInfo("new-pod", "main"))
+
+	err = s.CommitAdvisorStateIfRevision(staleRevision, staleEntries, staleMachineState, false, false, false)
+	require.Error(t, err)
+	require.True(t, stderrors.Is(err, ErrStaleStateRevision), "err=%v", err)
+	require.NotNil(t, s.GetAllocationInfo("new-pod", "main"), "stale commit must not drop newer pod entry")
+}
+
+func TestNUMAHeadroomDoesNotAdvanceAllocationRevisionOrBreakCASIsolation(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+
+	revision := s.GetRevision()
+	s.SetNUMAHeadroom(map[int]float64{0: 1.5})
+	require.Equal(t, revision, s.GetRevision(),
+		"headroom is outside pod/machine allocation revision")
+
+	entries := PodEntries{
+		"pod": {
+			"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)},
+		},
+	}
+	machineState := NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+	}
+	require.NoError(t, s.CommitAdvisorStateIfRevision(
+		revision, entries, machineState, true, false, false))
+	require.Equal(t, map[int]float64{0: 1.5}, s.GetNUMAHeadroom(),
+		"allocation CAS must not overwrite independently updated headroom")
+}
+
+func TestCheckpointStateRestoresPersistedRevisionIntoFreshState(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	stateDir := t.TempDir()
+	config := &statedirectory.StateDirectoryConfiguration{StateFileDirectory: stateDir}
+
+	first, err := NewCheckpointState(
+		config, cpuPluginStateFileName, policyName, topology, false,
+		GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	first.SetAllocationInfo("pod", "main", &AllocationInfo{
+		AllocationResult: machine.NewCPUSet(0),
+	}, true)
+	first.SetPodEntries(first.GetPodEntries(), true)
+	wantRevision := first.GetRevision()
+	require.Greater(t, wantRevision, uint64(1))
+
+	restarted, err := NewCheckpointState(
+		config, cpuPluginStateFileName, policyName, topology, false,
+		GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	require.Equal(t, wantRevision, restarted.GetRevision(),
+		"a fresh state must restore the exact durable revision")
+}
+
+func TestCheckpointStateCommitAdvisorState(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+
+	newEntries := PodEntries{
+		"new": {
+			"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)},
+		},
+	}
+	newMachineState := NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+	}
+
+	t.Run("persists exactly once", func(t *testing.T) {
+		t.Parallel()
+		manager := &advisorCommitCheckpointManager{}
+		sc := &stateCheckpoint{
+			cache:             NewCPUPluginState(topology),
+			checkpointManager: manager,
+			checkpointName:    cpuPluginStateFileName,
+			emitter:           metrics.DummyMetrics{},
+		}
+
+		require.NoError(t, sc.CommitAdvisorState(newEntries, newMachineState, true, false, true))
+		require.Equal(t, 1, manager.calls())
+		require.True(t, sc.GetAllocationInfo("new", "main").AllocationResult.Equals(machine.NewCPUSet(1)))
+		require.True(t, sc.GetMachineState()[0].AllocatedCPUSet.Equals(machine.NewCPUSet(1)))
+		require.True(t, sc.GetAllowSharedCoresOverlapReclaimedCores())
+	})
+
+	t.Run("does not persist when disabled", func(t *testing.T) {
+		t.Parallel()
+		manager := &advisorCommitCheckpointManager{}
+		sc := &stateCheckpoint{
+			cache:             NewCPUPluginState(topology),
+			checkpointManager: manager,
+			checkpointName:    cpuPluginStateFileName,
+			emitter:           metrics.DummyMetrics{},
+		}
+
+		require.NoError(t, sc.CommitAdvisorState(newEntries, newMachineState, true, false, false))
+		require.Equal(t, 0, manager.calls())
+	})
+
+	t.Run("restores memory when persistence fails", func(t *testing.T) {
+		t.Parallel()
+		manager := &advisorCommitCheckpointManager{createErr: stderrors.New("store failed")}
+		sc := &stateCheckpoint{
+			cache:             NewCPUPluginState(topology),
+			checkpointManager: manager,
+			checkpointName:    cpuPluginStateFileName,
+			emitter:           metrics.DummyMetrics{},
+		}
+		oldEntries := sc.GetPodEntries()
+		oldMachineState := sc.GetMachineState()
+		oldAllowOverlap := sc.GetAllowSharedCoresOverlapReclaimedCores()
+		oldRevision := sc.GetRevision()
+
+		err := sc.CommitAdvisorState(newEntries, newMachineState, true, false, true)
+		require.EqualError(t, err, "store failed")
+		require.Equal(t, 1, manager.calls())
+		require.Equal(t, oldEntries, sc.GetPodEntries())
+		require.Equal(t, oldMachineState, sc.GetMachineState())
+		require.Equal(t, oldAllowOverlap, sc.GetAllowSharedCoresOverlapReclaimedCores())
+		require.Equal(t, oldRevision, sc.GetRevision(),
+			"failed durable commit must restore the exact pre-commit revision")
+	})
+
+	t.Run("conditional commit restores memory when persistence fails", func(t *testing.T) {
+		t.Parallel()
+		manager := &advisorCommitCheckpointManager{createErr: stderrors.New("store failed")}
+		sc := &stateCheckpoint{
+			cache:             NewCPUPluginState(topology),
+			checkpointManager: manager,
+			checkpointName:    cpuPluginStateFileName,
+			emitter:           metrics.DummyMetrics{},
+		}
+		oldEntries := sc.GetPodEntries()
+		oldMachineState := sc.GetMachineState()
+		oldAllowOverlap := sc.GetAllowSharedCoresOverlapReclaimedCores()
+		oldDisableDedicatedOverlap := sc.GetDisableDedicatedCoresOverlapReclaimedCores()
+		oldRevision := sc.GetRevision()
+
+		err := sc.CommitAdvisorStateIfRevision(
+			oldRevision, newEntries, newMachineState, true, true, true)
+		require.EqualError(t, err, "store failed")
+		require.Equal(t, 1, manager.calls())
+		require.Equal(t, oldEntries, sc.GetPodEntries())
+		require.Equal(t, oldMachineState, sc.GetMachineState())
+		require.Equal(t, oldAllowOverlap, sc.GetAllowSharedCoresOverlapReclaimedCores())
+		require.Equal(t, oldDisableDedicatedOverlap, sc.GetDisableDedicatedCoresOverlapReclaimedCores())
+		require.Equal(t, oldRevision, sc.GetRevision())
+	})
+}
+
+func TestCheckpointStateCommitAdvisorStateRollsBackMemoryOnFilesystemFailure(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	stateDir := t.TempDir()
+	config := &statedirectory.StateDirectoryConfiguration{StateFileDirectory: stateDir}
+	st, err := NewCheckpointState(
+		config, cpuPluginStateFileName, policyName, topology, false,
+		GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	require.NoError(t, err)
+
+	oldEntries := PodEntries{
+		"old": {
+			"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)},
+		},
+	}
+	oldMachineState := NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)},
+	}
+	require.NoError(t, st.CommitAdvisorState(oldEntries, oldMachineState, false, false, true))
+	oldEntries = st.GetPodEntries()
+	oldMachineState = st.GetMachineState()
+	oldRevision := st.GetRevision()
+
+	require.NoError(t, os.RemoveAll(stateDir))
+	require.NoError(t, os.WriteFile(stateDir, []byte("not a directory"), 0o600))
+
+	err = st.CommitAdvisorStateIfRevision(
+		oldRevision,
+		PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}},
+		NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}},
+		true,
+		true,
+		true,
+	)
+	require.Error(t, err)
+	require.Equal(t, oldEntries, st.GetPodEntries())
+	require.Equal(t, oldMachineState, st.GetMachineState())
+	require.False(t, st.GetAllowSharedCoresOverlapReclaimedCores())
+	require.False(t, st.GetDisableDedicatedCoresOverlapReclaimedCores())
+	require.Equal(t, oldRevision, st.GetRevision())
+}
+
+func TestCheckpointStatePersistentMutationsRollBackMemoryOnStoreFailure(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*stateCheckpoint) error
+	}{
+		{
+			name: "machine state",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.SetMachineState(NUMANodeMap{
+					0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+				}, true)
+			},
+		},
+		{
+			name: "numa headroom",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.SetNUMAHeadroom(map[int]float64{0: 2}, true)
+			},
+		},
+		{
+			name: "allocation info",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.SetAllocationInfo("new-pod", "main", &AllocationInfo{
+					AllocationResult: machine.NewCPUSet(1),
+				}, true)
+			},
+		},
+		{
+			name: "pod entries",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.SetPodEntries(PodEntries{
+					"new-pod": {
+						"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)},
+					},
+				}, true)
+			},
+		},
+		{
+			name: "allow overlap",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.SetAllowSharedCoresOverlapReclaimedCores(true, true)
+			},
+		},
+		{
+			name: "disable dedicated overlap",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.SetDisableDedicatedCoresOverlapReclaimedCores(true, true)
+			},
+		},
+		{
+			name: "delete",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.Delete("old-pod", "main", true)
+			},
+		},
+		{
+			name: "clear",
+			mutate: func(sc *stateCheckpoint) error {
+				return sc.ClearState()
+			},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			manager := &advisorCommitCheckpointManager{createErr: stderrors.New("store failed")}
+			cache := NewCPUPluginState(topology)
+			require.NoError(t, cache.CommitAdvisorState(
+				PodEntries{
+					"old-pod": {
+						"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)},
+					},
+				},
+				NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)}},
+				false,
+				false,
+				false,
+			))
+			require.NoError(t, cache.SetNUMAHeadroom(map[int]float64{0: 1}))
+			sc := &stateCheckpoint{
+				cache:             cache,
+				checkpointManager: manager,
+				checkpointName:    cpuPluginStateFileName,
+				emitter:           metrics.DummyMetrics{},
+			}
+			oldEntries := sc.GetPodEntries()
+			oldMachineState := sc.GetMachineState()
+			oldHeadroom := sc.GetNUMAHeadroom()
+			oldAllowOverlap := sc.GetAllowSharedCoresOverlapReclaimedCores()
+			oldDisableDedicatedOverlap := sc.GetDisableDedicatedCoresOverlapReclaimedCores()
+			oldRevision := sc.GetRevision()
+
+			err := tc.mutate(sc)
+
+			require.EqualError(t, err, "store failed")
+			require.Equal(t, 1, manager.calls())
+			require.Equal(t, oldEntries, sc.GetPodEntries())
+			require.Equal(t, oldMachineState, sc.GetMachineState())
+			require.Equal(t, oldHeadroom, sc.GetNUMAHeadroom())
+			require.Equal(t, oldAllowOverlap, sc.GetAllowSharedCoresOverlapReclaimedCores())
+			require.Equal(t, oldDisableDedicatedOverlap, sc.GetDisableDedicatedCoresOverlapReclaimedCores())
+			require.Equal(t, oldRevision, sc.GetRevision())
+		})
+	}
+}
+
+func TestCPUPluginStateRejectsRevisionOverflowWithoutMutation(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+	s.revision = math.MaxUint64
+	oldEntries := s.GetPodEntries()
+	oldMachineState := s.GetMachineState()
+
+	err = s.CommitAdvisorStateIfRevision(
+		math.MaxUint64,
+		PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}},
+		NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}},
+		true,
+		false,
+		false,
+	)
+	require.ErrorContains(t, err, "revision overflow")
+	require.Equal(t, uint64(math.MaxUint64), s.GetRevision())
+	require.Equal(t, oldEntries, s.GetPodEntries())
+	require.Equal(t, oldMachineState, s.GetMachineState())
+}
+
+func TestCPUPluginStateMutationsReturnRevisionOverflowWithoutMutation(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*cpuPluginState) error
+	}{
+		{
+			name: "machine state",
+			mutate: func(s *cpuPluginState) error {
+				return s.SetMachineState(NUMANodeMap{
+					0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+				})
+			},
+		},
+		{
+			name:   "numa headroom",
+			mutate: func(s *cpuPluginState) error { return s.SetNUMAHeadroom(map[int]float64{0: 1}) },
+		},
+		{
+			name: "allocation info",
+			mutate: func(s *cpuPluginState) error {
+				return s.SetAllocationInfo("new-pod", "main", &AllocationInfo{
+					AllocationResult: machine.NewCPUSet(1),
+				})
+			},
+		},
+		{
+			name:   "pod entries",
+			mutate: func(s *cpuPluginState) error { return s.SetPodEntries(PodEntries{}) },
+		},
+		{
+			name: "allow overlap",
+			mutate: func(s *cpuPluginState) error {
+				return s.SetAllowSharedCoresOverlapReclaimedCores(true)
+			},
+		},
+		{
+			name: "disable dedicated overlap",
+			mutate: func(s *cpuPluginState) error {
+				return s.SetDisableDedicatedCoresOverlapReclaimedCores(true)
+			},
+		},
+		{
+			name:   "delete",
+			mutate: func(s *cpuPluginState) error { return s.Delete("pod", "main") },
+		},
+		{
+			name:   "clear",
+			mutate: func(s *cpuPluginState) error { return s.ClearState() },
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := NewCPUPluginState(topology)
+			s.podEntries = PodEntries{
+				"pod": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)}},
+			}
+			s.revision = math.MaxUint64
+
+			require.ErrorIs(t, tc.mutate(s), ErrStateRevisionOverflow)
+			require.Equal(t, uint64(math.MaxUint64), s.GetRevision())
+			require.NotNil(t, s.GetAllocationInfo("pod", "main"))
+		})
+	}
+}
+
+func TestCPUPluginStateSetAllocationInfoRejectsNil(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+
+	revision := s.GetRevision()
+	err = s.SetAllocationInfo("pod", "main", nil)
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "allocation info is nil")
+	require.Equal(t, revision, s.GetRevision())
+	require.Nil(t, s.GetAllocationInfo("pod", "main"))
+}
+
+func TestCheckpointStateWritePermitRejectsMutationBeforeStateChange(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	sc := &stateCheckpoint{cache: NewCPUPluginState(topology)}
+	denied := stderrors.New("write denied")
+	var gotRevision uint64
+	var gotOperation string
+	sc.SetWritePermit(func(revision uint64, operation string, _ *WritePermit) error {
+		gotRevision = revision
+		gotOperation = operation
+		return denied
+	})
+	oldState := sc.GetMachineState()
+	oldRevision := sc.GetRevision()
+
+	err = sc.SetMachineState(NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+	}, false)
+
+	require.ErrorIs(t, err, denied)
+	require.Equal(t, oldRevision, gotRevision)
+	require.Equal(t, "SetMachineState", gotOperation)
+	require.Equal(t, oldRevision, sc.GetRevision())
+	require.Equal(t, oldState, sc.GetMachineState())
+}
+
+func TestCheckpointStateStoreStateBypassesMutationPermit(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	manager := &advisorCommitCheckpointManager{}
+	sc := &stateCheckpoint{
+		cache:             NewCPUPluginState(topology),
+		checkpointManager: manager,
+		checkpointName:    cpuPluginStateFileName,
+		emitter:           metrics.DummyMetrics{},
+	}
+	require.NoError(t, sc.cache.SetAllocationInfo("pod", "main", &AllocationInfo{
+		AllocationResult: machine.NewCPUSet(0),
+	}))
+	oldEntries := sc.GetPodEntries()
+	oldMachineState := sc.GetMachineState()
+	oldRevision := sc.GetRevision()
+	denied := stderrors.New("write denied")
+	sc.SetWritePermit(func(uint64, string, *WritePermit) error {
+		return denied
+	})
+
+	require.NoError(t, sc.StoreState())
+	require.Equal(t, oldRevision, sc.GetRevision())
+	require.Equal(t, oldEntries, sc.GetPodEntries())
+	require.Equal(t, oldMachineState, sc.GetMachineState())
+	require.Equal(t, 1, manager.calls())
+	checkpoint := manager.lastCheckpoint()
+	require.NotNil(t, checkpoint)
+	require.Equal(t, oldRevision, checkpoint.Revision)
+	require.Equal(t, oldEntries, checkpoint.PodEntries)
+	require.Equal(t, oldMachineState, checkpoint.MachineState)
+
+	err = sc.SetMachineState(NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+	}, false)
+	require.ErrorIs(t, err, denied)
+	require.Equal(t, oldRevision, sc.GetRevision())
+	require.Equal(t, oldMachineState, sc.GetMachineState())
+}
+
+func TestTransientStateStoreStateBypassesMutationPermit(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewTransientState(topology)
+	oldEntries := s.GetPodEntries()
+	oldMachineState := s.GetMachineState()
+	oldRevision := s.GetRevision()
+	denied := stderrors.New("write denied")
+	s.SetWritePermit(func(uint64, string, *WritePermit) error {
+		return denied
+	})
+
+	require.NoError(t, s.StoreState())
+	require.Equal(t, oldRevision, s.GetRevision())
+	require.Equal(t, oldEntries, s.GetPodEntries())
+	require.Equal(t, oldMachineState, s.GetMachineState())
+
+	err = s.SetMachineState(NUMANodeMap{
+		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
+	}, false)
+	require.ErrorIs(t, err, denied)
+	require.Equal(t, oldRevision, s.GetRevision())
+	require.Equal(t, oldMachineState, s.GetMachineState())
+}
+
+func TestCheckpointStateWritePermitGuardsAdvisorCommits(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	denied := stderrors.New("write denied")
+
+	for _, tc := range []struct {
+		name      string
+		operation string
+		commit    func(*stateCheckpoint, PodEntries, NUMANodeMap) error
+	}{
+		{
+			name:      "unconditional",
+			operation: "CommitAdvisorState",
+			commit: func(sc *stateCheckpoint, entries PodEntries, machineState NUMANodeMap) error {
+				return sc.CommitAdvisorState(entries, machineState, true, false, false)
+			},
+		},
+		{
+			name:      "revision conditional",
+			operation: "CommitAdvisorStateIfRevision",
+			commit: func(sc *stateCheckpoint, entries PodEntries, machineState NUMANodeMap) error {
+				return sc.CommitAdvisorStateIfRevision(
+					sc.GetRevision(), entries, machineState, true, false, false)
+			},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sc := &stateCheckpoint{cache: NewCPUPluginState(topology)}
+			oldEntries := sc.GetPodEntries()
+			oldMachineState := sc.GetMachineState()
+			oldRevision := sc.GetRevision()
+			var gotRevision uint64
+			var gotOperation string
+			sc.SetWritePermit(func(revision uint64, operation string, _ *WritePermit) error {
+				gotRevision = revision
+				gotOperation = operation
+				return denied
+			})
+
+			err := tc.commit(
+				sc,
+				PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}},
+				NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}},
+			)
+
+			require.ErrorIs(t, err, denied)
+			require.Equal(t, oldRevision, gotRevision)
+			require.Equal(t, tc.operation, gotOperation)
+			require.Equal(t, oldRevision, sc.GetRevision())
+			require.Equal(t, oldEntries, sc.GetPodEntries())
+			require.Equal(t, oldMachineState, sc.GetMachineState())
+		})
+	}
+}
+
+func TestCheckpointStateRejectsExhaustedRevisionDuringRestore(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	sc := &stateCheckpoint{
+		cache:                              NewCPUPluginState(topology),
+		policyName:                         "dynamic",
+		topology:                           topology,
+		GenerateMachineStateFromPodEntries: GenerateMachineStateFromPodEntries,
+	}
+	checkpoint := NewCPUPluginCheckpoint()
+	checkpoint.PolicyName = "dynamic"
+	checkpoint.MachineState = GetDefaultMachineState(topology)
+	checkpoint.Revision = math.MaxUint64
+
+	changed, err := sc.RestoreState(checkpoint)
+	require.False(t, changed)
+	require.ErrorIs(t, err, ErrStateRevisionOverflow)
+	require.Zero(t, sc.GetRevision())
+}
+
+func TestStateSkipsNilAllocationInfo(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	podEntries := PodEntries{
+		"pod-with-nil-entry": {
+			"container-with-nil-allocation": nil,
+		},
+	}
+	var nilContainerEntries ContainerEntries
+	as.False(nilContainerEntries.IsPoolEntry())
+	as.False(ContainerEntries{}.IsPoolEntry())
+	as.False(ContainerEntries{commonstate.FakedContainerName: nil}.IsPoolEntry())
+
+	as.NotPanics(func() {
+		cloned := podEntries.Clone()
+		as.Contains(cloned, "pod-with-nil-entry")
+		as.Nil(cloned["pod-with-nil-entry"]["container-with-nil-allocation"])
+	})
+
+	stateImpl := NewCPUPluginState(cpuTopology)
+	as.NotPanics(func() {
+		stateImpl.SetPodEntries(podEntries)
+	})
+	as.Nil(stateImpl.GetAllocationInfo("pod-with-nil-entry", "container-with-nil-allocation"))
+	as.NotPanics(func() {
+		stateImpl.SetAllocationInfo("pod-with-nil-entry", "another-nil-container", nil)
+	})
+
+	numaState := &NUMANodeState{
+		DefaultCPUSet: machine.NewCPUSet(0, 1),
+		PodEntries:    podEntries,
+	}
+	as.NotPanics(func() {
+		_ = numaState.GetFilteredDefaultCPUSet(func(ai *AllocationInfo) bool {
+			return ai.CheckDedicated()
+		}, func(ai *AllocationInfo) bool {
+			return ai.CheckNumaExclusive()
+		})
+	})
+	as.NotPanics(func() {
+		_ = numaState.ExistMatchedAllocationInfo(func(ai *AllocationInfo) bool {
+			return ai.CheckDedicated()
+		})
+	})
+	as.NotPanics(func() {
+		_ = numaState.ExistMatchedAllocationInfoWithAnnotations(func(ai *AllocationInfo, annotations map[string]string) bool {
+			return ai.CheckDedicated()
+		}, nil)
+	})
+	as.NotPanics(func() {
+		numaState.SetAllocationInfo("pod-with-nil-entry", "nil-container", nil)
+		numaState.SetPreOccAllocationInfo("pod-with-nil-entry", "nil-container", nil)
+	})
+
+	as.NotPanics(func() {
+		_, err = GenerateMachineStateFromPodEntries(cpuTopology, podEntries, nil)
+	})
+	as.Nil(err)
+}
 
 // assertStateEqual marks provided test as failed if provided states differ
 func assertStateEqual(t *testing.T, restoredState, expectedState State) {
@@ -90,922 +871,484 @@ func TestNewCheckpointState(t *testing.T) {
 			"",
 			"",
 			&cpuPluginState{
-				podEntries:     make(PodEntries),
-				machineState:   GetDefaultMachineState(cpuTopology),
+				cpuPluginStateData: cpuPluginStateData{
+					podEntries:   make(PodEntries),
+					machineState: GetDefaultMachineState(cpuTopology),
+				},
 				socketTopology: cpuTopology.GetSocketTopology(),
 				cpuTopology:    cpuTopology,
 			},
 		},
 		{
 			"Restore valid checkpoint",
-			`{
-	"policyName": "dynamic",
-	"machineState": {
-		"0": {
-			"default_cpuset": "0-1,8-9",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "8",
-						"original_allocation_result": "8",
-						"topology_aware_assignments": {
-							"0": "8"
-						},
-						"original_topology_aware_assignments": {
-							"0": "8"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				},
-				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-					"test": {
-						"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "1,9",
-						"original_allocation_result": "1,9",
-						"topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"original_topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				},
-				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-					"test": {
-						"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "1,9",
-						"original_allocation_result": "1,9",
-						"topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"original_topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		},
-		"1": {
-			"default_cpuset": "2-3,10-11",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "10",
-						"original_allocation_result": "10",
-						"topology_aware_assignments": {
-							"1": "10"
-						},
-						"original_topology_aware_assignments": {
-							"1": "10"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				},
-				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-					"test": {
-						"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "3,11",
-						"original_allocation_result": "3,11",
-						"topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"original_topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				},
-				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-					"test": {
-						"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "3,11",
-						"original_allocation_result": "3,11",
-						"topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"original_topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		},
-		"2": {
-			"default_cpuset": "4-5,12-13",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "5,13",
-						"original_allocation_result": "5,13",
-						"topology_aware_assignments": {
-							"2": "5,13"
-						},
-						"original_topology_aware_assignments": {
-							"2": "5,13"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				},
-				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-					"test": {
-						"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "4,12",
-						"original_allocation_result": "4,12",
-						"topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"original_topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				},
-				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-					"test": {
-						"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "4,12",
-						"original_allocation_result": "4,12",
-						"topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"original_topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		},
-		"3": {
-			"default_cpuset": "6-7,14-15",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "6-7,14-15",
-						"original_allocation_result": "6-7,14-15",
-						"topology_aware_assignments": {
-							"3": "6-7,14-15"
-						},
-						"original_topology_aware_assignments": {
-							"3": "6-7,14-15"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		}
-	},
-	"pod_entries": {
-		"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-			"test": {
-				"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-				"pod_namespace": "test",
-				"pod_name": "test",
-				"container_name": "test",
-				"container_type": "MAIN",
-				"owner_pool_name": "reclaim",
-				"allocation_result": "5-8,10,13-15",
-				"original_allocation_result": "5-8,10,13-15",
-				"topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"original_topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"init_timestamp": "",
-				"labels": {
-					"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-				},
-				"annotations": {
-					"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-				},
-				"qosLevel": "reclaimed_cores",
-				"request_quantity": 2
-			}
-		},
-		"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-			"test": {
-				"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-				"pod_namespace": "test",
-				"pod_name": "test",
-				"container_name": "test",
-				"container_type": "MAIN",
-				"owner_pool_name": "share",
-				"allocation_result": "1,3-4,9,11-12",
-				"original_allocation_result": "1,3-4,9,11-12",
-				"topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"original_topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"init_timestamp": "",
-				"labels": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"annotations": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"qosLevel": "shared_cores",
-				"request_quantity": 2
-			}
-		},
-		"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-			"test": {
-				"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-				"pod_namespace": "test",
-				"pod_name": "test",
-				"container_name": "test",
-				"container_type": "MAIN",
-				"owner_pool_name": "share",
-				"allocation_result": "1,3-4,9,11-12",
-				"original_allocation_result": "1,3-4,9,11-12",
-				"topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"original_topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"init_timestamp": "",
-				"labels": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"annotations": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"qosLevel": "shared_cores",
-				"request_quantity": 2
-			}
-		},
-		"reclaim": {
-			"": {
-				"pod_uid": "reclaim",
-				"owner_pool_name": "reclaim",
-				"allocation_result": "5-8,10,13-15",
-				"original_allocation_result": "5-8,10,13-15",
-				"topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"original_topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"init_timestamp": "",
-				"labels": null,
-				"annotations": null,
-				"qosLevel": ""
-			}
-		},
-		"share": {
-			"": {
-				"pod_uid": "share",
-				"owner_pool_name": "share",
-				"allocation_result": "1,3-4,9,11-12",
-				"original_allocation_result": "1,3-4,9,11-12",
-				"topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"original_topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"init_timestamp": "",
-				"labels": null,
-				"annotations": null,
-				"qosLevel": ""
-			}
-		}
-	},
-	"checksum": 4188873110
-}`,
+			"",
 			"",
 			&cpuPluginState{
-				podEntries: PodEntries{
-					"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
-						testName: &AllocationInfo{
-							AllocationMeta: commonstate.AllocationMeta{
-								PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-								PodNamespace:   testName,
-								PodName:        testName,
-								ContainerName:  testName,
-								ContainerType:  pluginapi.ContainerType_MAIN.String(),
-								ContainerIndex: 0,
-								OwnerPoolName:  commonstate.PoolNameShare,
-								Labels: map[string]string{
-									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				cpuPluginStateData: cpuPluginStateData{
+					podEntries: PodEntries{
+						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
+							testName: &AllocationInfo{
+								AllocationMeta: commonstate.AllocationMeta{
+									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+									PodNamespace:   testName,
+									PodName:        testName,
+									ContainerName:  testName,
+									ContainerType:  pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex: 0,
+									OwnerPoolName:  commonstate.PoolNameShare,
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 								},
-								Annotations: map[string]string{
-									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								RampUp:                   false,
+								AllocationResult:         machine.MustParse("1,3-4,9,11-12"),
+								OriginalAllocationResult: machine.MustParse("1,3-4,9,11-12"),
+								TopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(1, 9),
+									1: machine.NewCPUSet(3, 11),
+									2: machine.NewCPUSet(4, 12),
 								},
-								QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-							},
-							RampUp:                   false,
-							AllocationResult:         machine.MustParse("1,3-4,9,11-12"),
-							OriginalAllocationResult: machine.MustParse("1,3-4,9,11-12"),
-							TopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(1, 9),
-								1: machine.NewCPUSet(3, 11),
-								2: machine.NewCPUSet(4, 12),
-							},
-							OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(1, 9),
-								1: machine.NewCPUSet(3, 11),
-								2: machine.NewCPUSet(4, 12),
-							},
-							RequestQuantity: 2,
-						},
-					},
-					"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
-						testName: &AllocationInfo{
-							AllocationMeta: commonstate.AllocationMeta{
-								PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-								PodNamespace:   testName,
-								PodName:        testName,
-								ContainerName:  testName,
-								ContainerType:  pluginapi.ContainerType_MAIN.String(),
-								ContainerIndex: 0,
-								OwnerPoolName:  commonstate.PoolNameShare,
-								Labels: map[string]string{
-									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(1, 9),
+									1: machine.NewCPUSet(3, 11),
+									2: machine.NewCPUSet(4, 12),
 								},
-								Annotations: map[string]string{
-									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-								},
-								QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-							},
-							RampUp:                   false,
-							AllocationResult:         machine.MustParse("1,3-4,9,11-12"),
-							OriginalAllocationResult: machine.MustParse("1,3-4,9,11-12"),
-							TopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(1, 9),
-								1: machine.NewCPUSet(3, 11),
-								2: machine.NewCPUSet(4, 12),
-							},
-							OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(1, 9),
-								1: machine.NewCPUSet(3, 11),
-								2: machine.NewCPUSet(4, 12),
-							},
-							RequestQuantity: 2,
-						},
-					},
-					"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
-						testName: &AllocationInfo{
-							AllocationMeta: commonstate.AllocationMeta{
-								PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-								PodNamespace:   testName,
-								PodName:        testName,
-								ContainerName:  testName,
-								ContainerType:  pluginapi.ContainerType_MAIN.String(),
-								ContainerIndex: 0,
-								OwnerPoolName:  commonstate.PoolNameReclaim,
-								Labels: map[string]string{
-									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-								},
-								Annotations: map[string]string{
-									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-								},
-								QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
-							},
-							RampUp:                   false,
-							AllocationResult:         machine.MustParse("5-8,10,13-15"),
-							OriginalAllocationResult: machine.MustParse("5-8,10,13-15"),
-							TopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(8),
-								1: machine.NewCPUSet(10),
-								2: machine.NewCPUSet(5, 13),
-								3: machine.NewCPUSet(6, 7, 14, 15),
-							},
-							OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(8),
-								1: machine.NewCPUSet(10),
-								2: machine.NewCPUSet(5, 13),
-								3: machine.NewCPUSet(6, 7, 14, 15),
-							},
-							RequestQuantity: 2,
-						},
-					},
-					commonstate.PoolNameReclaim: ContainerEntries{
-						"": &AllocationInfo{
-							AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
-							AllocationResult:         machine.MustParse("5-8,10,13-15"),
-							OriginalAllocationResult: machine.MustParse("5-8,10,13-15"),
-							TopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(8),
-								1: machine.NewCPUSet(10),
-								2: machine.NewCPUSet(5, 13),
-								3: machine.NewCPUSet(6, 7, 14, 15),
-							},
-							OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(8),
-								1: machine.NewCPUSet(10),
-								2: machine.NewCPUSet(5, 13),
-								3: machine.NewCPUSet(6, 7, 14, 15),
+								RequestQuantity: 2,
 							},
 						},
-					},
-					commonstate.PoolNameShare: ContainerEntries{
-						"": &AllocationInfo{
-							AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
-							AllocationResult:         machine.MustParse("1,3-4,9,11-12"),
-							OriginalAllocationResult: machine.MustParse("1,3-4,9,11-12"),
-							TopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(1, 9),
-								1: machine.NewCPUSet(3, 11),
-								2: machine.NewCPUSet(4, 12),
-							},
-							OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-								0: machine.NewCPUSet(1, 9),
-								1: machine.NewCPUSet(3, 11),
-								2: machine.NewCPUSet(4, 12),
+						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
+							testName: &AllocationInfo{
+								AllocationMeta: commonstate.AllocationMeta{
+									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
+									PodNamespace:   testName,
+									PodName:        testName,
+									ContainerName:  testName,
+									ContainerType:  pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex: 0,
+									OwnerPoolName:  commonstate.PoolNameShare,
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+									},
+									QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+								},
+								RampUp:                   false,
+								AllocationResult:         machine.MustParse("1,3-4,9,11-12"),
+								OriginalAllocationResult: machine.MustParse("1,3-4,9,11-12"),
+								TopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(1, 9),
+									1: machine.NewCPUSet(3, 11),
+									2: machine.NewCPUSet(4, 12),
+								},
+								OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(1, 9),
+									1: machine.NewCPUSet(3, 11),
+									2: machine.NewCPUSet(4, 12),
+								},
+								RequestQuantity: 2,
 							},
 						},
-					},
-				},
-				machineState: NUMANodeMap{
-					0: &NUMANodeState{
-						DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(0).Clone(),
-						AllocatedCPUSet: machine.NewCPUSet(),
-						PodEntries: PodEntries{
-							"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameShare,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
+							testName: &AllocationInfo{
+								AllocationMeta: commonstate.AllocationMeta{
+									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
+									PodNamespace:   testName,
+									PodName:        testName,
+									ContainerName:  testName,
+									ContainerType:  pluginapi.ContainerType_MAIN.String(),
+									ContainerIndex: 0,
+									OwnerPoolName:  commonstate.PoolNameReclaim,
+									Labels: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 									},
-									RampUp:                   false,
-									AllocationResult:         machine.NewCPUSet(1, 9),
-									OriginalAllocationResult: machine.NewCPUSet(1, 9),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										0: machine.NewCPUSet(1, 9),
+									Annotations: map[string]string{
+										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										0: machine.NewCPUSet(1, 9),
-									},
-									RequestQuantity: 2,
+									QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
+								},
+								RampUp:                   false,
+								AllocationResult:         machine.MustParse("5-8,10,13-15"),
+								OriginalAllocationResult: machine.MustParse("5-8,10,13-15"),
+								TopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(8),
+									1: machine.NewCPUSet(10),
+									2: machine.NewCPUSet(5, 13),
+									3: machine.NewCPUSet(6, 7, 14, 15),
+								},
+								OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(8),
+									1: machine.NewCPUSet(10),
+									2: machine.NewCPUSet(5, 13),
+									3: machine.NewCPUSet(6, 7, 14, 15),
+								},
+								RequestQuantity: 2,
+							},
+						},
+						commonstate.PoolNameReclaim: ContainerEntries{
+							"": &AllocationInfo{
+								AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+								AllocationResult:         machine.MustParse("5-8,10,13-15"),
+								OriginalAllocationResult: machine.MustParse("5-8,10,13-15"),
+								TopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(8),
+									1: machine.NewCPUSet(10),
+									2: machine.NewCPUSet(5, 13),
+									3: machine.NewCPUSet(6, 7, 14, 15),
+								},
+								OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(8),
+									1: machine.NewCPUSet(10),
+									2: machine.NewCPUSet(5, 13),
+									3: machine.NewCPUSet(6, 7, 14, 15),
 								},
 							},
-							"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameShare,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-									},
-									RampUp:                   false,
-									AllocationResult:         machine.NewCPUSet(1, 9),
-									OriginalAllocationResult: machine.NewCPUSet(1, 9),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										0: machine.NewCPUSet(1, 9),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										0: machine.NewCPUSet(1, 9),
-									},
-									RequestQuantity: 2,
+						},
+						commonstate.PoolNameShare: ContainerEntries{
+							"": &AllocationInfo{
+								AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+								AllocationResult:         machine.MustParse("1,3-4,9,11-12"),
+								OriginalAllocationResult: machine.MustParse("1,3-4,9,11-12"),
+								TopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(1, 9),
+									1: machine.NewCPUSet(3, 11),
+									2: machine.NewCPUSet(4, 12),
 								},
-							},
-							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameReclaim,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-										},
-										QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
-									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("8"),
-									OriginalAllocationResult: machine.MustParse("8"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										0: machine.NewCPUSet(8),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										0: machine.NewCPUSet(8),
-									},
-									RequestQuantity: 2,
+								OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+									0: machine.NewCPUSet(1, 9),
+									1: machine.NewCPUSet(3, 11),
+									2: machine.NewCPUSet(4, 12),
 								},
 							},
 						},
 					},
-					1: &NUMANodeState{
-						DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(1).Clone(),
-						AllocatedCPUSet: machine.NewCPUSet(),
-						PodEntries: PodEntries{
-							"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameShare,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					machineState: NUMANodeMap{
+						0: &NUMANodeState{
+							DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(0).Clone(),
+							AllocatedCPUSet: machine.NewCPUSet(),
+							PodEntries: PodEntries{
+								"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameShare,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+										RampUp:                   false,
+										AllocationResult:         machine.NewCPUSet(1, 9),
+										OriginalAllocationResult: machine.NewCPUSet(1, 9),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											0: machine.NewCPUSet(1, 9),
 										},
-										QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											0: machine.NewCPUSet(1, 9),
+										},
+										RequestQuantity: 2,
 									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("3,11"),
-									OriginalAllocationResult: machine.MustParse("3,11"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										1: machine.NewCPUSet(3, 11),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										1: machine.NewCPUSet(3, 11),
-									},
-									RequestQuantity: 2,
 								},
-							},
-							"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameShare,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameShare,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+										RampUp:                   false,
+										AllocationResult:         machine.NewCPUSet(1, 9),
+										OriginalAllocationResult: machine.NewCPUSet(1, 9),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											0: machine.NewCPUSet(1, 9),
 										},
-										QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											0: machine.NewCPUSet(1, 9),
+										},
+										RequestQuantity: 2,
 									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("3,11"),
-									OriginalAllocationResult: machine.MustParse("3,11"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										1: machine.NewCPUSet(3, 11),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										1: machine.NewCPUSet(3, 11),
-									},
-									RequestQuantity: 2,
 								},
-							},
-							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameReclaim,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameReclaim,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("8"),
+										OriginalAllocationResult: machine.MustParse("8"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											0: machine.NewCPUSet(8),
 										},
-										QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
-									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("10"),
-									OriginalAllocationResult: machine.MustParse("10"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										1: machine.NewCPUSet(10),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										1: machine.NewCPUSet(10),
-									},
-									RequestQuantity: 2,
-								},
-							},
-						},
-					},
-					2: &NUMANodeState{
-						DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(2).Clone(),
-						AllocatedCPUSet: machine.NewCPUSet(),
-						PodEntries: PodEntries{
-							"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameShare,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											0: machine.NewCPUSet(8),
 										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+										RequestQuantity: 2,
 									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("4,12"),
-									OriginalAllocationResult: machine.MustParse("4,12"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										2: machine.NewCPUSet(4, 12),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										2: machine.NewCPUSet(4, 12),
-									},
-									RequestQuantity: 2,
-								},
-							},
-							"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameShare,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-										},
-										QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("4,12"),
-									OriginalAllocationResult: machine.MustParse("4,12"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										2: machine.NewCPUSet(4, 12),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										2: machine.NewCPUSet(4, 12),
-									},
-									RequestQuantity: 2,
-								},
-							},
-							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameReclaim,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-										},
-										QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
-									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("5,13"),
-									OriginalAllocationResult: machine.MustParse("5,13"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										2: machine.NewCPUSet(5, 13),
-									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										2: machine.NewCPUSet(5, 13),
-									},
-									RequestQuantity: 2,
 								},
 							},
 						},
-					},
-					3: &NUMANodeState{
-						DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(3).Clone(),
-						AllocatedCPUSet: machine.NewCPUSet(),
-						PodEntries: PodEntries{
-							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
-								testName: &AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										OwnerPoolName:  commonstate.PoolNameReclaim,
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						1: &NUMANodeState{
+							DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(1).Clone(),
+							AllocatedCPUSet: machine.NewCPUSet(),
+							PodEntries: PodEntries{
+								"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameShare,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 										},
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("3,11"),
+										OriginalAllocationResult: machine.MustParse("3,11"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											1: machine.NewCPUSet(3, 11),
 										},
-										QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											1: machine.NewCPUSet(3, 11),
+										},
+										RequestQuantity: 2,
 									},
-									RampUp:                   false,
-									AllocationResult:         machine.MustParse("6,7,14,15"),
-									OriginalAllocationResult: machine.MustParse("6,7,14,15"),
-									TopologyAwareAssignments: map[int]machine.CPUSet{
-										3: machine.NewCPUSet(6, 7, 14, 15),
+								},
+								"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameShare,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+										},
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("3,11"),
+										OriginalAllocationResult: machine.MustParse("3,11"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											1: machine.NewCPUSet(3, 11),
+										},
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											1: machine.NewCPUSet(3, 11),
+										},
+										RequestQuantity: 2,
 									},
-									OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-										3: machine.NewCPUSet(6, 7, 14, 15),
+								},
+								"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameReclaim,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
+										},
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("10"),
+										OriginalAllocationResult: machine.MustParse("10"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											1: machine.NewCPUSet(10),
+										},
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											1: machine.NewCPUSet(10),
+										},
+										RequestQuantity: 2,
 									},
-									RequestQuantity: 2,
+								},
+							},
+						},
+						2: &NUMANodeState{
+							DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(2).Clone(),
+							AllocatedCPUSet: machine.NewCPUSet(),
+							PodEntries: PodEntries{
+								"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameShare,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+										},
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("4,12"),
+										OriginalAllocationResult: machine.MustParse("4,12"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											2: machine.NewCPUSet(4, 12),
+										},
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											2: machine.NewCPUSet(4, 12),
+										},
+										RequestQuantity: 2,
+									},
+								},
+								"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameShare,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+										},
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("4,12"),
+										OriginalAllocationResult: machine.MustParse("4,12"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											2: machine.NewCPUSet(4, 12),
+										},
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											2: machine.NewCPUSet(4, 12),
+										},
+										RequestQuantity: 2,
+									},
+								},
+								"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameReclaim,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
+										},
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("5,13"),
+										OriginalAllocationResult: machine.MustParse("5,13"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											2: machine.NewCPUSet(5, 13),
+										},
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											2: machine.NewCPUSet(5, 13),
+										},
+										RequestQuantity: 2,
+									},
+								},
+							},
+						},
+						3: &NUMANodeState{
+							DefaultCPUSet:   cpuTopology.CPUDetails.CPUsInNUMANodes(3).Clone(),
+							AllocatedCPUSet: machine.NewCPUSet(),
+							PodEntries: PodEntries{
+								"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
+									testName: &AllocationInfo{
+										AllocationMeta: commonstate.AllocationMeta{
+											PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
+											PodNamespace:   testName,
+											PodName:        testName,
+											ContainerName:  testName,
+											ContainerType:  pluginapi.ContainerType_MAIN.String(),
+											ContainerIndex: 0,
+											OwnerPoolName:  commonstate.PoolNameReclaim,
+											Labels: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											Annotations: map[string]string{
+												consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+											},
+											QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
+										},
+										RampUp:                   false,
+										AllocationResult:         machine.MustParse("6,7,14,15"),
+										OriginalAllocationResult: machine.MustParse("6,7,14,15"),
+										TopologyAwareAssignments: map[int]machine.CPUSet{
+											3: machine.NewCPUSet(6, 7, 14, 15),
+										},
+										OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+											3: machine.NewCPUSet(6, 7, 14, 15),
+										},
+										RequestQuantity: 2,
+									},
 								},
 							},
 						},
@@ -1015,449 +1358,7 @@ func TestNewCheckpointState(t *testing.T) {
 		},
 		{
 			"Restore checkpoint with invalid checksum",
-			`{
-	"policyName": "dynamic",
-	"machineState": {
-		"0": {
-			"default_cpuset": "0-1,8-9",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "8",
-						"original_allocation_result": "8",
-						"topology_aware_assignments": {
-							"0": "8"
-						},
-						"original_topology_aware_assignments": {
-							"0": "8"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				},
-				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-					"test": {
-						"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "1,9",
-						"original_allocation_result": "1,9",
-						"topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"original_topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				},
-				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-					"test": {
-						"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "1,9",
-						"original_allocation_result": "1,9",
-						"topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"original_topology_aware_assignments": {
-							"0": "1,9"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		},
-		"1": {
-			"default_cpuset": "2-3,10-11",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "10",
-						"original_allocation_result": "10",
-						"topology_aware_assignments": {
-							"1": "10"
-						},
-						"original_topology_aware_assignments": {
-							"1": "10"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				},
-				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-					"test": {
-						"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "3,11",
-						"original_allocation_result": "3,11",
-						"topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"original_topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				},
-				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-					"test": {
-						"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "3,11",
-						"original_allocation_result": "3,11",
-						"topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"original_topology_aware_assignments": {
-							"1": "3,11"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		},
-		"2": {
-			"default_cpuset": "4-5,12-13",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "5,13",
-						"original_allocation_result": "5,13",
-						"topology_aware_assignments": {
-							"2": "5,13"
-						},
-						"original_topology_aware_assignments": {
-							"2": "5,13"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				},
-				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-					"test": {
-						"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "4,12",
-						"original_allocation_result": "4,12",
-						"topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"original_topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				},
-				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-					"test": {
-						"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "share",
-						"allocation_result": "4,12",
-						"original_allocation_result": "4,12",
-						"topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"original_topology_aware_assignments": {
-							"2": "4,12"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "shared_cores"
-						},
-						"qosLevel": "shared_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		},
-		"3": {
-			"default_cpuset": "6-7,14-15",
-			"allocated_cpuset": "",
-			"pod_entries": {
-				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-					"test": {
-						"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-						"pod_namespace": "test",
-						"pod_name": "test",
-						"container_name": "test",
-						"container_type": "MAIN",
-						"owner_pool_name": "reclaim",
-						"allocation_result": "6-7,14-15",
-						"original_allocation_result": "6-7,14-15",
-						"topology_aware_assignments": {
-							"3": "6-7,14-15"
-						},
-						"original_topology_aware_assignments": {
-							"3": "6-7,14-15"
-						},
-						"init_timestamp": "",
-						"labels": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"annotations": {
-							"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-						},
-						"qosLevel": "reclaimed_cores",
-						"request_quantity": 2
-					}
-				}
-			}
-		}
-	},
-	"pod_entries": {
-		"2432d068-c5a0-46ba-a7bd-b69d9bd16961": {
-			"test": {
-				"pod_uid": "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-				"pod_namespace": "test",
-				"pod_name": "test",
-				"container_name": "test",
-				"container_type": "MAIN",
-				"owner_pool_name": "reclaim",
-				"allocation_result": "5-8,10,13-15",
-				"original_allocation_result": "5-8,10,13-15",
-				"topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"original_topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"init_timestamp": "",
-				"labels": {
-					"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-				},
-				"annotations": {
-					"katalyst.kubewharf.io/qos_level": "reclaimed_cores"
-				},
-				"qosLevel": "reclaimed_cores",
-				"request_quantity": 2
-			}
-		},
-		"373d08e4-7a6b-4293-aaaf-b135ff8123bf": {
-			"test": {
-				"pod_uid": "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-				"pod_namespace": "test",
-				"pod_name": "test",
-				"container_name": "test",
-				"container_type": "MAIN",
-				"owner_pool_name": "share",
-				"allocation_result": "1,3-4,9,11-12",
-				"original_allocation_result": "1,3-4,9,11-12",
-				"topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"original_topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"init_timestamp": "",
-				"labels": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"annotations": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"qosLevel": "shared_cores",
-				"request_quantity": 2
-			}
-		},
-		"ec6e2f30-c78a-4bc4-9576-c916db5281a3": {
-			"test": {
-				"pod_uid": "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-				"pod_namespace": "test",
-				"pod_name": "test",
-				"container_name": "test",
-				"container_type": "MAIN",
-				"owner_pool_name": "share",
-				"allocation_result": "1,3-4,9,11-12",
-				"original_allocation_result": "1,3-4,9,11-12",
-				"topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"original_topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"init_timestamp": "",
-				"labels": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"annotations": {
-					"katalyst.kubewharf.io/qos_level": "shared_cores"
-				},
-				"qosLevel": "shared_cores",
-				"request_quantity": 2
-			}
-		},
-		"reclaim": {
-			"": {
-				"pod_uid": "reclaim",
-				"owner_pool_name": "reclaim",
-				"allocation_result": "5-8,10,13-15",
-				"original_allocation_result": "5-8,10,13-15",
-				"topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"original_topology_aware_assignments": {
-					"0": "8",
-					"1": "10",
-					"2": "5,13",
-					"3": "6-7,14-15"
-				},
-				"init_timestamp": "",
-				"labels": null,
-				"annotations": null,
-				"qosLevel": ""
-			}
-		},
-		"share": {
-			"": {
-				"pod_uid": "share",
-				"owner_pool_name": "share",
-				"allocation_result": "1,3-4,9,11-12",
-				"original_allocation_result": "1,3-4,9,11-12",
-				"topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"original_topology_aware_assignments": {
-					"0": "1,9",
-					"1": "3,11",
-					"2": "4,12"
-				},
-				"init_timestamp": "",
-				"labels": null,
-				"annotations": null,
-				"qosLevel": ""
-			}
-		}
-	},
-	"checksum": 2840585175
-}`,
+			"",
 			"checkpoint is corrupted",
 			&cpuPluginState{},
 		},
@@ -1469,12 +1370,26 @@ func TestNewCheckpointState(t *testing.T) {
 		},
 	}
 
-	// create temp dir
-	testingDir, err := ioutil.TempDir("", "TestNewCheckpointState")
-	if err != nil {
-		t.Fatal(err)
+	validCheckpoint := &CPUPluginCheckpoint{
+		PolicyName:                            policyName,
+		MachineState:                          testCases[1].expectedState.machineState,
+		NUMAHeadroom:                          testCases[1].expectedState.numaHeadroom,
+		PodEntries:                            testCases[1].expectedState.podEntries,
+		AllowSharedCoresOverlapReclaimedCores: testCases[1].expectedState.allowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: testCases[1].expectedState.disableDedicatedCoresOverlapReclaimedCores,
+		Revision: testCases[1].expectedState.revision,
 	}
-	defer os.RemoveAll(testingDir)
+	validCheckpointContent, err := validCheckpoint.MarshalCheckpoint()
+	require.NoError(t, err)
+	testCases[1].checkpointContent = string(validCheckpointContent)
+
+	validCheckpoint.Checksum ^= 1
+	corruptedCheckpointContent, err := json.Marshal(validCheckpoint)
+	require.NoError(t, err)
+	testCases[2].checkpointContent = string(corruptedCheckpointContent)
+
+	// create temp dir
+	testingDir := t.TempDir()
 	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
 		StateFileDirectory: testingDir,
 	}
@@ -1514,11 +1429,14 @@ func TestNewCheckpointState(t *testing.T) {
 
 func TestClearState(t *testing.T) {
 	t.Parallel()
-
+	// klog configuration is process-global and InitFlags has no reset semantics.
+	// The verbosity level is an atomic, so bumping it here does not race with the
+	// rest of the package; we keep a dedicated FlagSet (never flag.CommandLine)
+	// and do not call InitFlags(nil) as cleanup because that re-registers klog
+	// flags on flag.CommandLine when the test runs with -count.
 	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
 	klog.InitFlags(flagSet)
 	_ = flagSet.Parse([]string{"--v", "6"})
-	defer klog.InitFlags(nil)
 
 	as := require.New(t)
 
@@ -2007,17 +1925,13 @@ func TestClearState(t *testing.T) {
 		},
 	}
 
-	for i, tc := range testCases {
-		i, tc := i, tc
+	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.description, func(t *testing.T) {
 			t.Parallel()
 
 			// create temp dir
-			testingDir, err := ioutil.TempDir("", fmt.Sprintf("dynamic_policy_state_test_%d", i))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer os.RemoveAll(testingDir)
+			testingDir := t.TempDir()
 			stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
 				StateFileDirectory: testingDir,
 			}
@@ -2528,11 +2442,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 	}
 
 	// create temp dir
-	testingDir, err := ioutil.TempDir("", "dynamic_policy_state_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(testingDir)
+	testingDir := t.TempDir()
 	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
 		StateFileDirectory: testingDir,
 	}

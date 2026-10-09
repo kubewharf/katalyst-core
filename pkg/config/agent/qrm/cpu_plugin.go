@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/irqtuner"
 )
@@ -83,6 +84,7 @@ type CPUDynamicPolicyConfig struct {
 	// EnableCPUWeight indicates whether cpu weight sync is enabled
 	EnableCPUWeight bool
 
+	*bulkhead.BulkheadConfiguration
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration
 }
@@ -100,6 +102,7 @@ func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{
 			HintOptimizerConfiguration: hintoptimizer.NewHintOptimizerConfiguration(),
 			IRQTunerConfiguration:      irqtuner.NewIRQTunerConfiguration(),
+			BulkheadConfiguration:      bulkhead.NewBulkheadConfiguration(),
 		},
 		CPUNativePolicyConfig: CPUNativePolicyConfig{},
 	}

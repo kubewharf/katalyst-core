@@ -137,12 +137,14 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 	return result
 }
 
-// groupByWeight extracts the common logic of grouping by weight
-func groupByWeight[T any](stats map[string]T) map[int][]string {
-	groups := make(map[int][]string, len(stats))
+// groupByWeight uses the same equivalence key as priority sorting. Equal
+// weights can share a bucket, except that each physical share-N/shared-N CLOS
+// keeps an exclusive bucket under its complete physical name.
+func groupByWeight[T any](stats map[string]T) map[priority.EquivalenceGroupKey][]string {
+	groups := make(map[priority.EquivalenceGroupKey][]string, len(stats))
 	for group := range stats {
-		weight := priority.GetInstance().GetWeight(group)
-		groups[weight] = append(groups[weight], group)
+		key := priority.GetInstance().GetEquivalenceGroupKey(group)
+		groups[key] = append(groups[key], group)
 	}
 	return groups
 }
@@ -154,13 +156,13 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, doma
 	result := make(monitor.GroupMBStats)
 	groupInfos := domainGroupMapping{}
 
-	for weight, equivGroups := range groups {
+	for key, equivGroups := range groups {
 		if len(equivGroups) == 1 {
 			result[equivGroups[0]] = stats[equivGroups[0]]
 			continue
 		}
 
-		newKey := getCombinedGroupKey(weight)
+		newKey := getCombinedGroupKey(key.Weight)
 		groupInfo := combinedGroupMapping{}
 		combined := make(monitor.GroupMB)
 		maxMap := make(map[int]int)
@@ -202,13 +204,13 @@ func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]m
 
 	result := make(map[string][]monitor.MBInfo)
 
-	for weight, equivGroups := range groups {
+	for key, equivGroups := range groups {
 		if len(equivGroups) == 1 {
 			result[equivGroups[0]] = sumStats[equivGroups[0]]
 			continue
 		}
 
-		newKey := getCombinedGroupKey(weight)
+		newKey := getCombinedGroupKey(key.Weight)
 		// sumStats holds outgoing summary of each domain for each group, in other words,
 		// each slot of sumStats has uniform shape: slice with length of domain number
 		numDomains := len(sumStats[equivGroups[0]])

@@ -22,6 +22,7 @@ package cgroupid
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -53,6 +54,7 @@ type (
 
 type cgroupIDManagerImpl struct {
 	sync.RWMutex
+	start bool
 	pod.PodFetcher
 
 	reconcilePeriod  time.Duration
@@ -76,7 +78,33 @@ func NewCgroupIDManager(podFetcher pod.PodFetcher) CgroupIDManager {
 
 // Run starts a cgroupIDManagerImpl
 func (m *cgroupIDManagerImpl) Run(ctx context.Context) {
+	m.Lock()
+	if m.start {
+		m.Unlock()
+		return
+	}
+	m.start = true
+	m.Unlock()
+
 	wait.UntilWithContext(ctx, m.reconcileCgroupIDMap, m.reconcilePeriod)
+}
+
+func (m *cgroupIDManagerImpl) SetPodFetcher(podFetcher pod.PodFetcher) {
+	m.setComponentImplementation(func() {
+		m.PodFetcher = podFetcher
+	})
+}
+
+func (m *cgroupIDManagerImpl) setComponentImplementation(setter func()) {
+	m.Lock()
+	defer m.Unlock()
+
+	if m.start {
+		klog.Warningf("cgroup id manager has already started, not allowed to set implementations")
+		return
+	}
+
+	setter()
 }
 
 // GetCgroupIDForContainer returns the cgroup id of a given container.
@@ -164,6 +192,11 @@ func (m *cgroupIDManagerImpl) getAbsentContainers(podList []*v1.Pod) map[string]
 		for _, container := range pod.Spec.Containers {
 			containerId, err := m.GetContainerID(podUID, container.Name)
 			if err != nil {
+				if isPodOrContainerMissingInKubeletCache(err) {
+					klog.V(4).Infof("[cgroupIDManagerImpl.addNewCgroupIDsToCache] skip cgroup id cache fill for pod: %s, container: %s, err: %v",
+						podUID, container.Name, err)
+					continue
+				}
 				klog.Errorf("[cgroupIDManagerImpl.addNewCgroupIDsToCache] get container id failed, pod: %s, container: %s, err: %v",
 					podUID, container.Name, err)
 				continue
@@ -178,6 +211,14 @@ func (m *cgroupIDManagerImpl) getAbsentContainers(podList []*v1.Pod) map[string]
 	}
 
 	return absentContainersMap
+}
+
+func isPodOrContainerMissingInKubeletCache(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "container id not found") || strings.Contains(msg, "isn't found")
 }
 
 // clearResidualPodsInCache cleans residual pods in podCgroupIDCache.

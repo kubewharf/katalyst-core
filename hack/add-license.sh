@@ -22,4 +22,18 @@ GOBIN=${PROJECT}/bin go install github.com/lluissm/license-header-checker/cmd/li
 
 LICENSEIGNORE=$(cat ${PROJECT}/.licenseignore | tr '\n' ',')
 
-${PROJECT}/bin/license-header-checker -r -a -v -i ${LICENSEIGNORE} ${PROJECT}/hack/boilerplate.go.txt . go
+# New files get the current year (override with LICENSE_YEAR). Existing
+# headers are never rewritten: a file keeps the year of its creation, and
+# ranges such as "2022-2026" stay untouched. This matches the common OSS
+# convention (addlicense/kubebuilder: creation-year headers; Kubernetes:
+# per-file creation years coexist in one repo). The old behavior passed -r
+# with a fixed 2022 boilerplate, which rewrote every file back to 2022.
+LICENSE_YEAR=${LICENSE_YEAR:-$(date +%Y)}
+TMP_BOILERPLATE=$(mktemp ${TMPDIR:-/tmp}/boilerplate.XXXXXX.go.txt)
+trap 'rm -f ${TMP_BOILERPLATE}' EXIT
+sed "s/Copyright [0-9]\{4\} The Katalyst Authors\./Copyright ${LICENSE_YEAR} The Katalyst Authors./" \
+    ${PROJECT}/hack/boilerplate.go.txt > ${TMP_BOILERPLATE}
+
+# -a: add a header only when the file has none. -r is intentionally NOT
+# passed so existing years/holders are preserved instead of being reset.
+${PROJECT}/bin/license-header-checker -a -v -i ${LICENSEIGNORE} ${TMP_BOILERPLATE} . go

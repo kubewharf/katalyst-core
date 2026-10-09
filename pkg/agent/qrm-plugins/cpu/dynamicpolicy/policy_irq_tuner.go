@@ -74,7 +74,7 @@ func (p *DynamicPolicy) getPodContainerInfos(podUID string, entry state.Containe
 	defer cancel()
 
 	// get the pod from meta server
-	pod, err := p.metaServer.PodFetcher.GetPod(ctx, podUID)
+	pod, err := p.meta.metaServer.PodFetcher.GetPod(ctx, podUID)
 	if err != nil || pod == nil {
 		return cis, fmt.Errorf("pod fetcher cannot get pod %s, err:%v", podUID, err)
 	}
@@ -99,7 +99,7 @@ func (p *DynamicPolicy) getPodContainerInfos(podUID string, entry state.Containe
 		}
 
 		// get the container ID
-		containerID, err := p.metaServer.PodFetcher.GetContainerID(podUID, containerName)
+		containerID, err := p.meta.metaServer.PodFetcher.GetContainerID(podUID, containerName)
 		if err != nil {
 			general.Warningf("unable to get container id from pod %s/%s: %v", podUID, containerName, err)
 			continue
@@ -138,40 +138,86 @@ func (p *DynamicPolicy) getPodContainerInfos(podUID string, entry state.Containe
 	return cis, nil
 }
 
-// getPinnedResourcePackageIRQForbiddenCPUSet gets the irq forbidden cpuset from the pinned resource package
-func (p *DynamicPolicy) getPinnedResourcePackageIRQForbiddenCPUSet() machine.CPUSet {
-	if p.conf.IRQForbiddenPinnedResourcePackageAttributeSelector == nil {
-		return machine.NewCPUSet()
-	}
-
-	irqForbiddenCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(p.conf.IRQForbiddenPinnedResourcePackageAttributeSelector, p.state.GetMachineState())
-	if !irqForbiddenCPUSet.IsEmpty() {
-		general.InfofV(4, "irq forbidden cpuset from pinned resource package is %v", irqForbiddenCPUSet.String())
-	}
-	return irqForbiddenCPUSet
+// GetIRQForbiddenCores retrieves the cpu set of cores that are forbidden for irq binding.
+//
+// The forbidden cores always include:
+//  1. reservedCPUs (system reserved);
+//  2. system pool cpuset (union of every commonstate.IsSystemPool pool);
+//  3. cpus pinned by resource packages matched by the configured selector.
+//
+// Additionally, when the dynamic AdminQoS knob CPUPluginConfiguration.BindIRQToReclaimedPool
+// is enabled AND the reclaimed pool is present with a non-empty cpuset, the returned
+// forbidden set is expanded to "machine cpuset - reclaimed pool cpuset", unioned with
+// the always-forbidden sources above. Net effect: IRQ binding is restricted to the
+// reclaimed pool. If the reclaimed pool is missing or empty on this node, the plugin
+// logs at V(4) and falls back to the previous semantics.
+func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
+	return p.getIRQForbiddenCores(
+		p.state.GetPodEntries(),
+		p.state.GetMachineState(),
+	)
 }
 
-// GetIRQForbiddenCores retrieves the cpu set of cores that are forbidden for irq binding.
-// The forbidden cores include:
-// 1. Reserved CPUs (system reserved).
-// 2. CPUs pinned by specific resource packages (as defined by the configuration).
-func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
+func (p *DynamicPolicy) getIRQForbiddenCores(
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+) (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
 	// get irq forbidden cores from cpu plugin checkpoint
-	forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
-	forbiddenCores = forbiddenCores.Union(state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), commonstate.IsSystemPool))
+	reservedCPUs := p.config.reservedCPUs
+	systemPoolCPUs := state.GetUnitedPoolsCPUs(podEntries, commonstate.IsSystemPool)
+	forbiddenCores = forbiddenCores.Union(reservedCPUs)
+	forbiddenCores = forbiddenCores.Union(systemPoolCPUs)
 
 	// get irq forbidden cores from pinned resource package
-	irqForbiddenCPUSet := p.getPinnedResourcePackageIRQForbiddenCPUSet()
+	irqForbiddenCPUSet := machine.NewCPUSet()
+	if p.config.conf.IRQForbiddenPinnedResourcePackageAttributeSelector != nil {
+		irqForbiddenCPUSet = cpuutil.GetAggResourcePackagePinnedCPUSet(
+			p.config.conf.IRQForbiddenPinnedResourcePackageAttributeSelector, machineState)
+	}
 	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
+	bindIRQToReclaimedPool := p.shouldBindIRQToReclaimedPool()
+	reclaimCPUs := machine.NewCPUSet()
+	machineCPUs := p.machine.machineInfo.CPUDetails.CPUs()
+	if bindIRQToReclaimedPool {
+		reclaimCPUs = state.GetUnitedPoolsCPUs(podEntries, state.IsReclaimedPool)
+		if reclaimCPUs.IsEmpty() {
+			general.InfofV(4, "bind-irq-to-reclaimed-pool: reclaimed pool empty/absent, fall back")
+		} else {
+			forbiddenCores = forbiddenCores.Union(machineCPUs.Difference(reclaimCPUs))
+		}
+	}
+
 	general.Infof("get the irq forbidden cores %v", forbiddenCores)
+	general.Infof("irq-tuning diagnostic: bindIRQToReclaimedPool=%t machine=%s reclaim=%s reserved=%s system=%s pinned=%s finalForbidden=%s finalAllowed=%s",
+		bindIRQToReclaimedPool,
+		machineCPUs.String(),
+		reclaimCPUs.String(),
+		reservedCPUs.String(),
+		systemPoolCPUs.String(),
+		irqForbiddenCPUSet.String(),
+		forbiddenCores.String(),
+		machineCPUs.Difference(forbiddenCores).String())
 	return forbiddenCores, nil
 }
 
+// shouldBindIRQToReclaimedPool returns whether the dynamic AdminQoS knob is enabled.
+// Guards against nil dynamicConfig (some unit tests construct a bare DynamicPolicy).
+func (p *DynamicPolicy) shouldBindIRQToReclaimedPool() bool {
+	if p.config.dynamicConfig == nil {
+		return false
+	}
+	dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+	if dyn == nil || dyn.CPUPluginConfiguration == nil {
+		return false
+	}
+	return dyn.CPUPluginConfiguration.BindIRQToReclaimedPool
+}
+
 func (p *DynamicPolicy) GetStepExpandableCPUsMax() int {
-	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs).Size()
+	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(p.config.reservedCPUs).Size()
 	res := int(math.Ceil(irqutil.DefaultIRQExclusiveMaxStepExpansionRate * float64(availableTotalCPUSetSize)))
 
 	return res
@@ -193,9 +239,24 @@ func (p *DynamicPolicy) GetExclusiveIRQCPUSet() (machine.CPUSet, error) {
 
 // SetExclusiveIRQCPUSet sets the exclusive cpu set for Interrupt.
 func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
+	p.Lock()
+	defer p.Unlock()
+	executionLease, err := p.acquireCPUSetAdjustmentExecutionLeaseLocked(
+		context.Background(), "SetExclusiveIRQCPUSet")
+	if err != nil {
+		return err
+	}
+	defer executionLease.release()
+
 	general.Infof("set the current irq exclusive cpu set: %v", irqCPUSet)
 
-	forbidden, err := p.GetIRQForbiddenCores()
+	snapshotReader, ok := p.state.(advisorStateSnapshotReader)
+	if !ok {
+		return fmt.Errorf("cpu plugin state does not support advisor state snapshots")
+	}
+	podEntries, baseMachineState, expectedRevision := snapshotReader.GetAdvisorStateSnapshot()
+
+	forbidden, err := p.getIRQForbiddenCores(podEntries, baseMachineState)
 	if err != nil {
 		general.Errorf("get irq forbidden cores failed, err:%v", err)
 		return err
@@ -203,7 +264,7 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 
 	// 1. check cpuSet nums（max）
 	irqCPUSetSize := irqCPUSet.Size()
-	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs).Size()
+	availableTotalCPUSetSize := baseMachineState.GetAvailableCPUSet(p.config.reservedCPUs).Size()
 	maxExpandableSize := int(math.Ceil(float64(availableTotalCPUSetSize) * irqutil.DefaultIRQExclusiveMaxExpansionRate))
 	if irqCPUSetSize >= maxExpandableSize {
 		general.Errorf("the specified number of cpusets %v exceeds the max amount %v", irqCPUSetSize, maxExpandableSize)
@@ -212,7 +273,6 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 
 	// 2. measuring the rate at which the irq exclusive core expansion
 	var currentIrqCPUSet machine.CPUSet
-	podEntries := p.state.GetPodEntries()
 	if containerEntry, ok := podEntries[commonstate.PoolNameInterrupt]; ok {
 		if allocateInfo, ok := containerEntry[commonstate.FakedContainerName]; ok && allocateInfo != nil {
 			currentIrqCPUSet = allocateInfo.AllocationResult
@@ -221,7 +281,8 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 
 	currentIrqCPUSetSize := currentIrqCPUSet.Size()
 	expandSize := irqCPUSetSize - currentIrqCPUSetSize
-	maxStepExpandableSize := p.GetStepExpandableCPUsMax()
+	maxStepExpandableSize := int(math.Ceil(
+		irqutil.DefaultIRQExclusiveMaxStepExpansionRate * float64(availableTotalCPUSetSize)))
 	// If the number of CPUs that interrupt exclusive cores is increased exceeds the maximum number
 	// of CPUs that can be adjusted at a time, an error will be returned.
 	if expandSize > 0 && expandSize > maxStepExpandableSize {
@@ -236,7 +297,7 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 	}
 
 	// 4. update cpu plugin checkpoint
-	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, irqCPUSet)
+	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, irqCPUSet)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for entry: %s, entry cpuset: %s, error: %v",
 			commonstate.PoolNameInterrupt, irqCPUSet.String(), err)
@@ -253,7 +314,7 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
 
-	newPodEntries := p.state.GetPodEntries()
+	newPodEntries := podEntries.Clone()
 	if _, ok := newPodEntries[commonstate.PoolNameInterrupt]; !ok {
 		newPodEntries[commonstate.PoolNameInterrupt] = state.ContainerEntries{}
 	}
@@ -262,15 +323,24 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 	}
 	newPodEntries[commonstate.PoolNameInterrupt][commonstate.FakedContainerName] = ai
 
-	machineState, err := state.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newPodEntries, p.state.GetMachineState())
+	machineState, err := state.GenerateMachineStateFromPodEntries(
+		p.machine.machineInfo.CPUTopology, newPodEntries, baseMachineState)
 	if err != nil {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(newPodEntries, true)
-	p.state.SetMachineState(machineState, true)
+	if err := p.state.CommitAdvisorStateIfRevision(
+		expectedRevision,
+		newPodEntries,
+		machineState,
+		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
+		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		true,
+	); err != nil {
+		return fmt.Errorf("commit irq exclusive cpu set: %w", err)
+	}
 
-	_ = p.emitter.StoreInt64(util.MetricNameSetExclusiveIRQCPUSize, int64(irqCPUSetSize), metrics.MetricTypeNameRaw)
+	_ = p.emitter.emitter.StoreInt64(util.MetricNameSetExclusiveIRQCPUSize, int64(irqCPUSetSize), metrics.MetricTypeNameRaw)
 	general.Infof("persistent irq exclusive cpu set %v successful", irqCPUSet.String())
 
 	return nil

@@ -39,7 +39,7 @@ type CustomMetricSyncer interface {
 	//     uninitialized. Returning such an error MUST NOT leave any goroutine
 	//     behind.
 	//   - On success it spawns its background goroutines and then blocks until
-	//     ctx is cancelled. Once ctx is cancelled it MUST wait for its own
+	//     ctx is canceled. Once ctx is canceled it MUST wait for its own
 	//     background goroutines to exit before returning, so that callers can
 	//     wait on Run's return value without leaking goroutines.
 	//   - Errors are observable by the caller (the emitter logs them) and MUST

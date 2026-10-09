@@ -25,16 +25,17 @@ import (
 )
 
 type GenericQRMPluginOptions struct {
-	QRMPluginSocketDirs             []string
-	ExtraStateFileAbsPath           string
-	PodDebugAnnoKeys                []string
-	UseKubeletReservedConfig        bool
-	PodAnnotationKeptKeys           []string
-	PodLabelKeptKeys                []string
-	MainContainerAnnotationKey      string
-	EnableReclaimNUMABinding        bool
-	EnableSNBHighNumaPreference     bool
-	TopologyAllocationAnnotationKey string
+	QRMPluginSocketDirs                         []string
+	ExtraStateFileAbsPath                       string
+	PodDebugAnnoKeys                            []string
+	UseKubeletReservedConfig                    bool
+	PodAnnotationKeptKeys                       []string
+	PodLabelKeptKeys                            []string
+	MainContainerAnnotationKey                  string
+	EnableReclaimNUMABinding                    bool
+	EnableSNBHighNumaPreference                 bool
+	TopologyAllocationAnnotationKey             string
+	EnableReclaimedResourceAllocatableReporting bool
 	*statedirectory.StateDirectoryOptions
 }
 
@@ -72,6 +73,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSNBHighNumaPreference, "default false,if set true, snb pod will be preferentially allocated on high numa node")
 	fs.StringVar(&o.TopologyAllocationAnnotationKey, "topology-allocation-annotation-key",
 		o.TopologyAllocationAnnotationKey, "the annotation key used to describe a topology aware allocation of a container")
+	fs.BoolVar(&o.EnableReclaimedResourceAllocatableReporting, "enable-reclaimed-resource-allocatable-reporting",
+		o.EnableReclaimedResourceAllocatableReporting, "enable headroom feature-gate negotiation and reclaimed CPU/memory allocatable reporting")
 	o.StateDirectoryOptions.AddFlags(fss)
 }
 
@@ -86,6 +89,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
 	conf.TopologyAllocationAnnotationKey = o.TopologyAllocationAnnotationKey
+	conf.EnableReclaimedResourceAllocatableReporting = o.EnableReclaimedResourceAllocatableReporting
 
 	if err := o.StateDirectoryOptions.ApplyTo(conf.StateDirectoryConfiguration); err != nil {
 		return err
@@ -95,6 +99,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 }
 
 type QRMPluginsOptions struct {
+	ResctrlOptions *ResctrlOptions
 	CPUOptions     *CPUOptions
 	MemoryOptions  *MemoryOptions
 	NetworkOptions *NetworkOptions
@@ -106,6 +111,7 @@ type QRMPluginsOptions struct {
 
 func NewQRMPluginsOptions() *QRMPluginsOptions {
 	return &QRMPluginsOptions{
+		ResctrlOptions: NewResctrlOptions(),
 		CPUOptions:     NewCPUOptions(),
 		MemoryOptions:  NewMemoryOptions(),
 		NetworkOptions: NewNetworkOptions(),
@@ -117,6 +123,7 @@ func NewQRMPluginsOptions() *QRMPluginsOptions {
 }
 
 func (o *QRMPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	o.ResctrlOptions.AddFlags(fss)
 	o.CPUOptions.AddFlags(fss)
 	o.MemoryOptions.AddFlags(fss)
 	o.NetworkOptions.AddFlags(fss)
@@ -127,6 +134,9 @@ func (o *QRMPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 }
 
 func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) error {
+	if err := o.ResctrlOptions.ApplyTo(conf.ResctrlConfig); err != nil {
+		return err
+	}
 	if err := o.CPUOptions.ApplyTo(conf.CPUQRMPluginConfig); err != nil {
 		return err
 	}

@@ -82,7 +82,7 @@ type MetricSyncerNode struct {
 	metaReader metacache.MetaReader
 
 	// wg tracks the background goroutines spawned in Run so that Run waits for
-	// them to exit after ctx is cancelled, avoiding goroutine leaks on
+	// them to exit after ctx is canceled, avoiding goroutine leaks on
 	// shutdown or partial start failure.
 	wg sync.WaitGroup
 }

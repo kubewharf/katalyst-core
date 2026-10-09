@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Katalyst Authors.
+Copyright 2026 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
@@ -29,4 +30,10 @@ func TestNewGenericQRMPluginConfiguration_ContainsContainerCPUIdleAnnotation(t *
 
 	conf := NewGenericQRMPluginConfiguration()
 	assert.Contains(t, conf.PodAnnotationKeptKeys, katalystapiconsts.PodAnnotationContainerCPUIdleRateKey)
+}
+
+func TestNewQRMPluginsConfiguration_ResctrlConfigHasNoOptionDefaults(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, NewQRMPluginsConfiguration().ResctrlConfig.DefaultClosIDs)
 }

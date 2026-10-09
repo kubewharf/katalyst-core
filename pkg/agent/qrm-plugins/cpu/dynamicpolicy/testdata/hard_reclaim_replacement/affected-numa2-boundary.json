@@ -1,0 +1,35 @@
+{
+  "name": "affected-numa2-boundary",
+  "generatedTopology": {
+    "numCPUs": 128,
+    "numSockets": 2,
+    "numNUMAs": 4
+  },
+  "available": "32-47,96-111",
+  "expectedReclaim": "32,44,46-47,96,108,110-111",
+  "expectedAssignmentSizes": {
+    "reclaim-numa-2": 8,
+    "dedicated-numa-2": 24
+  },
+  "expectCompleteNoFeasible": false,
+  "demands": [
+    {
+      "key": "reclaim-numa-2",
+      "requestGroupKey": "",
+      "quantity": 8,
+      "requestQuantity": 0,
+      "eligible": "32-47,96-111",
+      "preferred": "32,46-47,96,108-111",
+      "class": "mandatory-reclaim"
+    },
+    {
+      "key": "dedicated-numa-2",
+      "requestGroupKey": "pod/main",
+      "quantity": 24,
+      "requestQuantity": 62,
+      "eligible": "32-47,96-111",
+      "preferred": "33-45,97-107",
+      "class": "dedicated"
+    }
+  ]
+}
