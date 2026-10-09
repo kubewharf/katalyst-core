@@ -57,9 +57,13 @@ type ExtraCPUInfo struct {
 
 // GetExtraCPUInfo get extend cpu info from proc system
 func GetExtraCPUInfo() (*ExtraCPUInfo, error) {
-	cpuInfo, err := ioutil.ReadFile(cpuInfoPath)
+	return getExtraCPUInfoFromFile(cpuInfoPath)
+}
+
+func getExtraCPUInfoFromFile(path string) (*ExtraCPUInfo, error) {
+	cpuInfo, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "could not read file %s", cpuInfoPath)
+		return nil, errors.Wrapf(err, "could not read file %s", path)
 	}
 
 	return &ExtraCPUInfo{
@@ -69,9 +73,13 @@ func GetExtraCPUInfo() (*ExtraCPUInfo, error) {
 
 // GetCPUFlags get cpu flags from proc fs.
 func GetCPUFlags() ([]string, error) {
-	cpuInfo, err := ioutil.ReadFile(cpuInfoPath)
+	return getCPUFlagsFromFile(cpuInfoPath)
+}
+
+func getCPUFlagsFromFile(path string) ([]string, error) {
+	cpuInfo, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "could not read file %s", cpuInfoPath)
+		return nil, errors.Wrapf(err, "could not read file %s", path)
 	}
 
 	// split content by row
@@ -126,8 +134,10 @@ func getCPUInstructionInfo(cpuInfo string) sets.String {
 
 // GetCoreNumReservedForReclaim generates per numa reserved for reclaim resource value map.
 // per numa reserved resource is taken in a fair way with even step, e.g.
-// 4 -> 1 1 1 1; 2 -> 1 1 1 1; 8 -> 2 2 2 2;
-func GetCoreNumReservedForReclaim(numReservedCores, numNumaNodes int) map[int]int {
+// 4 -> 1 1 1 1; 2 -> 1 1 1 1; 8 -> 2 2 2 2. Every non-zero per-NUMA magnitude is
+// then rounded UP to a complete physical core via cpusPerCore so the reserve can
+// never seed a half core; cpusPerCore <= 0 leaves the magnitude untouched.
+func GetCoreNumReservedForReclaim(numReservedCores, numNumaNodes, cpusPerCore int) map[int]int {
 	if numNumaNodes <= 0 {
 		numNumaNodes = 1
 	}
@@ -145,6 +155,7 @@ func GetCoreNumReservedForReclaim(numReservedCores, numNumaNodes int) map[int]in
 	if step < 1 {
 		step = 1
 	}
+	reservedPerNuma = roundUpToCoreAligned(reservedPerNuma, cpusPerCore)
 
 	reservedForReclaim := make(map[int]int)
 	for id := 0; id < numNumaNodes; id++ {
@@ -153,6 +164,35 @@ func GetCoreNumReservedForReclaim(numReservedCores, numNumaNodes int) map[int]in
 		} else {
 			reservedForReclaim[id] = 0
 		}
+	}
+
+	return reservedForReclaim
+}
+
+// GetCoreNumReservedForReclaimOnNUMAs generates a core-aligned reclaim target
+// for each real NUMA ID. Every NUMA starts with one complete physical core, then
+// complete cores are added in sorted NUMA-ID order until the aggregate covers
+// numReservedCPUs. The caller-owned NUMA ID slice is never mutated.
+func GetCoreNumReservedForReclaimOnNUMAs(numReservedCPUs int, numaIDs []int, cpusPerCore int) map[int]int {
+	sortedNUMAIDs := append([]int(nil), numaIDs...)
+	sort.Ints(sortedNUMAIDs)
+
+	coreWidth := cpusPerCore
+	if coreWidth <= 0 {
+		coreWidth = 1
+	}
+
+	reservedForReclaim := make(map[int]int, len(sortedNUMAIDs))
+	total := 0
+	for _, numaID := range sortedNUMAIDs {
+		reservedForReclaim[numaID] = coreWidth
+		total += coreWidth
+	}
+
+	for i := 0; total < numReservedCPUs && len(sortedNUMAIDs) > 0; i++ {
+		numaID := sortedNUMAIDs[i%len(sortedNUMAIDs)]
+		reservedForReclaim[numaID] += coreWidth
+		total += coreWidth
 	}
 
 	return reservedForReclaim
@@ -231,6 +271,10 @@ type CPUStat struct {
 }
 
 func GetCPUPackageID(cpuID int64) (int, error) {
+	return getCPUPackageID(cpuSysDir, cpuID)
+}
+
+func getCPUPackageID(cpuSysDir string, cpuID int64) (int, error) {
 	cpuName := fmt.Sprintf("cpu%d", cpuID)
 	cpuTopoDir := filepath.Join(cpuSysDir, cpuName, "topology")
 	if _, err := os.Stat(cpuTopoDir); err != nil && os.IsNotExist(err) {
@@ -245,6 +289,10 @@ func GetCPUPackageID(cpuID int64) (int, error) {
 }
 
 func GetSocketCount() (int, error) {
+	return getSocketCount(cpuSysDir)
+}
+
+func getSocketCount(cpuSysDir string) (int, error) {
 	dirEnts, err := os.ReadDir(cpuSysDir)
 	if err != nil {
 		return -1, fmt.Errorf("failed to ReadDir(%s), err %v", cpuSysDir, err)
@@ -280,6 +328,10 @@ func GetSocketCount() (int, error) {
 }
 
 func GetNodeCount() (int, error) {
+	return getNodeCount(nodeSysDir)
+}
+
+func getNodeCount(nodeSysDir string) (int, error) {
 	dirEnts, err := os.ReadDir(nodeSysDir)
 	if err != nil {
 		return -1, fmt.Errorf("failed to ReadDir(%s), err %v", nodeSysDir, err)
@@ -306,6 +358,10 @@ func GetNodeCount() (int, error) {
 }
 
 func GetNumaPackageID(nodeID int) (int, error) {
+	return getNumaPackageID(cpuSysDir, nodeSysDir, nodeID)
+}
+
+func getNumaPackageID(cpuSysDir, nodeSysDir string, nodeID int) (int, error) {
 	nodeName := fmt.Sprintf("node%d", nodeID)
 	nodeCPUListFile := filepath.Join(nodeSysDir, nodeName, "cpulist")
 	if _, err := os.Stat(nodeCPUListFile); err != nil && os.IsNotExist(err) {
@@ -318,7 +374,7 @@ func GetNumaPackageID(nodeID int) (int, error) {
 	}
 
 	if len(cpuList) == 0 {
-		socketCount, err := GetSocketCount()
+		socketCount, err := getSocketCount(cpuSysDir)
 		if err != nil {
 			return -1, fmt.Errorf("failed to GetSocketCount, err %v", err)
 		}
@@ -331,7 +387,7 @@ func GetNumaPackageID(nodeID int) (int, error) {
 			return 0, nil
 		}
 
-		numaCount, err := GetNodeCount()
+		numaCount, err := getNodeCount(nodeSysDir)
 		if err != nil {
 			return -1, fmt.Errorf("failed to GetNodeCount, err %v", err)
 		}
@@ -341,7 +397,7 @@ func GetNumaPackageID(nodeID int) (int, error) {
 		return nodeID / nodeCountPerSocket, nil
 	}
 
-	phyPackageId, err := GetCPUPackageID(cpuList[0])
+	phyPackageId, err := getCPUPackageID(cpuSysDir, cpuList[0])
 	if err != nil {
 		return -1, fmt.Errorf("failed to GetCPUPackageID(%d), err %v", cpuList[0], err)
 	}
@@ -350,6 +406,10 @@ func GetNumaPackageID(nodeID int) (int, error) {
 }
 
 func GetCPUOnlineStatus(cpuID int64) (bool, error) {
+	return getCPUOnlineStatus(cpuSysDir, cpuID)
+}
+
+func getCPUOnlineStatus(cpuSysDir string, cpuID int64) (bool, error) {
 	cpuName := fmt.Sprintf("cpu%d", cpuID)
 
 	// /sys/devices/system/cpu/cpu0/online not exists, because cpu0 cannot be offline
@@ -383,7 +443,7 @@ func GetCPUOnlineStatus(cpuID int64) (bool, error) {
 	return false, nil
 }
 
-func getLLCDomain(cpuListFile string) (*LLCDomain, error) {
+func getLLCDomain(cpuSysDir, cpuListFile string) (*LLCDomain, error) {
 	cpuList, err := general.ParseLinuxListFormatFromFile(cpuListFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ParseLinuxListFormatFromFile(%s), err %v", cpuListFile, err)
@@ -425,11 +485,11 @@ func getLLCDomain(cpuListFile string) (*LLCDomain, error) {
 	return &llcDomain, nil
 }
 
-func getIntelNumaTopo(nodeCPUListFile string) (*LLCDomain, error) {
-	return getLLCDomain(nodeCPUListFile)
+func getIntelNumaTopo(cpuSysDir, nodeCPUListFile string) (*LLCDomain, error) {
+	return getLLCDomain(cpuSysDir, nodeCPUListFile)
 }
 
-func getAMDNumaTopo(nodeCPUListFile string) (*AMDNuma, error) {
+func getAMDNumaTopo(cpuSysDir, nodeCPUListFile string) (*AMDNuma, error) {
 	nodeCPUList, err := general.ParseLinuxListFormatFromFile(nodeCPUListFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ParseLinuxListFormatFromFile(%s), err %v", nodeCPUListFile, err)
@@ -448,7 +508,7 @@ func getAMDNumaTopo(nodeCPUListFile string) (*AMDNuma, error) {
 			continue
 		}
 
-		llcDomain, err := getLLCDomain(l3SharedCpuListPath)
+		llcDomain, err := getLLCDomain(cpuSysDir, l3SharedCpuListPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to getLLCDomain(%s), err %v", l3SharedCpuListPath, err)
 		}
@@ -491,8 +551,12 @@ func getSocketCPUList(socket *CPUSocket, cpuVendor cpuid.Vendor) []int64 {
 // GetCPUInfoWithTopo get cpu info with topo
 // https://www.kernel.org/doc/Documentation/ABI/stable/sysfs-devices-system-cpu
 func GetCPUInfoWithTopo() (*CPUInfo, error) {
+	return getCPUInfoWithTopo(cpuSysDir, nodeSysDir, cpuid.CPU.VendorID)
+}
+
+func getCPUInfoWithTopo(cpuSysDir, nodeSysDir string, vendor cpuid.Vendor) (*CPUInfo, error) {
 	cpuInfo := &CPUInfo{
-		CPUVendor:  cpuid.CPU.VendorID,
+		CPUVendor:  vendor,
 		Sockets:    make(map[int]*CPUSocket),
 		CPU2Socket: make(map[int64]int),
 		CPUOnline:  make(map[int64]bool),
@@ -529,12 +593,12 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 		}
 
 		if cpuInfo.CPUVendor == cpuid.Intel {
-			numa, err := getIntelNumaTopo(nodeCPUListFile)
+			numa, err := getIntelNumaTopo(cpuSysDir, nodeCPUListFile)
 			if err != nil {
 				return nil, fmt.Errorf("getIntelNumaTopo(%d), err %v", nodeID, err)
 			}
 			if len(numa.PhyCores) > 0 && len(numa.PhyCores[0].CPUs) > 0 {
-				phyPackageId, err := GetCPUPackageID(numa.PhyCores[0].CPUs[0])
+				phyPackageId, err := getCPUPackageID(cpuSysDir, numa.PhyCores[0].CPUs[0])
 				if err != nil {
 					return nil, fmt.Errorf("failed to GetCPUPackageID(%d), err %v", numa.PhyCores[0].CPUs[0], err)
 				}
@@ -549,13 +613,13 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 			}
 
 		} else if cpuInfo.CPUVendor == cpuid.AMD {
-			numa, err := getAMDNumaTopo(nodeCPUListFile)
+			numa, err := getAMDNumaTopo(cpuSysDir, nodeCPUListFile)
 			if err != nil {
 				return nil, fmt.Errorf("getAMDNumaTopo(%d), err %v", nodeID, err)
 			}
 
 			if len(numa.CCDs) > 0 && len(numa.CCDs[0].PhyCores) > 0 && len(numa.CCDs[0].PhyCores[0].CPUs) > 0 {
-				phyPackageId, err := GetCPUPackageID(numa.CCDs[0].PhyCores[0].CPUs[0])
+				phyPackageId, err := getCPUPackageID(cpuSysDir, numa.CCDs[0].PhyCores[0].CPUs[0])
 				if err != nil {
 					return nil, fmt.Errorf("failed to GetCPUPackageID(%d), err %v", numa.CCDs[0].PhyCores[0].CPUs[0], err)
 				}
@@ -578,7 +642,7 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 
 		for _, cpuID := range socketCPUList {
 			cpuInfo.CPU2Socket[cpuID] = socketID
-			online, err := GetCPUOnlineStatus(cpuID)
+			online, err := getCPUOnlineStatus(cpuSysDir, cpuID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to GetCPUOnlineStatus(%d), err %v", cpuID, err)
 			}
@@ -594,7 +658,11 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 }
 
 func CollectCpuStats() (map[int64]*CPUStat, error) {
-	lines, err := general.ReadLines(cpuStatFile)
+	return collectCpuStats(cpuStatFile)
+}
+
+func collectCpuStats(statFile string) (map[int64]*CPUStat, error) {
+	lines, err := general.ReadLines(statFile)
 	if err != nil {
 		return nil, err
 	}

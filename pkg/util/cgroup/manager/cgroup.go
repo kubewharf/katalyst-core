@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"time"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -79,6 +81,20 @@ func ApplyCPUWithRelativePath(relCgroupPath string, data *common.CPUData) error 
 	return GetManager().ApplyCPU(absCgroupPath, data)
 }
 
+// ApplyCPUWithRelativePaths applies the same CPUData to each relative cgroup
+// path. It continues on failure and returns an aggregated error over every
+// failing path, so a single missing subtree does not block updates to sibling
+// subtrees and every failure is surfaced.
+func ApplyCPUWithRelativePaths(relCgroupPaths []string, data *common.CPUData) error {
+	var errs []error
+	for _, relCgroupPath := range relCgroupPaths {
+		if err := ApplyCPUWithRelativePath(relCgroupPath, data); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return utilerrors.NewAggregate(errs)
+}
+
 func ApplyCPUWithAbsolutePath(absCgroupPath string, data *common.CPUData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUWithAbsolutePath with nil cgroup data")
@@ -111,6 +127,21 @@ func ApplyCPUSetPartitionWithRelativePath(relCgroupPath string, partitionFlag co
 
 func ApplyCPUSetPartitionWithAbsolutePath(absCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error {
 	return GetManager().ApplyCPUSetPartition(absCgroupPath, partitionFlag)
+}
+
+// ApplySchedLoadBalanceWithRelativePath writes cpuset.sched_load_balance for
+// the cgroup at relCgroupPath. It is only meaningful on cgroup v1; on v2 the
+// underlying manager returns common.ErrNotSupported and callers should decide
+// whether to short-circuit or surface the error.
+func ApplySchedLoadBalanceWithRelativePath(relCgroupPath string, enabled bool) error {
+	absCgroupPath := common.GetAbsCgroupPath(common.CgroupSubsysCPUSet, relCgroupPath)
+	return GetManager().ApplySchedLoadBalance(absCgroupPath, enabled)
+}
+
+// ApplySchedLoadBalanceWithAbsolutePath mirrors ApplySchedLoadBalanceWithRelativePath
+// for callers that already resolved the absolute cgroup path.
+func ApplySchedLoadBalanceWithAbsolutePath(absCgroupPath string, enabled bool) error {
+	return GetManager().ApplySchedLoadBalance(absCgroupPath, enabled)
 }
 
 func ApplyCPUSetForContainer(podUID, containerId string, data *common.CPUSetData) error {
@@ -404,7 +435,7 @@ func SetExtraCGMemLimitWithTimeoutAndRelCGPath(ctx context.Context, relCgroupPat
 }
 
 func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath string, nbytes int64) error {
-	if nbytes == 0 {
+	if nbytes < 0 {
 		return fmt.Errorf("invalid memory limit nbytes: %d", nbytes)
 	}
 
@@ -414,10 +445,6 @@ func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath st
 	)
 
 	if common.CheckCgroup2UnifiedMode() {
-		if nbytes == 0 {
-			general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] skip drop cache on %s since nbytes is zero", absCgroupPath)
-			return nil
-		}
 		// cgv2
 		cgroupFile = "memory.max"
 	} else {
@@ -425,11 +452,20 @@ func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath st
 		cgroupFile = "memory.limit_in_bytes"
 	}
 
-	cmd := fmt.Sprintf("timeout %d echo %d > %s", timeoutSecs, nbytes, filepath.Join(absCgroupPath, cgroupFile))
+	path := filepath.Join(absCgroupPath, cgroupFile)
+	// echo(1) appends a trailing newline; preserve that on the v1 "unlimited"
+	// sentinel write (nbytes == 0 -> memory.limit_in_bytes = 0).
+	data := []byte(strconv.FormatInt(nbytes, 10) + "\n")
 
-	_, err := exec.Command("bash", "-c", cmd).Output()
+	// Write the cgroup file directly from Go instead of shelling out to the
+	// external `timeout` coreutils binary (which is not present on stock macOS).
+	// The write is bounded so a hung cgroupfs write cannot block the caller
+	// forever; the original shell semantics are preserved: a timeout is
+	// tolerated, while a fast write error is surfaced to the caller.
+	err := writeFileBounded(path, data, timeoutSecs)
 
 	delta := time.Since(startTime).Seconds()
+	cmd := fmt.Sprintf("echo %d > %s", nbytes, path)
 	general.Infof("[SetExtraCGMemLimitWithTimeoutAndAbsCGPath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
 	_ = eventbus.GetDefaultEventBus().Publish(consts.TopicNameApplyCGroup, eventbus.RawCGroupEvent{
 		BaseEventImpl: eventbus.BaseEventImpl{
@@ -448,6 +484,33 @@ func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath st
 	}
 
 	return nil
+}
+
+// writeFileBounded writes data to path, bounding the wait to timeoutSecs. It is
+// the cross-platform replacement for `timeout <secs> echo <data> > <path>`:
+// the write runs in a goroutine and the caller waits at most timeoutSecs for
+// it. timeoutSecs <= 0 performs an unbounded write. A timeout is reported as an
+// error whose elapsed time is >= timeoutSecs so callers can tolerate it the
+// same way the previous shell command did.
+func writeFileBounded(path string, data []byte, timeoutSecs int) error {
+	if timeoutSecs <= 0 {
+		return os.WriteFile(path, data, 0o644)
+	}
+
+	type result struct{ err error }
+	done := make(chan result, 1)
+	go func() {
+		done <- result{err: os.WriteFile(path, data, 0o644)}
+	}()
+
+	timer := time.NewTimer(time.Duration(timeoutSecs) * time.Second)
+	defer timer.Stop()
+	select {
+	case res := <-done:
+		return res.err
+	case <-timer.C:
+		return fmt.Errorf("write %s timed out after %d seconds", path, timeoutSecs)
+	}
 }
 
 func SetSwapMaxWithAbsolutePathToParentCgroupRecursive(absCgroupPath string) error {

@@ -21,19 +21,22 @@ package metric_emitter
 
 import (
 	"context"
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes/fake"
 
+	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -54,23 +57,25 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	t.Parallel()
 
 	conf := generateTestConfiguration(t)
-	// Use a temp checkpoint dir so metaCache setup does not depend on the host's
-	// /var/lib/katalyst (which is not writable in CI).
+	// MetaCache persists advisor state through StateFileDirectory, while
+	// CheckpointManagerDir belongs to MetaServer. Isolate both so this lifecycle
+	// test never depends on host-writable production paths.
 	conf.CheckpointManagerDir = t.TempDir()
+	conf.GenericSysAdvisorConfiguration.StateFileDirectory = t.TempDir()
 
-	// Build a valid MetaServer fixture on purpose, but leave MetricsFetcher
-	// nil: this is the "none exist metrics fetcher" scenario.
-	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 4)
-	require.NoError(t, err)
+	conf.EnableMetricsFetcher = false
 
-	metaServer := &metaserver.MetaServer{
-		MetaAgent: &agent.MetaAgent{
-			KatalystMachineInfo: &machine.KatalystMachineInfo{
-				CPUTopology: cpuTopology,
-			},
-			// MetricsFetcher intentionally left nil.
-		},
+	genericClient := &client.GenericClientSet{
+		KubeClient:     fake.NewSimpleClientset(),
+		InternalClient: internalfake.NewSimpleClientset(),
+		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
+	metaServer, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
+	require.NoError(t, err)
+	require.NotNil(t, metaServer)
+	// Construct all production defaults successfully, then remove only the
+	// dependency this test is intended to exercise.
+	metaServer.MetricsFetcher = nil
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, nil)
 	require.NoError(t, err)
@@ -78,8 +83,6 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 	f, err := NewCustomMetricEmitter(PluginNameCustomMetricEmitter, conf, struct{}{}, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
 	require.NoError(t, err)
 	require.NoError(t, f.Init())
-
-	before := runtime.NumGoroutine()
 
 	// Do NOT cancel this context: the emitter must return on its own because a
 	// syncer reports the missing MetricsFetcher as an error, which triggers the
@@ -96,13 +99,11 @@ func Test_noneExistMetricsFetcher(t *testing.T) {
 
 	select {
 	case <-done:
-		// expected: the observable syncer error tore the emitter down.
+		// Run returns only after CustomMetricEmitter has canceled its shared
+		// context and waited for every syncer goroutine. This emitter-owned join is
+		// the deterministic leak check; process-wide goroutine counts are polluted
+		// by unrelated parallel tests under make test.
 	case <-time.After(2 * time.Second):
 		t.Fatalf("emitter.Run should have returned after syncer dependency error, but it is still blocking")
 	}
-
-	// no goroutine leak after shutdown
-	require.Eventually(t, func() bool {
-		return runtime.NumGoroutine() <= before
-	}, 2*time.Second, 5*time.Millisecond, "goroutine count should not grow after emitter shutdown")
 }

@@ -105,9 +105,11 @@ type CPUData struct {
 
 // CPUSetData set cgroup cpuset data
 type CPUSetData struct {
-	CPUs    string
-	Mems    string
-	Migrate string
+	CPUs           string
+	Mems           string
+	Migrate        string
+	WriteEmptyCPUs bool
+	WriteEmptyMems bool
 }
 
 // NetClsData is the net class data.
@@ -254,10 +256,10 @@ type CgroupResources struct {
 
 type AbsoluteCgroupPathHandler struct {
 	Name    string
-	Handler func(subsys, podUID, containerId string) (string, error)
+	Handler func(subsys, podUID, containerId string) (string, bool, error)
 }
 
 type RelativeCgroupPathHandler struct {
 	Name    string
-	Handler func(podUID, containerId string) (string, error)
+	Handler func(podUID, containerId string) (string, bool, error)
 }

@@ -429,11 +429,10 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, nil)
 
-	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
-	if coreNumReservedForReclaim.Value() > int64(p.metaServer.NumCPUs) {
-		coreNumReservedForReclaim.Set(int64(p.metaServer.NumCPUs))
-	}
-	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
+	dynamicConf := p.dynamicConf.GetDynamicConfiguration()
+	// mirror the advisor's regular reclaim path so the shared-pool limit honors
+	// NUMA-level reserved ratio/floor overrides instead of only the global reserve.
+	reservedForReclaim := machine.ResolvePerNUMAReservedForReclaim(dynamicConf, p.metaServer.CPUTopology)
 
 	reservedForReclaimInSharedNuma := 0
 	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))

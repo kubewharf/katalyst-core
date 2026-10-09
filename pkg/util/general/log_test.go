@@ -99,3 +99,12 @@ func TestLogging(t *testing.T) {
 
 	time.Sleep(time.Millisecond)
 }
+
+func TestInfoSVDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	// InfoSV must stay safe both when the level is disabled (default verbosity)
+	// and when it is enabled; it lazy-gates internally and keeps key/value shape.
+	InfoSV(4, "test-InfoSV-disabled", "scope", "s1")
+	InfoSV(0, "test-InfoSV-enabled", "scope", "s2", "n", 1)
+}

@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 // Copyright 2022 The Katalyst Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,7 +50,7 @@ var errFakeMissingDependency = errors.New("fake syncer: missing dependency")
 
 // fakeSyncer is a syncer.CustomMetricSyncer used to drive the emitter lifecycle.
 // It exposes channels for synchronization control so tests can observe exactly
-// when a syncer starts, is stopped (ctx cancelled), and returns from Run.
+// when a syncer starts, is stopped (ctx canceled), and returns from Run.
 type fakeSyncer struct {
 	name string
 
@@ -43,7 +59,7 @@ type fakeSyncer struct {
 	startErr error
 
 	started  chan struct{} // closed exactly once Run is entered
-	stopped  chan struct{} // closed after ctx is cancelled and Run is about to return
+	stopped  chan struct{} // closed after ctx is canceled and Run is about to return
 	returned chan struct{} // closed when Run has returned
 }
 
@@ -100,7 +116,7 @@ func requireNotClosed(t *testing.T, ch chan struct{}, msgAndArgs ...interface{})
 }
 
 // TestCustomMetricEmitter_NormalCancelNoLeak ensures that when every syncer
-// starts successfully, cancelling the context stops every syncer and makes
+// starts successfully, canceling the context stops every syncer and makes
 // Run return, without leaving managed goroutines behind.
 func TestCustomMetricEmitter_NormalCancelNoLeak(t *testing.T) {
 	t.Parallel()
@@ -120,7 +136,7 @@ func TestCustomMetricEmitter_NormalCancelNoLeak(t *testing.T) {
 	requireClosed(t, healthyA.started, "healthy-a started")
 	requireClosed(t, healthyB.started, "healthy-b started")
 
-	// emitter must still be running (nothing cancelled yet)
+	// emitter must still be running (nothing canceled yet)
 	requireNotClosed(t, done, "emitter running before cancel")
 
 	cancel()
@@ -155,9 +171,9 @@ func TestCustomMetricEmitter_PartialStartFailureCancelsOthers(t *testing.T) {
 	requireClosed(t, failing.started, "failing started")
 
 	// the failing syncer's error must tear down the healthy one: its ctx must be
-	// cancelled and it must stop.
+	// canceled and it must stop.
 	requireClosed(t, healthy.stopped, "healthy stopped after sibling failure")
-	// and the emitter itself must return without us cancelling the parent ctx.
+	// and the emitter itself must return without us canceling the parent ctx.
 	requireClosed(t, done, "emitter.Run returned after partial start failure")
 }
 

@@ -16,17 +16,22 @@ limitations under the License.
 
 package advisor
 
-import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+import (
+	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+)
 
 type MemoryGuardConfiguration struct {
 	Enable                       bool
 	CriticalWatermarkScaleFactor float64
+	CriticalWatermarkSource      configv1alpha1.CriticalWatermarkSource
 }
 
 func NewMemoryGuardConfiguration() *MemoryGuardConfiguration {
 	return &MemoryGuardConfiguration{
 		Enable:                       true,
 		CriticalWatermarkScaleFactor: 1.0,
+		CriticalWatermarkSource:      configv1alpha1.CriticalWatermarkSourceLow,
 	}
 }
 
@@ -41,6 +46,9 @@ func (c *MemoryGuardConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD
 		}
 		if config.CriticalWatermarkScaleFactor != nil {
 			c.CriticalWatermarkScaleFactor = *config.CriticalWatermarkScaleFactor
+		}
+		if config.CriticalWatermarkSource != nil {
+			c.CriticalWatermarkSource = *config.CriticalWatermarkSource
 		}
 	}
 }

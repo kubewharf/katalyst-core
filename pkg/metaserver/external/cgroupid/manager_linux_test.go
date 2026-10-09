@@ -20,6 +20,7 @@ limitations under the License.
 package cgroupid
 
 import (
+	"context"
 	"reflect"
 	"sort"
 	"testing"
@@ -218,6 +219,54 @@ func TestClearResidualPodsInCache(t *testing.T) {
 				cgroupIDManager.Unlock()
 			}
 		})
+	}
+}
+
+func TestSetPodFetcher(t *testing.T) {
+	t.Parallel()
+
+	cgroupIDManager := newTestCgroupIDManager(podFetcher)
+
+	newPodFetcher := &pod.PodFetcherStub{}
+	cgroupIDManager.SetPodFetcher(newPodFetcher)
+
+	assert.Equal(t, newPodFetcher, cgroupIDManager.PodFetcher)
+}
+
+func TestSetPodFetcherAfterStartDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	originalPodFetcher := &pod.PodFetcherStub{}
+	cgroupIDManager := newTestCgroupIDManager(originalPodFetcher)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cgroupIDManager.Run(ctx)
+	}()
+
+	assert.Eventually(t, func() bool {
+		cgroupIDManager.RLock()
+		defer cgroupIDManager.RUnlock()
+		return cgroupIDManager.start
+	}, time.Second, 10*time.Millisecond)
+
+	cgroupIDManager.SetPodFetcher(&pod.PodFetcherStub{})
+
+	assert.Equal(t, originalPodFetcher, cgroupIDManager.PodFetcher)
+	cancel()
+	<-done
+}
+
+func newTestCgroupIDManager(podFetcher pod.PodFetcher) *cgroupIDManagerImpl {
+	return &cgroupIDManagerImpl{
+		PodFetcher:       podFetcher,
+		podCgroupIDCache: make(PodCache),
+		reconcilePeriod:  time.Hour,
+		residualHitMap:   make(map[string]int64),
 	}
 }
 

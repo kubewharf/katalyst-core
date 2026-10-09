@@ -85,6 +85,20 @@ func TestGetSpecifiedPoolName(t *testing.T) {
 	}
 }
 
+func TestGenerateGenericContainerAllocationMetaRetainsNativeQOSClass(t *testing.T) {
+	t.Parallel()
+
+	meta := GenerateGenericContainerAllocationMeta(&pluginapi.ResourceRequest{
+		PodUid:         "pod-1",
+		ContainerName:  "main",
+		NativeQosClass: "Guaranteed",
+	}, PoolNameShare, consts.PodAnnotationQoSLevelSharedCores)
+
+	if got := meta.NativeQOSClass; got != "Guaranteed" {
+		t.Fatalf("native qos class = %q, want Guaranteed", got)
+	}
+}
+
 func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 	t.Parallel()
 	testName := "test"

@@ -205,6 +205,28 @@ func (s CPUSet) Union(s2 CPUSet) CPUSet {
 	return s3
 }
 
+// AddSet inserts every element of s2 into s, mutating s in place without
+// allocating a new CPU set. It is the zero-allocation counterpart of Union for
+// callers that already own s and grow it incrementally. The caller must have
+// initialized s (for example via NewCPUSet); a zero CPUSet is left untouched.
+func (s CPUSet) AddSet(s2 CPUSet) {
+	if s.elems == nil {
+		return
+	}
+	for cpu := range s2.elems {
+		s.elems[cpu] = struct{}{}
+	}
+}
+
+// Each calls fn for every element in s without allocating a slice. Iteration
+// order is the map iteration order (unsorted); callers that need a stable
+// order should use ToSliceInt.
+func (s CPUSet) Each(fn func(cpu int)) {
+	for cpu := range s.elems {
+		fn(cpu)
+	}
+}
+
 // UnionAll returns a new CPU set that contains all elements from this
 // set and all elements from the supplied sets, without mutating either source set.
 func (s CPUSet) UnionAll(s2 []CPUSet) CPUSet {

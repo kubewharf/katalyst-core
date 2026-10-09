@@ -42,11 +42,26 @@ func (*unsupportedRDTManager) ApplyTasks(clos string, tasks []string) error {
 }
 
 // ApplyCAT applies the CAT configurations for each CLOS.
-func (*unsupportedRDTManager) ApplyCAT(clos string, cat map[int]int) error {
+func (*unsupportedRDTManager) ApplyCAT(clos string, cat map[int]uint64) error {
 	return nil
 }
 
 // ApplyMBA applies the MBA configurations for each CLOS.
 func (*unsupportedRDTManager) ApplyMBA(clos string, mba map[int]int) error {
 	return nil
+}
+
+// InvalidateClos is a no-op when RDT is unsupported.
+func (*unsupportedRDTManager) InvalidateClos(clos string) {}
+
+// RunClosResourceUpdate runs a resource update without schemata coordination when RDT is unsupported.
+func (*unsupportedRDTManager) RunClosResourceUpdate(_ string, update func() (bool, error)) error {
+	_, err := update()
+	return err
+}
+
+// RunClosLifecycle runs a lifecycle update without schemata coordination when RDT is unsupported.
+func (*unsupportedRDTManager) RunClosLifecycle(_ string, update func() (bool, error)) error {
+	_, err := update()
+	return err
 }

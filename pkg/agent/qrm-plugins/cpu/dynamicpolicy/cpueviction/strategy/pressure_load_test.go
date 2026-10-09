@@ -1559,20 +1559,23 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 
 				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
-						AllocationResult:         machine.MustParse("3-6,11-14"),
-						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						AllocationMeta: commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+						// core-aligned 6-cpu (three-core) share pool: with the
+						// core-aligned reserve now holding two cpus per NUMA
+						// (limit == 8), a six-cpu share pool keeps poolSizeSum (6)
+						// strictly below the limit so this subtest still exercises
+						// the no-pressure branch.
+						AllocationResult:         machine.MustParse("3-5,11-13"),
+						OriginalAllocationResult: machine.MustParse("3-5,11-13"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(),
 							1: machine.NewCPUSet(3, 11),
-							2: machine.NewCPUSet(4, 5, 11, 12),
-							3: machine.NewCPUSet(6, 14),
+							2: machine.NewCPUSet(4, 5, 12, 13),
 						},
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(),
 							1: machine.NewCPUSet(3, 11),
-							2: machine.NewCPUSet(4, 5, 11, 12),
-							3: machine.NewCPUSet(6, 14),
+							2: machine.NewCPUSet(4, 5, 12, 13),
 						},
 					},
 				},

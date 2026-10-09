@@ -57,18 +57,57 @@ func (m *MockState) GetPodEntries() state.PodEntries  { return nil }
 func (m *MockState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	return nil
 }
-func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool               { return false }
-func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool)  {}
-func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)   {}
-func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) {}
-func (m *MockState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, persist bool) {
+func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool                { return false }
+func (m *MockState) GetDisableDedicatedCoresOverlapReclaimedCores() bool           { return false }
+func (m *MockState) GetRevision() uint64                                           { return 0 }
+func (m *MockState) SetWritePermit(state.WriteGate)                                {}
+func (m *MockState) SetDisableDedicatedCoresOverlapReclaimedCores(_, _ bool) error { return nil }
+func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool) error {
+	return nil
 }
 
-func (m *MockState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) {
+func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool) error {
+	return nil
 }
-func (m *MockState) Delete(podUID string, containerName string, persist bool) {}
-func (m *MockState) ClearState()                                              {}
-func (m *MockState) StoreState() error                                        { return nil }
+
+func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) error {
+	return nil
+}
+
+func (m *MockState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, persist bool) error {
+	return nil
+}
+
+func (m *MockState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) error {
+	return nil
+}
+
+func (m *MockState) CommitAdvisorState(
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
+	_ ...*state.WritePermit,
+) error {
+	return nil
+}
+
+func (m *MockState) CommitAdvisorStateIfRevision(
+	_ uint64,
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
+	permits ...*state.WritePermit,
+) error {
+	return m.CommitAdvisorState(
+		podEntries, machineState, allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores, persist, permits...)
+}
+
+func (m *MockState) Delete(podUID string, containerName string, persist bool) error {
+	return nil
+}
+func (m *MockState) ClearState() error { return nil }
+func (m *MockState) StoreState() error { return nil }
 
 type resourcePackageManagerStub struct {
 	nodeResourcePackagesMap pkgutil.NUMAResourcePackageItems

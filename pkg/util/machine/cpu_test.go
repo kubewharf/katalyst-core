@@ -19,16 +19,12 @@ package machine
 import (
 	"fmt"
 	"os"
-	"sort"
+	"path/filepath"
 	"testing"
 
-	"github.com/bytedance/mockey"
 	"github.com/klauspost/cpuid/v2"
-	"github.com/pkg/errors"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func TestGetCoreNumReservedForReclaim(t *testing.T) {
@@ -36,42 +32,75 @@ func TestGetCoreNumReservedForReclaim(t *testing.T) {
 		name             string
 		numReservedCores int
 		numNumaNodes     int
+		cpusPerCore      int
 		want             map[int]int
 	}{
 		{
 			name:             "reserve 4",
 			numReservedCores: 4,
 			numNumaNodes:     4,
+			cpusPerCore:      1,
 			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 2",
 			numReservedCores: 2,
 			numNumaNodes:     4,
+			cpusPerCore:      1,
 			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 3",
 			numReservedCores: 3,
 			numNumaNodes:     4,
+			cpusPerCore:      1,
 			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 0",
 			numReservedCores: 0,
 			numNumaNodes:     4,
+			cpusPerCore:      1,
 			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 1",
 			numReservedCores: 1,
 			numNumaNodes:     4,
+			cpusPerCore:      1,
 			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 8",
 			numReservedCores: 8,
 			numNumaNodes:     4,
+			cpusPerCore:      1,
+			want:             map[int]int{0: 2, 1: 2, 2: 2, 3: 2},
+		},
+		{
+			// SMT2: a per-NUMA magnitude of 1 CPU rounds UP to a complete core
+			// (2 CPUs) so no reserve seeds a half core.
+			name:             "smt2 rounds per numa up to core",
+			numReservedCores: 4,
+			numNumaNodes:     4,
+			cpusPerCore:      2,
+			want:             map[int]int{0: 2, 1: 2, 2: 2, 3: 2},
+		},
+		{
+			// SMT2: distribute complete cores until the aggregate reaches 12.
+			name:             "smt2 preserves dense even split",
+			numReservedCores: 12,
+			numNumaNodes:     4,
+			cpusPerCore:      2,
+			want:             map[int]int{0: 4, 1: 4, 2: 4, 3: 4},
+		},
+		{
+			// The legacy dense API divides first and intentionally drops the
+			// global remainder instead of redistributing it across low IDs.
+			name:             "smt2 preserves dense remainder semantics",
+			numReservedCores: 10,
+			numNumaNodes:     4,
+			cpusPerCore:      2,
 			want:             map[int]int{0: 2, 1: 2, 2: 2, 3: 2},
 		},
 	}
@@ -81,90 +110,88 @@ func TestGetCoreNumReservedForReclaim(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := GetCoreNumReservedForReclaim(tt.numReservedCores, tt.numNumaNodes)
+			r := GetCoreNumReservedForReclaim(tt.numReservedCores, tt.numNumaNodes, tt.cpusPerCore)
 			assert.Equal(t, tt.want, r)
 		})
 	}
 }
 
+// writeNodeSysfs lays out a fake /sys/devices/system/node directory under root
+// and returns it. Each entry in names is materialized as either a directory
+// (node*) or a plain file, mirroring the real sysfs layout.
+func writeNodeSysfs(t *testing.T, root string, names []string) string {
+	t.Helper()
+	nodeDir := filepath.Join(root, "sys", "devices", "system", "node")
+	if err := os.MkdirAll(nodeDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", nodeDir, err)
+	}
+	for _, name := range names {
+		p := filepath.Join(nodeDir, name)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", p, err)
+		}
+	}
+	return nodeDir
+}
+
 func Test_GetNodeCount(t *testing.T) {
-	mockey.PatchConvey("Test the GetNodeCount function", t, func() {
-		mockey.PatchConvey("Scenario 1: Successfully obtained the number of nodes", func() {
-			// Arrange: Prepare simulation data, including valid node directory, invalid directory and files
-			mockEntries := []os.DirEntry{
-				&mockDirEntry{entryName: "node0", isDir: true},
-				&mockDirEntry{entryName: "node1", isDir: true},
-				&mockDirEntry{entryName: "cpu", isDir: true},        // NonNodeDirectory
-				&mockDirEntry{entryName: "some_file", isDir: false}, // File
-				&mockDirEntry{entryName: "nodexyz", isDir: true},    // InvalidNodeDirectoryName
-			}
-			// Mock os.ReadDir function to return the simulated data we prepared
-			mockey.Mock(os.ReadDir).Return(mockEntries, nil).Build()
+	t.Parallel()
 
-			// Act: call the function to be tested
-			count, err := GetNodeCount()
+	t.Run("valid node dirs counted, others skipped", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		nodeDir := writeNodeSysfs(t, root, []string{"node0", "node1", "cpu"})
+		// a plain (non-dir) file must be ignored
+		if err := os.WriteFile(filepath.Join(nodeDir, "some_file"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// a directory prefixed with node but not numeric must be ignored
+		if err := os.MkdirAll(filepath.Join(nodeDir, "nodexyz"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 
-			// Assert: assertion results are as expected
-			So(err, ShouldBeNil)
-			So(count, ShouldEqual, 2)
-		})
+		count, err := getNodeCount(nodeDir)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
 
-		mockey.PatchConvey("Scenario 2: Failed to read the directory", func() {
-			// Arrange: Prepare a simulation error
-			mockErr := errors.New("permission denied")
-			// Mock os.ReadDir function, causing it to return an error
-			mockey.Mock(os.ReadDir).Return(nil, mockErr).Build()
+	t.Run("missing dir returns error", func(t *testing.T) {
+		t.Parallel()
+		// a path that does not exist triggers the ReadDir error branch.
+		count, err := getNodeCount(filepath.Join(t.TempDir(), "does-not-exist"))
+		assert.Error(t, err)
+		assert.Equal(t, -1, count)
+	})
 
-			// Act: call the function to be tested
-			count, err := GetNodeCount()
+	t.Run("no node directory returns zero", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		nodeDir := writeNodeSysfs(t, root, []string{"cpu0", "memory0"})
+		if err := os.WriteFile(filepath.Join(nodeDir, "a_file"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
 
-			// Assert: The assert function returns an error and -1
-			So(err, ShouldNotBeNil)
-			So(count, ShouldEqual, -1)
-			So(err.Error(), ShouldContainSubstring, "permission denied")
-		})
+		count, err := getNodeCount(nodeDir)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, count)
+	})
 
-		mockey.PatchConvey("Scenario 3: There is no node in the directory", func() {
-			// Arrange: Prepare simulation data that does not contain node directory
-			mockEntries := []os.DirEntry{
-				&mockDirEntry{entryName: "cpu0", isDir: true},
-				&mockDirEntry{entryName: "memory0", isDir: true},
-				&mockDirEntry{entryName: "a_file", isDir: false},
-			}
-			mockey.Mock(os.ReadDir).Return(mockEntries, nil).Build()
+	t.Run("empty directory returns zero", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		nodeDir := writeNodeSysfs(t, root, nil)
 
-			// Act: call the function to be tested
-			count, err := GetNodeCount()
-
-			// Assert: Assert the number of nodes is 0
-			So(err, ShouldBeNil)
-			So(count, ShouldEqual, 0)
-		})
-
-		mockey.PatchConvey("Scene 4: The directory is empty", func() {
-			// Arrange: Prepare an empty directory entry list
-			mockEntries := []os.DirEntry{}
-			mockey.Mock(os.ReadDir).Return(mockEntries, nil).Build()
-
-			// Act: call the function to be tested
-			count, err := GetNodeCount()
-
-			// Assert the number of nodes is 0
-			So(err, ShouldBeNil)
-			So(count, ShouldEqual, 0)
-		})
+		count, err := getNodeCount(nodeDir)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, count)
 	})
 }
 
 func Test_getSocketCPUList(t *testing.T) {
-	mockey.PatchConvey("Test getSocketCPUList", t, func() {
-		mockey.Mock(general.SortInt64Slice).To(func(x []int64) {
-			sort.Slice(x, func(i, j int) bool {
-				return x[i] < x[j]
-			})
-		}).Build()
+	t.Parallel()
 
-		mockey.PatchConvey("Scenario 1: When the CPU manufacturer is Intel", func() {
+	Convey("Test getSocketCPUList", t, func() {
+		Convey("Scenario 1: When the CPU manufacturer is Intel", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
 				IntelNumas: map[int]*LLCDomain{
@@ -185,14 +212,11 @@ func Test_getSocketCPUList(t *testing.T) {
 			}
 			expectedCPUList := []int64{0, 1, 2, 3, 8, 9, 10, 11}
 
-			// Act: call the function to be tested
 			cpuList := getSocketCPUList(socket, cpuid.Intel)
-
 			So(cpuList, ShouldResemble, expectedCPUList)
 		})
 
-		mockey.PatchConvey("Scenario 2: When the CPU manufacturer is AMD", func() {
-			// Arrange: Construct the topology of an AMD CPU
+		Convey("Scenario 2: When the CPU manufacturer is AMD", func() {
 			socket := &CPUSocket{
 				NumaIDs:    []int{0},
 				IntelNumas: nil,
@@ -217,12 +241,11 @@ func Test_getSocketCPUList(t *testing.T) {
 			}
 			expectedCPUList := []int64{4, 5, 6, 7, 12, 13, 14, 15}
 
-			// Act: call the function to be tested
 			cpuList := getSocketCPUList(socket, cpuid.AMD)
 			So(cpuList, ShouldResemble, expectedCPUList)
 		})
 
-		mockey.PatchConvey("Scenario 3: When the CPU manufacturer is unknown", func() {
+		Convey("Scenario 3: When the CPU manufacturer is unknown", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0},
 				IntelNumas: map[int]*LLCDomain{
@@ -238,7 +261,7 @@ func Test_getSocketCPUList(t *testing.T) {
 			So(cpuList, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario 4: When there is no NUMA node in the Socket", func() {
+		Convey("Scenario 4: When there is no NUMA node in the Socket", func() {
 			socket := &CPUSocket{
 				NumaIDs:    []int{},
 				IntelNumas: map[int]*LLCDomain{},
@@ -252,8 +275,10 @@ func Test_getSocketCPUList(t *testing.T) {
 }
 
 func Test_getAMDSocketPhysicalCores(t *testing.T) {
-	mockey.PatchConvey("Test the getAMDSocketPhysicalCores function", t, func() {
-		mockey.PatchConvey("Scenario 1: Normally, Socket contains multiple NUMA nodes and physical cores", func() {
+	t.Parallel()
+
+	Convey("Test the getAMDSocketPhysicalCores function", t, func() {
+		Convey("Scenario 1: Normally, Socket contains multiple NUMA nodes and physical cores", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
 				AMDNumas: map[int]*AMDNuma{
@@ -294,18 +319,17 @@ func Test_getAMDSocketPhysicalCores(t *testing.T) {
 			So(result, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Scenario 2: Socket does not contain any NUMA nodes", func() {
+		Convey("Scenario 2: Socket does not contain any NUMA nodes", func() {
 			socket := &CPUSocket{
 				NumaIDs:  []int{},
 				AMDNumas: map[int]*AMDNuma{},
 			}
 
 			result := getAMDSocketPhysicalCores(socket)
-			// Assert: assertion results are empty slices
 			So(result, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario 3: Some NUMA nodes or CCDs are empty", func() {
+		Convey("Scenario 3: Some NUMA nodes or CCDs are empty", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1, 2},
 				AMDNumas: map[int]*AMDNuma{
@@ -338,22 +362,23 @@ func Test_getAMDSocketPhysicalCores(t *testing.T) {
 			So(result, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Scene 4: Socket's AMDNumas is nil", func() {
+		Convey("Scene 4: Socket's AMDNumas is nil", func() {
 			socket := &CPUSocket{
 				NumaIDs:  []int{},
 				AMDNumas: nil,
 			}
 
 			result := getAMDSocketPhysicalCores(socket)
-			// Assert: assertion results are empty slices
 			So(result, ShouldBeEmpty)
 		})
 	})
 }
 
 func Test_getIntelSocketPhysicalCores(t *testing.T) {
-	mockey.PatchConvey("Test_getIntelSocketPhysicalCores", t, func() {
-		mockey.PatchConvey("Normal scenario: When the socket contains multiple valid NUMA nodes", func() {
+	t.Parallel()
+
+	Convey("Test_getIntelSocketPhysicalCores", t, func() {
+		Convey("Normal scenario: When the socket contains multiple valid NUMA nodes", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
 				IntelNumas: map[int]*LLCDomain{
@@ -376,14 +401,12 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 				{CPUs: []int64{4, 5}},
 			}
 
-			// Act: call the function to be tested
 			result := getIntelSocketPhysicalCores(socket)
-
 			So(result, ShouldNotBeNil)
 			So(result, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Boundary Scenario: When NumaIDs are empty", func() {
+		Convey("Boundary Scenario: When NumaIDs are empty", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{},
 				IntelNumas: map[int]*LLCDomain{
@@ -393,13 +416,11 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 				},
 			}
 
-			// Act: call the function to be tested
 			result := getIntelSocketPhysicalCores(socket)
-
 			So(result, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Boundary scenario: When the PhyCores of a NUMA node is empty", func() {
+		Convey("Boundary scenario: When the PhyCores of a NUMA node is empty", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
 				IntelNumas: map[int]*LLCDomain{
@@ -417,13 +438,11 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 				{CPUs: []int64{0, 1}},
 			}
 
-			// Act: call the function to be tested
 			result := getIntelSocketPhysicalCores(socket)
-
 			So(result, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Exception scenario: panic should occur when IntelNumas maps to nil", func() {
+		Convey("Exception scenario: panic should occur when IntelNumas maps to nil", func() {
 			socket := &CPUSocket{
 				NumaIDs:    []int{0},
 				IntelNumas: nil, // IntelNumas map为nil
@@ -434,7 +453,7 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 			}, ShouldPanic)
 		})
 
-		mockey.PatchConvey("Exception scenario: panic should occur when NumaID does not exist in IntelNumas", func() {
+		Convey("Exception scenario: panic should occur when NumaID does not exist in IntelNumas", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
 				IntelNumas: map[int]*LLCDomain{
@@ -452,8 +471,10 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 }
 
 func Test_CPUInfo_GetSocketSlice(t *testing.T) {
-	mockey.PatchConvey("Test CPUInfo GetSocketSlice", t, func() {
-		mockey.PatchConvey("Scenario 1: When Sockets map is empty", func() {
+	t.Parallel()
+
+	Convey("Test CPUInfo GetSocketSlice", t, func() {
+		Convey("Scenario 1: When Sockets map is empty", func() {
 			cpuInfo := &CPUInfo{
 				Sockets: make(map[int]*CPUSocket),
 			}
@@ -462,7 +483,7 @@ func Test_CPUInfo_GetSocketSlice(t *testing.T) {
 			So(result, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario 2: When Sockets map is nil", func() {
+		Convey("Scenario 2: When Sockets map is nil", func() {
 			cpuInfo := &CPUInfo{
 				Sockets: nil,
 			}
@@ -471,7 +492,7 @@ func Test_CPUInfo_GetSocketSlice(t *testing.T) {
 			So(result, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario 3: When Sockets map contains an element", func() {
+		Convey("Scenario 3: When Sockets map contains an element", func() {
 			cpuInfo := &CPUInfo{
 				Sockets: map[int]*CPUSocket{
 					1: {},
@@ -484,7 +505,7 @@ func Test_CPUInfo_GetSocketSlice(t *testing.T) {
 			So(result, ShouldResemble, []int{1})
 		})
 
-		mockey.PatchConvey("Scenario 4: When Sockets map contains multiple out-of-order elements", func() {
+		Convey("Scenario 4: When Sockets map contains multiple out-of-order elements", func() {
 			cpuInfo := &CPUInfo{
 				Sockets: map[int]*CPUSocket{
 					2: {},
@@ -503,25 +524,32 @@ func Test_CPUInfo_GetSocketSlice(t *testing.T) {
 }
 
 func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
-	mockey.PatchConvey("Test CPUInfo.GetSocketPhysicalCores", t, func() {
-		cpuInfo := &CPUInfo{
-			Sockets: map[int]*CPUSocket{
-				0: {}, // Socket 0
-			},
-		}
+	t.Parallel()
 
-		mockey.PatchConvey("Scenario 1: When socketID is negative, nil should be returned", func() {
+	Convey("Test CPUInfo.GetSocketPhysicalCores", t, func() {
+		Convey("Scenario 1: When socketID is negative, nil should be returned", func() {
+			cpuInfo := &CPUInfo{
+				Sockets: map[int]*CPUSocket{
+					0: {},
+				},
+			}
+
 			cores := cpuInfo.GetSocketPhysicalCores(-1)
 			So(cores, ShouldBeNil)
 		})
 
-		mockey.PatchConvey("Scenario 2: When the socketID exceeds the length of Sockets, nil should be returned", func() {
+		Convey("Scenario 2: When the socketID exceeds the length of Sockets, nil should be returned", func() {
+			cpuInfo := &CPUInfo{
+				Sockets: map[int]*CPUSocket{
+					0: {},
+				},
+			}
+
 			cores := cpuInfo.GetSocketPhysicalCores(2)
 			So(cores, ShouldBeNil)
 		})
 
-		mockey.PatchConvey("Scenario 3: When the CPU is AMD, getAMDSocketPhysicalCores should be called and its result should be returned.", func() {
-			// Arrange: prepare test data and mock
+		Convey("Scenario 3: When the CPU is AMD, the AMD physical cores are returned", func() {
 			amdCPUInfo := &CPUInfo{
 				CPUVendor: cpuid.AMD,
 				Sockets: map[int]*CPUSocket{
@@ -532,7 +560,7 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 								CCDs: []*LLCDomain{
 									{
 										PhyCores: []PhyCore{
-											{CPUs: []int64{0, 1}}, // Physical core 0, including logical core 0 and 1
+											{CPUs: []int64{0, 1}},
 										},
 									},
 								},
@@ -542,14 +570,12 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 				},
 			}
 			expectedCores := []PhyCore{{CPUs: []int64{0, 1}}}
-			mockey.Mock(getAMDSocketPhysicalCores).Return(expectedCores).Build()
 
 			cores := amdCPUInfo.GetSocketPhysicalCores(0)
 			So(cores, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Scenario 4: When the CPU is Intel, getIntelSocketPhysicalCores should be called and its result should be returned.", func() {
-			// Arrange: prepare test data and mock
+		Convey("Scenario 4: When the CPU is Intel, the Intel physical cores are returned", func() {
 			intelCPUInfo := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 				Sockets: map[int]*CPUSocket{
@@ -558,7 +584,7 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 						IntelNumas: map[int]*LLCDomain{
 							0: {
 								PhyCores: []PhyCore{
-									{CPUs: []int64{0, 1}}, // Physical core 0, including logical core 0 and 1
+									{CPUs: []int64{0, 1}},
 								},
 							},
 						},
@@ -566,13 +592,12 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 				},
 			}
 			expectedCores := []PhyCore{{CPUs: []int64{0, 1}}}
-			mockey.Mock(getIntelSocketPhysicalCores).Return(expectedCores).Build()
 
 			cores := intelCPUInfo.GetSocketPhysicalCores(0)
 			So(cores, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Scenario 5: When the CPU is another manufacturer, nil should be returned", func() {
+		Convey("Scenario 5: When the CPU is another manufacturer, nil should be returned", func() {
 			otherCPUInfo := &CPUInfo{
 				CPUVendor: cpuid.VendorUnknown,
 				Sockets: map[int]*CPUSocket{
@@ -587,14 +612,10 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 }
 
 func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
-	mockey.PatchConvey("Test CPUInfo GetNodeCPUList", t, func() {
-		mockey.Mock(general.SortInt64Slice).To(func(x []int64) {
-			sort.Slice(x, func(i, j int) bool {
-				return x[i] < x[j]
-			})
-		}).Build()
+	t.Parallel()
 
-		mockey.PatchConvey("Scenario 1: Intel CPU, successfully find the node and return to the CPU list", func() {
+	Convey("Test CPUInfo GetNodeCPUList", t, func() {
+		Convey("Scenario 1: Intel CPU, successfully find the node and return to the CPU list", func() {
 			c := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 				Sockets: map[int]*CPUSocket{
@@ -625,15 +646,12 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 			nodeID := 0
 			expectedCPUs := []int64{0, 1, 4, 5}
 
-			// Act: call the function to be tested
 			cpuList := c.GetNodeCPUList(nodeID)
-
-			// Assert: assertion results
 			So(cpuList, ShouldNotBeNil)
 			So(cpuList, ShouldResemble, expectedCPUs)
 		})
 
-		mockey.PatchConvey("Scenario 2: AMD CPU, successfully finds the node and returns to the CPU list", func() {
+		Convey("Scenario 2: AMD CPU, successfully finds the node and returns to the CPU list", func() {
 			c := &CPUInfo{
 				CPUVendor: cpuid.AMD,
 				Sockets: map[int]*CPUSocket{
@@ -663,15 +681,12 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 			nodeID := 0
 			expectedCPUs := []int64{0, 1, 2, 3, 8, 9, 10, 11}
 
-			// Act: call the function to be tested
 			cpuList := c.GetNodeCPUList(nodeID)
-
-			// Assert: assertion results
 			So(cpuList, ShouldNotBeNil)
 			So(cpuList, ShouldResemble, expectedCPUs)
 		})
 
-		mockey.PatchConvey("Scenario 3: The node ID does not exist", func() {
+		Convey("Scenario 3: The node ID does not exist", func() {
 			c := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 				Sockets: map[int]*CPUSocket{
@@ -689,14 +704,11 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 			}
 			nonExistentNodeID := 99
 
-			// Act: call the function to be tested
 			cpuList := c.GetNodeCPUList(nonExistentNodeID)
-
-			// Assert: assertion results为nil
 			So(cpuList, ShouldBeNil)
 		})
 
-		mockey.PatchConvey("Scenario 4: Unsupported CPU architecture", func() {
+		Convey("Scenario 4: Unsupported CPU architecture", func() {
 			c := &CPUInfo{
 				CPUVendor: cpuid.VendorUnknown,
 				Sockets: map[int]*CPUSocket{
@@ -707,12 +719,11 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 			}
 			nodeID := 0
 
-			// Act: call the function to be tested
 			cpuList := c.GetNodeCPUList(nodeID)
 			So(cpuList, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario 5: The node exists but does not have a CPU core", func() {
+		Convey("Scenario 5: The node exists but does not have a CPU core", func() {
 			c := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 				Sockets: map[int]*CPUSocket{
@@ -728,7 +739,6 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 			}
 			nodeID := 0
 
-			// Act: call the function to be tested
 			cpuList := c.GetNodeCPUList(nodeID)
 			So(cpuList, ShouldBeEmpty)
 		})
@@ -736,8 +746,10 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 }
 
 func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
-	mockey.PatchConvey("Test CPUInfo.GetAMDNumaCCDs", t, func() {
-		mockey.PatchConvey("Scenario 1: The CPU architecture is not AMD, an error should be returned", func() {
+	t.Parallel()
+
+	Convey("Test CPUInfo.GetAMDNumaCCDs", t, func() {
+		Convey("Scenario 1: The CPU architecture is not AMD, an error should be returned", func() {
 			cpuInfo := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 			}
@@ -747,7 +759,7 @@ func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
 			So(ccds, ShouldBeNil)
 		})
 
-		mockey.PatchConvey("Scenario 2: The CPU is AMD but the specified Node ID cannot be found, an error should be returned", func() {
+		Convey("Scenario 2: The CPU is AMD but the specified Node ID cannot be found, an error should be returned", func() {
 			cpuInfo := &CPUInfo{
 				CPUVendor: cpuid.AMD,
 				Sockets: map[int]*CPUSocket{
@@ -769,7 +781,7 @@ func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
 			So(ccds, ShouldBeNil)
 		})
 
-		mockey.PatchConvey("Scenario 3: Successfully found Node and return CCDs (single Socket)", func() {
+		Convey("Scenario 3: Successfully found Node and return CCDs (single Socket)", func() {
 			expectedCCDs := []*LLCDomain{
 				{PhyCores: []PhyCore{{CPUs: []int64{0, 1, 2, 3}}}},
 				{PhyCores: []PhyCore{{CPUs: []int64{4, 5, 6, 7}}}},
@@ -795,7 +807,7 @@ func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
 			So(ccds, ShouldResemble, expectedCCDs)
 		})
 
-		mockey.PatchConvey("Scenario 4: Find Node successfully and return CCDs (multiple Sockets)", func() {
+		Convey("Scenario 4: Find Node successfully and return CCDs (multiple Sockets)", func() {
 			expectedCCDs := []*LLCDomain{
 				{PhyCores: []PhyCore{{CPUs: []int64{16, 17, 18, 19}}}},
 			}
@@ -827,7 +839,7 @@ func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
 			So(ccds, ShouldResemble, expectedCCDs)
 		})
 
-		mockey.PatchConvey("Scenario 5: Node is found but its CCDs list is empty", func() {
+		Convey("Scenario 5: Node is found but its CCDs list is empty", func() {
 			targetNodeID := 0
 			cpuInfo := &CPUInfo{
 				CPUVendor: cpuid.AMD,
@@ -851,14 +863,10 @@ func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
 }
 
 func Test_GetLLCDomainCPUList(t *testing.T) {
-	mockey.PatchConvey("Test GetLLCDomainCPUList", t, func() {
-		mockey.Mock(general.SortInt64Slice).To(func(x []int64) {
-			sort.Slice(x, func(i, j int) bool {
-				return x[i] < x[j]
-			})
-		}).Build()
+	t.Parallel()
 
-		mockey.PatchConvey("Scenario: Normally, including multiple physical cores and out-of-order CPUs", func() {
+	Convey("Test GetLLCDomainCPUList", t, func() {
+		Convey("Scenario: Normally, including multiple physical cores and out-of-order CPUs", func() {
 			llcDomain := &LLCDomain{
 				PhyCores: []PhyCore{
 					{CPUs: []int64{3, 1, 5}},
@@ -867,22 +875,20 @@ func Test_GetLLCDomainCPUList(t *testing.T) {
 			}
 			expected := []int64{1, 2, 3, 4, 5}
 
-			// Act: call the function to be tested
 			result := GetLLCDomainCPUList(llcDomain)
 			So(result, ShouldResemble, expected)
 		})
 
-		mockey.PatchConvey("Scenario: LLCDomain does not contain any physical cores", func() {
+		Convey("Scenario: LLCDomain does not contain any physical cores", func() {
 			llcDomain := &LLCDomain{
 				PhyCores: []PhyCore{},
 			}
 
-			// Act: call the function to be tested
 			result := GetLLCDomainCPUList(llcDomain)
 			So(result, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario: Some physical cores do not include CPU", func() {
+		Convey("Scenario: Some physical cores do not include CPU", func() {
 			llcDomain := &LLCDomain{
 				PhyCores: []PhyCore{
 					{CPUs: []int64{3, 1}},
@@ -892,12 +898,11 @@ func Test_GetLLCDomainCPUList(t *testing.T) {
 			}
 			expected := []int64{1, 2, 3}
 
-			// Act: call the function to be tested
 			result := GetLLCDomainCPUList(llcDomain)
 			So(result, ShouldResemble, expected)
 		})
 
-		mockey.PatchConvey("Scenario: input is nil", func() {
+		Convey("Scenario: input is nil", func() {
 			var llcDomain *LLCDomain = nil
 			So(func() {
 				GetLLCDomainCPUList(llcDomain)

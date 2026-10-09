@@ -23,6 +23,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -246,7 +247,7 @@ func TestNewBorweinController(t *testing.T) {
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): newCPUUsageOffsetUpdater(time.Now),
 				},
 			},
 		},
@@ -269,6 +270,7 @@ func TestNewBorweinController(t *testing.T) {
 
 func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 	t.Parallel()
+
 	podUID1 := "test-pod-uid1"
 	podName1 := "test-pod1"
 	containerName := "test-container"
@@ -341,9 +343,21 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 		inferenceResults       *borweintypes.BorweinInferenceResults
 		emitter                metrics.MetricEmitter
 	}
+
+	// The special-time strategy (see testStrategyParam) defines two windows in
+	// the location of the injected clock: [20:30,21:00] -> offset -0.15 and
+	// [21:00,22:00] -> offset -0.2. All times are pinned to UTC so the result
+	// is independent of the machine's local timezone, and passed per subtest as
+	// the updater's clock so the result is independent of the real wall-clock
+	// hour.
+	nonSpecialNow := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)
+	specialNow := time.Date(2026, 10, 9, 21, 30, 0, 0, time.UTC)
+	specialEarlyNow := time.Date(2026, 10, 9, 20, 45, 0, 0, time.UTC)
+
 	tests := []struct {
 		name    string
 		args    args
+		now     time.Time
 		want    float64
 		wantErr bool
 	}{
@@ -379,6 +393,7 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 					},
 				},
 			},
+			now:     nonSpecialNow,
 			want:    0.15,
 			wantErr: false,
 		},
@@ -414,6 +429,7 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 					},
 				},
 			},
+			now:     nonSpecialNow,
 			want:    -0.08,
 			wantErr: false,
 		},
@@ -449,6 +465,85 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 					},
 				},
 			},
+			now:     nonSpecialNow,
+			want:    -0.12,
+			wantErr: false,
+		},
+		{
+			// Same predictions as test1 (slot offset would clamp to 0.15), but
+			// the injected clock falls inside the [21:00,22:00] special window,
+			// so the special-time offset (-0.2) overrides the slot offset and is
+			// clamped back to the lower bound (-0.12).
+			name: "test4-hit-special-time-late-window",
+			args: args{
+				podSet: types.PodSet{
+					podUID1: sets.NewString(containerName),
+					podUID2: sets.NewString(containerName),
+				},
+				currentIndicatorOffset: 0.03,
+				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)],
+				conf:                   conf,
+				inferenceResults: &borweintypes.BorweinInferenceResults{
+					Timestamp: 0,
+					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+						podUID1: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": 1.0}",
+								},
+							},
+						},
+						podUID2: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -0.5}",
+								},
+							},
+						},
+					},
+				},
+			},
+			now:     specialNow,
+			want:    -0.12,
+			wantErr: false,
+		},
+		{
+			// The injected clock falls inside the [20:30,21:00] special window,
+			// whose offset is -0.15, clamped to the lower bound (-0.12).
+			name: "test5-hit-special-time-early-window",
+			args: args{
+				podSet: types.PodSet{
+					podUID1: sets.NewString(containerName),
+					podUID2: sets.NewString(containerName),
+				},
+				currentIndicatorOffset: 0.03,
+				borweinParameter:       conf.BorweinParameters[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)],
+				conf:                   conf,
+				inferenceResults: &borweintypes.BorweinInferenceResults{
+					Timestamp: 0,
+					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+						podUID1: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": 1.0}",
+								},
+							},
+						},
+						podUID2: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -0.5}",
+								},
+							},
+						},
+					},
+				},
+			},
+			now:     specialEarlyNow,
 			want:    -0.12,
 			wantErr: false,
 		},
@@ -457,6 +552,12 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			// Pin the special-time clock to the scenario's fixed time and inject it
+			// per call, so each subtest observes its own clock without any shared
+			// process state.
+			clock := func() time.Time { return tt.now }
+
 			inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
 			mc, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metaServer.MetricsFetcher)
 			require.NoError(t, err)
@@ -473,10 +574,11 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 				ContainerType: v1alpha1.ContainerType_MAIN,
 			})
 			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
-			strategyName, strategy, err := getEnabledBorweinStrategy(tt.args.conf)
+			strategyName, strategy, err := getEnabledBorweinStrategy(
+				tt.args.conf, tt.args.conf.GetDynamicConfiguration())
 			require.NoError(t, err)
 			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
-				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy)
+				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy, clock)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateCPUUsageIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -601,7 +703,7 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): newCPUUsageOffsetUpdater(time.Now),
 				},
 				inferenceResults: &borweintypes.BorweinInferenceResults{
 					Timestamp: 0,
@@ -653,7 +755,8 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 			}
 			inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
 			mc.SetInferenceResult(inferenceResultKey, tt.fields.inferenceResults)
-			strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+			strategyName, strategy, err := getEnabledBorweinStrategy(
+				bc.conf, bc.conf.GetDynamicConfiguration())
 			require.NoError(t, err)
 			bc.updateIndicatorOffsets(tt.args.podSet, strategyName, strategy)
 		})
@@ -755,7 +858,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): -0.08,
 				},
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): newCPUUsageOffsetUpdater(time.Now),
 				},
 			},
 			args: args{
@@ -797,7 +900,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): -0.4,
 				},
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): newCPUUsageOffsetUpdater(time.Now),
 				},
 			},
 			args: args{
@@ -840,7 +943,7 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): -0.3,
 				},
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): newCPUUsageOffsetUpdater(time.Now),
 				},
 			},
 			args: args{
@@ -907,7 +1010,8 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				metaReader:              mc,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
 			}
-			strategyName, _, err := getEnabledBorweinStrategy(bc.conf)
+			strategyName, _, err := getEnabledBorweinStrategy(
+				bc.conf, bc.conf.GetDynamicConfiguration())
 			require.NoError(t, err)
 			if got := bc.getUpdatedIndicators(tt.args.indicators, strategyName); !checkIndicatorEqual(got, tt.want) {
 				t.Errorf("BorweinController.getUpdatedIndicators() = %v, want %v", got, tt.want)
@@ -1030,7 +1134,7 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				},
 				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
-					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): newCPUUsageOffsetUpdater(time.Now),
 				},
 				podSet: types.PodSet{
 					podUID1: sets.NewString(containerName),
@@ -1083,11 +1187,28 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				metaReader:              tt.fields.metaReader,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
 			}
-			if got := bc.GetUpdatedIndicators(tt.args.indicators, tt.fields.podSet); !reflect.DeepEqual(got, tt.want) {
+			if got := bc.GetUpdatedIndicators(
+				tt.args.indicators,
+				tt.fields.podSet,
+				tt.fields.conf.GetDynamicConfiguration(),
+			); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("BorweinController.getUpdatedIndicators() = %v, want %v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestGetEnabledBorweinStrategyUsesProvidedDynamicConfiguration(t *testing.T) {
+	t.Parallel()
+
+	conf := initConf(t, t.TempDir(), t.TempDir())
+	roundDynamicConf := conf.GetDynamicConfiguration()
+	conf.SetDynamicConfiguration(dynamic.NewConfiguration())
+
+	strategyName, strategy, err := getEnabledBorweinStrategy(conf, roundDynamicConf)
+	require.NoError(t, err)
+	require.Equal(t, consts.StrategyNameBorweinV2, strategyName)
+	require.NotNil(t, strategy)
 }
 
 func TestBorweinController_ResetIndicatorOffsets(t *testing.T) {

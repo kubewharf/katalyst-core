@@ -17,8 +17,12 @@ limitations under the License.
 package state
 
 import (
+	"bytes"
 	"encoding/json"
+	"hash/fnv"
+	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
 )
@@ -26,12 +30,24 @@ import (
 var _ checkpointmanager.Checkpoint = &CPUPluginCheckpoint{}
 
 type CPUPluginCheckpoint struct {
-	PolicyName                            string            `json:"policyName"`
-	MachineState                          NUMANodeMap       `json:"machineState"`
-	NUMAHeadroom                          map[int]float64   `json:"numa_headroom"`
-	PodEntries                            PodEntries        `json:"pod_entries"`
-	AllowSharedCoresOverlapReclaimedCores bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
-	Checksum                              checksum.Checksum `json:"checksum"`
+	PolicyName                                 string            `json:"policyName"`
+	MachineState                               NUMANodeMap       `json:"machineState"`
+	NUMAHeadroom                               map[int]float64   `json:"numa_headroom"`
+	PodEntries                                 PodEntries        `json:"pod_entries"`
+	AllowSharedCoresOverlapReclaimedCores      bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
+	DisableDedicatedCoresOverlapReclaimedCores bool              `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
+	Revision                                   uint64            `json:"revision"`
+	Checksum                                   checksum.Checksum `json:"checksum"`
+}
+
+type cpuPluginCheckpointWithoutRevision struct {
+	PolicyName                                 string            `json:"policyName"`
+	MachineState                               NUMANodeMap       `json:"machineState"`
+	NUMAHeadroom                               map[int]float64   `json:"numa_headroom"`
+	PodEntries                                 PodEntries        `json:"pod_entries"`
+	AllowSharedCoresOverlapReclaimedCores      bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
+	DisableDedicatedCoresOverlapReclaimedCores bool              `json:"disable_dedicated_cores_overlap_reclaimed_cores"`
+	Checksum                                   checksum.Checksum `json:"checksum"`
 }
 
 func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
@@ -61,5 +77,34 @@ func (cp *CPUPluginCheckpoint) VerifyChecksum() error {
 	cp.Checksum = 0
 	err := ck.Verify(cp)
 	cp.Checksum = ck
+	if err == nil {
+		return nil
+	}
+	legacy := &cpuPluginCheckpointWithoutRevision{
+		PolicyName:                            cp.PolicyName,
+		MachineState:                          cp.MachineState,
+		NUMAHeadroom:                          cp.NUMAHeadroom,
+		PodEntries:                            cp.PodEntries,
+		AllowSharedCoresOverlapReclaimedCores: cp.AllowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: cp.DisableDedicatedCoresOverlapReclaimedCores,
+	}
+	// DeepHashObject includes the concrete top-level type name. Reproduce the
+	// former CPUPluginCheckpoint spelling so checkpoints written before the
+	// Revision field was introduced remain valid during rolling upgrades.
+	var serialized bytes.Buffer
+	printer := spew.ConfigState{
+		Indent:         " ",
+		SortKeys:       true,
+		DisableMethods: true,
+		SpewKeys:       true,
+	}
+	printer.Fprintf(&serialized, "%#v", legacy)
+	legacyBytes := strings.Replace(
+		serialized.String(), "cpuPluginCheckpointWithoutRevision", "CPUPluginCheckpoint", 1)
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(legacyBytes))
+	if ck == checksum.Checksum(hash.Sum32()) {
+		return nil
+	}
 	return err
 }

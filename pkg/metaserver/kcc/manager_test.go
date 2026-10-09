@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
+	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -270,6 +271,102 @@ func TestDynamicConfigManager_ConfigHooks(t *testing.T) {
 	}
 }
 
+func TestDynamicConfigManager_ConfigHooksDoNotHoldManagerLock(t *testing.T) {
+	t.Parallel()
+
+	manager := constructTestDynamicConfigManager(t, "test-node", t.TempDir(),
+		generateTestEvictionConfiguration(map[v1.ResourceName]float64{
+			v1.ResourceCPU:    1.2,
+			v1.ResourceMemory: 1.3,
+		}))
+
+	hookStarted := make(chan struct{})
+	releaseHook := make(chan struct{})
+	manager.AddConfigHook(func(context.Context, *dynamic.Configuration, *dynamic.Configuration) error {
+		close(hookStarted)
+		<-releaseHook
+		return nil
+	})
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- manager.updateConfig(context.Background())
+	}()
+	<-hookStarted
+
+	watcherDone := make(chan error, 1)
+	go func() {
+		watcherDone <- manager.AddConfigWatcher(metav1.GroupVersionResource{
+			Group: "test.katalyst.kubewharf.io", Version: "v1alpha1", Resource: "independentconfigs",
+		})
+	}()
+
+	select {
+	case err := <-watcherDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("manager lock remained held while a configuration hook was running")
+	}
+
+	close(releaseHook)
+	require.NoError(t, <-updateDone)
+}
+
+func TestDynamicConfigManager_MetadataOnlyRefreshSkipsHooks(t *testing.T) {
+	t.Parallel()
+
+	newAQC := generateTestEvictionConfiguration(map[v1.ResourceName]float64{
+		v1.ResourceCPU:    1.2,
+		v1.ResourceMemory: 1.3,
+	})
+	newAQC.ResourceVersion = "2"
+	manager := constructTestDynamicConfigManager(t, "test-node", t.TempDir(), newAQC)
+
+	oldAQC := newAQC.DeepCopy()
+	oldAQC.ResourceVersion = "1"
+	oldCRD := &crd.DynamicConfigCRD{AdminQoSConfiguration: oldAQC}
+	oldConfig := deepCopy(manager.defaultConfig)
+	applyDynamicConfig(oldConfig, oldCRD)
+	manager.conf.SetDynamicConfiguration(oldConfig)
+	manager.lastDynamicConfigCRD = deepCopyDynamicConfigCRD(oldCRD)
+
+	hookCalled := false
+	manager.AddConfigHook(func(context.Context, *dynamic.Configuration, *dynamic.Configuration) error {
+		hookCalled = true
+		return nil
+	})
+
+	require.NoError(t, manager.updateConfig(context.Background()))
+	require.False(t, hookCalled)
+	require.Equal(t, "2", manager.lastDynamicConfigCRD.AdminQoSConfiguration.ResourceVersion)
+}
+
+func TestDynamicConfigManager_RejectsCommitAfterStateDrift(t *testing.T) {
+	t.Parallel()
+
+	manager := constructTestDynamicConfigManager(t, "test-node", t.TempDir(),
+		generateTestEvictionConfiguration(map[v1.ResourceName]float64{
+			v1.ResourceCPU:    1.2,
+			v1.ResourceMemory: 1.3,
+		}))
+	before := manager.conf.GetDynamicConfiguration()
+
+	manager.AddConfigHook(func(context.Context, *dynamic.Configuration, *dynamic.Configuration) error {
+		manager.mux.Lock()
+		manager.lastDynamicConfigCRD = &crd.DynamicConfigCRD{
+			AdminQoSConfiguration: &v1alpha1.AdminQoSConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: "newer-state"},
+			},
+		}
+		manager.mux.Unlock()
+		return nil
+	})
+
+	err := manager.updateConfig(context.Background())
+	require.ErrorContains(t, err, "dynamic config changed while hooks were running")
+	require.Equal(t, before, manager.conf.GetDynamicConfiguration())
+}
+
 func TestDynamicConfigManager_getConfig(t *testing.T) {
 	t.Parallel()
 
@@ -485,7 +582,6 @@ func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T)
 			},
 		},
 	}
-
 	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), adminQoSConfiguration)
 	conf := generateTestConfiguration(t, nodeName, dir)
 	conf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = false
@@ -516,6 +612,62 @@ func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T)
 	require.Equal(t, 80, got.MemFragScoreAsync)
 	require.Equal(t, "madvise", got.THPDefaultConfig)
 	require.Equal(t, 85, got.THPHighOrderScoreThreshold)
+}
+
+func TestApplyDynamicConfigRestoresCriticalWatermarkSourceDefault(t *testing.T) {
+	t.Parallel()
+
+	defaultConfig := dynamic.NewConfiguration()
+	defaultConfig.CriticalWatermarkSource = v1alpha1.CriticalWatermarkSourceHigh
+	require.Equal(t, v1alpha1.CriticalWatermarkSourceHigh, defaultConfig.CriticalWatermarkSource)
+
+	low := v1alpha1.CriticalWatermarkSourceLow
+	withAQCOverride := deepCopy(defaultConfig)
+	applyDynamicConfig(withAQCOverride, newCriticalWatermarkSourceDynamicConfig(&low))
+	require.Equal(t, v1alpha1.CriticalWatermarkSourceLow, withAQCOverride.CriticalWatermarkSource)
+
+	withoutAQCOverride := deepCopy(defaultConfig)
+	applyDynamicConfig(withoutAQCOverride, newCriticalWatermarkSourceDynamicConfig(nil))
+	require.Equal(t, v1alpha1.CriticalWatermarkSourceHigh, withoutAQCOverride.CriticalWatermarkSource)
+}
+
+func TestDeepCopyPreservesCATWaysExpressions(t *testing.T) {
+	t.Parallel()
+
+	defaultCATWays, err := qrmconfig.ParseCATWaysExpression("MaxCATWays-MinCATWays")
+	require.NoError(t, err)
+	sandboxCATWays, err := qrmconfig.ParseCATWaysExpression("MinCATWays")
+	require.NoError(t, err)
+
+	defaultConfig := dynamic.NewConfiguration()
+	rdt := &defaultConfig.BulkheadConfig.BulkheadRDTConfig
+	rdt.DefaultCATWays = defaultCATWays
+	rdt.ClosCATWays = map[string]qrmconfig.CATWaysExpression{
+		"sandbox": sandboxCATWays,
+	}
+
+	copied := deepCopy(defaultConfig)
+	copiedRDT := copied.BulkheadConfig.BulkheadRDTConfig
+	require.Equal(t, "MaxCATWays-MinCATWays", copiedRDT.DefaultCATWays.String())
+	require.Equal(t, "MinCATWays", copiedRDT.ClosCATWays["sandbox"].String())
+}
+
+func newCriticalWatermarkSourceDynamicConfig(source *v1alpha1.CriticalWatermarkSource) *crd.DynamicConfigCRD {
+	return &crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &v1alpha1.AdminQoSConfiguration{
+			Spec: v1alpha1.AdminQoSConfigurationSpec{
+				Config: v1alpha1.AdminQoSConfig{
+					AdvisorConfig: &v1alpha1.AdvisorConfig{
+						MemoryAdvisorConfig: &v1alpha1.MemoryAdvisorConfig{
+							MemoryGuardConfig: &v1alpha1.MemoryGuardConfig{
+								CriticalWatermarkSource: source,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 func Test_getGVRToKindMap(t *testing.T) {
