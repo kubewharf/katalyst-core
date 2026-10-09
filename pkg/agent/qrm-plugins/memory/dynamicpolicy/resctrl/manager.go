@@ -17,8 +17,9 @@ limitations under the License.
 package resctrl
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	qrmresctrlmanager "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/resctrl"
+	qrmresctrl "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -41,63 +43,96 @@ const (
 	schemata     = "schemata"
 )
 
+var (
+	ErrRDTDisabled    = errors.New("RDT is disabled")
+	ErrRDTUnavailable = errors.New("resctrl is unavailable")
+)
+
 type Manager interface {
 	Run(stopCh <-chan struct{})
 	Create(podUID, closID string, createMonGroup bool) error
-	Cleanup(activePodUIDs sets.String) error
+	ReconcileClos(state ClosReconcileState) error
 	GetMonGroupsCount() (int64, error)
 }
 
+// ClosInvalidator clears RDT schemata state after a CLOS lifecycle transition.
+type ClosInvalidator interface {
+	InvalidateClos(closID string)
+}
+
+type closLifecycleRunner interface {
+	RunClosLifecycle(closID string, update func() (bool, error)) error
+}
+
+// ClosReconcileState describes the desired CLOS directory layout.
+// DisableRDT overrides the desired layout and removes all managed directories.
+type ClosReconcileState struct {
+	DisableRDT      bool
+	ExpectedClosIDs sets.String
+	ActivePodUIDs   sets.String
+}
+
 type managerImpl struct {
-	config  *qrm.ResctrlConfig
-	enabled atomic.Bool
-	root    string
+	config      *qrmresctrl.ResctrlConfig
+	enabled     atomic.Bool
+	root        string
+	disableRDT  bool
+	removeAll   func(string) error
+	mkdir       func(string, os.FileMode) error
+	readFile    func(string) ([]byte, error)
+	invalidator ClosInvalidator
+	// lifecycleService, when set, overrides the constructed CLOSLifecycleService
+	// (used by tests to inject the creation/identity contract).
+	lifecycleService qrmresctrlmanager.CLOSLifecycleService
 	sync.RWMutex
 }
 
-func NewManager(config *qrm.ResctrlConfig) Manager {
-	return &managerImpl{
-		config: config,
+func NewManager(config *qrmresctrl.ResctrlConfig, invalidators ...ClosInvalidator) Manager {
+	manager := &managerImpl{
+		config:    config,
+		removeAll: os.RemoveAll,
+		mkdir:     os.Mkdir,
+		readFile:  os.ReadFile,
 	}
+	if len(invalidators) > 0 {
+		manager.invalidator = invalidators[0]
+	}
+	return manager
 }
 
 func (m *managerImpl) Run(stopCh <-chan struct{}) {
-	if m.config != nil && !m.config.EnableResctrlGroupLifecycleManagement {
-		return
-	}
 	wait.Until(func() {
 		root, err := findResctrlMountpointDir()
 		enable := root != ""
+		m.Lock()
 		if m.enabled.Load() == enable && m.root == root {
+			m.Unlock()
 			return
 		}
-		m.Lock()
 		m.root = root
-		m.Unlock()
 		m.enabled.Store(enable)
+		m.Unlock()
 		general.Infof("resctrl enabled %v: root %s, error: %v", enable, root, err)
 	}, time.Minute, stopCh)
 }
 
 func (m *managerImpl) Create(podUID, closID string, createMonGroup bool) error {
-	if m.config != nil && !m.config.EnableResctrlGroupLifecycleManagement {
-		general.Infof("resctrl group lifecycle management disabled, skip creating pod %s closID %s", podUID, closID)
-		return nil
+	m.Lock()
+	defer m.Unlock()
+	if m.disableRDT {
+		return ErrRDTDisabled
 	}
-	if !m.enabled.Load() {
-		return nil
+	if !m.enabled.Load() || m.root == "" {
+		return ErrRDTUnavailable
 	}
-
-	m.RLock()
-	root := m.root
-	m.RUnlock()
-
-	closIDPath := filepath.Join(root, closID)
-	// create closid dir
-	if err := os.MkdirAll(closIDPath, 0o755); err != nil {
-		return fmt.Errorf("create clos_id dir %s failed: %v", closIDPath, err)
+	if err := m.closLifecycleLocked().Recover(context.Background()); err != nil {
+		return err
 	}
 
+	closIDPath, err := m.createClosLocked(closID)
+	if err != nil {
+		return err
+	}
 	if createMonGroup {
 		rmID := PodDirPrefix + podUID
 		monGroupsPath := filepath.Join(closIDPath, MonGroupsDir, rmID)
@@ -108,40 +143,85 @@ func (m *managerImpl) Create(podUID, closID string, createMonGroup bool) error {
 	return nil
 }
 
-func (m *managerImpl) Cleanup(activePodUIDs sets.String) error {
-	if m.config != nil && !m.config.EnableResctrlGroupLifecycleManagement {
+// ReconcileClos creates default and expected CLOS directories, removes stale
+// directories, or force removes every non-skipped CLOS directory while RDT is disabled.
+func (m *managerImpl) ReconcileClos(state ClosReconcileState) error {
+	m.Lock()
+	defer m.Unlock()
+	m.disableRDT = state.DisableRDT
+	if !m.enabled.Load() || m.root == "" {
 		return nil
 	}
-	if !m.enabled.Load() {
+	if err := m.closLifecycleLocked().Recover(context.Background()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(m.root)
+	if err != nil {
+		return fmt.Errorf("read resctrl root %s failed: %w", m.root, err)
+	}
+	skipClosIDs := sets.NewString()
+	if m.config != nil {
+		skipClosIDs.Insert(m.config.SkipCleanupClosIDs.UnsortedList()...)
+	}
+	m.cleanupInactiveMonGroupsLocked(skipClosIDs, state.ActivePodUIDs)
+
+	if state.DisableRDT {
+		for _, entry := range entries {
+			if !isClosDir(entry) || skipClosIDs.Has(entry.Name()) {
+				continue
+			}
+			if err := m.removeClosLocked(entry.Name(), filepath.Join(m.root, entry.Name())); err != nil {
+				return fmt.Errorf("force remove clos_id dir %s failed: %w", entry.Name(), err)
+			}
+		}
 		return nil
 	}
 
-	m.RLock()
-	root := m.root
-	m.RUnlock()
+	expectedClosIDs := sets.NewString()
+	if m.config != nil {
+		expectedClosIDs.Insert(m.config.DefaultClosIDs...)
+	}
+	expectedClosIDs.Insert(state.ExpectedClosIDs.UnsortedList()...)
+	for closID := range expectedClosIDs {
+		if _, err := m.createClosLocked(closID); err != nil {
+			return err
+		}
+	}
 
-	walkMonGroupsDirs(root, m.config.SkipCleanupClosIDs, func(uid, closID, path string) {
-		if activePodUIDs.Has(uid) || !isTasksEmpty(path) {
+	entries, err = os.ReadDir(m.root)
+	if err != nil {
+		return fmt.Errorf("read resctrl root %s failed: %w", m.root, err)
+	}
+	for _, entry := range entries {
+		if !isClosDir(entry) || expectedClosIDs.Has(entry.Name()) ||
+			skipClosIDs.Has(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(m.root, entry.Name())
+		if !m.isClosEmptyLocked(path) {
+			continue
+		}
+		if err := m.removeClosLocked(entry.Name(), path); err != nil {
+			return fmt.Errorf("remove stale clos_id dir %s failed: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func (m *managerImpl) cleanupInactiveMonGroupsLocked(skipClosIDs, activePodUIDs sets.String) {
+	if activePodUIDs == nil {
+		return
+	}
+	walkMonGroupsDirs(m.root, skipClosIDs, func(uid, closID, path string) {
+		if activePodUIDs.Has(uid) || !m.isFileEmpty(path, tasks) {
 			return
 		}
 		general.Infof("resctrl: remove pod %s mon_groups dir %s", uid, path)
-		if err := os.RemoveAll(path); err != nil {
+		if err := m.remove(path); err != nil {
 			general.Errorf("resctrl: remove pod %s mon_groups dir %s error: %v", uid, path, err)
 		}
-	}, func(closID, path string) {
-		if !isTasksEmpty(path) {
-			return
-		}
-		monGroupPath := filepath.Join(path, MonGroupsDir)
-		if entries, err := os.ReadDir(monGroupPath); err == nil && len(entries) > 0 {
-			return
-		}
-		general.Infof("resctrl: remove clos_id dir %s", path)
-		if err := os.RemoveAll(path); err != nil {
-			general.Errorf("resctrl: remove clos_id dir %s error: %v", path, err)
-		}
-	})
-	return nil
+	}, nil)
 }
 
 func (m *managerImpl) GetMonGroupsCount() (int64, error) {
@@ -173,13 +253,88 @@ func (m *managerImpl) GetMonGroupsCount() (int64, error) {
 	return count, nil
 }
 
-func isTasksEmpty(root string) bool {
-	path := filepath.Join(root, tasks)
-	f, err := os.Stat(path)
-	if err != nil {
-		return true
+func (m *managerImpl) isFileEmpty(root, name string) bool {
+	readFile := m.readFile
+	if readFile == nil {
+		readFile = os.ReadFile
 	}
-	return f.Size() == 0
+	content, err := readFile(filepath.Join(root, name))
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(content))) == 0
+}
+
+func isClosDir(entry os.DirEntry) bool {
+	return entry.IsDir() && !sets.NewString("info", "mon_data", MonGroupsDir).Has(entry.Name())
+}
+
+func (m *managerImpl) createClosLocked(closID string) (string, error) {
+	closIDPath := filepath.Join(m.root, closID)
+	err := m.runClosLifecycleLocked(closID, func() (bool, error) {
+		resolved, err := m.closLifecycleLocked().EnsurePendingCLOS(context.Background(), closID)
+		if err != nil {
+			return false, err
+		}
+		// Trust the lifecycle service's own report of whether it materialized
+		// the directory, instead of a separate pre-stat: the pre-stat can race
+		// the mkdir inside EnsurePendingCLOS and falsely claim creation.
+		return resolved.Created, nil
+	})
+	return closIDPath, err
+}
+
+func (m *managerImpl) isClosEmptyLocked(path string) bool {
+	if !m.isFileEmpty(path, tasks) || !m.isFileEmpty(path, cpus) {
+		return false
+	}
+	entries, err := os.ReadDir(filepath.Join(path, MonGroupsDir))
+	return os.IsNotExist(err) || err == nil && len(entries) == 0
+}
+
+func (m *managerImpl) removeClosLocked(closID, path string) error {
+	return m.runClosLifecycleLocked(closID, func() (bool, error) {
+		if err := m.remove(path); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+}
+
+func (m *managerImpl) closLifecycleLocked() qrmresctrlmanager.CLOSLifecycleService {
+	if m.lifecycleService != nil {
+		return m.lifecycleService
+	}
+	return qrmresctrlmanager.NewCLOSLifecycleServiceWithOperations(
+		m.root, m.mkdir, m.remove,
+	)
+}
+
+func (m *managerImpl) remove(path string) error {
+	if m.removeAll != nil {
+		return m.removeAll(path)
+	}
+	return os.RemoveAll(path)
+}
+
+func (m *managerImpl) invalidateClosLocked(closID string) {
+	if m.invalidator != nil {
+		m.invalidator.InvalidateClos(closID)
+	}
+}
+
+func (m *managerImpl) runClosLifecycleLocked(closID string, update func() (bool, error)) error {
+	if runner, ok := m.invalidator.(closLifecycleRunner); ok {
+		return runner.RunClosLifecycle(closID, update)
+	}
+	changed, err := update()
+	if err != nil {
+		return err
+	}
+	if changed {
+		m.invalidateClosLocked(closID)
+	}
+	return nil
 }
 
 func walkMonGroupsDirs(root string, skipClosIDs sets.String, walkMonGroupsFunc func(uid, closID, path string), walkClosIDFunc func(closID, path string)) {
@@ -189,10 +344,7 @@ func walkMonGroupsDirs(root string, skipClosIDs sets.String, walkMonGroupsFunc f
 		return
 	}
 	for _, subdir := range subdirs {
-		if !subdir.IsDir() {
-			continue
-		}
-		if sets.NewString("info", "mon_data", MonGroupsDir).Has(subdir.Name()) {
+		if !isClosDir(subdir) {
 			continue
 		}
 		closID := subdir.Name()
@@ -207,30 +359,18 @@ func walkMonGroupsDirs(root string, skipClosIDs sets.String, walkMonGroupsFunc f
 				general.Errorf("resctrl: read mon_groups dir %s error: %v", monGroupPath, err)
 			}
 		} else {
-			wg := sync.WaitGroup{}
 			for _, monGroupsSubdir := range monGroupsSubdirs {
-				wg.Add(1)
-				go func(d fs.DirEntry) {
-					defer func() {
-						wg.Done()
-						if r := recover(); r != nil {
-							general.Errorf("resctrl: walk mon_groups dir panic: %v", r)
-						}
-					}()
+				rmID := monGroupsSubdir.Name()
+				if !monGroupsSubdir.IsDir() || !strings.HasPrefix(rmID, PodDirPrefix) {
+					continue
+				}
+				podMonGroupPath := filepath.Join(monGroupPath, rmID)
+				uid := strings.TrimPrefix(rmID, PodDirPrefix)
 
-					rmID := d.Name()
-					if !d.IsDir() || !strings.HasPrefix(rmID, PodDirPrefix) {
-						return
-					}
-					podMonGroupPath := filepath.Join(monGroupPath, rmID)
-					uid := strings.TrimPrefix(rmID, PodDirPrefix)
-
-					if walkMonGroupsFunc != nil {
-						walkMonGroupsFunc(uid, closID, podMonGroupPath)
-					}
-				}(monGroupsSubdir)
+				if walkMonGroupsFunc != nil {
+					walkMonGroupsFunc(uid, closID, podMonGroupPath)
+				}
 			}
-			wg.Wait()
 		}
 
 		if walkClosIDFunc != nil {

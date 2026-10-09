@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseCPUAssignmentFormat(t *testing.T) {
@@ -52,6 +53,119 @@ func TestMaskToUInt64Array(t *testing.T) {
 	mask, err := NewBitMask(0, 1, 2, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{0, 1, 2, 3}, MaskToUInt64Array(mask))
+}
+
+func TestCalculateGlobalRampUpReclaimTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		total   int
+		ratio   float64
+		minimum int
+		want    int
+	}{
+		{
+			name:    "fractional target is floored then aligned down to even",
+			total:   16,
+			ratio:   0.5625,
+			minimum: 4,
+			want:    8,
+		},
+		{
+			name:    "minimum wins after ratio alignment",
+			total:   16,
+			ratio:   0.1,
+			minimum: 4,
+			want:    4,
+		},
+		{
+			name:    "configured reserve floor can exceed NUMA minimum",
+			total:   16,
+			ratio:   0.25,
+			minimum: 6,
+			want:    6,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, CalculateGlobalRampUpReclaimTarget(tt.total, tt.ratio, tt.minimum))
+		})
+	}
+}
+
+func TestDistributeNUMATarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		available map[int]int
+		target    int
+		min       int
+		want      map[int]int
+		wantErr   string
+	}{
+		{
+			name:      "even target across uneven capacities",
+			available: map[int]int{0: 4, 1: 12},
+			target:    8,
+			min:       2,
+			want:      map[int]int{0: 4, 1: 4},
+		},
+		{
+			name:      "remainder goes to capable NUMA deterministically",
+			available: map[int]int{9: 4, 3: 12},
+			target:    9,
+			min:       2,
+			want:      map[int]int{3: 5, 9: 4},
+		},
+		{
+			name:      "stable tie break uses lower NUMA ID",
+			available: map[int]int{9: 12, 3: 12},
+			target:    9,
+			min:       2,
+			want:      map[int]int{3: 5, 9: 4},
+		},
+		{
+			name:      "target below aggregate minimum",
+			available: map[int]int{0: 4, 1: 12},
+			target:    3,
+			min:       2,
+			wantErr:   "target 3 is below per-NUMA minimum total 4",
+		},
+		{
+			name:      "NUMA below minimum capacity",
+			available: map[int]int{0: 1, 1: 12},
+			target:    4,
+			min:       2,
+			wantErr:   "NUMA 0 capacity 1 is below minimum 2",
+		},
+		{
+			name:      "capacity cannot satisfy balanced target",
+			available: map[int]int{0: 4, 1: 12},
+			target:    12,
+			min:       2,
+			wantErr:   "cannot distribute target 12 within NUMA capacities while keeping counts balanced",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := DistributeNUMATarget(tt.available, tt.target, tt.min)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 type mockDirEntry struct {
