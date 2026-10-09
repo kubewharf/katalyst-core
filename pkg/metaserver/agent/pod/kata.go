@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/json"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -31,6 +33,10 @@ const (
 	kataContainerCgroupPathHandlerName = "kata"
 	kataRuntimeType                    = "io.containerd.kata"
 )
+
+func init() {
+	RegisterRuntimeCgroupPathHandlerInitializer(RegisterKataContainerFetcher)
+}
 
 var registerOnce sync.Once
 
@@ -62,56 +68,76 @@ func RegisterKataContainerFetcher(runtimePodFetcher RuntimePodFetcher) {
 
 // getKataContainerAbsoluteCgroupPath attempts to get the absolute cgroup path of a kata container
 // and returns an error if it fails to do so.
-func (k *KataContainerFetcher) getKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error) {
+func (k *KataContainerFetcher) getKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, bool, error) {
+	cgroupPathSuffix, skip, err := k.getKataCgroupPathSuffix(podUID, containerId)
+	if skip {
+		return "", true, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
+	}
+
 	// First check if the cgroup exists for pod level
-	_, err := common.GetPodAbsCgroupPath(subsys, podUID)
+	_, err = common.GetPodAbsCgroupPath(subsys, podUID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path for pod %s, err: %v", podUID, err)
+		return "", false, fmt.Errorf("failed to get absolute path for pod %s, err: %v", podUID, err)
 	}
-	cgroupPathSuffix, err := k.getKataCgroupPathSuffix(podUID, containerId)
-	if err != nil {
-		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
-	}
-	return common.GetKubernetesAnyExistAbsCgroupPath(subsys, cgroupPathSuffix)
+	cgroupPath, err := common.GetKubernetesAnyExistAbsCgroupPath(subsys, cgroupPathSuffix)
+	return cgroupPath, false, err
 }
 
 // getKataContainerRelativeCgroupPath attempts to get the relative cgroup path of a kata container
 // and returns an error if it fails to do so.
-func (k *KataContainerFetcher) getKataContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+func (k *KataContainerFetcher) getKataContainerRelativeCgroupPath(podUID, containerId string) (string, bool, error) {
+	cgroupPathSuffix, skip, err := k.getKataCgroupPathSuffix(podUID, containerId)
+	if skip {
+		return "", true, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
+	}
+
 	// First check if the cgroup exists for pod level
-	_, err := common.GetPodRelativeCgroupPath(podUID)
+	_, err = common.GetPodRelativeCgroupPath(podUID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get relative cgroup path for pod %s, err: %v", podUID, err)
+		return "", false, fmt.Errorf("failed to get relative cgroup path for pod %s, err: %v", podUID, err)
 	}
-	cgroupPathSuffix, err := k.getKataCgroupPathSuffix(podUID, containerId)
-	if err != nil {
-		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
-	}
-	return common.GetKubernetesAnyExistRelativeCgroupPath(cgroupPathSuffix)
+	cgroupPath, err := common.GetKubernetesAnyExistRelativeCgroupPath(cgroupPathSuffix)
+	return cgroupPath, false, err
 }
 
 // getKataCgroupPathSuffix retrieves the sandbox id of the kata container and
 // then constructs the cgroup path suffix.
-func (k *KataContainerFetcher) getKataCgroupPathSuffix(podUID, containerId string) (string, error) {
+func (k *KataContainerFetcher) getKataCgroupPathSuffix(podUID, containerId string) (string, bool, error) {
+	if k.runtimePodFetcher == nil {
+		return "", false, fmt.Errorf("runtime pod fetcher is nil")
+	}
+
 	infoRaw, err := k.runtimePodFetcher.GetContainerInfo(containerId)
+	if status.Code(err) == codes.NotFound {
+		return "", true, nil
+	}
 	if err != nil {
-		return "", fmt.Errorf("failed to get container info, err: %v", err)
+		return "", false, fmt.Errorf("failed to get container info, err: %w", err)
 	}
 
 	var info ContainerInfo
 	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
-		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id and runtime type, err: %v", err)
+		return "", false, fmt.Errorf("failed to unmarshal info of container into its sandbox id and runtime type, err: %v", err)
 	}
 	runtimeType := info.RuntimeType
+	if runtimeType == "" {
+		return "", false, fmt.Errorf("failed to get runtime type of container")
+	}
 	if !strings.Contains(runtimeType, kataRuntimeType) {
-		return "", fmt.Errorf("runtime type of container is not kata runtime: %s", runtimeType)
+		return "", true, nil
 	}
 
 	sandboxId := info.SandboxID
 	if sandboxId == "" {
-		return "", fmt.Errorf("failed to get sandbox id of container")
+		return "", false, fmt.Errorf("failed to get sandbox id of container")
 	}
 
 	kataPathSuffix := fmt.Sprintf("kata_%s", sandboxId)
-	return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), kataPathSuffix), nil
+	return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), kataPathSuffix), false, nil
 }

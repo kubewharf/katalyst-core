@@ -16,10 +16,17 @@ limitations under the License.
 
 package memoryheadroom
 
-import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+import (
+	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+)
 
 type MemoryHeadroomConfiguration struct {
 	*MemoryUtilBasedConfiguration
+	// ReclaimedMemoryMaxRatio is the ratio (in [0, 1]) of the maximum amount of memory
+	// that can be reclaimed per numa at any time. 0 means no limit.
+	ReclaimedMemoryMaxRatio float64
 }
 
 func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
@@ -30,4 +37,28 @@ func NewMemoryHeadroomConfiguration() *MemoryHeadroomConfiguration {
 
 func (c *MemoryHeadroomConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.MemoryUtilBasedConfiguration.ApplyConfiguration(conf)
+
+	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
+		aqc.Spec.Config.ReclaimedResourceConfig != nil &&
+		aqc.Spec.Config.ReclaimedResourceConfig.MemoryHeadroomConfig != nil {
+		if r := aqc.Spec.Config.ReclaimedResourceConfig.MemoryHeadroomConfig.ReclaimedMemoryMaxRatio; r != nil {
+			c.ReclaimedMemoryMaxRatio = clampReclaimedMemoryMaxRatio(*r)
+		}
+	}
+}
+
+// clampReclaimedMemoryMaxRatio bounds ReclaimedMemoryMaxRatio into [0, 1]. A
+// value >1 would amplify rather than limit reclaim (contradicting the MaxRatio
+// semantics), and a negative value is meaningless; both are corrected with a
+// warning so a misconfigured CRD cannot silently take effect.
+func clampReclaimedMemoryMaxRatio(ratio float64) float64 {
+	if ratio < 0 {
+		klog.Warningf("ReclaimedMemoryMaxRatio=%.4f is out of range [0,1], clamping to 0", ratio)
+		return 0
+	}
+	if ratio > 1 {
+		klog.Warningf("ReclaimedMemoryMaxRatio=%.4f is out of range [0,1], clamping to 1", ratio)
+		return 1
+	}
+	return ratio
 }

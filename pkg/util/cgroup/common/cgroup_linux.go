@@ -83,6 +83,22 @@ func GetCgroupParamInt(cgroupPath, cgroupFile string) (int64, error) {
 	return res, nil
 }
 
+// ReadCgroupNumaStat reads and parses memory.numa_stat under absCgroupPath. It
+// centralizes the read+parse so v1/v2 readers share the same error wrapping.
+func ReadCgroupNumaStat(absCgroupPath string) (map[string]map[int]uint64, error) {
+	const fileName = "memory.numa_stat"
+	content, err := cgroups.ReadFile(absCgroupPath, fileName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", fileName, err)
+	}
+
+	numaStat, err := ParseCgroupNumaValue(content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse numa stat: %w", err)
+	}
+	return numaStat, nil
+}
+
 /*
 ParseCgroupNumaValue parse cgroup numa stat files like `memory.numa_stat`.
 
@@ -167,11 +183,16 @@ func writeFileIfChange(dir, file, data string) (error, bool, string) {
 	}
 
 	if strings.TrimSpace(data) != strings.TrimSpace(oldData) {
-		if err := cgroups.WriteFile(dir, file, data); err != nil {
-			return err, false, oldData
+		var err error
+		if data == "" {
+			err = os.WriteFile(filepath.Join(dir, file), []byte(data), 0o644)
 		} else {
-			return nil, true, oldData
+			err = cgroups.WriteFile(dir, file, data)
 		}
+		if err != nil {
+			return err, false, oldData
+		}
+		return nil, true, oldData
 	}
 	return nil, false, oldData
 }
@@ -183,9 +204,16 @@ func IsCPUIdleSupported() bool {
 	return err == nil
 }
 
-// ApplyCgroupConfigs apply cgroup resources
-func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
-	subSystems, err := libcontainer.GetCgroupSubsystems(nil)
+// applyCgroupConfigs is the testable core of ApplyCgroupConfigs. Subsystem
+// discovery and cgroup manager construction are injected as dependencies so
+// tests can pass fakes instead of globally patching libcontainer.
+func applyCgroupConfigs(
+	cgroupPath string,
+	resources *CgroupResources,
+	getSubsystems func() (map[string]string, error),
+	newManager func(name string, paths map[string]string) (cgroups.Manager, error),
+) error {
+	subSystems, err := getSubsystems()
 	if err != nil {
 		return fmt.Errorf("GetCgroupSubsystems failed with error: %v", err)
 	}
@@ -195,7 +223,7 @@ func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
 		paths[name] = path.Join(subsystem, cgroupPath)
 	}
 
-	manager, err := libcontainer.NewCgroupManager("", paths)
+	manager, err := newManager("", paths)
 	if err != nil {
 		return fmt.Errorf("NewCgroupManager failed with error: %v", err)
 	}
@@ -206,6 +234,16 @@ func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
 	}
 
 	return nil
+}
+
+// ApplyCgroupConfigs apply cgroup resources
+func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
+	return applyCgroupConfigs(cgroupPath, resources,
+		func() (map[string]string, error) { return libcontainer.GetCgroupSubsystems(nil) },
+		func(name string, paths map[string]string) (cgroups.Manager, error) {
+			return libcontainer.NewCgroupManager(name, paths)
+		},
+	)
 }
 
 func toConfigsResources(resources *CgroupResources) *configs.Resources {
