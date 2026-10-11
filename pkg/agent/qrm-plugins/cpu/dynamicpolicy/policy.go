@@ -857,6 +857,15 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}()
 
+	// Defensive restore/startup boundary: a restored checkpoint may carry a
+	// reclaimed_cores container in ramp-up (e.g. written by an older version or
+	// an async candidate that bypassed precommit). Start() can return an error,
+	// so fail closed here rather than silently serving an illegal state. The
+	// checkpoint schema is unchanged; this only validates the loaded entries.
+	if err := validateNoReclaimedRampUp(p.state.GetPodEntries()); err != nil {
+		return fmt.Errorf("startup rejected illegal reclaimed ramp-up in restored state: %w", err)
+	}
+
 	if err = p.prepareAdvisorPostCommitTargetOnStart(); err != nil {
 		return fmt.Errorf("prepare pending advisor post-commit target: %w", err)
 	}
@@ -1831,6 +1840,19 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	}
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	// Defensive: a checkpoint/restored state may carry a reclaimed_cores
+	// container in ramp-up. Reject it here so the existing-allocation fast
+	// return cannot hand back an illegal allocation, and so the legacy direct
+	// Allocate path does not silently continue. Reuse the single authoritative
+	// predicate rather than duplicating the condition.
+	if allocationInfo != nil {
+		if err := validateNoReclaimedRampUp(state.PodEntries{
+			req.PodUid: state.ContainerEntries{req.ContainerName: allocationInfo},
+		}); err != nil {
+			return nil, fmt.Errorf("allocate rejected illegal reclaimed ramp-up for %s/%s: %w",
+				req.PodUid, req.ContainerName, err)
+		}
+	}
 	if existingAllocationSatisfiesRequest(allocationInfo, reqInt, p.isRampUpReclaimHardPartitionEnabled()) &&
 		!util.PodInplaceUpdateResizing(req) {
 		general.InfoS("already allocated and meet requirement",
@@ -2421,6 +2443,19 @@ func (p *DynamicPolicy) updateAllocationInfo(podUID, containerName string, oldAl
 		}
 		if err := p.invokeAllocationHooks(oldAllocationInfo, allocationInfo); err != nil {
 			return err
+		}
+	}
+
+	// Defensive: a synchronous legacy allocation hook may mutate the resulting
+	// allocationInfo (e.g. set RampUp on a reclaimed container). Reuse the single
+	// authoritative predicate so an illegal reclaimed RampUp cannot be persisted
+	// via this legacy direct-write path.
+	if allocationInfo != nil {
+		if err := validateNoReclaimedRampUp(state.PodEntries{
+			podUID: state.ContainerEntries{containerName: allocationInfo},
+		}); err != nil {
+			return fmt.Errorf("updateAllocationInfo rejected illegal reclaimed ramp-up for %s/%s: %w",
+				podUID, containerName, err)
 		}
 	}
 

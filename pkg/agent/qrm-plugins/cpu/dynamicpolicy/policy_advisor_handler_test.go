@@ -4429,14 +4429,14 @@ func TestAllocateByCPUAdvisorPreservesLegalHardPartitionDespiteBulkheadPadding(t
 		minSize      int64
 		wantHookCall int
 	}{
-		{name: "raw 2/2 padding 0", minSize: 2, wantHookCall: 1},
-		{name: "raw 2/2 padding 2", minSize: 4, wantHookCall: 1},
+		{name: "raw 2/2 padding 0", minSize: 2, wantHookCall: 2},
+		{name: "raw 2/2 padding 2", minSize: 4, wantHookCall: 2},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			topology, err := machine.GenerateDummyCPUTopology(8, 1, 2)
+			topology, err := machine.GenerateDummyCPUTopology(16, 1, 2)
 			require.NoError(t, err)
 			checkpointDir := t.TempDir()
 			policy, err := getTestDynamicPolicyWithoutInitialization(topology, checkpointDir)
@@ -4450,6 +4450,8 @@ func TestAllocateByCPUAdvisorPreservesLegalHardPartitionDespiteBulkheadPadding(t
 			dynamicConf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.NonReclaimPoolMinSize = tc.minSize
 
 			policy.state.SetPodEntries(state.PodEntries{
+				// A reclaimed_cores container must never be RampUp; this pod is a
+				// plain reclaim consumer matching the reclaim pool.
 				"reclaimed-pod": {
 					"main": &state.AllocationInfo{
 						AllocationMeta: commonstate.AllocationMeta{
@@ -4458,20 +4460,34 @@ func TestAllocateByCPUAdvisorPreservesLegalHardPartitionDespiteBulkheadPadding(t
 							OwnerPoolName: commonstate.PoolNameReclaim,
 							QoSLevel:      apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						},
-						AllocationResult: machine.NewCPUSet(3, 7),
+						AllocationResult: machine.NewCPUSet(3, 11, 7, 15),
+					},
+				},
+				// Ramp-up is only legal for shared_cores; this global-domain shared
+				// ramp-up pod activates the ramp-up reclaim hard-partition on a
+				// physical core disjoint from the reclaim pool.
+				"rampup-pod": {
+					"main": &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:        "rampup-pod",
+							ContainerName: "main",
+							OwnerPoolName: commonstate.EmptyOwnerPoolName,
+							QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+						},
+						AllocationResult: machine.NewCPUSet(2, 10),
 						RampUp:           true,
 					},
 				},
 				commonstate.PoolNameReserve: {
 					commonstate.FakedContainerName: &state.AllocationInfo{
 						AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReserve),
-						AllocationResult: machine.NewCPUSet(0, 4),
+						AllocationResult: machine.NewCPUSet(0, 8),
 					},
 				},
 				commonstate.PoolNameReclaim: {
 					commonstate.FakedContainerName: &state.AllocationInfo{
 						AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
-						AllocationResult: machine.NewCPUSet(3, 7),
+						AllocationResult: machine.NewCPUSet(3, 11, 7, 15),
 					},
 				},
 			}, false)

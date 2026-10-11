@@ -3617,11 +3617,33 @@ func (p *DynamicPolicy) applyNUMAHeadroom(
 	return nil
 }
 
+// committedReclaimNUMABucket returns the reclaim pool's committed NUMA bucket
+// from the currently published state. The second return reports whether a
+// committed bucket actually existed for the NUMA (comma-ok), so a missing key is
+// never confused with an initialized-empty bucket.
+func (p *DynamicPolicy) committedReclaimNUMABucket(numaID int) (machine.CPUSet, bool) {
+	committed := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	if committed == nil || committed.TopologyAwareAssignments == nil {
+		return machine.NewCPUSet(), false
+	}
+	bucket, ok := committed.TopologyAwareAssignments[numaID]
+	if !ok {
+		return machine.NewCPUSet(), false
+	}
+	return bucket, true
+}
+
 func (p *DynamicPolicy) reviseReclaimPool(
 	newEntries state.PodEntries,
 	nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet,
 	allowSharedCoresOverlapReclaimedCores bool,
 ) error {
+	// The advisor candidate must never promote a reclaimed_cores container in
+	// ramp-up. Reject it before backfilling buckets so an old advisor/async
+	// candidate cannot bypass the invariant.
+	if err := validateNoReclaimedRampUp(newEntries); err != nil {
+		return err
+	}
 	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(newEntries, state.IsForbiddenPool, commonstate.IsSystemPool)
 	nonReclaimCPUSet := pooledUnionDedicatedCPUSet.Union(notAllocatablePoolsCPUs)
 
@@ -3672,21 +3694,57 @@ func (p *DynamicPolicy) reviseReclaimPool(
 	}
 
 	reclaimPool := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
+	// Reuse the shared ownership view for the active RNB target NUMAs instead of a
+	// second scan of the candidate.
+	ownershipView, err := buildReclaimOwnershipView(newEntries, p.machine.machineInfo.CPUTopology)
+	if err != nil {
+		return err
+	}
+	activeRNBTargets := ownershipView.activeRNBTargetNUMAs
 	selectFallback := func(numaID int) (machine.CPUSet, error) {
-		preferred := p.reclaim.reservedReclaimedTopologyAwareAssignments[numaID]
-		if allowSharedCoresOverlapReclaimedCores {
-			return preferred.Clone(), nil
-		}
-
-		candidates := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).
+		// CPUs on this NUMA that are actually allocatable for reclaim right now.
+		available := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).
 			Difference(p.config.reservedCPUs).
 			Difference(nonReclaimCPUSet)
+
+		preference, reservedOK := p.reclaim.reservedReclaimedTopologyAwareAssignments[numaID]
+		var want int
+		if reservedOK {
+			want = preference.Size()
+		} else {
+			// Reserved reclaim preference is absent for this NUMA (map miss).
+			// Safely reuse the already-committed reclaim bucket as the preference
+			// and requested size, so a transient reserved-config gap does not
+			// silently shrink the committed reclaim partition. The CPUs actually
+			// selected are still drawn from `available`, so a CPU that has since
+			// become reserved or non-reclaim is never re-added.
+			committed, committedOK := p.committedReclaimNUMABucket(numaID)
+			if committedOK {
+				preference = committed
+				want = committed.Size()
+			} else {
+				preference = machine.NewCPUSet()
+				want = 0
+			}
+		}
+		if allowSharedCoresOverlapReclaimedCores {
+			// Overlap mode intentionally preserves the reserved/committed
+			// preference where it overlaps dedicated/shared cores. It must still be
+			// on-NUMA and must never reintroduce CPUs now owned by a forbidden or
+			// system pool, so intersect with the NUMA topology and subtract those
+			// non-allocatable pool classes (dedicated/shared CPUs are intentionally
+			// kept: that is the allowed overlap).
+			overlapAllowed := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).
+				Difference(notAllocatablePoolsCPUs)
+			return preference.Intersection(overlapAllowed), nil
+		}
+
 		selected := takeCoreAlignedCPUSet(
-			p.machine.machineInfo.CPUTopology, candidates, preferred, preferred.Size())
-		if selected.Size() != preferred.Size() {
+			p.machine.machineInfo.CPUTopology, available, preference, want)
+		if selected.Size() != want {
 			return machine.NewCPUSet(), fmt.Errorf(
 				"select core-aligned reclaim fallback in NUMA %d: got %d, want %d",
-				numaID, selected.Size(), preferred.Size())
+				numaID, selected.Size(), want)
 		}
 		return selected, nil
 	}
@@ -3701,6 +3759,22 @@ func (p *DynamicPolicy) reviseReclaimPool(
 			fallbackCPUSet, err := selectFallback(numaID)
 			if err != nil {
 				return err
+			}
+			if fallbackCPUSet.IsEmpty() {
+				if _, active := activeRNBTargets[numaID]; active {
+					// An active (non-ramp-up) RNB allocation is pinned to this
+					// NUMA, so the reclaim pool must back it. Neither the reserved
+					// preference nor the filtered committed bucket could supply a
+					// CPU: fail closed instead of leaving the pod unprovisioned.
+					return fmt.Errorf(
+						"reclaim pool cannot back active reclaimed-numa-binding on NUMA %d: "+
+							"no reserved preference and no usable committed fallback",
+						numaID)
+				}
+				// No active RNB here: leave the bucket absent rather than
+				// materializing an initialized-empty entry that normalize would
+				// later sparsify away.
+				continue
 			}
 			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(fallbackCPUSet)
 			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(fallbackCPUSet)
@@ -3729,6 +3803,11 @@ func (p *DynamicPolicy) reviseReclaimPool(
 			fallbackCPUSet, err := selectFallback(numaID)
 			if err != nil {
 				return err
+			}
+			if fallbackCPUSet.IsEmpty() {
+				// No reclaim CPU available for this NUMA; leave the bucket absent
+				// instead of materializing an initialized-empty entry.
+				continue
 			}
 			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(fallbackCPUSet)
 			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(fallbackCPUSet)

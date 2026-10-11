@@ -150,10 +150,22 @@ func (s CPUSet) Contains(cpu int) bool {
 	return found
 }
 
-// Equals returns true if the supplied set contains exactly the same elements
-// as this set (s IsSubsetOf s2 and s2 IsSubsetOf s).
+// Equals reports whether two CPU sets have the same representation and elements.
+// In particular, it distinguishes an uninitialized set from an initialized empty
+// set. Use ElementsEqual only when the caller has already validated representation
+// state and needs pure set-content equality.
 func (s CPUSet) Equals(s2 CPUSet) bool {
 	return reflect.DeepEqual(s.elems, s2.elems)
+}
+
+// ElementsEqual reports whether two CPU sets contain the same CPU elements. It
+// intentionally ignores initialization state, so an uninitialized set and an
+// initialized empty set are element-equal.
+func (s CPUSet) ElementsEqual(s2 CPUSet) bool {
+	if s.Size() != s2.Size() {
+		return false
+	}
+	return s.IsSubsetOf(s2)
 }
 
 // Filter returns a new CPU set that contains all elements from this
