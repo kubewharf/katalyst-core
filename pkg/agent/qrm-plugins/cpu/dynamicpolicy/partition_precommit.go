@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -78,12 +79,48 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 		return nil, fmt.Errorf("prepare pending cpu partition: entries are nil")
 	}
 
+	// Earliest common boundary: reject any candidate that already carries a
+	// reclaimed_cores container in ramp-up before running hooks, normalization,
+	// or machine-state rebuild. Hooks run next and may reintroduce it, so an
+	// explicit post-hooks gate below re-checks the candidate (the ownership
+	// validator itself does not re-scan for ramp-up).
+	if err := validateNoReclaimedRampUp(pending.entries); err != nil {
+		return nil, p.wrapPartitionPrecommitError(
+			pending.source, pending.expectedRevision, "reclaimed ramp-up invariant", err)
+	}
+
 	currentEntries := p.state.GetPodEntries()
 	candidate := pending.entries.Clone()
 	if err := p.invokeAllocationHooksForPodEntries(currentEntries, candidate); err != nil {
-		return nil, p.wrapPartitionPrecommitError(pending.source, "run allocation hooks", err)
+		return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "run allocation hooks", err)
 	}
 	p.syncCandidateSidecarsFromMain(candidate)
+
+	// Build the reclaim ownership view once from the post-hooks candidate: it is
+	// the single source of truth for the active RNB target NUMAs and the ordinary
+	// (non-RNB) reclaim-eligible NUMAs, reused by pool-member resync and ownership
+	// validation below so neither rescans the same candidate.
+	var topology *machine.CPUTopology
+	if p.machine.machineInfo != nil {
+		topology = p.machine.machineInfo.CPUTopology
+	}
+	ownershipView, err := buildReclaimOwnershipView(candidate, topology)
+	if err != nil {
+		return nil, p.wrapPartitionPrecommitError(
+			pending.source, pending.expectedRevision, "build reclaim ownership view", err)
+	}
+
+	// Post-hooks defensive boundary: hooks (and any restored checkpoint carried
+	// through them) may reintroduce a reclaimed_cores container in ramp-up. This
+	// runs on the post-hooks candidate before the topology branch, so both the
+	// normal path and the machineInfo==nil path are covered. The ownership
+	// validator itself intentionally no longer re-scans for ramp-up; this is the
+	// single post-hook gate.
+	if err := validateNoReclaimedRampUp(candidate); err != nil {
+		return nil, p.wrapPartitionPrecommitError(
+			pending.source, pending.expectedRevision, "post-hooks reclaimed ramp-up invariant", err)
+	}
+
 	var machineState state.NUMANodeMap
 	if p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
 		if pending.baseMachineState == nil {
@@ -92,18 +129,27 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 		machineState = pending.baseMachineState.Clone()
 	} else {
 		if err := p.normalizePendingCPUPartition(candidate); err != nil {
-			return nil, p.wrapPartitionPrecommitError(pending.source, "normalize allocation entries", err)
+			return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "normalize allocation entries", err)
+		}
+		// Reconcile each pool's scalar result with its (sparse) NUMA buckets
+		// after normalization so the pool-owned reclaim/share allocations stay
+		// self-consistent. This never materializes empty buckets, so the pool
+		// bucket map stays sparse and existing hook shape / current-original /
+		// topology invariants are preserved.
+		if err := p.resyncPoolOwnedAllocationsWithView(candidate, ownershipView); err != nil {
+			return nil, p.wrapPartitionPrecommitError(
+				pending.source, pending.expectedRevision, "resync pool-owned allocations", err)
 		}
 		if err := validateAllocationShapeAfterHooks(
 			pending.entries, candidate, p.machine.machineInfo.CPUTopology,
 		); err != nil {
 			return nil, p.wrapPartitionPrecommitError(
-				pending.source, "revalidate allocation shape after hooks", err)
+				pending.source, pending.expectedRevision, "revalidate allocation shape after hooks", err)
 		}
 		if pending.requireCoreAlignedReclaim {
 			if err := assertCoreAligned(reclaimPoolCPUSet(candidate), p.machine.machineInfo.CPUTopology); err != nil {
 				return nil, p.wrapPartitionPrecommitError(
-					pending.source, "revalidate reclaim core alignment after hooks", err)
+					pending.source, pending.expectedRevision, "revalidate reclaim core alignment after hooks", err)
 			}
 		}
 		if pending.enforceSteadyReclaim {
@@ -113,7 +159,7 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 				plannedReclaim, candidateReclaim, p.machine.machineInfo.CPUTopology,
 			); err != nil {
 				return nil, p.wrapPartitionPrecommitError(
-					pending.source, "revalidate steady reclaim after hooks", err)
+					pending.source, pending.expectedRevision, "revalidate steady reclaim after hooks", err)
 			}
 		}
 		baseMachineState := pending.baseMachineState
@@ -126,15 +172,15 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 		machineState, err = generateMachineStateFromPodEntries(
 			p.machine.machineInfo.CPUTopology, candidate, baseMachineState)
 		if err != nil {
-			return nil, p.wrapPartitionPrecommitError(pending.source, "rebuild machine state", err)
+			return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "rebuild machine state", err)
 		}
 	}
 	if err := p.validateResidualBackfillCandidateWithDynamicConfig(
 		candidate, machineState, pending.residualFloor, pending.dynamicConfig); err != nil {
-		return nil, p.wrapPartitionPrecommitError(pending.source, "validate residual backfill candidate", err)
+		return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "validate residual backfill candidate", err)
 	}
-	if err := validatePendingPoolOwnership(candidate); err != nil {
-		return nil, p.wrapPartitionPrecommitError(pending.source, "validate allocation ownership", err)
+	if err := validatePendingPoolOwnershipWithView(candidate, ownershipView); err != nil {
+		return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "validate allocation ownership", err)
 	}
 	validate := pending.validate
 	if validate == nil {
@@ -150,7 +196,7 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 	preValidationEntries := candidate.Clone()
 	preValidationMachineState := machineState.Clone()
 	if err := validate(candidate, machineState, pending.allowOverlap, pending.disableDedicated); err != nil {
-		return nil, p.wrapPartitionPrecommitError(pending.source, "validate hard floor and partition", err)
+		return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "validate hard floor and partition", err)
 	}
 	// Keep the frozen plan authoritative through the complete prepare phase.
 	// A validator is expected to be read-only, but re-check the candidate here
@@ -160,12 +206,12 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 			pending.entries, candidate, p.machine.machineInfo.CPUTopology,
 		); err != nil {
 			return nil, p.wrapPartitionPrecommitError(
-				pending.source, "revalidate replacement baseline after partition validation", err)
+				pending.source, pending.expectedRevision, "revalidate replacement baseline after partition validation", err)
 		}
 		if pending.requireCoreAlignedReclaim {
 			if err := assertCoreAligned(reclaimPoolCPUSet(candidate), p.machine.machineInfo.CPUTopology); err != nil {
 				return nil, p.wrapPartitionPrecommitError(
-					pending.source, "revalidate replacement baseline after partition validation",
+					pending.source, pending.expectedRevision, "revalidate replacement baseline after partition validation",
 					fmt.Errorf("reclaim is not core-aligned: %w", err))
 			}
 		}
@@ -176,14 +222,14 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 				p.machine.machineInfo.CPUTopology,
 			); err != nil {
 				return nil, p.wrapPartitionPrecommitError(
-					pending.source, "revalidate replacement baseline after partition validation", err)
+					pending.source, pending.expectedRevision, "revalidate replacement baseline after partition validation", err)
 			}
 		}
 	}
 	if !reflect.DeepEqual(preValidationEntries, candidate) ||
 		!reflect.DeepEqual(preValidationMachineState, machineState) {
 		return nil, p.wrapPartitionPrecommitError(
-			pending.source, "revalidate replacement baseline after partition validation",
+			pending.source, pending.expectedRevision, "revalidate replacement baseline after partition validation",
 			fmt.Errorf("partition validator mutated its candidate"))
 	}
 	return &preparedCPUPartition{
@@ -303,8 +349,84 @@ func cpuAssignmentsEqual(left, right map[int]machine.CPUSet) bool {
 	return true
 }
 
-func validatePendingPoolOwnership(entries state.PodEntries) error {
-	actualRNBTargetNUMAs := make(map[int]struct{})
+// sortedPoolNUMAList returns the NUMA keys present in a pool's (sparse)
+// TopologyAwareAssignments as a sorted int slice, for stable diagnostics. It has
+// no effect on metrics (error string only).
+func sortedPoolNUMAList(assignments map[int]machine.CPUSet) []int {
+	numaIDs := make([]int, 0, len(assignments))
+	for numaID := range assignments {
+		numaIDs = append(numaIDs, numaID)
+	}
+	sort.Ints(numaIDs)
+	return numaIDs
+}
+
+// reclaimedRampUpCategory names the reclaimed sub-class of an allocation that
+// violates the reclaimed ramp-up contract, so diagnostics can distinguish an
+// actually-NUMA-bound RNB container from an ordinary (non-NUMA-binding)
+// reclaimed container.
+func reclaimedRampUpCategory(allocation *state.AllocationInfo) string {
+	if allocation.CheckReclaimedActualNUMABinding() {
+		return "reclaimed-numa-binding (RNB)"
+	}
+	return "reclaimed non-NUMA-binding"
+}
+
+// validateNoReclaimedRampUp enforces the product invariant that no
+// reclaimed_cores allocation may ever be in ramp-up. Both RNB (actually
+// NUMA-bound) and ordinary (non-NUMA-binding) reclaimed containers are covered,
+// while shared_cores ramp-up stays legal. It scans every container, including
+// sidecars and init containers, so an inconsistent RampUp flag mirrored onto a
+// sidecar (or carried in from an old checkpoint / hook / advisor candidate)
+// cannot bypass the contract. Pool entries are unaffected because they carry no
+// reclaimed QoS.
+func validateNoReclaimedRampUp(entries state.PodEntries) error {
+	for podUID, containerEntries := range entries {
+		for containerName, allocation := range containerEntries {
+			if allocation == nil || !allocation.RampUp || !allocation.CheckReclaimed() {
+				continue
+			}
+			return fmt.Errorf(
+				"%s allocation %s/%s (%s) is illegally RampUp: reclaimed_cores must never ramp up",
+				allocation.QoSLevel, podUID, containerName, reclaimedRampUpCategory(allocation))
+		}
+	}
+	return nil
+}
+
+// reclaimOwnershipView is the precomputed ownership relationship between
+// reclaimed members and the reclaim pool for one candidate. It is built once from
+// a PodEntries snapshot so that pool-member resync, ownership validation, and
+// the advisor reclaim revision do not each rescan the same candidate for active
+// RNB target NUMAs.
+type reclaimOwnershipView struct {
+	// activeRNBTargetNUMAs holds the NUMA each active (non-ramp-up)
+	// reclaimed-numa-binding allocation is actually bound to.
+	activeRNBTargetNUMAs map[int]struct{}
+	// ordinaryReclaimNUMAs is the set of topology NUMAs NOT bound to an active
+	// RNB allocation; ordinary (non-NUMA-binding) reclaimed members are
+	// materialized from the union of the reclaim pool buckets on these NUMAs.
+	ordinaryReclaimNUMAs machine.CPUSet
+}
+
+func (v reclaimOwnershipView) isActiveRNBNUMA(numaID int) bool {
+	_, ok := v.activeRNBTargetNUMAs[numaID]
+	return ok
+}
+
+// buildReclaimOwnershipView scans entries once and returns the active RNB target
+// NUMAs plus (when topology is non-nil) the ordinary (non-RNB) reclaim-eligible
+// NUMAs derived as the topology complement. It is the single source of truth for
+// both. A reclaimed-numa-binding allocation with an unparseable NUMA hint fails
+// closed; ramp-up allocations are already rejected by validateNoReclaimedRampUp
+// upstream and are simply not active RNB targets here.
+func buildReclaimOwnershipView(
+	entries state.PodEntries, topology *machine.CPUTopology,
+) (reclaimOwnershipView, error) {
+	view := reclaimOwnershipView{
+		activeRNBTargetNUMAs: make(map[int]struct{}),
+		ordinaryReclaimNUMAs: machine.NewCPUSet(),
+	}
 	for podUID, containerEntries := range entries {
 		if containerEntries.IsPoolEntry() {
 			continue
@@ -316,13 +438,141 @@ func validatePendingPoolOwnership(entries state.PodEntries) error {
 			}
 			numaID, err := allocation.GetSpecifiedNUMABindingNUMAID()
 			if err != nil {
-				return fmt.Errorf("%s allocation %s/%s has invalid target NUMA: %w",
+				return view, fmt.Errorf("%s allocation %s/%s has invalid target NUMA: %w",
 					allocation.QoSLevel, podUID, containerName, err)
 			}
-			actualRNBTargetNUMAs[numaID] = struct{}{}
+			view.activeRNBTargetNUMAs[numaID] = struct{}{}
 		}
 	}
+	if topology != nil {
+		for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+			if !view.isActiveRNBNUMA(numaID) {
+				view.ordinaryReclaimNUMAs.Add(numaID)
+			}
+		}
+	}
+	return view, nil
+}
 
+// reclaimBucketClass names the four distinguishable states of an owner-pool
+// NUMA bucket. It collapses what used to be three parallel booleans
+// (bucket_present / bucket_initialed / bucket_empty) into one value so the
+// producer, resync, and validator share a single, fail-closed ownership meaning.
+type reclaimBucketClass int
+
+const (
+	reclaimBucketAbsent        reclaimBucketClass = iota // key not present in the bucket map
+	reclaimBucketUninitialized                           // key present, CPUSet zero value (Initialed=false)
+	reclaimBucketEmpty                                   // key present, initialized, zero CPUs
+	reclaimBucketReady                                   // key present, initialized, at least one CPU
+)
+
+func (c reclaimBucketClass) String() string {
+	switch c {
+	case reclaimBucketAbsent:
+		return "missing"
+	case reclaimBucketUninitialized:
+		return "uninitialized"
+	case reclaimBucketEmpty:
+		return "explicit-empty"
+	default:
+		return "ready"
+	}
+}
+
+// resolvedReclaimBucket is the value-object result of resolving one owner-pool
+// NUMA bucket. cpus is only meaningful when class == reclaimBucketReady.
+type resolvedReclaimBucket struct {
+	class reclaimBucketClass
+	cpus  machine.CPUSet
+}
+
+// failClosedError renders the provisioning-gap error for an RNB member whose
+// owner-pool bucket is not ready. missing, uninitialized, and explicit-empty stay
+// textually distinguishable; a ready-but-wrong bucket is reported by the caller
+// as a content mismatch instead.
+func (b resolvedReclaimBucket) failClosedError(pool *state.AllocationInfo, numaID int) error {
+	size := -1
+	if b.class != reclaimBucketAbsent {
+		size = b.cpus.Size()
+	}
+	return fmt.Errorf(
+		"active reclaimed-numa-binding on NUMA %d is not backed by owner pool %q: "+
+			"bucket_state=%s bucket_size=%d (pool_total=%s, pool_numas=%v)",
+		numaID, pool.OwnerPoolName, b.class, size,
+		pool.AllocationResult.String(), sortedPoolNUMAList(pool.TopologyAwareAssignments))
+}
+
+// lookupReclaimBucketIn resolves one NUMA bucket of a (possibly deep-copied) pool
+// assignment map into its class. It never returns an error: callers decide which
+// classes are acceptable, so missing/uninitialized/empty stay distinguishable.
+func lookupReclaimBucketIn(assignments map[int]machine.CPUSet, numaID int) resolvedReclaimBucket {
+	bucket, ok := assignments[numaID]
+	if !ok {
+		return resolvedReclaimBucket{class: reclaimBucketAbsent}
+	}
+	if !bucket.Initialed {
+		return resolvedReclaimBucket{class: reclaimBucketUninitialized, cpus: bucket}
+	}
+	if bucket.IsEmpty() {
+		return resolvedReclaimBucket{class: reclaimBucketEmpty, cpus: bucket}
+	}
+	return resolvedReclaimBucket{class: reclaimBucketReady, cpus: bucket}
+}
+
+func lookupReclaimBucket(pool *state.AllocationInfo, numaID int) resolvedReclaimBucket {
+	return lookupReclaimBucketIn(pool.TopologyAwareAssignments, numaID)
+}
+
+// expectedReclaimMemberCPUSet resolves the owner-pool cpuset a reclaimed member
+// must own, used by the validator. For an active RNB member it requires a ready
+// bucket on its target NUMA and shares the exact bucket classifier
+// (lookupReclaimBucket) that the producer (updateReclaimAllocationResultByPoolEntry)
+// uses, so both fail closed identically on missing/uninitialized/empty. For an
+// ordinary (non-actual-binding) reclaimed member it unions every pool bucket whose
+// NUMA is not an active RNB target; this is an equivalent complement predicate to
+// the producer's nonReclaimActualBindingNUMAs filter, not a call into the producer.
+func expectedReclaimMemberCPUSet(
+	pool *state.AllocationInfo, alloc *state.AllocationInfo, view reclaimOwnershipView,
+) (machine.CPUSet, error) {
+	if alloc.CheckReclaimedActualNUMABinding() {
+		numaID, err := alloc.GetSpecifiedNUMABindingNUMAID()
+		if err != nil {
+			return machine.CPUSet{}, fmt.Errorf("invalid target NUMA: %w", err)
+		}
+		rb := lookupReclaimBucket(pool, numaID)
+		if rb.class != reclaimBucketReady {
+			return machine.CPUSet{}, rb.failClosedError(pool, numaID)
+		}
+		return rb.cpus.Clone(), nil
+	}
+	expected := machine.NewCPUSet()
+	for numaID, numaBucket := range pool.TopologyAwareAssignments {
+		if view.isActiveRNBNUMA(numaID) {
+			continue
+		}
+		expected = expected.Union(numaBucket)
+	}
+	return expected, nil
+}
+
+func validatePendingPoolOwnership(entries state.PodEntries) error {
+	if err := validateNoReclaimedRampUp(entries); err != nil {
+		return err
+	}
+	view, err := buildReclaimOwnershipView(entries, nil)
+	if err != nil {
+		return err
+	}
+	return validatePendingPoolOwnershipWithView(entries, view)
+}
+
+// validatePendingPoolOwnershipWithView is a near-linear orchestration: for every
+// pool-owned member it resolves the owner pool, computes the single expected
+// cpuset (shared with the producer via expectedReclaimMemberCPUSet), and compares.
+// Ramp-up rejections are enforced by the caller's post-hooks gate (see
+// preparePendingCPUPartition), not re-scanned here.
+func validatePendingPoolOwnershipWithView(entries state.PodEntries, view reclaimOwnershipView) error {
 	for podUID, containerEntries := range entries {
 		if containerEntries.IsPoolEntry() {
 			continue
@@ -342,27 +592,24 @@ func validatePendingPoolOwnership(entries state.PodEntries) error {
 				return fmt.Errorf("%s allocation %s/%s owns missing pool %q",
 					allocation.QoSLevel, podUID, containerName, ownerPool)
 			}
-			expectedAllocation := pool.AllocationResult
-			if allocation.CheckReclaimedActualNUMABinding() {
-				numaID, err := allocation.GetSpecifiedNUMABindingNUMAID()
+			var expected machine.CPUSet
+			if allocation.CheckReclaimed() {
+				exp, err := expectedReclaimMemberCPUSet(pool, allocation, view)
 				if err != nil {
-					return fmt.Errorf("%s allocation %s/%s has invalid target NUMA: %w",
+					return fmt.Errorf("%s allocation %s/%s: %w",
 						allocation.QoSLevel, podUID, containerName, err)
 				}
-				expectedAllocation = pool.TopologyAwareAssignments[numaID]
-			} else if allocation.CheckReclaimed() {
-				expectedAllocation = machine.NewCPUSet()
-				for numaID, numaAllocation := range pool.TopologyAwareAssignments {
-					if _, ok := actualRNBTargetNUMAs[numaID]; ok {
-						continue
-					}
-					expectedAllocation = expectedAllocation.Union(numaAllocation)
-				}
+				expected = exp
+			} else {
+				// Shared members inherit the pool scalar.
+				expected = pool.AllocationResult
 			}
-			if !allocation.AllocationResult.Equals(expectedAllocation) {
-				return fmt.Errorf("%s allocation %s/%s cpuset %s differs from owner pool %q cpuset %s",
+			if !allocation.AllocationResult.ElementsEqual(expected) {
+				return fmt.Errorf("%s allocation %s/%s cpuset %s (size=%d) differs from owner pool %q expected %s (size=%d, pool_numas=%v)",
 					allocation.QoSLevel, podUID, containerName,
-					allocation.AllocationResult.String(), ownerPool, expectedAllocation.String())
+					allocation.AllocationResult.String(), allocation.AllocationResult.Size(),
+					ownerPool, expected.String(), expected.Size(),
+					sortedPoolNUMAList(pool.TopologyAwareAssignments))
 			}
 		}
 	}
@@ -502,6 +749,110 @@ func reclaimPoolCPUSet(entries state.PodEntries) machine.CPUSet {
 	return machine.NewCPUSet()
 }
 
+// resyncPoolOwnedAllocations re-derives each pool's scalar AllocationResult from
+// the union of its (sparse) NUMA buckets, then rematerializes every pool-owned
+// member container from the (possibly re-normalized) pool entry. normalize derives
+// buckets from each entry's own scalar; after hooks the pool buckets may have
+// changed (e.g. a backfilled RNB NUMA), so the member containers must be rebuilt
+// from the pool entry before ownership validation runs. It reuses the canonical
+// pool-entry update semantics (updateReclaimAllocationResultByPoolEntry for
+// reclaimed members, pool-bucket copy for shared members), updates current and
+// original topology consistently, never materializes empty pool buckets, and
+// finally re-syncs each sidecar from its rematerialized main container.
+func (p *DynamicPolicy) resyncPoolOwnedAllocations(entries state.PodEntries) error {
+	// Rematerializing pool-owned members must never resurrect or silently carry a
+	// reclaimed container in ramp-up: reject it here too so this path cannot be a
+	// bypass even when it is reached on its own.
+	if err := validateNoReclaimedRampUp(entries); err != nil {
+		return err
+	}
+	var topology *machine.CPUTopology
+	if p.machine.machineInfo != nil {
+		topology = p.machine.machineInfo.CPUTopology
+	}
+	view, err := buildReclaimOwnershipView(entries, topology)
+	if err != nil {
+		return err
+	}
+	return p.resyncPoolOwnedAllocationsWithView(entries, view)
+}
+
+func (p *DynamicPolicy) resyncPoolOwnedAllocationsWithView(
+	entries state.PodEntries, view reclaimOwnershipView,
+) error {
+	poolEntries := map[string]*state.AllocationInfo{}
+	for _, poolName := range []string{commonstate.PoolNameReclaim, commonstate.PoolNameShare} {
+		containerEntries, ok := entries[poolName]
+		if !ok {
+			continue
+		}
+		poolEntry := containerEntries.GetPoolEntry()
+		if poolEntry == nil {
+			continue
+		}
+		poolEntries[poolName] = poolEntry
+		if len(poolEntry.TopologyAwareAssignments) > 0 {
+			union := machine.NewCPUSet()
+			for _, bucket := range poolEntry.TopologyAwareAssignments {
+				union = union.Union(bucket)
+			}
+			poolEntry.AllocationResult = union
+		}
+		if len(poolEntry.OriginalTopologyAwareAssignments) > 0 {
+			union := machine.NewCPUSet()
+			for _, bucket := range poolEntry.OriginalTopologyAwareAssignments {
+				union = union.Union(bucket)
+			}
+			poolEntry.OriginalAllocationResult = union
+		}
+	}
+	if len(poolEntries) == 0 || p.machine.machineInfo == nil ||
+		p.machine.machineInfo.CPUTopology == nil {
+		return nil
+	}
+
+	// ordinaryReclaimNUMAs (from the shared view) is every topology NUMA except
+	// those an active RNB member is actually bound to.
+	nonReclaimActualBindingNUMAs := view.ordinaryReclaimNUMAs
+
+	for podUID, containerEntries := range entries {
+		if _, isPool := poolEntries[podUID]; isPool {
+			continue
+		}
+		for containerName, allocation := range containerEntries {
+			if allocation == nil || allocation.CheckSideCar() {
+				continue
+			}
+			poolEntry, ok := poolEntries[allocation.OwnerPoolName]
+			if !ok {
+				continue
+			}
+			if allocation.CheckReclaimed() {
+				// Reuse the canonical RNB/ordinary-reclaimed rematerialization and
+				// propagate its error (e.g. an active RNB with no owner bucket).
+				if err := p.updateReclaimAllocationResultByPoolEntry(
+					allocation, poolEntry, nonReclaimActualBindingNUMAs); err != nil {
+					return fmt.Errorf("rematerialize reclaimed member %s/%s from pool %q: %w",
+						podUID, containerName, allocation.OwnerPoolName, err)
+				}
+				continue
+			}
+			// Shared members inherit the pool's current and original buckets.
+			allocation.AllocationResult = poolEntry.AllocationResult.Clone()
+			allocation.OriginalAllocationResult = poolEntry.OriginalAllocationResult.Clone()
+			allocation.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
+			allocation.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.OriginalTopologyAwareAssignments)
+		}
+	}
+	// Main containers are rematerialized above while sidecars are deliberately
+	// skipped. Sync again only after every main is final: the earlier post-hook
+	// sync precedes pool resync, so without this pass a sidecar could retain the
+	// stale pre-resync cpuset and fail ownership validation (or diverge if this
+	// helper is called directly).
+	p.syncCandidateSidecarsFromMain(entries)
+	return nil
+}
+
 func validateSteadyReclaimPrecommitInvariant(
 	planned, candidate machine.CPUSet,
 	topology *machine.CPUTopology,
@@ -536,9 +887,9 @@ func validateSteadyReclaimPrecommitInvariant(
 	return nil
 }
 
-func (p *DynamicPolicy) wrapPartitionPrecommitError(source, stage string, err error) error {
+func (p *DynamicPolicy) wrapPartitionPrecommitError(source string, revision uint64, stage string, err error) error {
 	if source == "" {
 		source = "cpu partition"
 	}
-	return fmt.Errorf("%s precommit %s: %w", source, stage, err)
+	return fmt.Errorf("%s precommit (expected_revision=%d) %s: %w", source, revision, stage, err)
 }

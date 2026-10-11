@@ -4564,11 +4564,15 @@ func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo 
 			actualAllocationResult         machine.CPUSet
 		)
 		if numaID != commonstate.FakedNUMAID {
-			cpuSet, ok := topologyAwareAssignments[numaID]
-			if !ok {
-				return machine.CPUSet{}, nil, fmt.Errorf("pod: %s/%s container: %s is reclaimed_cores with numa_binding specified numa: %d not found in topologyAwareAssignments: %v",
-					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, numaID, topologyAwareAssignments)
+			// Share the single ownership meaning with the validator: an active RNB
+			// member needs a ready (present, initialized, non-empty) owner-pool
+			// bucket on its target NUMA. A missing, uninitialized, or explicit-empty
+			// bucket fails closed here, not just at validation time.
+			rb := lookupReclaimBucketIn(topologyAwareAssignments, numaID)
+			if rb.class != reclaimBucketReady {
+				return machine.CPUSet{}, nil, rb.failClosedError(poolEntry, numaID)
 			}
+			cpuSet := rb.cpus
 			actualAllocationResult = cpuSet.Clone()
 			actualTopologyAwareAssignments = map[int]machine.CPUSet{
 				numaID: cpuSet.Clone(),
@@ -4596,12 +4600,12 @@ func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo 
 
 	actualAllocationResult, actualTopologyAwareAssignments, err := getActualNUMABindingResult(machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments))
 	if err != nil {
-		return fmt.Errorf("get actual NUMA binding result: %v", err)
+		return fmt.Errorf("get actual NUMA binding result: %w", err)
 	}
 
 	actualOriginalAllocationResult, actualOriginalTopologyAwareAssignments, err := getActualNUMABindingResult(machine.DeepcopyCPUAssignment(poolEntry.OriginalTopologyAwareAssignments))
 	if err != nil {
-		return fmt.Errorf("get original actual NUMA binding result: %v", err)
+		return fmt.Errorf("get original actual NUMA binding result: %w", err)
 	}
 
 	general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
