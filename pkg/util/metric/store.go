@@ -41,32 +41,34 @@ type MetricData struct {
 type MetricStore struct {
 	mutex sync.RWMutex
 
-	nodeMetricMap             map[string]MetricData                               // map[metricName]data
-	numaMetricMap             map[int]map[string]MetricData                       // map[numaID]map[metricName]data
-	deviceMetricMap           map[string]map[string]MetricData                    // map[deviceName]map[metricName]data
-	networkMetricMap          map[string]map[string]MetricData                    // map[networkName]map[metricName]data
-	cpuMetricMap              map[int]map[string]MetricData                       // map[cpuID]map[metricName]data
-	podContainerMetricMap     map[string]map[string]map[string]MetricData         // map[podUID]map[containerName]map[metricName]data
-	podContainerNumaMetricMap map[string]map[string]map[int]map[string]MetricData // map[podUID]map[containerName]map[numaID]map[metricName]data
-	podVolumeMetricMap        map[string]map[string]map[string]MetricData         // map[podUID]map[volumeName]map[metricName]data
-	cgroupMetricMap           map[string]map[string]MetricData                    // map[cgroupPath]map[metricName]value
-	cgroupNumaMetricMap       map[string]map[int]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
-	stringIndexedMetricMap    map[string]interface{}
+	nodeMetricMap                      map[string]MetricData                               // map[metricName]data
+	numaMetricMap                      map[int]map[string]MetricData                       // map[numaID]map[metricName]data
+	deviceMetricMap                    map[string]map[string]MetricData                    // map[deviceName]map[metricName]data
+	networkMetricMap                   map[string]map[string]MetricData                    // map[networkName]map[metricName]data
+	cpuMetricMap                       map[int]map[string]MetricData                       // map[cpuID]map[metricName]data
+	podContainerMetricMap              map[string]map[string]map[string]MetricData         // map[podUID]map[containerName]map[metricName]data
+	podContainerNumaMetricMap          map[string]map[string]map[int]map[string]MetricData // map[podUID]map[containerName]map[numaID]map[metricName]data
+	podContainerStringIndexedMetricMap map[string]map[string]map[string]interface{}        // map[podUID]map[containerName]map[metricName]data
+	podVolumeMetricMap                 map[string]map[string]map[string]MetricData         // map[podUID]map[volumeName]map[metricName]data
+	cgroupMetricMap                    map[string]map[string]MetricData                    // map[cgroupPath]map[metricName]value
+	cgroupNumaMetricMap                map[string]map[int]map[string]MetricData            // map[cgroupPath]map[numaNode]map[metricName]value
+	stringIndexedMetricMap             map[string]interface{}
 }
 
 func NewMetricStore() *MetricStore {
 	return &MetricStore{
-		nodeMetricMap:             make(map[string]MetricData),
-		numaMetricMap:             make(map[int]map[string]MetricData),
-		deviceMetricMap:           make(map[string]map[string]MetricData),
-		networkMetricMap:          make(map[string]map[string]MetricData),
-		cpuMetricMap:              make(map[int]map[string]MetricData),
-		podContainerMetricMap:     make(map[string]map[string]map[string]MetricData),
-		podContainerNumaMetricMap: make(map[string]map[string]map[int]map[string]MetricData),
-		podVolumeMetricMap:        make(map[string]map[string]map[string]MetricData),
-		cgroupMetricMap:           make(map[string]map[string]MetricData),
-		cgroupNumaMetricMap:       make(map[string]map[int]map[string]MetricData),
-		stringIndexedMetricMap:    make(map[string]interface{}),
+		nodeMetricMap:                      make(map[string]MetricData),
+		numaMetricMap:                      make(map[int]map[string]MetricData),
+		deviceMetricMap:                    make(map[string]map[string]MetricData),
+		networkMetricMap:                   make(map[string]map[string]MetricData),
+		cpuMetricMap:                       make(map[int]map[string]MetricData),
+		podContainerMetricMap:              make(map[string]map[string]map[string]MetricData),
+		podContainerNumaMetricMap:          make(map[string]map[string]map[int]map[string]MetricData),
+		podContainerStringIndexedMetricMap: make(map[string]map[string]map[string]interface{}),
+		podVolumeMetricMap:                 make(map[string]map[string]map[string]MetricData),
+		cgroupMetricMap:                    make(map[string]map[string]MetricData),
+		cgroupNumaMetricMap:                make(map[string]map[int]map[string]MetricData),
+		stringIndexedMetricMap:             make(map[string]interface{}),
 	}
 }
 
@@ -80,6 +82,38 @@ func (c *MetricStore) SetByStringIndex(metricName string, metricMap interface{})
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.stringIndexedMetricMap[metricName] = metricMap
+}
+
+func (c *MetricStore) GetContainerByStringIndex(podUID, containerName, metricName string) interface{} {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	containers := c.podContainerStringIndexedMetricMap[podUID]
+	if containers == nil {
+		return nil
+	}
+	metrics := containers[containerName]
+	if metrics == nil {
+		return nil
+	}
+	return syntax.DeepCopy(metrics[metricName])
+}
+
+func (c *MetricStore) SetContainerByStringIndex(podUID, containerName, metricName string, data interface{}) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	containers := c.podContainerStringIndexedMetricMap[podUID]
+	if containers == nil {
+		containers = make(map[string]map[string]interface{})
+		c.podContainerStringIndexedMetricMap[podUID] = containers
+	}
+	metrics := containers[containerName]
+	if metrics == nil {
+		metrics = make(map[string]interface{})
+		containers[containerName] = metrics
+	}
+	metrics[metricName] = data
 }
 
 func (c *MetricStore) SetNodeMetric(metricName string, data MetricData) {
@@ -303,6 +337,11 @@ func (c *MetricStore) GCPodsMetric(livingPodUIDSet map[string]bool) {
 		if _, ok := livingPodUIDSet[podUID]; !ok {
 			delete(c.podContainerMetricMap, podUID)
 			delete(c.podContainerNumaMetricMap, podUID)
+		}
+	}
+	for podUID := range c.podContainerStringIndexedMetricMap {
+		if _, ok := livingPodUIDSet[podUID]; !ok {
+			delete(c.podContainerStringIndexedMetricMap, podUID)
 		}
 	}
 }

@@ -96,6 +96,19 @@ func TestStore_ContainerMetric(t *testing.T) {
 	assert.Equal(t, MetricData{Value: 1.0, Time: &now}, value)
 }
 
+func TestStore_GCContainerStringIndexedMetric(t *testing.T) {
+	t.Parallel()
+
+	store := NewMetricStore()
+	store.SetContainerByStringIndex("pod1", "container", "metric", uint64(1))
+	store.SetContainerByStringIndex("pod2", "container", "metric", uint64(2))
+
+	store.GCPodsMetric(map[string]bool{"pod2": true})
+
+	assert.Nil(t, store.GetContainerByStringIndex("pod1", "container", "metric"))
+	assert.Equal(t, uint64(2), store.GetContainerByStringIndex("pod2", "container", "metric"))
+}
+
 func TestStore_SetAndGetPodVolumeMetric(t *testing.T) {
 	t.Parallel()
 
