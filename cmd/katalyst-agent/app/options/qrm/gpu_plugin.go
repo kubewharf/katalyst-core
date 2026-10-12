@@ -38,7 +38,9 @@ type GPUOptions struct {
 	VirtualGPUVisibleDevicesEnvNames            []string
 	VirtualGPUUUIDEnvName                       string
 	VirtualGPUMemoryWeightEnvName               string
+	VirtualGPUMemoryWeightEnvNames              []string
 	VirtualGPUComputeWeightEnvName              string
+	VirtualGPUComputeWeightEnvNames             []string
 	VirtualGPUTimesliceEnvName                  string
 	VirtualGPUComputePolicyEnvName              string
 	GPUSelectionResultAnnotationKey             string
@@ -93,8 +95,18 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.VirtualGPUUUIDEnvName, "The environment variable name for the Virtual GPU pod UID")
 	fs.StringVar(&o.VirtualGPUMemoryWeightEnvName, "virtual-gpu-memory-weight-env-name",
 		o.VirtualGPUMemoryWeightEnvName, "The environment variable name for Virtual GPU memory weight")
+	fs.StringSliceVar(&o.VirtualGPUMemoryWeightEnvNames, "virtual-gpu-memory-weight-env-names",
+		o.VirtualGPUMemoryWeightEnvNames,
+		"List of environment variable names to inject with the Virtual GPU memory weight "+
+			"('<deviceID>:<percentage>'). Every name in this list receives the same value. "+
+			"When empty, falls back to --virtual-gpu-memory-weight-env-name.")
 	fs.StringVar(&o.VirtualGPUComputeWeightEnvName, "virtual-gpu-compute-weight-env-name",
 		o.VirtualGPUComputeWeightEnvName, "The environment variable name for Virtual GPU compute weight")
+	fs.StringSliceVar(&o.VirtualGPUComputeWeightEnvNames, "virtual-gpu-compute-weight-env-names",
+		o.VirtualGPUComputeWeightEnvNames,
+		"List of environment variable names to inject with the Virtual GPU compute weight "+
+			"('<deviceID>:<percentage>'). Every name in this list receives the same value. "+
+			"When empty, falls back to --virtual-gpu-compute-weight-env-name.")
 	fs.StringVar(&o.VirtualGPUTimesliceEnvName, "virtual-gpu-timeslice-env-name",
 		o.VirtualGPUTimesliceEnvName, "The environment variable name for Virtual GPU timeslice")
 	fs.StringVar(&o.VirtualGPUComputePolicyEnvName, "virtual-gpu-compute-policy-env-name",
@@ -132,7 +144,9 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.VirtualGPUVisibleDevicesEnvNames = o.VirtualGPUVisibleDevicesEnvNames
 	conf.VirtualGPUUUIDEnvName = o.VirtualGPUUUIDEnvName
 	conf.VirtualGPUMemoryWeightEnvName = o.VirtualGPUMemoryWeightEnvName
+	conf.VirtualGPUMemoryWeightEnvNames = o.VirtualGPUMemoryWeightEnvNames
 	conf.VirtualGPUComputeWeightEnvName = o.VirtualGPUComputeWeightEnvName
+	conf.VirtualGPUComputeWeightEnvNames = o.VirtualGPUComputeWeightEnvNames
 	conf.VirtualGPUTimesliceEnvName = o.VirtualGPUTimesliceEnvName
 	conf.VirtualGPUComputePolicyEnvName = o.VirtualGPUComputePolicyEnvName
 	conf.VirtualGPUTimesliceEnvValue = o.VirtualGPUTimesliceEnvValue
