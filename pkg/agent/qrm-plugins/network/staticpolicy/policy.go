@@ -106,6 +106,11 @@ type StaticPolicy struct {
 	netBandwidthResourceAllocationAnnotationKey     string
 	topologyAllocationAnnotationKey                 string
 
+	// nicSelectionPolicy decides how to pick one NIC from the filtered candidates
+	nicSelectionPolicy NICSelectionPoligy
+	// nicNameEnv is the env name used to propagate the selected NIC name to the container; empty disables it
+	nicNameEnv string
+
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
 
@@ -162,6 +167,8 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		topologyAllocationAnnotationKey: conf.TopologyAllocationAnnotationKey,
 		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:                conf.PodLabelKeptKeys,
+		nicSelectionPolicy:              NICSelectionPoligy(conf.NICSelectionPolicy),
+		nicNameEnv:                      conf.NICNameEnv,
 		aliveCgroupID:                   make(map[uint64]time.Time),
 		isContainerCgroupExistFunc:      common.IsContainerCgroupExist,
 	}
@@ -744,7 +751,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		return emptyResponse, nil
 	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		// not to deal with sidecars, and return a trivial allocationResult to avoid re-allocating
-		return packAllocationResponse(req, &state.AllocationInfo{}, nil)
+		return packAllocationResponse(req, &state.AllocationInfo{}, nil, nil)
 	}
 
 	// check allocationInfo is nil or not
@@ -773,7 +780,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 				return nil, err
 			}
 
-			resp, packErr := packAllocationResponse(req, allocationInfo, resourceAllocationAnnotations)
+			resp, packErr := packAllocationResponse(req, allocationInfo, p.getAllocationEnvs(allocationInfo), resourceAllocationAnnotations)
 			if packErr != nil {
 				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, packErr)
@@ -821,10 +828,10 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			reqInt, strings.Join(nicState.UnhealthyReasons, ", "))
 	}
 
-	// we only support one policy and hard code it for now
-	// TODO: make the policy configurable
-	selectedNIC := selectOneNIC(candidateNICs, RandomOne)
-	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Name, reqInt)
+	// pick one NIC from the candidates according to the configured selection policy.
+	selectedNIC := p.selectOneNIC(candidateNICs)
+	general.Infof("select NIC %s to allocate bandwidth (%dMbps) with policy %q",
+		selectedNIC.Name, reqInt, p.nicSelectionPolicy)
 
 	allocateNUMAs, err := machine.GetNICAllocateNUMAs(selectedNIC, p.agentCtx.KatalystMachineInfo)
 	if err != nil {
@@ -889,7 +896,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		return nil, err
 	}
 
-	return packAllocationResponse(req, newAllocation, resourceAllocationAnnotations)
+	return packAllocationResponse(req, newAllocation, p.getAllocationEnvs(newAllocation), resourceAllocationAnnotations)
 }
 
 // AllocateForPod is called during pod admit so that the resource
@@ -1397,6 +1404,53 @@ func (p *StaticPolicy) clearNetClassIfNeed(podUID string) error {
 		}
 	}
 	return nil
+}
+
+// selectOneNIC picks one NIC from the filtered candidates according to the configured
+// selection policy. The balance policy consults how many pods have already been
+// allocated on each candidate NIC.
+func (p *StaticPolicy) selectOneNIC(nics []machine.InterfaceInfo) machine.InterfaceInfo {
+	if len(nics) == 0 {
+		general.Errorf("no NIC to select")
+		return machine.InterfaceInfo{}
+	}
+
+	switch p.nicSelectionPolicy {
+	case RandomOne:
+		return getRandomNICs(nics)
+	case FirstOne:
+		// since we only pass filtered nics, always picking the first or the last one actually indicates a kind of binpacking
+		return nics[0]
+	case LastOne:
+		return nics[len(nics)-1]
+	case BalanceOne:
+		return getBalanceNICs(nics, p.getNICPodCount(nics))
+	}
+
+	general.Warningf("unknown NIC selection policy: %q, fallback to %q", p.nicSelectionPolicy, LastOne)
+	return nics[len(nics)-1]
+}
+
+// getNICPodCount counts how many pods have already been allocated on each of the given NICs,
+// which is consumed by the balance selection policy.
+func (p *StaticPolicy) getNICPodCount(nics []machine.InterfaceInfo) map[string]int {
+	count := make(map[string]int, len(nics))
+	machineState := p.state.GetMachineState()
+	for _, nic := range nics {
+		if nicState := machineState[nic.Name]; nicState != nil {
+			count[nic.Name] = len(nicState.PodEntries)
+		}
+	}
+	return count
+}
+
+// getAllocationEnvs builds the container envs for the given allocation, currently only
+// propagating the selected NIC name when nicNameEnv is configured.
+func (p *StaticPolicy) getAllocationEnvs(allocation *state.AllocationInfo) map[string]string {
+	if p.nicNameEnv == "" || allocation == nil || allocation.IfName == "" {
+		return nil
+	}
+	return map[string]string{p.nicNameEnv: allocation.IfName}
 }
 
 func getAllNICs(nicManager nic.NICManager) []machine.InterfaceInfo {
