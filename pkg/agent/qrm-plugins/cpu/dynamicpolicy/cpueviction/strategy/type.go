@@ -29,3 +29,16 @@ type NumaSysCPUPressureEvictionConfig struct {
 	NumaSysOverTotalUsageHardThreshold     float64
 	NumaSysOverTotalUsageEvictionThreshold float64
 }
+
+type SuppressionUsageCPUPressureEvictionConfig struct {
+	EnableSuppressionUsageEviction bool
+	SyncPeriod                     int64
+	MetricRingSize                 int
+	ThresholdMetPercentage         float64
+	SoftSuppressionRateThreshold   float64
+	SoftCPUUsageThreshold          float64
+	HardSuppressionRateThreshold   float64
+	HardCPUUsageThreshold          float64
+	PodCPUUsageEvictionThreshold   float64
+	GracePeriod                    int64
+}

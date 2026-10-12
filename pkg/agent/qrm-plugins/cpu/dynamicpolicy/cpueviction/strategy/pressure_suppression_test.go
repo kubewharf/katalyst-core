@@ -76,6 +76,39 @@ func TestNewCPUPressureSuppressionEviction(t *testing.T) {
 	as.NotNil(plugin)
 }
 
+func TestCPUPressureSuppression_Start(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+	conf := makeSuppressionEvictionConf(defaultCPUMaxSuppressionToleranceRate, defaultCPUMinSuppressionToleranceDuration)
+	metaServer := makeMetaServer(metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}), cpuTopology)
+	stateImpl, err := makeState(cpuTopology)
+	as.Nil(err)
+
+	newPlugin := func() *CPUPressureSuppression {
+		p, err := NewCPUPressureSuppressionEviction(metrics.DummyMetrics{}, metaServer, conf, stateImpl)
+		as.Nil(err)
+		return p.(*CPUPressureSuppression)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// non-positive sync period must fail fast instead of running the loop
+	// without delay
+	invalid := newPlugin()
+	invalid.suppressionUsageCPUPressureEvictionConfig.SyncPeriod = 0
+	as.Error(invalid.Start(ctx))
+
+	// a positive sync period starts the sync loop without error
+	valid := newPlugin()
+	valid.suppressionUsageCPUPressureEvictionConfig.SyncPeriod = 1
+	as.NoError(valid.Start(ctx))
+}
+
 func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 	t.Parallel()
 
