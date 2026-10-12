@@ -354,6 +354,9 @@ func TestGetHighOrderThreshold(t *testing.T) {
 func TestDisableTHPAtPath(t *testing.T) {
 	t.Parallel()
 
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
 	// already disabled
 	f1 := createTempFile(t, "always madvise [never]\n")
 	defer os.Remove(f1)
@@ -376,6 +379,9 @@ func TestDisableTHPAtPath(t *testing.T) {
 func TestEnableTHPMadviseAtPath(t *testing.T) {
 	t.Parallel()
 
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
 	// already madvise
 	f1 := createTempFile(t, "always [madvise] never\n")
 	defer os.Remove(f1)
@@ -395,8 +401,93 @@ func TestEnableTHPMadviseAtPath(t *testing.T) {
 	assert.Equal(t, "madvise\n", string(b))
 }
 
+func TestEnableTHPMadviseAtPathRestoreMinFreeKbytes(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldEnabledPath := thpEnabledPath
+	oldMinFreeKbytesPath := minFreeKbytesPath
+	oldApplyTHPModeAtPath := applyTHPModeAtPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		minFreeKbytesPath = oldMinFreeKbytesPath
+		applyTHPModeAtPath = oldApplyTHPModeAtPath
+	}()
+
+	thpFile := createTempFile(t, "always madvise [never]\n")
+	minFreeFile := createTempFile(t, "12345\n")
+	defer os.Remove(thpFile)
+	defer os.Remove(minFreeFile)
+
+	thpEnabledPath = thpFile
+	minFreeKbytesPath = minFreeFile
+	applyTHPModeAtPath = func(path, mode string) error {
+		if err := os.WriteFile(path, []byte(mode+"\n"), 0o644); err != nil {
+			return err
+		}
+		return os.WriteFile(minFreeFile, []byte("54321\n"), 0o644)
+	}
+
+	err := setTHPModeAtPath(thpFile, "madvise")
+	assert.NoError(t, err)
+
+	b, rerr := os.ReadFile(thpFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "madvise\n", string(b))
+
+	b, rerr = os.ReadFile(minFreeFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "12345\n", string(b))
+}
+
+func TestSetTHPModeAtPathNonMadviseDoesNotRestoreMinFreeKbytes(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldEnabledPath := thpEnabledPath
+	oldMinFreeKbytesPath := minFreeKbytesPath
+	oldApplyTHPModeAtPath := applyTHPModeAtPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		minFreeKbytesPath = oldMinFreeKbytesPath
+		applyTHPModeAtPath = oldApplyTHPModeAtPath
+	}()
+
+	thpFile := createTempFile(t, "always [madvise] never\n")
+	minFreeFile := createTempFile(t, "12345\n")
+	defer os.Remove(thpFile)
+	defer os.Remove(minFreeFile)
+
+	thpEnabledPath = thpFile
+	minFreeKbytesPath = minFreeFile
+	applyTHPModeAtPath = func(path, mode string) error {
+		if err := os.WriteFile(path, []byte(mode+"\n"), 0o644); err != nil {
+			return err
+		}
+		return os.WriteFile(minFreeFile, []byte("54321\n"), 0o644)
+	}
+
+	err := setTHPModeAtPath(thpFile, "never")
+	assert.NoError(t, err)
+
+	b, rerr := os.ReadFile(thpFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "never\n", string(b))
+
+	b, rerr = os.ReadFile(minFreeFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "54321\n", string(b))
+}
+
 func TestEnableTHPAdviseAtPath(t *testing.T) {
 	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
 
 	// already advise
 	f1 := createTempFile(t, "always within_size [advise] never deny force\n")
@@ -419,6 +510,9 @@ func TestEnableTHPAdviseAtPath(t *testing.T) {
 
 func TestDisableTHPDenyAtPath(t *testing.T) {
 	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
 
 	// already deny
 	f1 := createTempFile(t, "always within_size advise never [deny] force\n")
@@ -448,6 +542,9 @@ func TestSetTHPModeAtPathIfExistsMissing(t *testing.T) {
 
 func TestSetTHPModeAtPathInvalid(t *testing.T) {
 	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
 
 	f := createTempFile(t, "always [madvise] never\n")
 	defer os.Remove(f)
