@@ -76,16 +76,18 @@ const (
 
 // EvictionHelper is a general tool collection for all memory eviction plugin
 type EvictionHelper struct {
-	metaServer         *metaserver.MetaServer
-	emitter            metrics.MetricEmitter
-	reclaimedPodFilter func(pod *v1.Pod) (bool, error)
+	metaServer                     *metaserver.MetaServer
+	emitter                        metrics.MetricEmitter
+	reclaimedPodFilter             func(pod *v1.Pod) (bool, error)
+	podSaleModeAnnotationKeyGetter native.PodSaleModeAnnotationKeyGetter
 }
 
 func NewEvictionHelper(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, conf *config.Configuration) *EvictionHelper {
 	return &EvictionHelper{
-		metaServer:         metaServer,
-		emitter:            emitter,
-		reclaimedPodFilter: conf.CheckReclaimedQoSForPod,
+		metaServer:                     metaServer,
+		emitter:                        emitter,
+		reclaimedPodFilter:             conf.CheckReclaimedQoSForPod,
+		podSaleModeAnnotationKeyGetter: conf.GenericConfiguration,
 	}
 }
 
@@ -94,9 +96,11 @@ func (e *EvictionHelper) selectTopNPodsToEvictByMetrics(activePods []*v1.Pod, to
 ) {
 	filteredPods := e.filterPods(activePods, action)
 	if filteredPods != nil {
-		general.NewMultiSorter(e.getEvictionCmpFuncs(rankingMetrics, numaID)...).Sort(native.NewPodSourceImpList(filteredPods))
-		for i := 0; uint64(i) < general.MinUInt64(topN, uint64(len(filteredPods))); i++ {
-			podToEvictMap[string(filteredPods[i].UID)] = filteredPods[i]
+		topNPods := native.NewPodSourceList(filteredPods).
+			Sort(e.getEvictionCmpFuncs(rankingMetrics, numaID)...).
+			TopN(topN)
+		for _, pod := range topNPods {
+			podToEvictMap[string(pod.UID)] = pod
 		}
 	}
 }
@@ -142,6 +146,9 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 			case evictionconfig.FakeMetricPriority:
 				// prioritize evicting the pod whose priority is lower
 				return general.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
+			case evictionconfig.FakeMetricSaleMode:
+				// prioritize evicting the pod whose sale mode has lower eviction rank
+				return native.NewPodSaleModeCmpFunc(e.podSaleModeAnnotationKey())(p1, p2)
 			default:
 				p1Metric, p1Err := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p1, currentMetric, numaID)
 				p2Metric, p2Err := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, p2, currentMetric, numaID)
@@ -163,6 +170,14 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 	}
 
 	return cmpFuncs
+}
+
+func (e *EvictionHelper) podSaleModeAnnotationKey() string {
+	if e.podSaleModeAnnotationKeyGetter == nil {
+		return ""
+	}
+
+	return e.podSaleModeAnnotationKeyGetter.GetPodSaleModeAnnotationKey()
 }
 
 // getCandidates returns pods which use memory more than minimumUsageThreshold.
