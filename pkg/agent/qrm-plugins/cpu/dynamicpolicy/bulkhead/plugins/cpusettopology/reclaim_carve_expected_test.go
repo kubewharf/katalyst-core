@@ -32,11 +32,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// TestBuildExpectedTreatsReclaimCarvedBusinessLeafAsConverged is the regression
+// TestBuildExpectedTreatsReclaimCarvedProtectedLeafAsConverged is the regression
 // for the high-churn fixed-point "no progress" hard failure.
 //
 // Scenario (reproduced from the failing 4-NUMA / 128-CU node): an already
-// placed business leaf is admitted again while the per-NUMA reclaim floor has
+// placed protected leaf is admitted again while the per-NUMA reclaim floor has
 // expanded to carve exactly two CPUs out of its original allocation. The
 // enforced cgroup cpuset is therefore the allocation MINUS the reclaim-effective
 // set (correct, reclaim-disjoint), but DesiredView still carries the stale full
@@ -45,7 +45,7 @@ import (
 // convergence proof saw a permanent dynamic_target_mismatch, the planner
 // correctly refused to grow the leaf back into reclaim, and the fixed-point
 // compiler deadlocked with a bare ErrNoProgress.
-func TestBuildExpectedTreatsReclaimCarvedBusinessLeafAsConverged(t *testing.T) {
+func TestBuildExpectedTreatsReclaimCarvedProtectedLeafAsConverged(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -66,7 +66,7 @@ func TestBuildExpectedTreatsReclaimCarvedBusinessLeafAsConverged(t *testing.T) {
 	})
 	t.Cleanup(unregister)
 
-	// desired (stale): the business leaf was allocated its full range.
+	// desired (stale): the protected leaf was allocated its full range.
 	desired := machine.NewCPUSet(4, 5, 6, 7, 8, 9, 68, 69, 70, 71, 72)
 	// enforced current: reclaim already carved exactly 6 and 70 out of the leaf.
 	current := machine.NewCPUSet(4, 5, 7, 8, 9, 68, 69, 71, 72)

@@ -1389,6 +1389,78 @@ func TestAdvisorPostCommitCheckpointCrashRecoveryAndSuccessfulCleanup(t *testing
 	require.NoFileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName))
 }
 
+// TestAdvisorPostCommitAppliedRecoveryCleansUpWithoutReplayingPhysicalApply composes with
+// TestManagerSoftDeferThinSeamViaRunCPUSetAdjustmentHandlers: the nil-return soft-defer
+// contract is covered there, and here the real reconcile consume/persist path marks the
+// target applied and writes the WAL. The stub asserts applied != global-reset-complete (the
+// global reset stays incomplete). On restart, Cleanup must drop the checkpoint and must NOT
+// replay the physical handler. This covers the dynamicpolicy consume/persist/recovery half;
+// it does NOT exercise the production NewManager registration end-to-end.
+func TestAdvisorPostCommitAppliedRecoveryCleansUpWithoutReplayingPhysicalApply(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.advisorPostCommitCheckpointDir = dir
+	require.NoError(t, p.state.SetMachineState(p.state.GetMachineState(), false))
+	revision := p.state.GetRevision()
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{
+			"pool": {Entries: map[string]*advisorapi.CalculationInfo{
+				"block": {OwnerPoolName: "persisted-pool"},
+			}},
+		},
+	}
+
+	physicalApplyCalls := 0
+	target := p.publishAdvisorPostCommitTarget(resp, revision)
+	require.False(t, target.applied, "fresh published target must start unapplied")
+
+	// registered handler returns nil (the independently-verified non-blocking return).
+	// globalResetComplete stays false: applied marker must not imply global reset complete.
+	globalResetComplete := false
+	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{}
+	p.adjustment.cpuSetAdjustmentHandlers["bulkhead"] = func(ctx context.Context, hcp cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+		physicalApplyCalls++
+		return nil
+	}
+	p.Lock()
+	require.NoError(t, p.reconcileAdvisorPostCommitTarget(context.Background(), target))
+	p.Unlock()
+	// After the nil handler the applied marker is produced and the WAL records it; persist
+	// captures the crash boundary (global reset still incomplete, marker=true separation).
+	require.True(t, target.applied, "reconcile after nil handler must mark applied")
+	require.False(t, globalResetComplete, "applied marker must not imply global reset complete")
+	require.Equal(t, 1, physicalApplyCalls, "consume round must invoke the registered handler once")
+	require.NoError(t, p.persistAdvisorPostCommitApplied(target))
+	require.FileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName))
+
+	// Restart: restore the persisted applied target, then reconcile must Cleanup and NOT replay.
+	restarted := &DynamicPolicy{
+		state:                          p.state,
+		advisorPostCommitCheckpointDir: dir,
+		adjustment: adjustmentComponent{cpuSetAdjustmentHandlers: map[string]cpusetutil.CPUSetAdjustmentHandler{
+			"bulkhead": func(ctx context.Context, hcp cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+				physicalApplyCalls++
+				return nil
+			},
+		}},
+	}
+
+	require.NoError(t, restarted.restoreAdvisorPostCommitTarget())
+	restored := restarted.currentAdvisorPostCommitTarget()
+	require.NotNil(t, restored)
+	require.True(t, restored.applied, "restored WAL must carry the applied marker")
+
+	restarted.Lock()
+	require.NoError(t, restarted.reconcileAdvisorPostCommitTarget(context.Background(), restored))
+	restarted.Unlock()
+
+	require.Equal(t, 1, physicalApplyCalls,
+		"applied recovery must run Cleanup and must NOT replay the registered physical adjustment handler")
+	require.NoFileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName))
+}
+
 const (
 	advisorCheckpointSubprocessRoleEnv    = "KATALYST_ADVISOR_CHECKPOINT_SUBPROCESS_ROLE"
 	advisorCheckpointSubprocessDirEnv     = "KATALYST_ADVISOR_CHECKPOINT_SUBPROCESS_DIR"

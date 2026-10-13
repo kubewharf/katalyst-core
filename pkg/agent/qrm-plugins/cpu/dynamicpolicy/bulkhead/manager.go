@@ -489,12 +489,20 @@ func (m *Manager) processApplyPlugin(
 					cancel()
 					return fmt.Errorf("bulkhead plugin %q is a disabled-topology reconciler without adjustment capability", p.Name())
 				}
+				// A required reset runs before the reclaim-only reconcile. Any error it
+				// returns is propagated to the caller here, before ReconcileDisabled;
+				// the reset-complete marker and the later view publish are independent
+				// generation-fence commits.
 				err := adjuster.CPUSetAdjustmentDisabledHandler(disabledCtx, *handlerCtx)
 				if err != nil {
 					cancel()
 					emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
 					return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
 				}
+				// First generation-fence commit: record reset completion. This is
+				// intentionally separate from the view publish that follows, so a
+				// generation advance during ReconcileDisabled leaves the reset marked
+				// complete while the unpublished view is retried next round.
 				if !commitIfGenerationCurrent(in, func() {
 					reconciler.MarkDisabledResetComplete()
 				}) {
@@ -551,6 +559,25 @@ func (m *Manager) processApplyPlugin(
 			return staleGenerationError()
 		}
 		if err != nil {
+			// Only the topology owner's deferred-only reset may be swallowed: it
+			// converged its controlled targets and merely deferred uncertain
+			// descendants, so the caller proceeds and the reset retries later. A
+			// non-owner plugin surfacing this sentinel is a contract violation and
+			// must fail closed rather than hold the whole adjustment round.
+			if errors.Is(err, bulkheadapi.ErrDisabledResetDeferred) && p == m.topologyOwner {
+				// A deferred-only reset deliberately left uncertain descendants
+				// untouched. Because err is non-nil the fence above ran the no-op
+				// markComplete: the reset is not recorded complete, so
+				// NeedsDisabledReset stays true. No topology view is accepted this
+				// round (topologyStopped). The retry is opportunistic, not a timer:
+				// it runs on the next adjustment that enters Manager.Apply — the next
+				// Allocate admission or a new advisor post-commit round. Periodical
+				// handlers do not re-run the disabled reset. The caller proceeds so
+				// it may itself materialize or retire the descendant blocking completion.
+				acc.topologyStopped = true
+				emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "deferred", err.Error())
+				return nil
+			}
 			emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", err.Error())
 			return fmt.Errorf("bulkhead plugin %q disabled transition failed: %w", p.Name(), err)
 		}

@@ -18,6 +18,7 @@ package cpusettopology
 
 import (
 	"context"
+	stderrors "errors"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -49,6 +50,11 @@ type ownershipFixture struct {
 	mainRel     string
 	mainCPUs    machine.CPUSet
 	machineCPUs machine.CPUSet
+}
+
+func isDisabledResetNotConverged(err error) bool {
+	var target *disabledResetNotConvergedError
+	return stderrors.As(err, &target)
 }
 
 func newOwnershipFixture(t *testing.T, preserve bool) ownershipFixture {
@@ -165,13 +171,14 @@ func cgcommonRelativeCgroupHandler(podUID, containerID, rel string) cgcommon.Rel
 	}
 }
 
-// TestStartupDisabledRequiresNoResetAndLeavesDedicatedLeavesUntouched pins the
-// ownership fix: a plugin that has never entered an enabled epoch (process start,
-// or restart without in-memory ownership proof) must NOT be treated as an
-// enabled->disabled exit transition. NeedsDisabledReset stays false, so the
-// manager never runs the bulk reset and the long-lived dedicated subset Pod,
-// pause, and main-container leaves are byte-for-byte untouched.
-func TestStartupDisabledRequiresNoResetAndLeavesDedicatedLeavesUntouched(t *testing.T) {
+// TestStartupDisabledResetsControlledNonLeafRootsButNotLeaves pins the restart
+// contract: on a fresh process start (or QRM restart) with topology disabled and
+// preserve=false, resetComplete begins false, so the first disabled round performs
+// one idempotent reset. The controlled non-leaf DAG nodes (primary, reclaim root,
+// reclaim NUMA bucket) return to the whole-machine target. Pod/pause/main-container
+// leaves are never written by reset (kubelet converges them). The second round is a
+// no-op (idempotent). In preserve mode the reclaim subtree is excluded from the reset.
+func TestStartupDisabledResetsControlledNonLeafRootsButNotLeaves(t *testing.T) {
 	t.Parallel()
 
 	for _, preserve := range []bool{false, true} {
@@ -184,33 +191,63 @@ func TestStartupDisabledRequiresNoResetAndLeavesDedicatedLeavesUntouched(t *test
 			if got := fx.p.Enable(fx.in); got {
 				t.Fatalf("Enable() = true on startup, want false")
 			}
-			// Even with reclaim-preservation engaged, there is no ownership proof.
 			if got := fx.p.ShouldReconcileWhenDisabled(context.Background(), fx.in); got != preserve {
 				t.Fatalf("ShouldReconcileWhenDisabled() = %t, want %t", got, preserve)
 			}
-			if fx.p.NeedsDisabledReset() {
-				t.Fatalf("NeedsDisabledReset() = true on startup without ownership proof, want false")
+			// resetComplete starts false: the first disabled round must reset.
+			if !fx.p.NeedsDisabledReset() {
+				t.Fatalf("NeedsDisabledReset() = false on startup, want true (one idempotent reset due)")
 			}
 
-			// Mirror the manager decision: the disabled reset handler runs ONLY when
-			// NeedsDisabledReset() reports pending. With no ownership proof the gate
-			// stays closed, so the bulk reset is never invoked and the leaves are
-			// byte-for-byte untouched.
-			if fx.p.NeedsDisabledReset() {
-				if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
-					t.Fatalf("disabled handler returned unexpected error: %v", err)
+			if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+				t.Fatalf("disabled handler returned unexpected error: %v", err)
+			}
+			fx.p.MarkDisabledResetComplete()
+
+			machine := fx.machineCPUs.String()
+			// Controlled non-leaf nodes reset to the whole-machine target, except in
+			// preserve mode where the reclaim subtree is excluded.
+			if got := fx.cg.writes["primary"]; got != machine {
+				t.Fatalf("reset cpuset @ primary = %q, want machine %q; writes=%#v", got, machine, fx.cg.writes)
+			}
+			if preserve {
+				for _, rel := range []string{"reclaim", "reclaim/reclaim-0"} {
+					if _, ok := fx.cg.writes[rel]; ok {
+						t.Fatalf("preserve-mode reset must not write reclaim subtree @ %s; writes=%#v", rel, fx.cg.writes)
+					}
 				}
-				fx.p.MarkDisabledResetComplete()
+			} else {
+				for _, rel := range []string{"reclaim", "reclaim/reclaim-0"} {
+					if got := fx.cg.writes[rel]; got != machine {
+						t.Fatalf("reset cpuset @ %s = %q, want machine %q; writes=%#v", rel, got, machine, fx.cg.writes)
+					}
+				}
 			}
-			if len(fx.cg.writes) != 0 {
-				t.Fatalf("startup-disabled reset mutated cgroups, writes=%#v", fx.cg.writes)
+			// QoS dirs and the Pod/pause dir are driven to the whole-machine target
+			// (kubelet never updates them); only the protected leaf is spared.
+			for _, rel := range []string{"primary/dedicated", fx.pauseRel} {
+				if got := fx.cg.writes[rel]; got != machine {
+					t.Fatalf("reset cpuset @ %s = %q, want machine %q; writes=%#v", rel, got, machine, fx.cg.writes)
+				}
 			}
-			// The long-lived dedicated leaves are unchanged.
-			if got := fx.cg.cpus[fx.pauseRel]; !got.Equals(fx.mainCPUs) {
-				t.Fatalf("pause cpuset = %s, want untouched %s", got.String(), fx.mainCPUs.String())
+			if _, ok := fx.cg.writes[fx.mainRel]; ok {
+				t.Fatalf("protected leaf @ %s must not receive a reset write; writes=%#v", fx.mainRel, fx.cg.writes)
 			}
+			// The protected leaf is byte-for-byte untouched.
 			if got := fx.cg.cpus[fx.mainRel]; !got.Equals(fx.mainCPUs) {
 				t.Fatalf("main container cpuset = %s, want untouched %s", got.String(), fx.mainCPUs.String())
+			}
+
+			// Idempotent: after MarkDisabledResetComplete, a second round is a no-op.
+			if fx.p.NeedsDisabledReset() {
+				t.Fatalf("NeedsDisabledReset() = true after completion, want false")
+			}
+			before := len(fx.cg.writes)
+			if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+				t.Fatalf("second-round disabled handler: %v", err)
+			}
+			if len(fx.cg.writes) != before {
+				t.Fatalf("second round emitted new writes=%#v", fx.cg.writes)
 			}
 		})
 	}
@@ -249,19 +286,17 @@ func TestGenuineEnabledToDisabledTransitionResetsOwnedRootsButNotExternalLeaves(
 			t.Fatalf("reset cpuset @ %s = %q, want machine %q; writes=%#v", rel, got, machine, fx.cg.writes)
 		}
 	}
-	// External pod cgroup dir and the pause cgroup are not topology-owned: they
-	// must not receive the machine reset target (the writes map records every
-	// cpuset.cpus write; absence here means the leaf was never touched).
+	// The QoS dir and the Pod/pause dir are driven to the machine target (kubelet
+	// never updates them).
 	for _, rel := range []string{"primary/dedicated", fx.pauseRel} {
-		if _, ok := fx.cg.writes[rel]; ok {
-			t.Fatalf("external pod/pause cgroup @ %s must not receive machine reset write; writes=%#v", rel, fx.cg.writes)
+		if got := fx.cg.writes[rel]; got != machine {
+			t.Fatalf("reset cpuset @ %s = %q, want machine %q; writes=%#v", rel, got, machine, fx.cg.writes)
 		}
 	}
-	// The proven main-container leaf converges to its canonical DesiredView
-	// allocation and is never bulk-written to the whole machine.
-	if got := fx.cg.writes[fx.mainRel]; got != fx.mainCPUs.String() {
-		t.Fatalf("main container reset cpuset = %q, want canonical DesiredView %q; writes=%#v",
-			got, fx.mainCPUs.String(), fx.cg.writes)
+	// The protected leaf is converged by kubelet UpdateContainerResources and
+	// must never be written by the disabled reset.
+	if _, ok := fx.cg.writes[fx.mainRel]; ok {
+		t.Fatalf("protected leaf @ %s must not receive a reset write; writes=%#v", fx.mainRel, fx.cg.writes)
 	}
 
 	fx.p.MarkDisabledResetComplete()
@@ -298,8 +333,8 @@ func TestGenuineTransitionPreserveModeExcludesReclaimAndExternalLeaves(t *testin
 		t.Fatalf("reset cpuset @ primary = %q, want machine %q; writes=%#v", got, machine, fx.cg.writes)
 	}
 	for _, rel := range []string{"primary/dedicated", fx.pauseRel} {
-		if _, ok := fx.cg.writes[rel]; ok {
-			t.Fatalf("external pod/pause cgroup @ %s must not receive machine reset write; writes=%#v", rel, fx.cg.writes)
+		if got := fx.cg.writes[rel]; got != machine {
+			t.Fatalf("reset cpuset @ %s = %q, want machine %q; writes=%#v", rel, got, machine, fx.cg.writes)
 		}
 	}
 	for _, rel := range []string{"reclaim", "reclaim/reclaim-0"} {
@@ -307,10 +342,9 @@ func TestGenuineTransitionPreserveModeExcludesReclaimAndExternalLeaves(t *testin
 			t.Fatalf("preserve-mode reset must not write reclaim subtree @ %s; writes=%#v", rel, fx.cg.writes)
 		}
 	}
-	// Proven main leaf keeps its canonical subset.
-	if got := fx.cg.writes[fx.mainRel]; got != fx.mainCPUs.String() {
-		t.Fatalf("main container reset cpuset = %q, want canonical %q; writes=%#v",
-			got, fx.mainCPUs.String(), fx.cg.writes)
+	// The protected leaf is never written by reset (kubelet converges it).
+	if _, ok := fx.cg.writes[fx.mainRel]; ok {
+		t.Fatalf("protected leaf @ %s must not receive a reset write; writes=%#v", fx.mainRel, fx.cg.writes)
 	}
 }
 
@@ -388,13 +422,23 @@ func TestGenuineTransitionNeverWritesRNBLeavesUnderReclaim(t *testing.T) {
 			if !fx.p.NeedsDisabledReset() {
 				t.Fatalf("NeedsDisabledReset() = false after genuine transition, want true")
 			}
-			if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+			if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil && !isDisabledResetNotConverged(err) {
 				t.Fatalf("CPUSetAdjustmentDisabledHandler: %v", err)
 			}
-			// The RNB pause/main leaves never receive the machine/parent target.
-			for _, rel := range []string{rnbPause, rnbMain} {
-				if got, ok := fx.cg.writes[rel]; ok {
-					t.Fatalf("RNB leaf @ %s received reset write %q; want untouched; writes=%#v", rel, got, fx.cg.writes)
+			if preserve {
+				// preserve mode excludes the whole reclaim subtree.
+				if got, ok := fx.cg.writes["reclaim/reclaim-0/rnb-pod"]; ok {
+					t.Fatalf("preserve-mode RNB pod dir must be untouched, got write %q; writes=%#v", got, fx.cg.writes)
+				}
+			} else {
+				// Fail-safe matrix: the RNB Pod dir under the reclaim bucket has no
+				// positively-identified fresh protected leaf resolving under it
+				// (no DesiredView binding), so it must NOT be widened — an
+				// unclassifiable dir could be a protected leaf that never
+				// self-heals. It stays deferred; a future CRI/container-status positive
+				// classifier may widen it once positively confirmed.
+				if got, ok := fx.cg.writes["reclaim/reclaim-0/rnb-pod"]; ok {
+					t.Fatalf("unclassifiable RNB pod dir must not be widened, got %q; writes=%#v", got, fx.cg.writes)
 				}
 			}
 		})
@@ -428,7 +472,7 @@ func TestStaleCheckpointContainerIdentityReceivesNoWrite(t *testing.T) {
 		t.Fatalf("NeedsDisabledReset() = false after genuine transition, want true")
 	}
 
-	if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+	if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil && !isDisabledResetNotConverged(err) {
 		t.Fatalf("CPUSetAdjustmentDisabledHandler: %v", err)
 	}
 
@@ -436,22 +480,23 @@ func TestStaleCheckpointContainerIdentityReceivesNoWrite(t *testing.T) {
 	if got := fx.cg.writes["primary"]; got != fx.machineCPUs.String() {
 		t.Fatalf("primary reset = %q, want machine %q; writes=%#v", got, fx.machineCPUs.String(), fx.cg.writes)
 	}
-	// The stale checkpoint leaf and its pause pod are not proven: they must not be
-	// written at all (no canonical target, no parent machine fanout).
-	for _, rel := range []string{"primary/dedicated", fx.pauseRel, fx.mainRel} {
-		if _, ok := fx.cg.writes[rel]; ok {
-			t.Fatalf("stale/unproven leaf @ %s received a reset write; writes=%#v", rel, fx.cg.writes)
+	// Stale-pod matrix: the QoS dir and Pod/pause dir have no positively-identified
+	// fresh protected leaf resolving under them (PodFetcher is empty), so the
+	// fail-safe disabled reset must NOT widen them — an unclassifiable dir could be a
+	// protected leaf, and a mis-widened protected leaf never self-heals.
+	for _, rel := range []string{"primary/dedicated", fx.pauseRel} {
+		if got, ok := fx.cg.writes[rel]; ok {
+			t.Fatalf("stale/unclassifiable dir @ %s must not be widened, got %q; writes=%#v", rel, got, fx.cg.writes)
 		}
 	}
 }
 
-// TestCgroupV2NoOptInDoesNotCertifyUnperformedReset pins the cgroup-v2 no-op
-// completion semantics: on a v2 host without the explicit opt-in, the plugin is
-// inert. Enable returns false and hasOwnedTopology is never set, so
-// NeedsDisabledReset stays false even if the completion hook is invoked. The
-// disabled reset handler must not touch any cgroup; completion cannot be certified
-// for an unperformed reset.
-func TestCgroupV2NoOptInDoesNotCertifyUnperformedReset(t *testing.T) {
+// TestCgroupV2NoOptInHandlerIsInert pins the cgroup-v2 no-op contract: on a v2
+// host without the explicit opt-in, the plugin stays inert. resetComplete starts
+// false so NeedsDisabledReset reports pending, but the disabled handler short-
+// circuits on the v2 gate and performs zero writes; completion then clears the
+// pending reset. The fail-closed allowEmptyTarget protection is untouched.
+func TestCgroupV2NoOptInHandlerIsInert(t *testing.T) {
 	t.Parallel()
 
 	fx := newOwnershipFixture(t, false)
@@ -461,20 +506,238 @@ func TestCgroupV2NoOptInDoesNotCertifyUnperformedReset(t *testing.T) {
 	if got := fx.p.Enable(fx.in); got {
 		t.Fatalf("Enable() = true on v2 without opt-in, want false")
 	}
-	if fx.p.NeedsDisabledReset() {
-		t.Fatalf("NeedsDisabledReset() = true on inert v2, want false")
+	if !fx.p.NeedsDisabledReset() {
+		t.Fatalf("NeedsDisabledReset() = false on startup, want true (one inert reset due)")
 	}
-	// Even if the manager unconditionally calls the completion hook, without an
-	// ownership epoch the reset was never due; completion must not certify an
-	// unperformed reset into a done state.
-	fx.p.MarkDisabledResetComplete()
-	if fx.p.NeedsDisabledReset() {
-		t.Fatalf("NeedsDisabledReset() = true after MarkDisabledResetComplete on inert v2, want false")
-	}
+	// The disabled handler short-circuits on the v2 gate: zero cgroup writes.
 	if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
 		t.Fatalf("disabled handler on v2 returned error: %v", err)
 	}
 	if len(fx.cg.writes) != 0 {
 		t.Fatalf("inert v2 reset mutated cgroups, writes=%#v", fx.cg.writes)
+	}
+	fx.p.MarkDisabledResetComplete()
+	if fx.p.NeedsDisabledReset() {
+		t.Fatalf("NeedsDisabledReset() = true after MarkDisabledResetComplete, want false")
+	}
+}
+
+// TestProcessRestartReclaimsNarrowBucketsBackToMachine pins the E2E restart
+// contract: process1 (topology=true) wrote a narrow reclaimed-* bucket. After a
+// QRM restart, process2 is a brand-new plugin instance with topology=false and
+// preserve=false and no in-memory ownership proof. The first disabled round must
+// drive the controlled reclaim root/bucket back to the whole-machine target while
+// leaves stay untouched, and the second round must be a no-op (idempotent).
+func TestProcessRestartReclaimsNarrowBucketsBackToMachine(t *testing.T) {
+	t.Parallel()
+
+	fx := newOwnershipFixture(t, false)
+
+	// process1 left the reclaim bucket narrowed (e.g. a committed per-NUMA reclaim).
+	narrow := machine.MustParse("48,49")
+	fx.cg.cpus["reclaim/reclaim-0"] = narrow.Clone()
+	fx.cg.cpus["reclaim"] = narrow.Clone()
+
+	// process2: a fresh plugin instance (resetComplete=false, no enabled epoch).
+	p2 := &CPUSetTopologyPlugin{cfg: fx.p.cfg, cgroup: fx.cg}
+	if got := p2.Enable(fx.in); got {
+		t.Fatalf("process2 Enable() = true, want false on disabled host")
+	}
+	if !p2.NeedsDisabledReset() {
+		t.Fatalf("process2 NeedsDisabledReset() = false, want true")
+	}
+
+	if err := p2.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+		t.Fatalf("process2 disabled reset: %v", err)
+	}
+	p2.MarkDisabledResetComplete()
+
+	machine := fx.machineCPUs.String()
+	// The controlled reclaim root and bucket return to the whole-machine target.
+	for _, rel := range []string{"reclaim", "reclaim/reclaim-0"} {
+		if got := fx.cg.writes[rel]; got != machine {
+			t.Fatalf("after restart reset @ %s = %q, want machine %q; writes=%#v", rel, got, machine, fx.cg.writes)
+		}
+	}
+	// The Pod/pause dir is driven to the whole-machine target; the managed
+	// container leaf is spared.
+	if got := fx.cg.writes[fx.pauseRel]; got != machine {
+		t.Fatalf("after restart reset @ %s = %q, want machine %q; writes=%#v", fx.pauseRel, got, machine, fx.cg.writes)
+	}
+	if _, ok := fx.cg.writes[fx.mainRel]; ok {
+		t.Fatalf("protected leaf @ %s written by restart reset; writes=%#v", fx.mainRel, fx.cg.writes)
+	}
+	if got := fx.cg.cpus[fx.mainRel]; !got.Equals(fx.mainCPUs) {
+		t.Fatalf("main leaf = %s, want untouched %s", got.String(), fx.mainCPUs.String())
+	}
+
+	// Idempotent: second round emits no new writes.
+	if p2.NeedsDisabledReset() {
+		t.Fatalf("process2 NeedsDisabledReset() = true after completion, want false")
+	}
+	before := len(fx.cg.writes)
+	if err := p2.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+		t.Fatalf("process2 second round: %v", err)
+	}
+	if len(fx.cg.writes) != before {
+		t.Fatalf("second round emitted writes=%#v", fx.cg.writes)
+	}
+}
+
+// TestNonQRMPodClassifiedAndWidened pins fresh-pod classification: a long-lived
+// non-QRM pod (no DesiredView entry) with Status.QOSClass set, a main container and
+// an init container whose current and LastTerminationState IDs are prefixed
+// containerd://, must have its Pod dir and QoS dir widened to the parent target while
+// every container dir (current and lastState) gets zero writes, and the round must
+// converge so MarkDisabledResetComplete may be called.
+func TestNonQRMPodClassifiedAndWidened(t *testing.T) {
+	t.Parallel()
+
+	fx := newOwnershipFixture(t, false)
+	// Replace the fixture's dedicated pod with a non-QRM burstable pod.
+	const (
+		nonQRMUID  = "non-qrm-pod"
+		mainID     = "non-qrm-main"
+		initID     = "non-qrm-init"
+		oldInitID  = "non-qrm-init-old"
+		mainRel    = "primary/burstable/pod-x/container-main"
+		initRel    = "primary/burstable/pod-x/container-init"
+		oldInitRel = "primary/burstable/pod-x/container-init-old"
+		podDir     = "primary/burstable/pod-x"
+	)
+	for _, h := range []cgcommon.RelativeCgroupPathHandler{
+		cgcommonRelativeCgroupHandler(nonQRMUID, mainID, mainRel),
+		cgcommonRelativeCgroupHandler(nonQRMUID, initID, initRel),
+		cgcommonRelativeCgroupHandler(nonQRMUID, oldInitID, oldInitRel),
+	} {
+		registerRelativeCgroupPathHandlerForTest(t, h)
+	}
+	for _, rel := range []string{mainRel, initRel, oldInitRel} {
+		fx.cg.existing[rel] = true
+		fx.cg.cpus[rel] = machine.MustParse("0-7")
+	}
+	fx.cg.existing[podDir] = true
+	fx.cg.cpus[podDir] = machine.MustParse("0-7")
+	fx.cg.existing["primary/burstable"] = true
+	fx.cg.cpus["primary/burstable"] = machine.MustParse("0-95")
+	fx.cg.children["primary"] = []string{"burstable"}
+	fx.cg.children["primary/burstable"] = []string{"pod-x"}
+	fx.cg.children[podDir] = []string{"container-main", "container-init", "container-init-old"}
+
+	fx.in.MetaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{UID: types.UID(nonQRMUID)},
+		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+		Status: v1.PodStatus{
+			QOSClass: v1.PodQOSBurstable,
+			ContainerStatuses: []v1.ContainerStatus{{
+				Name: "main", ContainerID: "containerd://" + mainID,
+			}},
+			InitContainerStatuses: []v1.ContainerStatus{{
+				Name:        "init",
+				ContainerID: "containerd://" + initID,
+				LastTerminationState: v1.ContainerState{Terminated: &v1.ContainerStateTerminated{
+					ContainerID: "containerd://" + oldInitID,
+				}},
+			}},
+		},
+	}}}
+	// No DesiredView binding for this pod.
+	fx.in.DesiredView.ContainerCPUSetByPod = map[string]map[string]machine.CPUSet{}
+
+	if got := fx.p.Enable(fx.in); got {
+		t.Fatalf("Enable() = true on disabled host, want false")
+	}
+	if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+		t.Fatalf("disabled handler: %v", err)
+	}
+	machine := fx.machineCPUs.String()
+	for _, rel := range []string{"primary/burstable", podDir} {
+		if got := fx.cg.writes[rel]; got != machine {
+			t.Fatalf("pod dir @ %s = %q, want %q; writes=%#v", rel, got, machine, fx.cg.writes)
+		}
+	}
+	for _, rel := range []string{mainRel, initRel, oldInitRel} {
+		if _, ok := fx.cg.writes[rel]; ok {
+			t.Fatalf("protected leaf @ %s must not be written; writes=%#v", rel, fx.cg.writes)
+		}
+	}
+}
+
+type erroringPodListFetcher struct {
+	pod.PodFetcherStub
+	err error
+}
+
+func (f *erroringPodListFetcher) GetPodList(_ context.Context, _ func(*v1.Pod) bool) ([]*v1.Pod, error) {
+	return nil, f.err
+}
+
+// TestGetPodListErrorWithholdsReset pins that a fresh-pod fetch failure makes the
+// disabled round return an error (not converge) with zero writes, so the next round
+// retries; once the fetcher works it converges and marks complete.
+func TestGetPodListErrorWithholdsReset(t *testing.T) {
+	t.Parallel()
+
+	fx := newOwnershipFixture(t, false)
+	fx.in.MetaServer.MetaAgent.PodFetcher = &erroringPodListFetcher{err: stderrors.New("kubelet down")}
+
+	err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in)
+	if err == nil {
+		t.Fatalf("expected error when fresh-pod fetch fails, got nil")
+	}
+	if len(fx.cg.writes) != 0 {
+		t.Fatalf("zero writes expected on fetch error, got=%#v", fx.cg.writes)
+	}
+	if fx.p.NeedsDisabledReset() != true {
+		t.Fatalf("NeedsDisabledReset() = false after fetch error, want true (retry)")
+	}
+}
+
+// TestQRMBinnedAndSidecarContainersBothUnwritten pins that a QRM-protected leaf
+// (in DesiredView) and a non-QRM sidecar under the same Pod both receive zero
+// writes while the Pod dir is widened.
+func TestQRMBinnedAndSidecarContainersBothUnwritten(t *testing.T) {
+	t.Parallel()
+
+	fx := newOwnershipFixture(t, false)
+	const (
+		sidecarID  = "sidecar-id"
+		sidecarRel = "primary/dedicated/pod-x/container-sidecar"
+	)
+	registerRelativeCgroupPathHandlerForTest(t, cgcommonRelativeCgroupHandler("ownership-dedicated-pod", sidecarID, sidecarRel))
+	fx.cg.existing[sidecarRel] = true
+	fx.cg.cpus[sidecarRel] = machine.MustParse("0-7")
+	fx.cg.children[fx.pauseRel] = []string{"container-main", "container-sidecar"}
+
+	if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+		t.Fatalf("disabled handler: %v", err)
+	}
+	for _, rel := range []string{fx.mainRel, sidecarRel} {
+		if _, ok := fx.cg.writes[rel]; ok {
+			t.Fatalf("protected leaf @ %s must not be written; writes=%#v", rel, fx.cg.writes)
+		}
+	}
+	if got := fx.cg.writes[fx.pauseRel]; got != fx.machineCPUs.String() {
+		t.Fatalf("pod dir @ %s = %q, want machine; writes=%#v", fx.pauseRel, got, fx.cg.writes)
+	}
+}
+
+// TestLeftoverUnknownDirSkippedWithoutBlockingConvergence pins that a leftover dir
+// under a controlled root matching no fresh pod is not written and does NOT block
+// convergence (UnclassifiedSkipped, not Deferred).
+func TestLeftoverUnknownDirSkippedWithoutBlockingConvergence(t *testing.T) {
+	t.Parallel()
+
+	fx := newOwnershipFixture(t, false)
+	leftover := "primary/dedicated/leftover"
+	fx.cg.existing[leftover] = true
+	fx.cg.cpus[leftover] = machine.MustParse("0-7")
+	fx.cg.children["primary/dedicated"] = []string{"pod-x", "leftover"}
+
+	if err := fx.p.CPUSetAdjustmentDisabledHandler(context.Background(), fx.in); err != nil {
+		t.Fatalf("disabled handler: %v", err)
+	}
+	if _, ok := fx.cg.writes[leftover]; ok {
+		t.Fatalf("unknown leftover dir @ %s must not be written; writes=%#v", leftover, fx.cg.writes)
 	}
 }

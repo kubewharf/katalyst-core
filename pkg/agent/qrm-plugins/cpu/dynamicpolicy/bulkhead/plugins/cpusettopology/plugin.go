@@ -81,29 +81,66 @@ type CPUSetTopologyPlugin struct {
 	modeGate           *topology.ModeGate
 
 	// resetComplete records whether the authoritative disabled reset has run
-	// since the plugin last observed a genuine enabled->disabled transition. It
-	// replaces the manager-side per-name reset-state map: the plugin owns its own
-	// transition.
+	// since the plugin last observed a genuine enabled->disabled transition or a
+	// fresh process start/restart. It replaces the manager-side per-name reset-state
+	// map: the plugin owns its own transition.
+	//
+	// Safety contract for startup/restart (preserve=false): the disabled reset
+	// writes ONLY the controlled non-leaf DAG nodes (primary/reclaim root, reclaim
+	// NUMA buckets, reclaim siblings) to the expand-only whole-machine target.
+	// Pod/pause/main-container leaves are never written by reset (kubelet converges
+	// them). Because the write set is restricted to controlled non-leaf nodes and the
+	// target is expand-only (child ⊆ parent), a restart no longer needs an in-memory
+	// ownership witness to safely reset those nodes; resetComplete therefore starts
+	// false and the first disabled round performs one idempotent reset (zero writes
+	// when already at target).
 	resetComplete bool
-	// hasOwnedTopology is the trustworthy ownership-proof witness. It is set true
-	// only when Enable observes the plugin actively managing the full partition
-	// DAG. On startup, and after a process restart, it stays false, so a disabled
-	// epoch that was never preceded by an enabled epoch is NOT treated as an
-	// enabled->disabled exit transition and the bulk reset never runs. This keeps
-	// startup-disabled / restart-without-proof from stamping the whole-machine
-	// cpuset onto dedicated/shared/RNB Pod, pause, and main-container leaves the
-	// plugin never owned.
-	hasOwnedTopology bool
-	// loggedNoOwnershipResetSkip records that the one-time diagnostic for skipping
-	// the disabled reset without ownership proof has already been emitted, so the
-	// per-round disabled rounds stay quiet after the first notice.
-	loggedNoOwnershipResetSkip bool
 	// lastEnabled is the previous Enable() result, used to detect the
 	// enabled->disabled transition that requires a fresh reset.
 	lastEnabled bool
 	// lastShouldReconcile is the previous ShouldReconcileWhenDisabled result; a
 	// true->false transition requires an authoritative exit reset.
 	lastShouldReconcile bool
+
+	// logSink is the per-instance operational log sink. It defaults to the package-level
+	// general logger (unchanged production behavior); tests inject a recording sink per
+	// plugin instance so log-contract assertions run concurrently without mutating global
+	// klog state.
+	logSink cpusetTopologyLogSink
+}
+
+// cpusetTopologyLogSink abstracts the operational log sink the plugin writes to. The
+// default generalLogSink delegates to general.Infof / general.InfofV / general.Errorf
+// verbatim; tests supply a recording sink so log assertions are instance-scoped and
+// parallel-safe. Errorf is part of the contract so a recording sink can assert a
+// message was never emitted at error severity, even though the current routed sites
+// are all info-level.
+type cpusetTopologyLogSink interface {
+	Infof(format string, args ...interface{})
+	InfofV(level int, format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+}
+
+type generalLogSink struct{}
+
+func (generalLogSink) Infof(format string, args ...interface{}) {
+	general.Infof(format, args...)
+}
+
+func (generalLogSink) InfofV(level int, format string, args ...interface{}) {
+	general.InfofV(level, format, args...)
+}
+
+func (generalLogSink) Errorf(format string, args ...interface{}) {
+	general.Errorf(format, args...)
+}
+
+// logs returns the instance log sink, defaulting to the general logger when unset.
+func (p *CPUSetTopologyPlugin) logs() cpusetTopologyLogSink {
+	if p.logSink != nil {
+		return p.logSink
+	}
+	return generalLogSink{}
 }
 
 type pendingPodProtection struct {
@@ -120,13 +157,26 @@ type deferredLeafDrain struct {
 }
 
 type disabledResetNotConvergedError struct {
-	state   topology.ConvergenceState
-	applied int
-	report  topology.ConvergenceReport
+	state    topology.ConvergenceState
+	applied  int
+	deferred int
+	failed   int
+	report   topology.ConvergenceReport
 }
 
 func (e *disabledResetNotConvergedError) Error() string {
-	return fmt.Sprintf("disabled reset topology dag not converged: state=%s applied=%d report=%+v", e.state, e.applied, e.report)
+	return fmt.Sprintf("disabled reset topology dag not converged: state=%s applied=%d deferred=%d failed=%d report=%+v",
+		e.state, e.applied, e.deferred, e.failed, e.report)
+}
+
+// Unwrap classifies only a physically successful, deferred-only reset as a safe
+// retry. A real write failure or a genuinely non-converged controlled target is
+// intentionally left unclassified so the manager continues to fail closed.
+func (e *disabledResetNotConvergedError) Unwrap() error {
+	if e != nil && e.failed == 0 && e.deferred > 0 && e.report.FullyConverged {
+		return bulkheadapi.ErrDisabledResetDeferred
+	}
+	return nil
 }
 
 type topologyApplyNonConvergedError struct {
@@ -175,11 +225,7 @@ func (p *CPUSetTopologyPlugin) Enable(in bulkheadapi.HandlerContext) bool {
 	}
 	curr := enableBulkheadCpusetTopology(in)
 	if curr {
-		// The plugin is actively managing the partition DAG: this is the only
-		// trustworthy proof that cpuset_topology owns the managed topology nodes.
-		// Only an enabled epoch entitles a later disabled exit to the bulk reset.
-		// Startup and process restart begin without this witness.
-		p.hasOwnedTopology = true
+		// The plugin is actively managing the partition DAG.
 	} else if p.lastEnabled {
 		// enabled -> disabled: a fresh disabled reset is required next round.
 		p.resetComplete = false
@@ -478,6 +524,7 @@ func shouldProjectPendingToValidatedAuthority(in bulkheadapi.HandlerContext) boo
 // feeds the write path. The fields map 1:1 to the decisions that can leave a
 // whole-NUMA SNB admission at a bare fixed-point.
 func emitAdmissionPreConvergeDiagnostic(
+	sink cpusetTopologyLogSink,
 	in bulkheadapi.HandlerContext,
 	specs []topology.NodeSpec,
 	requiredByRel map[string]machine.CPUSet,
@@ -516,7 +563,7 @@ func emitAdmissionPreConvergeDiagnostic(
 			reclaimBucketTarget = reclaimBucketTarget.Union(sp.CPUs)
 		}
 	}
-	general.InfofV(4, "cpuset_topology: admission pre-converge diagnostic project_pending_to_desired_non_reclaim=%t topology_covers_protected_view=%t non_reclaim_fallback_authority=%s desired_non_reclaim_pool=%s desired_reclaim_effective=%s effective_non_reclaim_pool=%s effective_reclaim=%s pending_raw=%s pending_raw_union=%s pending_projected=%s pending_effective=%s required_by_rel=%s effective_primary_target=%s effective_reclaim_bucket_target=%s objective=%s",
+	sink.InfofV(4, "cpuset_topology: admission pre-converge diagnostic project_pending_to_desired_non_reclaim=%t topology_covers_protected_view=%t non_reclaim_fallback_authority=%s desired_non_reclaim_pool=%s desired_reclaim_effective=%s effective_non_reclaim_pool=%s effective_reclaim=%s pending_raw=%s pending_raw_union=%s pending_projected=%s pending_effective=%s required_by_rel=%s effective_primary_target=%s effective_reclaim_bucket_target=%s objective=%s",
 		in.ProjectPendingToDesiredNonReclaim,
 		coversProtectedView,
 		admissionNonReclaimFallbackAuthority(in),
@@ -930,7 +977,7 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 	// round can make progress. This is read-only: it recomputes no decisions and
 	// feeds no hold/replan/write path. It exists to explain a bare fixed-point
 	// no-progress (the reclaimed-0 bucket never materializes) at runtime.
-	emitAdmissionPreConvergeDiagnostic(in, specs, requiredCPUSetByRel, protections,
+	emitAdmissionPreConvergeDiagnostic(p.logs(), in, specs, requiredCPUSetByRel, protections,
 		rawProtectionsDiag, rawProtectedDiag, coversProtectedView, shadow, objective)
 	// Normal adjustment passes the topology explicitly so TopologyCoordinator can
 	// derive its allowed CPUs from this round's machine view. Any apply error is
@@ -1005,7 +1052,7 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		// current agent process instead of matching fragile free text. Read-only:
 		// it selects no hold, mutates nothing, and the return path is unchanged.
 		if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
-			general.Infof("cpuset_topology: admission view applied pid=%d level=%s attempted=%d applied=%d converged=%t parent_safe=%t final_snapshot_current=%t state=%s applied_reclaim_effective=%s applied_reclaim_per_numa=%s",
+			p.logs().Infof("cpuset_topology: admission view applied pid=%d level=%s attempted=%d applied=%d converged=%t parent_safe=%t final_snapshot_current=%t state=%s applied_reclaim_effective=%s applied_reclaim_per_numa=%s",
 				os.Getpid(), finalAppliedView.Level, res.Attempted, res.Applied,
 				res.Converged, res.ParentSafe, res.FinalSnapshotCurrent, res.State,
 				finalAppliedView.ReclaimEffective.String(), renderReclaimPerNUMA(finalAppliedView.ReclaimEffectivePerNUMA))
@@ -1161,6 +1208,16 @@ func appliedViewFromFinalSnapshotWithDeferredCleanup(
 	return applied, nil
 }
 
+// CPUSetAdjustmentDisabledHandler implements AdjustmentCapable. It is inert on a
+// cgroup v2 host without the opt-in; otherwise it clears the pending-protection
+// state and runs resetCPUSetTopology. The reset converges the plugin's controlled
+// non-leaf DAG nodes and writes no AppliedView: while preserve mode is on it
+// excludes the configured reclaim roots, which ReconcileDisabled aligns, and while
+// preserve is off the reset DAG includes them. Converged controlled targets with
+// pending-Pod subtrees or post-snapshot descendants still deferred return
+// disabledResetNotConvergedError, whose Unwrap classifies ErrDisabledResetDeferred
+// for a later retry. UnclassifiedSkipped alone does not defer reset completion;
+// physical read/write failures remain hard errors.
 func (p *CPUSetTopologyPlugin) CPUSetAdjustmentDisabledHandler(ctx context.Context, in bulkheadapi.HandlerContext) error {
 	if p.disabledOnCgroupV2(ctx) {
 		return nil
@@ -1172,26 +1229,31 @@ func (p *CPUSetTopologyPlugin) CPUSetAdjustmentDisabledHandler(ctx context.Conte
 }
 
 // NeedsDisabledReset implements bulkheadapi.DisabledTopologyReconciler: it reports
-// true only when the plugin has trustworthy proof that it owns the managed
-// topology (a prior enabled epoch, recorded by hasOwnedTopology) AND a fresh
-// authoritative reset has not run since the enabled->disabled transition. A
-// startup or restart that never entered an enabled epoch reports false: there is
-// no ownership proof, so the bulk reset must not rewrite dedicated/shared/RNB Pod,
-// pause, and main-container leaves the plugin never managed.
+// true until the authoritative disabled reset has run once. At process start and
+// after a restart resetComplete is false, so the first disabled round performs one
+// idempotent reset, even if the targets already have the desired values. A genuine
+// enabled->disabled exit and a preserve-mode toggle both clear resetComplete so a
+// fresh reset runs.
+//
+// The safety guarantee no longer depends on an in-memory ownership witness: reset
+// restores controlled DAG targets and positively classified safe-to-widen
+// intermediate directories. Protected container leaves and unclassified
+// descendants are not written; reset does not repair historical leaf drift.
 func (p *CPUSetTopologyPlugin) NeedsDisabledReset() bool {
-	// Emit the reason a single time when startup/restart disables reset for lack of
-	// ownership proof, then stay quiet on later rounds.
-	if !p.hasOwnedTopology && !p.loggedNoOwnershipResetSkip {
-		p.loggedNoOwnershipResetSkip = true
-		general.Infof("cpuset_topology: skipping disabled reset: no ownership proof (no enabled epoch observed); leaving dedicated/shared/RNB pod, pause, and main-container cpuset untouched")
-	}
-	return p.hasOwnedTopology && !p.resetComplete
+	return !p.resetComplete
 }
 
 // MarkDisabledResetComplete records a successful disabled reset; the manager
 // calls this inside a generation-fence commit.
 func (p *CPUSetTopologyPlugin) MarkDisabledResetComplete() { p.resetComplete = true }
 
+// ReconcileDisabled implements DisabledTopologyReconciler. It returns a None
+// outcome when ShouldReconcileWhenDisabled declines the round or DesiredView is
+// nil; otherwise it converges only the configured reclaim roots into a ReclaimOnly
+// AppliedView and routes the result through toOutcome with requireReclaimOnly, so
+// the manager accepts it only on full reclaim-only convergence. It owns the
+// reclaim-only view; the disabled reset handler owns the disabled-transition
+// reset, excluding the reclaim roots only when preservation is enabled.
 func (p *CPUSetTopologyPlugin) ReconcileDisabled(
 	ctx context.Context,
 	in bulkheadapi.HandlerContext,
@@ -1849,20 +1911,33 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(
 		return topology.ConvergenceResult{}, err
 	}
 
-	// Reset (disabled transition) applies reset targets back towards the
-	// machine/root cpuset, but only to the controlled topology-owned nodes. Any
-	// external Pod/pause/main-container leaf is rewritten to only its canonical
-	// DesiredView/checkpoint allocation; a leaf without such proof is never
-	// fanned out to the parent machine target. Build that ownership proof
-	// fail-closed: if it cannot be established, abort the reset instead of running
-	// a blind machine-wide reset. Pending allocations whose leaves cannot be
-	// resolved are not protected here: protection addresses ancestor shrink during
-	// normal adjustment in the admission creation window, while reset cannot
-	// directly protect a leaf that does not exist.
+	// Reset (disabled transition) drives controlled topology-owned nodes, QoS class
+	// dirs, and positively-identified fresh Pod dirs back towards the machine/root
+	// cpuset. Protected leaves (Expected/Deferred and every fresh pod-status
+	// container ID) are NEVER written by the disabled reset — not even to their
+	// canonical allocation. A leaf without fresh-pod proof (stale pod, unknown dir)
+	// is deferred, not fanned out to the parent target: a mis-widened managed
+	// container does NOT self-heal (containerd's enable_update_resource_spec_check
+	// short-circuits UpdateContainerResources when the spec is unchanged), so a
+	// historical drift in a protected leaf is not repaired by this change. Pending
+	// allocations whose leaves cannot be resolved are deferred and retried next round.
 	expectedRes, err := p.buildExpectedCPUSetByRel(ctx, in)
 	if err != nil {
 		emitBulkheadPruneResult(in.Emitter, "skipped", "container_error")
 		return topology.ConvergenceResult{}, fmt.Errorf("build disabled reset container ownership proof: %w", err)
+	}
+	// buildExpectedCPUSetByRel only fetches the strict fresh snapshot when there are
+	// resolvable outcomes. The disabled reset must still positively classify out-of-view
+	// (non-QRM) pods on the empty-outcomes path, so backfill the single snapshot here
+	// when the build did not. Either way the classification below reuses this one
+	// generation and never issues a second GetPodList; a fetch error withholds the reset.
+	if expectedRes.FreshPodsByUID == nil {
+		freshPodsByUID, err := fetchStrictFreshPodsByUID(ctx, in)
+		if err != nil {
+			emitBulkheadPruneResult(in.Emitter, "skipped", "fresh_snapshot_error")
+			return topology.ConvergenceResult{}, fmt.Errorf("disabled reset fresh pod snapshot: %w", err)
+		}
+		expectedRes.FreshPodsByUID = freshPodsByUID
 	}
 	expected := expectedRes.ExpectedByRel
 
@@ -1880,6 +1955,23 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(
 		}, nil
 	}
 
+	protectedLeaves := protectedLeafRels(expectedRes)
+	safeWiden := map[string]struct{}{}
+	// Positive classification reuses the single strict fresh snapshot already fetched by
+	// the ownership build (expectedRes.FreshPodsByUID): widen each fresh Pod dir (and its
+	// QoS parent) and mark every fresh pod-status container ID (current + lastState) as a
+	// protected leaf. No second GetPodList is issued here, so the build and the
+	// classification always observe the same pod generation.
+	p.classifyFreshPodsForReset(expectedRes.FreshPodsByUID, protectedLeaves, safeWiden)
+	// Union the protected-leaf ancestor closure into the fresh-pod safeWiden set,
+	// then drop any protected leaf itself (defense in depth).
+	for rel := range safeWidenRelsForReset(protectedLeaves) {
+		safeWiden[rel] = struct{}{}
+	}
+	for rel := range protectedLeaves {
+		delete(safeWiden, path.Clean(rel))
+	}
+
 	var traversalBoundaries map[string]struct{}
 	if p.ShouldReconcileWhenDisabled(ctx, in) {
 		traversalBoundaries = reclaimResetBoundaries(p.cfg, in.DesiredView)
@@ -1889,6 +1981,9 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(
 		Cgroup:              p.cgroup,
 		Mode:                topology.ResetModeGuardWithGate(p.sharedModeGate()),
 		ExpectedCPUSetByRel: expected,
+		ProtectedLeafByRel:  protectedLeaves,
+		PendingPodDirs:      p.pendingPodDirRels(expectedRes),
+		SafeWidenRels:       safeWiden,
 		TraversalBoundaries: traversalBoundaries,
 		Budget:              adjustmentBudget.RemainingConvergenceBudget(),
 		AdjustmentBudget:    adjustmentBudget,
@@ -1905,9 +2000,11 @@ func (p *CPUSetTopologyPlugin) resetCPUSetTopology(
 		general.InfofV(4, "cpuset_topology: disabled reset not fully converged, report=%+v", res.ConvergenceReport)
 		emitBulkheadPruneResult(in.Emitter, "skipped", "reset_not_converged")
 		return res, &disabledResetNotConvergedError{
-			state:   res.State,
-			applied: res.Applied,
-			report:  res.ConvergenceReport,
+			state:    res.State,
+			applied:  res.Applied,
+			deferred: res.Deferred,
+			failed:   res.Failed,
+			report:   res.ConvergenceReport,
 		}
 	}
 
@@ -2071,7 +2168,148 @@ type expectedCPUSetBuildResult struct {
 	ExpectedByRel     map[string]machine.CPUSet
 	DeferredLeafByRel map[string]machine.CPUSet
 	PendingByPod      []pendingContainerCPUSet
-	LifecycleProofs   containerLifecycleProofSet
+	// FreshPodsByUID is the single strict fresh pod snapshot obtained for the whole
+	// reset round (UID keyed). The ownership build sets it on the resolvable-outcomes
+	// path; the disabled reset entry backfills it on the empty-outcomes path so fresh
+	// classification still covers out-of-view (non-QRM) pods. Classification always
+	// consumes this one generation and never issues a second GetPodList.
+	FreshPodsByUID  map[string]*v1.Pod
+	LifecycleProofs containerLifecycleProofSet
+}
+
+// protectedLeafRels returns the set of protected leaf cgroup rels the disabled
+// reset must leave untouched: every container the fresh build resolved (both
+// QRM-allocated leaves and deferred/pending leaves). The disabled reset skips these
+// rather than resetting them to the parent target; kubelet owns protected leaves.
+func protectedLeafRels(res *expectedCPUSetBuildResult) map[string]struct{} {
+	out := map[string]struct{}{}
+	if res == nil {
+		return out
+	}
+	for rel := range res.ExpectedByRel {
+		out[rel] = struct{}{}
+	}
+	for rel := range res.DeferredLeafByRel {
+		out[rel] = struct{}{}
+	}
+	// Also include every fresh pod-status container rel the lifecycle proofs resolved
+	// (containerStatuses / initContainerStatuses / ephemeralContainerStatuses,
+	// current and lastState) — non-QRM protected leaves must never be considered
+	// for widening, even when QRM has no allocation for them.
+	for _, proof := range res.LifecycleProofs.OrderedProofs {
+		if rel := strings.Trim(proof.RelativePath, "/"); rel != "" {
+			out[path.Clean(rel)] = struct{}{}
+		}
+	}
+	return out
+}
+
+// pendingPodDirRels resolves the Pod-level cgroup dirs that contain an admit-pending
+// container. The disabled reset expands these Pod dirs but writes none of their
+// subdirs and reports not converged, so MarkDisabledResetComplete is held back and
+// the next round retries.
+func (p *CPUSetTopologyPlugin) pendingPodDirRels(res *expectedCPUSetBuildResult) map[string]struct{} {
+	out := map[string]struct{}{}
+	if res == nil {
+		return out
+	}
+	for _, pending := range res.PendingByPod {
+		for _, rel := range p.pendingPodScopeCandidatesForQOS(pending.PodUID, pending.NativeQOSClass) {
+			if rel = strings.Trim(rel, "/"); rel != "" {
+				out[path.Clean(rel)] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+// safeWidenRelsForReset derives the non-controlled rels the disabled reset may widen
+// from the positively-identified protected leaves: the parent Pod dir of every resolved
+// protected leaf, and that Pod dir's QoS class parent. A Pod dir is considered
+// positively identified only when a fresh container (Expected/Deferred, or a fresh
+// status container ID) resolves under it — an unknown dir under a QoS class has no
+// such proof and stays deferred. Historically drifted protected leaves are NOT
+// restored by this fix; they are left untouched (see protectedLeafRels).
+// classifyFreshPodsForReset positively classifies the pods in the single strict
+// fresh snapshot shared with the ownership build
+// (expectedCPUSetBuildResult.FreshPodsByUID): each fresh Pod dir (QoS + configured
+// cgroup path candidates) and its QoS parent are added to safeWiden; every fresh
+// pod-status container ID (containerStatuses / init / ephemeral, current and
+// lastState.Terminated) is resolved to a rel and added to protectedLeaves. Long-lived
+// non-QRM pods are thus classified deterministically and do not pin the reset
+// non-converged. The snapshot is reused as-is: this must not issue a second
+// GetPodList, which could observe a divergent pod generation mid-round. A nil
+// snapshot (the early-return paths with no resolvable outcome) leaves both sets
+// unchanged; the strict fetch itself, and its error, live in buildExpectedCPUSetByRel
+// so a fetch failure withholds the whole reset before classification runs.
+func (p *CPUSetTopologyPlugin) classifyFreshPodsForReset(
+	freshPodsByUID map[string]*v1.Pod,
+	protectedLeaves map[string]struct{},
+	safeWiden map[string]struct{},
+) {
+	addProtectedLeaf := func(podUID, containerID string) {
+		containerID = native.TrimContainerIDPrefix(containerID)
+		if containerID == "" {
+			return
+		}
+		rel, err := resolveContainerRelPathFromID(podUID, containerID)
+		if err != nil || rel == "" {
+			general.InfofV(2, "cpuset_topology: disabled reset could not resolve container id=%q rel: %v", containerID, err)
+			return
+		}
+		protectedLeaves[path.Clean(rel)] = struct{}{}
+	}
+	for uid, pod := range freshPodsByUID {
+		if pod == nil {
+			continue
+		}
+		for _, rel := range p.pendingPodScopeCandidatesForQOS(uid, pod.Status.QOSClass) {
+			if rel = strings.Trim(rel, "/"); rel != "" {
+				safeWiden[path.Clean(rel)] = struct{}{}
+				if qos := path.Dir(rel); qos != "." && qos != "/" && qos != rel {
+					safeWiden[path.Clean(qos)] = struct{}{}
+				}
+			}
+		}
+		for _, cs := range pod.Status.ContainerStatuses {
+			addProtectedLeaf(uid, cs.ContainerID)
+			if cs.LastTerminationState.Terminated != nil {
+				addProtectedLeaf(uid, cs.LastTerminationState.Terminated.ContainerID)
+			}
+		}
+		for _, cs := range pod.Status.InitContainerStatuses {
+			addProtectedLeaf(uid, cs.ContainerID)
+			if cs.LastTerminationState.Terminated != nil {
+				addProtectedLeaf(uid, cs.LastTerminationState.Terminated.ContainerID)
+			}
+		}
+		for _, cs := range pod.Status.EphemeralContainerStatuses {
+			addProtectedLeaf(uid, cs.ContainerID)
+			if cs.LastTerminationState.Terminated != nil {
+				addProtectedLeaf(uid, cs.LastTerminationState.Terminated.ContainerID)
+			}
+		}
+	}
+}
+
+func safeWidenRelsForReset(protectedLeaves map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	for rel := range protectedLeaves {
+		podDir := path.Dir(rel)
+		if podDir == "." || podDir == "/" {
+			continue
+		}
+		out[path.Clean(podDir)] = struct{}{}
+		if qos := path.Dir(podDir); qos != "." && qos != "/" && qos != podDir {
+			out[path.Clean(qos)] = struct{}{}
+		}
+	}
+	// Defense in depth: a protected leaf must never itself be widened, even if the
+	// dirname closure or a future edit accidentally lands a protected-leaf rel in the set.
+	for rel := range protectedLeaves {
+		delete(out, path.Clean(rel))
+	}
+	return out
 }
 
 type expectedCPUSetOwnerBinder struct {
@@ -2126,6 +2364,39 @@ func isContainerPendingErr(err error) bool {
 	return errors.As(err, &resolveErr) &&
 		resolveErr.Stage == bulkheadutils.ContainerRelPathResolveStageCgroupPath &&
 		errors.Is(resolveErr.Err, os.ErrNotExist)
+}
+
+// fetchStrictFreshPodsByUID obtains the single strict (bypassed) fresh pod snapshot
+// for a whole reset round, UID keyed. It is the one and only GetPodList the disabled
+// reset issues: the container-ownership build and the fresh-pod classification both
+// derive from this same generation, so classification must never trigger a second,
+// possibly divergent fetch. A nil MetaServer or a kubelet error fails closed so the
+// reset is withheld rather than acting on a stale or partial view.
+func fetchStrictFreshPodsByUID(ctx context.Context, in bulkheadapi.HandlerContext) (map[string]*v1.Pod, error) {
+	if in.MetaServer == nil {
+		return nil, fmt.Errorf("metaserver unavailable for strict fresh pod snapshot")
+	}
+	refreshCtx := context.WithValue(ctx, metapod.BypassCacheKey, metapod.BypassCacheTrue)
+	refreshCtx = context.WithValue(refreshCtx, metapod.StrictBypassCacheKey, metapod.BypassCacheTrue)
+	freshPods, err := in.MetaServer.GetPodList(refreshCtx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("get strict fresh pod snapshot: %w", err)
+	}
+	freshPodsByUID := make(map[string]*v1.Pod, len(freshPods))
+	for _, pod := range freshPods {
+		if pod == nil {
+			return nil, fmt.Errorf("strict fresh pod snapshot contains nil pod")
+		}
+		podUID := string(pod.UID)
+		if podUID == "" {
+			return nil, fmt.Errorf("strict fresh pod snapshot contains pod with empty UID")
+		}
+		if _, exists := freshPodsByUID[podUID]; exists {
+			return nil, fmt.Errorf("strict fresh pod snapshot contains duplicate UID %q", podUID)
+		}
+		freshPodsByUID[podUID] = pod
+	}
+	return freshPodsByUID, nil
 }
 
 // buildExpectedCPUSetByRel uses a two-snapshot protocol. It first resolves
@@ -2231,26 +2502,14 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 		}
 		return out, nil
 	}
-	refreshCtx := context.WithValue(ctx, metapod.BypassCacheKey, metapod.BypassCacheTrue)
-	refreshCtx = context.WithValue(refreshCtx, metapod.StrictBypassCacheKey, metapod.BypassCacheTrue)
-	freshPods, err := in.MetaServer.GetPodList(refreshCtx, nil)
+	freshPodsByUID, err := fetchStrictFreshPodsByUID(ctx, in)
 	if err != nil {
-		return nil, fmt.Errorf("get strict fresh pod snapshot: %w", err)
+		return nil, err
 	}
-	freshPodsByUID := make(map[string]*v1.Pod, len(freshPods))
-	for _, pod := range freshPods {
-		if pod == nil {
-			return nil, fmt.Errorf("strict fresh pod snapshot contains nil pod")
-		}
-		podUID := string(pod.UID)
-		if podUID == "" {
-			return nil, fmt.Errorf("strict fresh pod snapshot contains pod with empty UID")
-		}
-		if _, exists := freshPodsByUID[podUID]; exists {
-			return nil, fmt.Errorf("strict fresh pod snapshot contains duplicate UID %q", podUID)
-		}
-		freshPodsByUID[podUID] = pod
-	}
+	// Reuse this single strict snapshot for both the ownership build and the
+	// disabled-reset fresh-pod classification below; classification must not issue a
+	// second GetPodList (which could observe a divergent pod generation mid-round).
+	out.FreshPodsByUID = freshPodsByUID
 	var lifecycleProofs []containerLifecycleProof
 	ownerBinder := expectedCPUSetOwnerBinder{
 		ownerByRel: make(map[string]containerLifecycleProofKey),
@@ -2297,7 +2556,7 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 						}
 						continue
 					}
-					// Symmetric reclaim-carve case: an already-placed business leaf
+					// Symmetric reclaim-carve case: an already-placed protected leaf
 					// is currently narrower than its desired allocation, and the
 					// only CPUs it is missing are exactly the reclaim-effective
 					// set. Reclaim has already been carved out of this leaf, so
