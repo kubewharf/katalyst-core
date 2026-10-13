@@ -27,6 +27,7 @@ import (
 
 	k8serrors "k8s.io/apimachinery/pkg/util/errors"
 
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -40,12 +41,6 @@ import (
 )
 
 const (
-	thpModeAdvise  = "advise"
-	thpModeDeny    = "deny"
-	thpModeMadvise = "madvise"
-	thpModeAlways  = "always"
-	thpModeNever   = "never"
-
 	defaultHighOrderThreshold = 85.0
 
 	// hysteresisRatio adds hysteresis between disable/enable thresholds to avoid frequent toggling.
@@ -95,6 +90,14 @@ func SetMemTHP(conf *coreconfig.Configuration,
 	}
 	general.Infof("SetMemTHP: EnableFragMem enabled")
 
+	if enabled, thpMode, thpShmMode := getStaticTHPModes(fragMemConf); enabled {
+		general.Infof("SetMemTHP: static THP config enabled, thp=%s thpShm=%s", thpMode, thpShmMode)
+		if err := setTHPMode(thpMode, thpShmMode); err != nil {
+			errList = append(errList, err)
+		}
+		return
+	}
+
 	// Validation of the mode is done in setTHPModeAtPath, which is the only place before we write to the sysfs.
 	// THPDefaultConfig accepts any write-valid mode, including advise and deny.
 	mode := normalizeTHPMode(fragMemConf.THPDefaultConfig)
@@ -104,9 +107,9 @@ func SetMemTHP(conf *coreconfig.Configuration,
 		return
 	}
 	// If THPDefaultConfig is "never", fast-path to disable THP directly.
-	if mode == thpModeNever {
+	if mode == string(apiconfig.THPModeNever) {
 		general.Infof("SetMemTHP: THPDefaultConfig=never, disable THP directly")
-		if err := setTHPMode(thpModeNever, thpModeDeny); err != nil {
+		if err := setTHPMode(string(apiconfig.THPModeNever), string(apiconfig.THPShmModeDeny)); err != nil {
 			errList = append(errList, err)
 		}
 		return
@@ -163,17 +166,17 @@ func doMemTHP(conf *dynamicqrm.FragMemConfiguration, metaServer *metaserver.Meta
 	switch decision {
 	case thpDecisionDisable:
 		general.Infof("THP disable triggered: maxHighOrderScore=%.1f numa=%d threshold=%.1f", maxScore, maxNumaID, threshold)
-		return setTHPMode(thpModeNever, thpModeDeny)
+		return setTHPMode(string(apiconfig.THPModeNever), string(apiconfig.THPShmModeDeny))
 	case thpDecisionEnable:
 		// Be conservative: only try to recover when we have valid scores for all NUMA nodes.
 		// If metrics are missing on any NUMA node, keep current THP mode unchanged.
 		if validNUMACnt > 0 && missingScore == 0 {
 			mode := normalizeTHPMode(conf.THPDefaultConfig)
 			if mode == "" {
-				mode = thpModeMadvise
+				mode = string(apiconfig.THPModeMadvise)
 			}
-			general.Infof("THP enable triggered: maxHighOrderScore=%.1f enableThreshold=%.1f threshold=%.1f recoverTo=%s shmemRecoverTo=%s", maxScore, enableThreshold, threshold, mode, thpModeAdvise)
-			return setTHPMode(mode, thpModeAdvise)
+			general.Infof("THP enable triggered: maxHighOrderScore=%.1f enableThreshold=%.1f threshold=%.1f recoverTo=%s shmemRecoverTo=%s", maxScore, enableThreshold, threshold, mode, apiconfig.THPShmModeAdvise)
+			return setTHPMode(mode, string(apiconfig.THPShmModeAdvise))
 		}
 		general.Infof("THP enable skipped due to missing metrics: maxHighOrderScore=%.1f enableThreshold=%.1f threshold=%.1f missingScore=%d", maxScore, enableThreshold, threshold, missingScore)
 		return nil
@@ -181,6 +184,24 @@ func doMemTHP(conf *dynamicqrm.FragMemConfiguration, metaServer *metaserver.Meta
 		// Keep current mode to avoid flapping between disable/enable.
 		return nil
 	}
+}
+
+func getStaticTHPModes(conf *dynamicqrm.FragMemConfiguration) (bool, string, string) {
+	if conf == nil || conf.THPStaticEnableConfig == nil || !conf.THPStaticEnableConfig.Enable {
+		return false, "", ""
+	}
+
+	thpMode := normalizeTHPMode(string(conf.THPStaticEnableConfig.THP))
+	if thpMode == "" {
+		thpMode = string(apiconfig.THPModeMadvise)
+	}
+
+	thpShmMode := normalizeTHPMode(string(conf.THPStaticEnableConfig.THPShm))
+	if thpShmMode == "" {
+		thpShmMode = string(apiconfig.THPShmModeAdvise)
+	}
+
+	return true, thpMode, thpShmMode
 }
 
 func getHighOrderThreshold(conf *dynamicqrm.FragMemConfiguration) float64 {
@@ -238,9 +259,9 @@ func setTHPModeAtPathIfExists(path, mode string) error {
 func setTHPModeAtPath(path, mode string) error {
 	normalizedMode := normalizeTHPMode(mode)
 	switch normalizedMode {
-	case thpModeAdvise, thpModeDeny, thpModeMadvise, thpModeAlways, thpModeNever:
+	case string(apiconfig.THPShmModeAdvise), string(apiconfig.THPShmModeDeny), string(apiconfig.THPModeMadvise), string(apiconfig.THPModeAlways), string(apiconfig.THPModeNever), string(apiconfig.THPShmModeWithinSize), string(apiconfig.THPShmModeForce):
 	default:
-		return fmt.Errorf("invalid THP mode %q, expected one of %q/%q/%q/%q/%q", normalizedMode, thpModeAdvise, thpModeDeny, thpModeMadvise, thpModeAlways, thpModeNever)
+		return fmt.Errorf("invalid THP mode %q, expected one of %q/%q/%q/%q/%q/%q/%q", normalizedMode, apiconfig.THPShmModeAdvise, apiconfig.THPShmModeDeny, apiconfig.THPModeMadvise, apiconfig.THPModeAlways, apiconfig.THPModeNever, apiconfig.THPShmModeWithinSize, apiconfig.THPShmModeForce)
 	}
 
 	content, err := procfsm.ReadFileNoStat(path)

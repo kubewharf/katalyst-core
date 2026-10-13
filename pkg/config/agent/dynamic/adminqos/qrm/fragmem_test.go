@@ -32,6 +32,9 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	enable := true
 	score := int64(70)
 	mode := "always"
+	staticEnable := true
+	staticTHP := apiconfig.THPModeMadvise
+	staticTHPShm := apiconfig.THPShmModeWithinSize
 	threshold := int64(90)
 
 	conf := NewFragMemConfiguration()
@@ -46,6 +49,11 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 								MemFragScoreAsync:          &score,
 								THPDefaultConfig:           &mode,
 								THPHighOrderScoreThreshold: &threshold,
+								THPStaticEnableConfig: &apiconfig.THPStaticEnableConfig{
+									Enable: &staticEnable,
+									THP:    &staticTHP,
+									THPShm: &staticTHPShm,
+								},
 							},
 						},
 					},
@@ -58,4 +66,61 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	as.Equal(70, conf.MemFragScoreAsync)
 	as.Equal("always", conf.THPDefaultConfig)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
+	as.NotNil(conf.THPStaticEnableConfig)
+	as.True(conf.THPStaticEnableConfig.Enable)
+	as.Equal(apiconfig.THPModeMadvise, conf.THPStaticEnableConfig.THP)
+	as.Equal(apiconfig.THPShmModeWithinSize, conf.THPStaticEnableConfig.THPShm)
+}
+
+func TestFragMemConfigurationApplyConfiguration_ResetStaticTHPConfig(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	staticEnable := true
+
+	conf := NewFragMemConfiguration()
+	conf.THPStaticEnableConfig = &THPStaticEnableConfiguration{
+		Enable: true,
+		THP:    apiconfig.THPModeAlways,
+		THPShm: apiconfig.THPShmModeForce,
+	}
+
+	conf.ApplyConfiguration(&crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &apiconfig.AdminQoSConfiguration{
+			Spec: apiconfig.AdminQoSConfigurationSpec{
+				Config: apiconfig.AdminQoSConfig{
+					QRMPluginConfig: &apiconfig.QRMPluginConfig{
+						MemoryPluginConfig: &apiconfig.MemoryPluginConfig{
+							FragMemConfig: &apiconfig.FragMemConfig{
+								THPStaticEnableConfig: &apiconfig.THPStaticEnableConfig{
+									Enable: &staticEnable,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	as.NotNil(conf.THPStaticEnableConfig)
+	as.True(conf.THPStaticEnableConfig.Enable)
+	as.Equal(apiconfig.THPMode(""), conf.THPStaticEnableConfig.THP)
+	as.Equal(apiconfig.THPShmMode(""), conf.THPStaticEnableConfig.THPShm)
+
+	conf.ApplyConfiguration(&crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &apiconfig.AdminQoSConfiguration{
+			Spec: apiconfig.AdminQoSConfigurationSpec{
+				Config: apiconfig.AdminQoSConfig{
+					QRMPluginConfig: &apiconfig.QRMPluginConfig{
+						MemoryPluginConfig: &apiconfig.MemoryPluginConfig{
+							FragMemConfig: &apiconfig.FragMemConfig{},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	as.Nil(conf.THPStaticEnableConfig)
 }

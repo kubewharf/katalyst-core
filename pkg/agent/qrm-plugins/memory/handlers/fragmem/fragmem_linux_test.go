@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -52,6 +53,22 @@ func makeTHPConf(defaultConfig string, threshold int) (*coreconfig.Configuration
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = true
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = defaultConfig
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPHighOrderScoreThreshold = threshold
+
+	return &coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			DynamicAgentConfiguration: dynamicConf,
+		},
+	}, dynamicConf
+}
+
+func makeStaticTHPConf(enable bool, thp apiconfig.THPMode, thpShm apiconfig.THPShmMode) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
+	dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = true
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPStaticEnableConfig = &dynamicqrm.THPStaticEnableConfiguration{
+		Enable: enable,
+		THP:    thp,
+		THPShm: thpShm,
+	}
 
 	return &coreconfig.Configuration{
 		AgentConfiguration: &agent.AgentConfiguration{
@@ -157,6 +174,36 @@ func TestSetMemTHP(t *testing.T) {
 	check, ok := res[general.HealthzCheckName(memconsts.SetMemTHP)]
 	assert.True(t, ok)
 	assert.True(t, check.Ready)
+}
+
+func TestSetMemTHPStaticEnableConfig(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	f := createTempFile(t, "always [madvise] never\n")
+	shmemFile := createTempFile(t, "always within_size [advise] never deny force\n")
+	defer os.Remove(f)
+	defer os.Remove(shmemFile)
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
+	thpEnabledPath = f
+	thpShmemEnabledPath = shmemFile
+
+	conf, dynamicConf := makeStaticTHPConf(true, apiconfig.THPModeAlways, apiconfig.THPShmModeForce)
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
+
+	b, err := os.ReadFile(f)
+	assert.NoError(t, err)
+	assert.Equal(t, "always\n", string(b))
+	b, err = os.ReadFile(shmemFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "force\n", string(b))
 }
 
 func TestSetMemTHP_HotUpdateEnableFragMem(t *testing.T) {
@@ -351,6 +398,29 @@ func TestGetHighOrderThreshold(t *testing.T) {
 	assert.InDelta(t, 1.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 1}), 1e-6)
 }
 
+func TestGetStaticTHPModes(t *testing.T) {
+	t.Parallel()
+
+	enabled, thpMode, thpShmMode := getStaticTHPModes(nil)
+	assert.False(t, enabled)
+	assert.Equal(t, "", thpMode)
+	assert.Equal(t, "", thpShmMode)
+
+	enabled, thpMode, thpShmMode = getStaticTHPModes(&dynamicqrm.FragMemConfiguration{
+		THPStaticEnableConfig: &dynamicqrm.THPStaticEnableConfiguration{Enable: true},
+	})
+	assert.True(t, enabled)
+	assert.Equal(t, "madvise", thpMode)
+	assert.Equal(t, "advise", thpShmMode)
+
+	enabled, thpMode, thpShmMode = getStaticTHPModes(&dynamicqrm.FragMemConfiguration{
+		THPStaticEnableConfig: &dynamicqrm.THPStaticEnableConfiguration{Enable: true, THP: apiconfig.THPModeAlways, THPShm: apiconfig.THPShmModeWithinSize},
+	})
+	assert.True(t, enabled)
+	assert.Equal(t, "always", thpMode)
+	assert.Equal(t, "within_size", thpShmMode)
+}
+
 func TestDisableTHPAtPath(t *testing.T) {
 	t.Parallel()
 
@@ -453,6 +523,18 @@ func TestSetTHPModeAtPathInvalid(t *testing.T) {
 	defer os.Remove(f)
 	err := setTHPModeAtPath(f, "invalid")
 	assert.Error(t, err)
+}
+
+func TestSetTHPModeAtPathForce(t *testing.T) {
+	t.Parallel()
+
+	f := createTempFile(t, "always within_size advise never deny [force]\n")
+	defer os.Remove(f)
+	err := setTHPModeAtPath(f, "force")
+	assert.NoError(t, err)
+	b, rerr := os.ReadFile(f)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "always within_size advise never deny [force]\n", string(b))
 }
 
 func TestDecideTHPDecision(t *testing.T) {
