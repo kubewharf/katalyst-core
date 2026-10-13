@@ -175,12 +175,17 @@ func expandToWholeCores(p machine.CPUSet, details machine.CPUDetails) machine.CP
 }
 
 // sharedWholeCoreDomain validates that `domain` splits no physical core among
-// the available CPUs: for every physical core, its available threads are either
-// all included in the domain or all excluded. Reserved (non-available) threads
-// are ignored, so a reserved sibling does not make an otherwise whole-core
-// domain "half". A half-core domain is a typed invariant failure with zero
-// writes. It never expands the domain, so reclaim siblings are not reintroduced.
-func sharedWholeCoreDomain(domain, available machine.CPUSet, details machine.CPUDetails) (machine.CPUSet, error) {
+// the shared-eligible CPUs: for every physical core, its eligible threads are
+// either all included in the domain or all excluded. Callers pass
+// available − Dedicated − Isolation as `eligible`, so reserved threads and
+// threads owned by dedicated/isolation hard owners are ignored. Only Reclaim is
+// whole-core: a dedicated/isolation owner may hold one SMT sibling while Shared
+// holds the other, and that is not a half-core domain. What remains a half-core
+// domain is a core whose eligible threads straddle the shared domain and the
+// reclaim side; that is a typed invariant failure with zero writes. It never
+// expands the domain, so reclaim siblings are not reintroduced.
+func sharedWholeCoreDomain(domain, eligible machine.CPUSet, details machine.CPUDetails) (machine.CPUSet, error) {
+	available := eligible
 	threadsByCore := make(map[int]machine.CPUSet)
 	for _, cpu := range available.ToSliceInt() {
 		info, ok := details[cpu]
@@ -251,7 +256,11 @@ func projectSharedPending(
 	// subtracted explicitly; hard owners are NOT subtracted again.
 	raw := base.DesiredNonReclaimPool.Intersection(available).
 		Difference(base.Dedicated).Difference(base.Isolation)
-	domain, err := sharedWholeCoreDomain(raw, available, topo.CPUDetails)
+	// Judge whole-core cleanliness only over shared-eligible CPUs: a sibling held
+	// by a dedicated/isolation hard owner (e.g. an odd-sized dedicated request)
+	// is legal and must not make the shared domain look half-core.
+	eligible := available.Difference(base.Dedicated).Difference(base.Isolation)
+	domain, err := sharedWholeCoreDomain(raw, eligible, topo.CPUDetails)
 	if err != nil {
 		return out, err
 	}
