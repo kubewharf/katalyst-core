@@ -703,9 +703,75 @@ func (r *coordinatorRound) runFixedPointEngine(
 			return nil, &ProtectedTransferStallError{CPUs: protected}
 		}
 		if final.ID == start.ID {
-			return nil, ErrNoProgress
+			return nil, &FixedPointStallError{
+				ProtectedPending:      r.protectedPending.Clone(),
+				ProtectedInCurrentDom: protectedPendingOverlapByDomain(final, r.protectedPending),
+				UnmetTargets:          unmetTargetRels(final, r.targetByRel),
+			}
 		}
 	}
+}
+
+// FixedPointStallError is the bare no-progress stall of the fixed-point engine
+// enriched with the evidence needed to tell which side blocks: the protected
+// pending set, the part of it each current domain still holds, and the
+// controlled rels whose current cpuset differs from their target. It still
+// unwraps to ErrNoProgress so every existing errors.Is classification holds.
+type FixedPointStallError struct {
+	ProtectedPending      machine.CPUSet
+	ProtectedInCurrentDom map[DomainID]machine.CPUSet
+	UnmetTargets          []string
+}
+
+func (e *FixedPointStallError) Error() string {
+	domains := make([]string, 0, len(e.ProtectedInCurrentDom))
+	for id, cpus := range e.ProtectedInCurrentDom {
+		domains = append(domains, fmt.Sprintf("%v=%s", id, cpus.String()))
+	}
+	sort.Strings(domains)
+	unmet := e.UnmetTargets
+	const maxUnmet = 8
+	suffix := ""
+	if len(unmet) > maxUnmet {
+		suffix = fmt.Sprintf(",+%d", len(unmet)-maxUnmet)
+		unmet = unmet[:maxUnmet]
+	}
+	return fmt.Sprintf("%v: protected_pending=%s protected_in_current_domain=%v unmet_targets=%v%s",
+		ErrNoProgress, e.ProtectedPending.String(), domains, unmet, suffix)
+}
+
+func (e *FixedPointStallError) Unwrap() error { return ErrNoProgress }
+
+// protectedPendingOverlapByDomain reports, per snapshot domain, which protected
+// pending cpus the domain currently still holds. A protected cpu held by the
+// reclaim domain is the signature of a pending scope that requires a reclaim
+// shrink while the shrink is gated on the same protected set.
+func protectedPendingOverlapByDomain(snap *CompleteSnapshot, protected machine.CPUSet) map[DomainID]machine.CPUSet {
+	out := map[DomainID]machine.CPUSet{}
+	if snap == nil || protected.IsEmpty() {
+		return out
+	}
+	for id, union := range snap.DomainUnion {
+		if overlap := union.Intersection(protected); !overlap.IsEmpty() {
+			out[id] = overlap
+		}
+	}
+	return out
+}
+
+func unmetTargetRels(snap *CompleteSnapshot, targets map[string]machine.CPUSet) []string {
+	if snap == nil {
+		return nil
+	}
+	out := make([]string, 0)
+	for rel, target := range targets {
+		entry, ok := snap.Entries[rel]
+		if !ok || !entry.CPUs.Equals(target) {
+			out = append(out, rel)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func protectedTransferStallCPUs(
