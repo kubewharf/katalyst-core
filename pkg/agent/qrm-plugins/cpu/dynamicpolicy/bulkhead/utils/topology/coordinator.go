@@ -217,13 +217,17 @@ type ConvergenceResult struct {
 	// land this pass but left the parent as a valid cgroup v1 superset. These are
 	// not failures: the next periodical reconcile finishes the shrink. A non-zero
 	// Deferred implies Converged is false.
-	Deferred          int
-	Converged         bool
-	State             ConvergenceState
-	ConvergenceReport ConvergenceReport
-	Journal           []AppliedPlanOperation
-	Rounds            []RoundOutcome
-	FinalSnapshot     *CompleteSnapshot
+	Deferred int
+	// UnclassifiedSkipped counts non-controlled descendants that match no fresh pod
+	// and no protected leaf (pause, unknown leftover dirs). They are never written and
+	// are LONG-LIVED, so they must NOT pin convergence (unlike Deferred).
+	UnclassifiedSkipped int
+	Converged           bool
+	State               ConvergenceState
+	ConvergenceReport   ConvergenceReport
+	Journal             []AppliedPlanOperation
+	Rounds              []RoundOutcome
+	FinalSnapshot       *CompleteSnapshot
 	// FinalSnapshotCurrent is true only when FinalSnapshot is the snapshot used
 	// for the successful convergence decision and no later hierarchy write ran.
 	FinalSnapshotCurrent  bool
@@ -281,7 +285,20 @@ type CoordinatorInput struct {
 	// of that complete, current physical snapshot.
 	InitialSnapshot     *CompleteSnapshot
 	ExpectedCPUSetByRel map[string]machine.CPUSet
+	// ProtectedLeafByRel names every protected leaf cgroup rel (including
+	// containers QRM never allocated, e.g. exited init containers) that the
+	// disabled reset must leave untouched rather than reset to the parent target.
+	ProtectedLeafByRel  map[string]struct{}
 	RequiredCPUSetByRel map[string]machine.CPUSet
+	// PendingPodDirs names Pod-level cgroup dirs that contain an admit-pending
+	// container (Allocate done, no status ID yet). The disabled reset expands the
+	// Pod dir itself but writes none of its subdirs this round and reports not
+	// converged so the next round retries.
+	PendingPodDirs map[string]struct{}
+	// SafeWidenRels names non-controlled cgroup rels the disabled reset may widen to
+	// the parent target (QoS class dirs, fresh Pod dirs, CRI-confirmed pause). Any
+	// other descendant under a controlled node is deferred, never written.
+	SafeWidenRels map[string]struct{}
 	// PendingProtections is the canonical owner of pending allocations. The
 	// coordinator derives both their union and controlled ancestor closure.
 	PendingProtections []PendingProtection
@@ -1081,7 +1098,7 @@ func (c TopologyCoordinator) convergeReset(ctx context.Context, in CoordinatorIn
 	}
 	writer := newResetCoordinatorWriter(driver, budget, in.Mems, res).
 		withAdjustmentBudget(in.AdjustmentBudget)
-	if err := writer.execute(ctx, in.DAG, targets, allowEmptyTarget, in.ExpectedCPUSetByRel, in.TraversalBoundaries); err != nil {
+	if err := writer.execute(ctx, in.DAG, targets, allowEmptyTarget, in.ExpectedCPUSetByRel, in.ProtectedLeafByRel, in.PendingPodDirs, in.SafeWidenRels, in.TraversalBoundaries); err != nil {
 		return *res, err
 	}
 	observationEpoch := in.AdjustmentBudget.BeginSnapshotObservation()
@@ -1092,6 +1109,13 @@ func (c TopologyCoordinator) convergeReset(ctx context.Context, in CoordinatorIn
 	in.AdjustmentBudget.ObserveCurrentSnapshot(observationEpoch)
 	res.ConvergenceReport = report
 	res.Converged = report.FullyConverged
+	// Deferred work (pending pod children, post-snapshot or re-identity dirs,
+	// unclassifiable unknowns) must withhold completion: a deferred round is
+	// retried next round rather than being marked done. Protected leaves are skipped
+	// (not counted as Deferred), so normal protected-leaf skips never block convergence.
+	if res.Deferred > 0 {
+		res.Converged = false
+	}
 	if res.Converged {
 		res.State = ConvergenceStateConverged
 		res.Published = true

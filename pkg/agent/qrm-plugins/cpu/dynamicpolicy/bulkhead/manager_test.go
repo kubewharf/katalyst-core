@@ -19,6 +19,7 @@ package bulkhead
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -399,6 +400,292 @@ func TestManagerRetainsDisabledResetAfterReconcileFailure(t *testing.T) {
 	}
 	if len(dependent.adjustViews) != 1 {
 		t.Fatalf("dependent adjustment calls = %d, want 1 after successful retry", len(dependent.adjustViews))
+	}
+}
+
+func TestManagerTreatsDeferredOnlyDisabledResetAsNonBlockingRetry(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	topologyPlugin := &fakeDisabledTopologyPlugin{
+		fakePlugin: &fakePlugin{
+			name:         "cpuset_topology",
+			disabledErrs: []error{deferredErr, nil},
+		},
+	}
+	m := &Manager{plugins: []bulkheadapi.Plugin{topologyPlugin}}
+	in := enabledCPUSetAdjustmentCtx()
+
+	if _, err := m.Apply(context.Background(), in); err != nil {
+		t.Fatalf("deferred-only disabled reset must not reject caller: %v", err)
+	}
+	if topologyPlugin.resetComplete {
+		t.Fatal("deferred-only disabled reset must remain pending")
+	}
+	if topologyPlugin.disabledCalls != 1 {
+		t.Fatalf("disabled reset calls after deferred round = %d, want 1", topologyPlugin.disabledCalls)
+	}
+
+	if _, err := m.Apply(context.Background(), in); err != nil {
+		t.Fatalf("retried disabled reset error: %v", err)
+	}
+	if !topologyPlugin.resetComplete {
+		t.Fatal("successful retry must mark disabled reset complete")
+	}
+	if topologyPlugin.disabledCalls != 2 {
+		t.Fatalf("disabled reset calls = %d, want deferred round plus successful retry", topologyPlugin.disabledCalls)
+	}
+}
+
+// TestManagerDeferredDisabledResetContract pins the full owner-soft-defer contract:
+// the caller proceeds with an empty publish, the reset stays pending, no applied view
+// advances, enabled dependent plugins are held this round, but an independent disabled
+// AdjustmentCapable plugin still runs its own reset; a later adjustment retries to done.
+func TestManagerDeferredDisabledResetContract(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	owner := &fakeDisabledTopologyPlugin{
+		fakePlugin: &fakePlugin{
+			name:         "cpuset_topology",
+			disabledErrs: []error{deferredErr, nil},
+		},
+	}
+	dependent := &fakePlugin{name: "dependent", enabled: true}
+	standalone := &fakePlugin{name: "workqueue", enabled: false, disabledErrs: []error{nil, nil}}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner, dependent, standalone}}
+	in := enabledCPUSetAdjustmentCtx()
+
+	// Pre-existing published view from an earlier convergence (revision non-zero,
+	// valid for periodical). A deferred reset must leave this view untouched.
+	priorView := reclaimOnlyResult(machine.NewCPUSet(5, 6)).AppliedView
+	m.appliedView = priorView
+	m.appliedViewRevision = 7
+	m.appliedViewValidForPeriodical = true
+
+	// Round 1: owner disabled reset is deferred.
+	got, err := m.Apply(context.Background(), in)
+	if err != nil {
+		t.Fatalf("deferred round must not reject caller: %v", err)
+	}
+	if !got.IsEmpty() {
+		t.Fatalf("deferred round must publish an empty CPUSet, got %s", got)
+	}
+	if owner.resetComplete {
+		t.Fatal("deferred round must keep the disabled reset pending")
+	}
+	if owner.disabledCalls != 1 {
+		t.Fatalf("owner disabled reset calls=%d, want 1", owner.disabledCalls)
+	}
+	// The pre-existing applied view is NOT advanced: same pointer, revision, and content.
+	if m.appliedView != priorView {
+		t.Fatalf("deferred round must not replace appliedView pointer")
+	}
+	if m.appliedViewRevision != 7 {
+		t.Fatalf("deferred round must not bump appliedViewRevision, got %d, want 7", m.appliedViewRevision)
+	}
+	if got, want := m.appliedView.ReclaimEffective.String(), "5-6"; got != want {
+		t.Fatalf("prior applied view content = %q, want unchanged %q", got, want)
+	}
+	if m.appliedViewValidForPeriodical {
+		t.Fatal("deferred round must mark the (untrusted) view invalid for periodical")
+	}
+	// enabled dependent plugin is held by topologyStopped this round.
+	if len(dependent.adjustViews) != 0 {
+		t.Fatalf("enabled dependent must be held during deferred round, got %d adjustment calls", len(dependent.adjustViews))
+	}
+	// An independent disabled AdjustmentCapable plugin is NOT skipped.
+	if standalone.disabledCalls != 1 {
+		t.Fatalf("independent disabled plugin must still run its reset, calls=%d", standalone.disabledCalls)
+	}
+
+	// Round 2: a later adjustment (next Allocate admission or advisor post-commit)
+	// retries the reset and completes it.
+	if _, err := m.Apply(context.Background(), in); err != nil {
+		t.Fatalf("retry round error: %v", err)
+	}
+	if !owner.resetComplete {
+		t.Fatal("successful retry must mark the disabled reset complete")
+	}
+	if owner.disabledCalls != 2 {
+		t.Fatalf("owner disabled reset calls=%d, want deferred round plus retry", owner.disabledCalls)
+	}
+}
+
+// TestManagerSoftDeferThinSeamViaRunCPUSetAdjustmentHandlers wires the real entry point
+// (Manager.RunCPUSetAdjustmentHandlers) to a fake owner that raises the deferred sentinel
+// on its first disabled reset and nil on the next. It proves the live classification
+// (sentinel -> non-blocking nil, resetComplete stays false) and that a subsequent Admission
+// adjustment retries the reset to completion — no timer, no hand-set state.
+func TestManagerSoftDeferThinSeamViaRunCPUSetAdjustmentHandlers(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	owner := &fakeDisabledTopologyPlugin{
+		fakePlugin: &fakePlugin{
+			name:         "cpuset_topology",
+			disabledErrs: []error{deferredErr, nil},
+		},
+	}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner}}
+
+	// First adjustment (admission): soft-defer, caller proceeds, reset stays pending.
+	in := enabledCPUSetAdjustmentCtx()
+	in.Mode = cpusetutil.CPUSetAdjustmentModeAdmission
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), in); err != nil {
+		t.Fatalf("soft-defer admission must not reject caller: %v", err)
+	}
+	if owner.resetComplete {
+		t.Fatal("after soft-defer the global disabled reset must remain pending")
+	}
+	if owner.disabledCalls != 1 {
+		t.Fatalf("disabled reset calls=%d, want 1", owner.disabledCalls)
+	}
+
+	// Next adjustment (a later admission): retries and completes the reset.
+	if err := m.RunCPUSetAdjustmentHandlers(context.Background(), in); err != nil {
+		t.Fatalf("retry admission error: %v", err)
+	}
+	if !owner.resetComplete {
+		t.Fatal("next admission adjustment must complete the disabled reset")
+	}
+	if owner.disabledCalls != 2 {
+		t.Fatalf("disabled reset calls=%d, want deferred round plus retry", owner.disabledCalls)
+	}
+}
+
+// TestManagerNonOwnerDeferredSentinelFailsClosed pins that the owner-only soft-defer
+// does not swallow a deferred sentinel raised by a non-owner plugin: it must propagate
+// as a hard error rather than hold the whole round.
+func TestManagerNonOwnerDeferredSentinelFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	owner := &fakeDisabledTopologyPlugin{
+		fakePlugin: &fakePlugin{name: "cpuset_topology", disabledErrs: []error{nil}},
+	}
+	nonOwner := &fakePlugin{name: "workqueue", enabled: false, disabledErrs: []error{deferredErr}}
+	emitter := &capturingEmitter{}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner, nonOwner}}
+	in := enabledCPUSetAdjustmentCtx()
+	in.Emitter = emitter
+
+	_, err := m.Apply(context.Background(), in)
+	if !errors.Is(err, bulkheadapi.ErrDisabledResetDeferred) {
+		t.Fatalf("non-owner deferred sentinel must fail closed, got %v", err)
+	}
+	if owner.resetComplete != true {
+		t.Fatal("owner's own disabled reset must have completed independently of the non-owner failure")
+	}
+	// The failure must be recorded, not as a swallowed "deferred" hold.
+	if !hasMetricTags(emitter.records, metricBulkheadHandlerResult,
+		"phase", "cpuset_adjustment_disabled", "plugin", "workqueue", "status", "failed") {
+		t.Fatalf("expected failed event for non-owner deferred sentinel, records=%#v", emitter.records)
+	}
+}
+
+// TestManagerNonSentinelDisabledErrorFailsClosed pins that a disabled-reset error that is
+// NOT the deferred sentinel (a real error, or a context-cancel / budget-deadline) must
+// propagate to the caller — only the owner's sentinel may be swallowed.
+func TestManagerNonSentinelDisabledErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"real error", errors.New("cgroup write failed")},
+		{"canceled", context.Canceled},
+		{"budget deadline", context.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			owner := &fakeDisabledTopologyPlugin{
+				fakePlugin: &fakePlugin{name: "cpuset_topology", disabledErrs: []error{tc.err}},
+			}
+			m := &Manager{plugins: []bulkheadapi.Plugin{owner}}
+			_, err := m.Apply(context.Background(), enabledCPUSetAdjustmentCtx())
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("non-sentinel disabled error must propagate (%s), got %v", tc.name, err)
+			}
+			if errors.Is(err, bulkheadapi.ErrDisabledResetDeferred) {
+				t.Fatalf("non-sentinel error must not be misclassified as deferred")
+			}
+			if owner.resetComplete {
+				t.Fatal("failed disabled reset must not be marked complete")
+			}
+		})
+	}
+}
+
+// TestManagerPreserveOnBranchADeferHardFails pins that in preserve=true mode (Branch A,
+// shouldReconcile=true) the deferred sentinel from the disabled-reset handler is NOT
+// swallowed: the reset must complete before ReconcileDisabled, so a sentinel there is a
+// hard failure — no soft hold, no ReconcileDisabled call, reset not marked complete.
+func TestManagerPreserveOnBranchADeferHardFails(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	owner := &fakeDisabledTopologyPlugin{
+		fakePlugin:      &fakePlugin{name: "cpuset_topology", disabledErrs: []error{deferredErr}},
+		shouldReconcile: true,
+	}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner}}
+
+	_, err := m.Apply(context.Background(), enabledCPUSetAdjustmentCtx())
+	if !errors.Is(err, bulkheadapi.ErrDisabledResetDeferred) {
+		t.Fatalf("Branch-A disabled reset sentinel must hard-fail, got %v", err)
+	}
+	if owner.reconcileCalls != 0 {
+		t.Fatalf("preserve-on defer must not run ReconcileDisabled, calls=%d", owner.reconcileCalls)
+	}
+	if owner.resetComplete {
+		t.Fatal("preserve-on defer must not mark the reset complete")
+	}
+}
+
+// TestManagerStaleGenerationFencePrecedesDefer pins that when the input generation is
+// stale, the fence wins over the soft-defer classification: the deferred handler runs
+// but markComplete is never committed and a stale-generation error propagates.
+func TestManagerStaleGenerationFencePrecedesDefer(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	owner := &fakeDisabledTopologyPlugin{
+		fakePlugin: &fakePlugin{name: "cpuset_topology", disabledErrs: []error{deferredErr}},
+	}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner}}
+	in := enabledCPUSetAdjustmentCtx()
+	// The round-level generation fence passes (call 1), so the deferred handler runs;
+	// the per-step commit fence then rejects (call 2), winning over the soft-defer path.
+	fenceCalls := 0
+	in.CommitIfGenerationCurrent = func(generation uint64, commit func()) bool {
+		fenceCalls++
+		// call 1 = prepareApply global gate, call 2 = per-plugin entry gate: pass both
+		// so the deferred handler runs; call 3 = the per-step commit gate after the
+		// deferred handler returns: reject, so the fence wins over soft-defer.
+		if fenceCalls <= 2 {
+			commit()
+			return true
+		}
+		return false
+	}
+
+	_, err := m.Apply(context.Background(), in)
+	var stale *NonConvergedError
+	if !errors.As(err, &stale) {
+		t.Fatalf("stale generation fence must propagate a hard NonConvergedError, got %v", err)
+	}
+	if fenceCalls != 3 {
+		t.Fatalf("fence calls=%d, want 3 (prepare gate, per-plugin gate, commit gate)", fenceCalls)
+	}
+	if owner.resetComplete {
+		t.Fatal("stale commit fence must not run markComplete / mark the reset complete")
+	}
+	if owner.disabledCalls != 1 {
+		t.Fatalf("deferred handler must run once before the commit fence rejects, calls=%d", owner.disabledCalls)
 	}
 }
 
@@ -1000,6 +1287,62 @@ func TestManagerFullTopologyAttemptAfterReclaimOnlyMarksDisabledResetPending(t *
 	if topologyPlugin.disabledCalls != 2 {
 		t.Fatalf("disabled reset calls = %d, want reclaim-only reset and authoritative reset after full attempt",
 			topologyPlugin.disabledCalls)
+	}
+}
+
+// TestManagerDependentResumesAfterDisabledOwnerReEnabled pins dependent recovery across the
+// enabled->disabled->enabled transition: while the owner's disabled reset is soft-deferred the
+// enabled dependent is held that round (no sticky hold), and once the owner re-enables and
+// converges again the dependent receives a fresh applied view.
+func TestManagerDependentResumesAfterDisabledOwnerReEnabled(t *testing.T) {
+	t.Parallel()
+
+	deferredErr := fmt.Errorf("pending Pod descendants: %w", bulkheadapi.ErrDisabledResetDeferred)
+	owner := &fakeFullAndDisabledTopologyPlugin{
+		fakeDisabledTopologyPlugin: &fakeDisabledTopologyPlugin{
+			fakePlugin: &fakePlugin{
+				name: "cpuset_topology", enabled: true,
+				disabledErrs: []error{deferredErr},
+			},
+			shouldReconcile: false,
+		},
+		// full Apply converges on both enabled rounds.
+		applyResults: []fakeDAGResult{
+			reclaimOnlyResult(machine.NewCPUSet(1)),
+			reclaimOnlyResult(machine.NewCPUSet(2)),
+		},
+	}
+	dependent := &fakePlugin{name: "dependent", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner, dependent}}
+	in := enabledCPUSetAdjustmentCtx()
+
+	// Round 1: owner enabled, converges -> dependent receives a view.
+	if _, err := m.Apply(context.Background(), in); err != nil {
+		t.Fatalf("round1 apply: %v", err)
+	}
+	if len(dependent.adjustViews) != 1 {
+		t.Fatalf("round1 dependent views = %d, want 1", len(dependent.adjustViews))
+	}
+
+	// Round 2: owner disabled, reset soft-deferred -> dependent held (no new view) this round.
+	owner.enabled = false
+	if _, err := m.Apply(context.Background(), in); err != nil {
+		t.Fatalf("round2 deferred apply must not reject caller: %v", err)
+	}
+	if owner.resetComplete {
+		t.Fatal("round2 deferred reset must remain pending")
+	}
+	if len(dependent.adjustViews) != 1 {
+		t.Fatalf("round2 dependent must be held during deferred reset, views=%d", len(dependent.adjustViews))
+	}
+
+	// Round 3: owner re-enabled, converges again -> dependent released and gets a fresh view.
+	owner.enabled = true
+	if _, err := m.Apply(context.Background(), in); err != nil {
+		t.Fatalf("round3 re-enabled apply: %v", err)
+	}
+	if len(dependent.adjustViews) != 2 {
+		t.Fatalf("round3 dependent must resume and receive a fresh view, views=%d", len(dependent.adjustViews))
 	}
 }
 

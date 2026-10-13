@@ -2923,16 +2923,17 @@ func TestCPUSetTopologyPluginDisabledTransitionUsesTopologySpecsAndDAGExpandV1(t
 			t.Fatalf("cpuset @ %s = %q, want %q; writes=%#v", rel, got, wantMachine, cg.writes)
 		}
 	}
-	// External Pod/pause cgroups are not topology-owned: the reset must never fan
-	// the machine target out onto them, even during a genuine enabled->disabled
-	// transition.
+	// The QoS class dir and the Pod/pause dir are driven to the machine target
+	// (kubelet never updates them); only the protected leaf is spared.
 	for _, rel := range []string{"primary/burstable", "primary/burstable/pod-a"} {
-		if _, ok := cg.writes[rel]; ok {
-			t.Fatalf("external pod/pause cgroup @ %s must not receive machine reset write; writes=%#v", rel, cg.writes)
+		if got := cg.writes[rel]; got != wantMachine {
+			t.Fatalf("reset cpuset @ %s = %q, want machine %q; writes=%#v", rel, got, wantMachine, cg.writes)
 		}
 	}
-	if got := cg.writes[containerRel]; got != "0" {
-		t.Fatalf("container cpuset = %q, want canonical DesiredView 0; writes=%#v", got, cg.writes)
+	// The container leaf is converged by kubelet UpdateContainerResources and must
+	// never be written by the disabled reset.
+	if _, ok := cg.writes[containerRel]; ok {
+		t.Fatalf("container leaf @ %s must not receive a reset write; writes=%#v", containerRel, cg.writes)
 	}
 	if got := cg.cpusetWrites["reclaim/reclaim-0"].Mems; got != "" {
 		t.Fatalf("cpuset_topology wrote reclaim NUMA cpuset.mems = %q, want empty", got)
@@ -2946,6 +2947,97 @@ func TestCPUSetTopologyPluginDisabledTransitionUsesTopologySpecsAndDAGExpandV1(t
 	if cg.pruned != nil {
 		t.Fatalf("disabled transition should not prune, got %#v", cg.pruned)
 	}
+}
+
+// disabledResetSnapshotFetcher wraps the stub pod fetcher and counts every GetPodList
+// call so a test can prove the disabled reset fetches the fresh snapshot exactly once and
+// never issues a second, divergent classification fetch. It also captures the context
+// passed to GetPodList so the test can assert the strict-bypass marker actually reaches
+// the kubelet fetch path.
+type disabledResetSnapshotFetcher struct {
+	metapod.PodFetcherStub
+	listCalls int
+	listErr   error
+	gotCtx    context.Context
+}
+
+func (f *disabledResetSnapshotFetcher) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+	f.listCalls++
+	f.gotCtx = ctx
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.PodFetcherStub.GetPodList(ctx, podFilter)
+}
+
+func TestCPUSetTopologyPluginDisabledResetSharesSingleFreshSnapshot(t *testing.T) {
+	t.Parallel()
+	const podUID = "bulkhead-disabled-once-pod"
+	const containerID = "bulkhead-disabled-once-container"
+
+	newFetcher := func(listErr error) (*disabledResetSnapshotFetcher, *CPUSetTopologyPlugin, *fakeCgroupClient, bulkheadapi.HandlerContext, string) {
+		p, cg, in, rel := newDisabledTransitionTestPlugin(t, cgroupclient.CgroupVersionV1, podUID, containerID)
+		f := &disabledResetSnapshotFetcher{
+			PodFetcherStub: metapod.PodFetcherStub{PodList: []*v1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(podUID)},
+				Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+				Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+					Name: "main", ContainerID: "containerd://" + containerID,
+				}}},
+			}}},
+			listErr: listErr,
+		}
+		in.CPUSetAdjustmentHandlerCtx.MetaServer = &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{PodFetcher: f},
+		}
+		return f, p, cg, in, rel
+	}
+
+	t.Run("fetches once and classifies from the shared snapshot", func(t *testing.T) {
+		t.Parallel()
+		f, p, cg, in, containerRel := newFetcher(nil)
+		if err := p.CPUSetAdjustmentDisabledHandler(context.Background(), in); err != nil {
+			t.Fatalf("CPUSetAdjustmentDisabledHandler: %v", err)
+		}
+		if f.listCalls != 1 {
+			t.Fatalf("disabled reset must fetch the fresh snapshot exactly once (build and fresh-pod classification share it), got %d", f.listCalls)
+		}
+		// The strict-bypass marker must actually reach the kubelet fetch path: the
+		// disabled reset needs a bypassed, cache-fresh snapshot, not a cached read.
+		if f.gotCtx == nil {
+			t.Fatalf("expected GetPodList to receive a context with the strict-bypass marker")
+		}
+		if got := f.gotCtx.Value(metapod.BypassCacheKey); got != metapod.BypassCacheTrue {
+			t.Fatalf("GetPodList context bypass marker = %v, want %q", got, metapod.BypassCacheTrue)
+		}
+		if got := f.gotCtx.Value(metapod.StrictBypassCacheKey); got != metapod.BypassCacheTrue {
+			t.Fatalf("GetPodList context strict-bypass marker = %v, want %q", got, metapod.BypassCacheTrue)
+		}
+		// Classification observed the same snapshot: the fresh Pod dir is widened to the
+		// machine target while its protected container leaf is spared.
+		if got := cg.writes["primary/burstable/pod-a"]; got != "0-3" {
+			t.Fatalf("fresh Pod dir must be widened from the shared snapshot; got %q writes=%#v", got, cg.writes)
+		}
+		if _, ok := cg.writes[containerRel]; ok {
+			t.Fatalf("protected container leaf must not receive a reset write; writes=%#v", cg.writes)
+		}
+	})
+
+	t.Run("snapshot fetch error withholds the reset", func(t *testing.T) {
+		t.Parallel()
+		fetchErr := errors.New("kubelet fresh snapshot unavailable")
+		f, p, _, in, _ := newFetcher(fetchErr)
+		err := p.CPUSetAdjustmentDisabledHandler(context.Background(), in)
+		if err == nil {
+			t.Fatalf("expected the fresh snapshot fetch error to withhold the disabled reset")
+		}
+		if !errors.Is(err, fetchErr) {
+			t.Fatalf("error = %v, want chain containing %v", err, fetchErr)
+		}
+		if f.listCalls == 0 {
+			t.Fatalf("expected the strict snapshot fetch to have been attempted")
+		}
+	})
 }
 
 func TestCPUSetTopologyPluginDisabledReclaimEligibility(t *testing.T) {
@@ -3033,10 +3125,9 @@ func TestCPUSetTopologyPluginPreserveModeResetExcludesReclaimSubtree(t *testing.
 			t.Fatalf("reset cpuset @ %s = %q, want 0-3; writes=%#v", rel, got, cg.writes)
 		}
 	}
-	// External pod cgroup is not topology-owned and must not receive the machine
-	// reset target.
-	if _, ok := cg.writes["primary/burstable"]; ok {
-		t.Fatalf("primary/burstable must not receive machine reset write; writes=%#v", cg.writes)
+	// The QoS dir under primary is driven to the machine target.
+	if got := cg.writes["primary/burstable"]; got != "0-3" {
+		t.Fatalf("primary/burstable = %q, want 0-3; writes=%#v", got, cg.writes)
 	}
 	for _, rel := range []string{"reclaim", "reclaim/reclaim-0", "reclaim/reclaim-0/dynamic"} {
 		if _, ok := cg.writes[rel]; ok {
@@ -3080,8 +3171,8 @@ func TestCPUSetTopologyPluginPreserveModeResetExcludesReclaimSubtreeUnderOverlap
 			t.Fatalf("reset cpuset @ %s = %q, want 0-3; writes=%#v", rel, got, cg.writes)
 		}
 	}
-	if _, ok := cg.writes["primary/burstable"]; ok {
-		t.Fatalf("primary/burstable must not receive machine reset write under overlap; writes=%#v", cg.writes)
+	if got := cg.writes["primary/burstable"]; got != "0-3" {
+		t.Fatalf("primary/burstable = %q, want 0-3 under overlap; writes=%#v", got, cg.writes)
 	}
 	// Reclaim subtree is preserved: no reset write may land on any reclaim bucket.
 	for _, rel := range []string{"reclaim", "reclaim/reclaim-0", "reclaim/reclaim-0/dynamic"} {
@@ -4188,6 +4279,30 @@ func TestCPUSetTopologyPluginDisabledTransitionReturnsSiblingDiscoveryError(t *t
 	err := p.CPUSetAdjustmentDisabledHandler(context.Background(), in)
 	if err == nil {
 		t.Fatalf("expected sibling discovery error")
+	}
+}
+
+func TestDisabledResetNotConvergedErrorClassifiesDeferredOnly(t *testing.T) {
+	t.Parallel()
+
+	deferred := &disabledResetNotConvergedError{
+		state:    topology.ConvergenceStateNonConverged,
+		applied:  44,
+		deferred: 2,
+		report:   topology.ConvergenceReport{FullyConverged: true},
+	}
+	if !errors.Is(deferred, bulkheadapi.ErrDisabledResetDeferred) {
+		t.Fatalf("deferred-only reset error must unwrap to ErrDisabledResetDeferred: %v", deferred)
+	}
+
+	for _, err := range []*disabledResetNotConvergedError{
+		{state: topology.ConvergenceStateNonConverged, deferred: 2, failed: 1, report: topology.ConvergenceReport{FullyConverged: true}},
+		{state: topology.ConvergenceStateNonConverged, deferred: 2, report: topology.ConvergenceReport{FullyConverged: false}},
+		{state: topology.ConvergenceStateNonConverged, report: topology.ConvergenceReport{FullyConverged: true}},
+	} {
+		if errors.Is(err, bulkheadapi.ErrDisabledResetDeferred) {
+			t.Fatalf("real or unexplained non-convergence must stay fail-closed: %+v", err)
+		}
 	}
 }
 
@@ -6576,6 +6691,80 @@ func TestCPUSetTopologyPluginDisabledResetBudgetFailurePerformsNoWrites(t *testi
 	}
 	if len(cg.writeOrder) != 0 {
 		t.Fatalf("disabled reset budget failure performed writes: %v", cg.writeOrder)
+	}
+}
+
+// TestCPUSetTopologyPluginDisabledResetHardErrorsNotDeferredSentinel pins the
+// boundary at plugin.go's Converge hard-error wrap (the !err==nil branch)
+// against the disabledResetNotConvergedError sentinel construction (the
+// !res.Converged branch). A convergence-budget exhaustion or a canceled context
+// surfaces as a hard error from the real CPUSetAdjustmentDisabledHandler and
+// must stay unclassified: it must not unwrap to ErrDisabledResetDeferred, which
+// is reserved for the failed==0/deferred>0/FullyConverged retry shape.
+func TestCPUSetTopologyPluginDisabledResetHardErrorsNotDeferredSentinel(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		podUID      string
+		containerID string
+		setup       func(p *CPUSetTopologyPlugin, cg *fakeCgroupClient) context.Context
+		wantCause   error
+	}{
+		{
+			name:        "convergence budget exhausted",
+			podUID:      "bulkhead-disabled-reset-harderr-budget-pod",
+			containerID: "bulkhead-disabled-reset-harderr-budget-container",
+			setup: func(p *CPUSetTopologyPlugin, _ *fakeCgroupClient) context.Context {
+				p.cfg.TopologyConvergenceBudget.MaxPlanOperations = 1
+				return context.Background()
+			},
+			wantCause: topology.ErrAdjustmentWriteBudgetExceeded,
+		},
+		{
+			name:        "canceled context mid-converge",
+			podUID:      "bulkhead-disabled-reset-harderr-cancel-pod",
+			containerID: "bulkhead-disabled-reset-harderr-cancel-container",
+			setup: func(_ *CPUSetTopologyPlugin, cg *fakeCgroupClient) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cg.readEntryHook = func(string, int) error {
+					cancel()
+					return nil
+				}
+				return ctx
+			},
+			wantCause: context.Canceled,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, cg, in, _ := newDisabledTransitionTestPlugin(
+				t,
+				cgroupclient.CgroupVersionV1,
+				tc.podUID,
+				tc.containerID,
+			)
+			ctx := tc.setup(p, cg)
+
+			err := p.CPUSetAdjustmentDisabledHandler(ctx, in)
+
+			if err == nil {
+				t.Fatalf("CPUSetAdjustmentDisabledHandler() error = nil, want non-nil hard error")
+			}
+			if errors.Is(err, bulkheadapi.ErrDisabledResetDeferred) {
+				t.Fatalf("hard error must NOT unwrap to ErrDisabledResetDeferred: %v", err)
+			}
+			var notConverged *disabledResetNotConvergedError
+			if errors.As(err, &notConverged) {
+				t.Fatalf("hard error must not be a disabledResetNotConvergedError: %+v", notConverged)
+			}
+			if !errors.Is(err, tc.wantCause) {
+				t.Fatalf("CPUSetAdjustmentDisabledHandler() error = %v, want chain containing %v", err, tc.wantCause)
+			}
+		})
 	}
 }
 

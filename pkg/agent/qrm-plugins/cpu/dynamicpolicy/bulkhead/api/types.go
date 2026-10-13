@@ -18,6 +18,7 @@ package api
 
 import (
 	"context"
+	"errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
@@ -109,8 +110,28 @@ type Plugin interface {
 // has no adjustment/disabled behavior and is skipped on those paths.
 type AdjustmentCapable interface {
 	CPUSetAdjustmentHandler(context.Context, HandlerContext) error
+	// CPUSetAdjustmentDisabledHandler runs the plugin-owned idempotent disabled-reset
+	// side effect; it does not perform the enabled-mode adjustment and never accepts
+	// or publishes an AppliedView. For the cpuset-topology owner the reset converges
+	// its controlled non-leaf DAG nodes, and with preserve on excludes the configured
+	// reclaim roots (the reclaim-only view is owned by
+	// DisabledTopologyReconciler.ReconcileDisabled); only that owner returns the
+	// typed ErrDisabledResetDeferred, which keeps NeedsDisabledReset pending for a
+	// later retry instead of recording the reset complete.
 	CPUSetAdjustmentDisabledHandler(context.Context, HandlerContext) error
 }
+
+// ErrDisabledResetDeferred marks an incomplete disabled-reset round that had no
+// physical failure: the controlled targets are converged, but pending-Pod
+// subtrees or post-snapshot descendants were deliberately left untouched.
+// UnclassifiedSkipped is a separate observation and does not cause this sentinel.
+// Convergence covers only the controlled targets, so deferred descendants do not
+// establish a complete reset; the manager keeps NeedsDisabledReset pending and
+// does not record the reset complete. Where the manager classifies this sentinel,
+// it also stops
+// topology-dependent plugins for the round rather than propagating a reset
+// failure; an unclassified error or a real write failure stays fail-closed.
+var ErrDisabledResetDeferred = errors.New("disabled reset deferred")
 
 // GlobalOffSysfsRestorer restores a plugin's idempotent sysfs side-effect to its
 // unmanaged default when the global bulkhead switch turns off. Implementations
@@ -136,10 +157,19 @@ type TopologyPlugin interface {
 	Apply(context.Context, HandlerContext) (TopologyOutcome, error)
 }
 
-// DisabledTopologyReconciler owns a deliberately limited topology scope while
-// the plugin's full topology mode is disabled.
+// DisabledTopologyReconciler owns the reclaim-only topology scope while the
+// plugin's full topology mode is disabled. It is the counterpart of
+// AdjustmentCapable.CPUSetAdjustmentDisabledHandler: the reset handler converges
+// the owner's controlled non-leaf DAG nodes and publishes no view, while this
+// reconciler runs the per-round reclaim-only convergence and supplies the view
+// the manager accepts and publishes.
 type DisabledTopologyReconciler interface {
 	ShouldReconcileWhenDisabled(context.Context, HandlerContext) bool
+	// ReconcileDisabled runs one reclaim-only convergence round. The manager calls
+	// it only after a needed disabled reset has completed, and accepts the returned
+	// TopologyOutcome only on full convergence to a ReclaimOnly view. The
+	// reset-complete marker and the accepted view are committed as two separate
+	// generation-fence commits.
 	ReconcileDisabled(context.Context, HandlerContext) (TopologyOutcome, error)
 	// NeedsDisabledReset reports whether the plugin must run its disabled reset
 	// handler (AdjustmentCapable.CPUSetAdjustmentDisabledHandler) before the next
