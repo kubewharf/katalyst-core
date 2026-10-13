@@ -974,6 +974,54 @@ func TestSharedProjectionDomainSubtractsDedicatedIsolation(t *testing.T) {
 	}
 }
 
+// TestSharedProjectionDedicatedHoldsOneSiblingIsNotHalfCore covers the case where an odd-sized dedicated owner holds one
+// SMT sibling (CPU 0) while the other sibling (CPU 16) stays in the shared
+// non-reclaim pool. Only Reclaim is whole-core, so this is a legal state and the
+// shared ramp-up projection must succeed instead of failing closed as a
+// half-core domain.
+func TestSharedProjectionDedicatedHoldsOneSiblingIsNotHalfCore(t *testing.T) {
+	t.Parallel()
+	topo := make4NUMASMTTopology()
+	base := baseWholeCoreView()
+	base.Dedicated = machine.NewCPUSet(0)
+	base.PoolOwners[model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindDedicated, PodName: "odd-dedicated"}] = model.DesiredPoolOwner{ExpectedCPUSet: machine.NewCPUSet(0)}
+
+	protections := []topology.PendingProtection{sharedProjectionProtect("ramp-up", machine.MustParse("0-127"))}
+	sh := DeriveShadowPartition(base, topo, protections)
+	if sh.Err != nil {
+		t.Fatalf("dedicated-held sibling must not be a half-core shared domain: %v", sh.Err)
+	}
+	if sh.HoldCurrent {
+		t.Fatalf("unexpected hold-current: %s", sh.HoldReason)
+	}
+	if !sh.SharedDomain.Contains(16) || sh.SharedDomain.Contains(0) {
+		t.Fatalf("shared domain must keep shared sibling 16 and exclude dedicated 0: %s", sh.SharedDomain)
+	}
+	if !sh.SharedProjected.Intersection(base.Dedicated).IsEmpty() {
+		t.Fatalf("projected leaked dedicated cpu: %s", sh.SharedProjected)
+	}
+	if !sh.ReclaimEffective.Equals(base.DesiredReclaimEffective) {
+		t.Fatalf("reclaim drift: got %s want %s", sh.ReclaimEffective, base.DesiredReclaimEffective)
+	}
+}
+
+// TestSharedProjectionIsolationHoldsOneSiblingIsNotHalfCore covers the isolation variant: an odd-sized isolation group holds one SMT sibling.
+func TestSharedProjectionIsolationHoldsOneSiblingIsNotHalfCore(t *testing.T) {
+	t.Parallel()
+	topo := make4NUMASMTTopology()
+	base := baseWholeCoreView()
+	base.Isolation = machine.NewCPUSet(1)
+
+	protections := []topology.PendingProtection{sharedProjectionProtect("ramp-up", machine.MustParse("0-127"))}
+	sh := DeriveShadowPartition(base, topo, protections)
+	if sh.Err != nil {
+		t.Fatalf("isolation-held sibling must not be a half-core shared domain: %v", sh.Err)
+	}
+	if !sh.SharedDomain.Contains(17) || sh.SharedDomain.Contains(1) {
+		t.Fatalf("shared domain must keep shared sibling 17 and exclude isolation 1: %s", sh.SharedDomain)
+	}
+}
+
 // TestSharedProjectionHalfCoreDomain proves a half-core shared domain is a typed
 // invariant failure with zero writes.
 func TestSharedProjectionHalfCoreDomain(t *testing.T) {
