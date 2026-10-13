@@ -2779,6 +2779,36 @@ func (p *DynamicPolicy) applyAdvisorNonPoolContainerEntries(
 func (p *DynamicPolicy) rematerializeRampUpSharedAgainstFinalReclaim(
 	newEntries state.PodEntries,
 ) error {
+	return p.rematerializeRampUpSharedAgainstReclaim(newEntries, p.latestAppliedReclaimCPUSet())
+}
+
+// latestAppliedReclaimCPUSet returns the reclaim cpuset most recently verified
+// as physically applied by the bulkhead topology owner, or an empty set when no
+// bulkhead manager is wired (tests, topology disabled before the first apply).
+func (p *DynamicPolicy) latestAppliedReclaimCPUSet() machine.CPUSet {
+	if p == nil || p.bulkhead.bulkheadManager == nil {
+		return machine.NewCPUSet()
+	}
+	return p.bulkhead.bulkheadManager.LatestAppliedReclaim()
+}
+
+// rematerializeRampUpSharedAgainstReclaim is the testable core of
+// rematerializeRampUpSharedAgainstFinalReclaim.
+//
+// The pending ramp-up allocation becomes the admission pending-protection scope
+// of the bulkhead topology. If it claims a cpu that the applied reclaim cgroups
+// still hold (the final reclaim already dropped it but the shrink has not been
+// written yet), the topology must shrink reclaim before it can satisfy the
+// protection, while the shrink itself is gated on the same protected pending
+// set. That cycle surfaces as a bare fixed-point no-progress and holds every
+// admission until the pending pods are removed. Excluding final ∪ applied
+// reclaim keeps the protection reachable without any reclaim shrink. When that
+// stricter exclusion leaves no complete physical core, fall back to the
+// historical final-only exclusion instead of rejecting the allocation.
+func (p *DynamicPolicy) rematerializeRampUpSharedAgainstReclaim(
+	newEntries state.PodEntries,
+	appliedReclaim machine.CPUSet,
+) error {
 	if p == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
 		return nil
 	}
@@ -2791,6 +2821,9 @@ func (p *DynamicPolicy) rematerializeRampUpSharedAgainstFinalReclaim(
 		return nil
 	}
 	finalReclaim := reclaimPool.AllocationResult
+	// Applied reclaim is only an extra, preferred exclusion; it never widens the
+	// allocation and never becomes the error baseline.
+	excludeReclaim := finalReclaim.Union(appliedReclaim)
 
 	for _, containerEntries := range newEntries {
 		if containerEntries == nil || containerEntries.IsPoolEntry() {
@@ -2806,29 +2839,45 @@ func (p *DynamicPolicy) rematerializeRampUpSharedAgainstFinalReclaim(
 				continue
 			}
 
-			overlap := ai.AllocationResult.Intersection(finalReclaim)
+			overlap := ai.AllocationResult.Intersection(excludeReclaim)
 			if overlap.IsEmpty() {
-				// zero-churn: already mutually exclusive with the final
-				// reclaim pool, nothing to rematerialize.
+				// zero-churn: already mutually exclusive with the final and the
+				// applied reclaim pool, nothing to rematerialize.
 				continue
 			}
 
-			candidate := ai.AllocationResult.Difference(finalReclaim)
-			if candidate.IsEmpty() {
+			finalCandidate := ai.AllocationResult.Difference(finalReclaim)
+			if finalCandidate.IsEmpty() {
 				return fmt.Errorf("ramp-up shared allocation is completely covered by the final reclaim pool: "+
 					"pod: %s/%s container: %s allocation: %s reclaim: %s",
 					ai.PodNamespace, ai.PodName, ai.ContainerName,
 					ai.AllocationResult.String(), finalReclaim.String())
 			}
 
-			rematerialized := takeCoreAlignedCPUSet(
-				p.machine.machineInfo.CPUTopology, candidate, candidate, candidate.Size())
+			// Prefer final ∪ applied; fall back to final-only when the stricter
+			// exclusion leaves no complete physical core.
+			excluded := excludeReclaim
+			candidate := ai.AllocationResult.Difference(excludeReclaim)
+			rematerialized := machine.NewCPUSet()
+			if !candidate.IsEmpty() {
+				rematerialized = takeCoreAlignedCPUSet(
+					p.machine.machineInfo.CPUTopology, candidate, candidate, candidate.Size())
+			}
+			if rematerialized.IsEmpty() && !excludeReclaim.Equals(finalReclaim) {
+				general.Warningf("ramp-up shared allocation of pod: %s/%s container: %s has no complete core "+
+					"outside final ∪ applied reclaim %s; falling back to final reclaim %s only",
+					ai.PodNamespace, ai.PodName, ai.ContainerName, excludeReclaim.String(), finalReclaim.String())
+				excluded = finalReclaim
+				candidate = finalCandidate
+				rematerialized = takeCoreAlignedCPUSet(
+					p.machine.machineInfo.CPUTopology, candidate, candidate, candidate.Size())
+			}
 			if rematerialized.IsEmpty() {
 				return fmt.Errorf("no complete physical core remains for ramp-up shared allocation after "+
-					"excluding the final reclaim pool (reclaim/floor conflict): "+
-					"pod: %s/%s container: %s allocation: %s candidate: %s reclaim: %s",
+					"excluding both the final reclaim pool and the applied reclaim set (reclaim/floor conflict): "+
+					"pod: %s/%s container: %s allocation: %s candidate: %s final reclaim: %s applied reclaim: %s",
 					ai.PodNamespace, ai.PodName, ai.ContainerName,
-					ai.AllocationResult.String(), candidate.String(), finalReclaim.String())
+					ai.AllocationResult.String(), candidate.String(), finalReclaim.String(), appliedReclaim.String())
 			}
 			if rematerialized.Equals(ai.AllocationResult) {
 				// idempotent: the canonical selection reproduces the current
@@ -2846,9 +2895,10 @@ func (p *DynamicPolicy) rematerializeRampUpSharedAgainstFinalReclaim(
 			}
 
 			general.Infof("rematerialize ramp-up shared allocation of pod: %s/%s container: %s from %s to %s "+
-				"to keep it mutually exclusive with the final reclaim pool: %s",
+				"to keep it mutually exclusive with the final reclaim pool: %s (excluded: %s, applied reclaim: %s)",
 				ai.PodNamespace, ai.PodName, ai.ContainerName,
-				ai.AllocationResult.String(), rematerialized.String(), finalReclaim.String())
+				ai.AllocationResult.String(), rematerialized.String(), finalReclaim.String(),
+				excluded.String(), appliedReclaim.String())
 
 			ai.AllocationResult = rematerialized
 			ai.OriginalAllocationResult = rematerialized.Clone()

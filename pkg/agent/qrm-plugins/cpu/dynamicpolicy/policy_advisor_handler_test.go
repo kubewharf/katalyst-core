@@ -2911,6 +2911,56 @@ func TestRematerializeRampUpSharedAgainstFinalReclaim(t *testing.T) {
 		require.ErrorContains(t, err, "no complete physical core remains")
 	})
 
+	t.Run("excludes reclaim cpus still applied but dropped from final reclaim", func(t *testing.T) {
+		t.Parallel()
+		// The final reclaim already dropped core {3,7}, but the applied
+		// reclaim cgroups still hold it. A pending scope that keeps
+		// {3,7} would require a reclaim shrink gated on the same protected pending
+		// set (fixed-point no progress). Exclude final ∪ applied instead.
+		entries := state.PodEntries{
+			"ramp-up-pod": {"main": rampUpEntry(machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7), false)},
+			commonstate.PoolNameReclaim: {
+				commonstate.FakedContainerName: reclaimEntry(machine.NewCPUSet(2, 6)),
+			},
+		}
+		require.NoError(t, policy.rematerializeRampUpSharedAgainstReclaim(entries, machine.NewCPUSet(2, 3, 6, 7)))
+		got := entries["ramp-up-pod"]["main"]
+		require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(0, 1, 4, 5)),
+			"got %s", got.AllocationResult.String())
+		require.True(t, got.AllocationResult.Intersection(machine.NewCPUSet(2, 3, 6, 7)).IsEmpty())
+	})
+
+	t.Run("rematerializes when only the applied reclaim overlaps", func(t *testing.T) {
+		t.Parallel()
+		entries := state.PodEntries{
+			"ramp-up-pod": {"main": rampUpEntry(machine.NewCPUSet(0, 1, 3, 4, 5, 7), false)},
+			commonstate.PoolNameReclaim: {
+				commonstate.FakedContainerName: reclaimEntry(machine.NewCPUSet(2, 6)),
+			},
+		}
+		require.NoError(t, policy.rematerializeRampUpSharedAgainstReclaim(entries, machine.NewCPUSet(3, 7)))
+		require.True(t, entries["ramp-up-pod"]["main"].AllocationResult.Equals(machine.NewCPUSet(0, 1, 4, 5)),
+			"got %s", entries["ramp-up-pod"]["main"].AllocationResult.String())
+	})
+
+	t.Run("falls back to final-only exclusion when applied leaves no whole core", func(t *testing.T) {
+		t.Parallel()
+		entries := state.PodEntries{
+			"ramp-up-pod": {"main": rampUpEntry(machine.NewCPUSet(1, 2, 5, 6), false)},
+			commonstate.PoolNameReclaim: {
+				commonstate.FakedContainerName: reclaimEntry(machine.NewCPUSet(2, 6)),
+			},
+		}
+		require.NoError(t, policy.rematerializeRampUpSharedAgainstReclaim(entries, machine.NewCPUSet(1, 2, 5, 6)))
+		require.True(t, entries["ramp-up-pod"]["main"].AllocationResult.Equals(machine.NewCPUSet(1, 5)),
+			"got %s", entries["ramp-up-pod"]["main"].AllocationResult.String())
+	})
+
+	t.Run("no applied reclaim yet keeps final-only behavior", func(t *testing.T) {
+		t.Parallel()
+		require.True(t, policy.latestAppliedReclaimCPUSet().IsEmpty())
+	})
+
 	t.Run("SNB ramp-up is skipped unconditionally", func(t *testing.T) {
 		t.Parallel()
 		entries := state.PodEntries{
