@@ -295,16 +295,8 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 	return nil
 }
 
-type advisorStateSnapshotReader interface {
-	GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64)
-}
-
 func (p *DynamicPolicy) createGetAdviceRequestAtRevision() (*advisorapi.GetAdviceRequest, uint64, error) {
-	snapshotReader, ok := p.state.(advisorStateSnapshotReader)
-	if !ok {
-		return nil, 0, fmt.Errorf("cpu plugin state does not support advisor snapshots")
-	}
-	stateEntries, machineState, revision := snapshotReader.GetAdvisorStateSnapshot()
+	stateEntries, machineState, revision := p.state.GetAdvisorStateSnapshot()
 	req, err := p.createGetAdviceRequestFromSnapshot(stateEntries, machineState)
 	return req, revision, err
 }
