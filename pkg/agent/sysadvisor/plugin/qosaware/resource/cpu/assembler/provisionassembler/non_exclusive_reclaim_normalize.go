@@ -37,9 +37,10 @@ const (
 	nonExclusiveJointPassthrough nonExclusiveJointDecision = "passthrough"
 )
 
-// nonExclusiveJointInput carries the final, already-clamped numbers for one real
-// NUMA from the non-exclusive assembler path. share and isolation pools are not
-// part of the conservation domain: they are workload pools and must not be moved.
+// nonExclusiveJointInput carries the final, already-clamped numbers for one
+// non-exclusive reclaim scope. The scope may be a real NUMA or the global
+// FakeNUMA aggregate; share and isolation pools are not part of the conservation
+// domain and must not be moved.
 type nonExclusiveJointInput struct {
 	// CPUsPerCore is the physical SMT width of the machine; w<=1 means no whole-core
 	// alignment is expressible and the caller should skip normalization.
@@ -206,4 +207,51 @@ func absInt(x int) int {
 		return -x
 	}
 	return x
+}
+
+// roundDownGlobalReclaimToSingleShare is the FakeNUMA fallback used when the
+// dedicated side cannot absorb the whole-core rounding delta (no dedicated pool,
+// several dedicated pools, or a dedicated floor/ceiling blocks it). QRM's
+// FakeNUMA quota planner rejects odd quantities, so instead of publishing an odd
+// global reclaim it rounds down to the nearest whole-core value and returns the
+// released CPUs to the single unpinned share pool, keeping reclaim+share
+// size-conserved.
+//
+// It is deliberately narrow and returns ok=false (caller passes through) when:
+//   - SMT width <= 1 or the target is already whole-core;
+//   - the rounded value would drop below the committed reclaim anchor;
+//   - there is not exactly one unpinned share pool, or its size is unknown;
+//   - the unpinned domain has no remaining capacity (after current pool sizes)
+//     to hold the released CPUs.
+//
+// Rounding up is never attempted here: growing reclaim would have to take a CPU
+// from a workload pool, which only the dedicated-side joint normalization can
+// legally decide.
+func roundDownGlobalReclaimToSingleShare(
+	reclaimTarget, reservedForReclaim, cpusPerCore int,
+	unpinnedShareRequests, poolSizes map[string]int,
+	unpinnedHeadroom int,
+) (reclaim int, shareName string, shareSize int, ok bool) {
+	if cpusPerCore <= 1 || reclaimTarget%cpusPerCore == 0 {
+		return reclaimTarget, "", 0, false
+	}
+	lower := (reclaimTarget / cpusPerCore) * cpusPerCore
+	if lower < reservedForReclaim {
+		return reclaimTarget, "", 0, false
+	}
+	if len(unpinnedShareRequests) != 1 {
+		return reclaimTarget, "", 0, false
+	}
+	for name := range unpinnedShareRequests {
+		shareName = name
+	}
+	current, known := poolSizes[shareName]
+	if !known {
+		return reclaimTarget, "", 0, false
+	}
+	delta := reclaimTarget - lower
+	if unpinnedHeadroom < delta {
+		return reclaimTarget, "", 0, false
+	}
+	return lower, shareName, current + delta, true
 }

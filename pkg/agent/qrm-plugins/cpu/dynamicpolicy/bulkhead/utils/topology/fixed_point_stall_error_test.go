@@ -59,3 +59,58 @@ func TestFixedPointStallErrorDiagnostics(t *testing.T) {
 		t.Fatalf("met target listed as unmet: %q", msg)
 	}
 }
+
+// TestFixedPointStallErrorNamesParentSafetyBlockers covers the observed node
+// signature unmet_targets=[]: every controlled root matches its target, yet the
+// admission objective is not met. The stall line must expose the ParentSafety
+// blocker instead of only the empty unmet list.
+func TestFixedPointStallErrorNamesParentSafetyBlockers(t *testing.T) {
+	t.Parallel()
+
+	protected := machine.MustParse("4-15")
+	err := error(&FixedPointStallError{
+		ProtectedPending:      protected,
+		ProtectedInCurrentDom: map[DomainID]machine.CPUSet{DomainPrimary: protected},
+		UnmetTargets:          []string{},
+		Objective:             ConvergenceObjectiveParentSafe,
+		Evaluation: coordinatorSnapshotEvaluation{
+			Report: ConvergenceReport{NonConvergedTargets: []RelConvergence{{
+				Rel: "kubepods/burstable/pod1/c1", Observed: machine.MustParse("4-9"),
+				Target: machine.MustParse("4-15"), Reason: convergenceReasonTargetMismatch,
+			}}},
+			ParentSafety: ParentSafetyReport{
+				PendingOutsidePrimary: machine.NewCPUSet(),
+				PendingInsideReclaim:  machine.MustParse("10-15"),
+				PrimaryReclaimOverlap: machine.NewCPUSet(),
+				PendingScopeDeficit:   map[string]machine.CPUSet{},
+				RequiredFloorDeficit:  map[string]machine.CPUSet{"kubepods": machine.MustParse("10-11")},
+				UnsafeRequiredRels: []RelConvergence{{
+					Rel: "kubepods/burstable/pod1/c1", Observed: machine.MustParse("4-9"),
+					Target: machine.MustParse("4-15"), Reason: convergenceReasonTargetMismatch,
+				}},
+			},
+		},
+	})
+	if !errors.Is(err, ErrNoProgress) {
+		t.Fatalf("stall must unwrap to ErrNoProgress: %v", err)
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"unmet_targets=[]",
+		"objective=parent_safe",
+		"parent_safe=false",
+		"pending_inside_reclaim=10-15",
+		"required_floor_deficit=[kubepods=10-11]",
+		"unsafe_required=[kubepods/burstable/pod1/c1(target_mismatch:observed=4-9,target=4-15)]",
+		"non_converged=[kubepods/burstable/pod1/c1(",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("missing %q in %q", want, msg)
+		}
+	}
+	for _, absent := range []string{"pending_outside_primary", "primary_reclaim_overlap", "pending_scope_deficit"} {
+		if strings.Contains(msg, absent) {
+			t.Fatalf("empty field %q must not be rendered: %q", absent, msg)
+		}
+	}
+}

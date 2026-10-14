@@ -540,32 +540,37 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	// FakeNUMA hard pool by the reserve value and erased the floor guarantee when
 	// the floor bound. Both scopes now publish through the same single formula.
 	nonOverlapReclaimedCoresSize := effectiveReclaimedCoresSize(reclaimedCoresSize, overlapReclaimedCoresSize)
-	// publishedEffectiveTarget is the baseline for the publishDelta probe. It is the
-	// constrained target for the FakeNUMA aggregate path, which has no whole-core
-	// normalization. For a real NUMA that gets jointly rounded below, the baseline is
-	// rewritten to the rounded reclaim size plus the overlap metadata: the rounding
-	// is a controlled, size-conserving reclaim<->dedicated adjustment (the released /
-	// gained CPUs move with the single dedicated pool), not a defect, so it must not
-	// surface as a non-zero delta. The invariant (entry + overlap == baseline) holds
-	// in the target-driven domain; after whole-core normalization it is measured
-	// against the normalized baseline, where the residual rounding error is by design.
+	// publishedEffectiveTarget is the baseline for the publishDelta probe. When
+	// joint whole-core normalization rewrites either a real-NUMA or the global
+	// FakeNUMA reclaim target, the baseline is rewritten to the rounded reclaim
+	// size plus overlap metadata: the rounding is a controlled, size-conserving
+	// reclaim-to-dedicated adjustment, not a publication defect.
 	publishedEffectiveTarget := reclaimedCoresSize
 	// No intermediate "reclaim pool calculation output" snapshot is logged here: the
 	// nonOverlap / quota values are still pre-normalization and may be rewritten by
-	// the real-NUMA joint normalization below, so logging them now would reproduce
-	// the stale-snapshot / "log prints 8, pool lands 4" observation split. The single
-	// terminal log after the quantity decision is the only authoritative record.
+	// joint normalization below, so logging them now would reproduce the stale-snapshot
+	// / "log prints 8, pool lands 4" observation split. The terminal log after the
+	// quantity decision is the only authoritative record.
 	// Jointly align the non-overlap reclaim target to a whole-core value before
-	// publication, only on a real NUMA under the three hard-partition gates. The
-	// adjustment keeps the controlled partition (non-overlap reclaim + the single
-	// dedicated pool) size-conserved: releasing reclaim returns CPUs to dedicated,
-	// growing reclaim takes them from dedicated headroom. share and isolation pools
-	// are never moved, and multi-source (more than one dedicated pool) passes through
-	// because there is no per-pool provenance to assign the core.
-	if numaID != commonstate.FakedNUMAID && pa.metaServer != nil && pa.metaServer.CPUTopology != nil &&
-		nodeEnableReclaim && effectiveHard && ctx.DisableDedicatedCoresOverlapReclaimedCores {
+	// publication. Real NUMA scopes keep the original gate (three hard-partition
+	// conditions). The global FakeNUMA scope is normalized whenever the dedicated
+	// overlap gate is closed, in BOTH steady and hard mode: QRM materializes that
+	// aggregate through a whole-core quota planner (steady
+	// expandSteadyFakeNUMAReclaimPhase / hard expandHardPartitionReclaimPhase) that
+	// rejects any odd residual, so an odd global quantity always fails Allocate.
+	// The adjustment keeps the controlled partition size-conserved: released CPUs
+	// go to the single dedicated pool when one exists, otherwise to the single
+	// unpinned share pool (FakeNUMA only). Ambiguous recipients pass through.
+	cpusPerCore := 0
+	if pa.metaServer != nil && pa.metaServer.CPUTopology != nil {
+		cpusPerCore = pa.metaServer.CPUTopology.CPUsPerCore()
+	}
+	globalScope := numaID == commonstate.FakedNUMAID
+	jointGate := cpusPerCore > 0 && ctx.DisableDedicatedCoresOverlapReclaimedCores &&
+		(globalScope || (nodeEnableReclaim && effectiveHard))
+	if jointGate {
 		joint := jointlyNormalizeNonExclusiveTargets(nonExclusiveJointInput{
-			CPUsPerCore:        pa.metaServer.CPUTopology.CPUsPerCore(),
+			CPUsPerCore:        cpusPerCore,
 			ReclaimTarget:      nonOverlapReclaimedCoresSize,
 			ReservedForReclaim: reservedForReclaim,
 			DedicatedPoolSizes: dedicatedPoolSizes,
@@ -576,15 +581,54 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		case nonExclusiveJointRoundedDown, nonExclusiveJointRoundedUp:
 			general.InfoS("non-exclusive reclaim jointly normalized to whole-core target",
 				"numaID", numaID,
+				"effectiveHard", effectiveHard,
 				"decision", joint.Decision,
 				"beforeReclaim", nonOverlapReclaimedCoresSize,
 				"afterReclaim", joint.ReclaimSize,
 				"reservedForReclaim", reservedForReclaim)
 			nonOverlapReclaimedCoresSize = joint.ReclaimSize
+			for poolName, newSize := range joint.DedicatedSizes {
+				for podUID := range dedicatedInfo.podSet[poolName] {
+					result.SetPoolEntry(podUID, numaID, newSize, -1)
+				}
+			}
+		case nonExclusiveJointPassthrough:
+			released := false
+			if globalScope {
+				adjusted, shareName, shareSize, ok := roundDownGlobalReclaimToSingleShare(
+					nonOverlapReclaimedCoresSize, reservedForReclaim, cpusPerCore,
+					unpinnedShareRegionInfo.requests, shareAndIsolateDedicatedPoolSizes,
+					unpinnedShareAndIsolatedDedicatedPoolAvailable-general.SumUpMapValues(unpinnedPoolSizes))
+				if ok {
+					general.InfoS("global reclaim rounded down to whole-core target, released CPUs returned to share",
+						"numaID", numaID,
+						"effectiveHard", effectiveHard,
+						"beforeReclaim", nonOverlapReclaimedCoresSize,
+						"afterReclaim", adjusted,
+						"sharePool", shareName,
+						"shareSize", shareSize,
+						"reservedForReclaim", reservedForReclaim)
+					nonOverlapReclaimedCoresSize = adjusted
+					shareAndIsolateDedicatedPoolSizes[shareName] = shareSize
+					result.SetPoolEntry(shareName, numaID, shareSize, -1)
+					released = true
+				}
+			}
+			if !released {
+				general.InfoS("non-exclusive reclaim leaves non-whole-core target to QRM",
+					"numaID", numaID,
+					"effectiveHard", effectiveHard,
+					"nonOverlapReclaimedCoresSize", nonOverlapReclaimedCoresSize,
+					"dedicatedPoolCount", len(dedicatedPoolSizes),
+					"unpinnedSharePoolCount", len(unpinnedShareRegionInfo.requests),
+					"reservedForReclaim", reservedForReclaim)
+			}
+		}
+		if nonOverlapReclaimedCoresSize+overlapReclaimedCoresSize != publishedEffectiveTarget {
 			// The normalized baseline for publishDelta is the rounded reclaim plus the
 			// overlap metadata, so the controlled whole-core rounding does not trip the
 			// conservation probe.
-			publishedEffectiveTarget = joint.ReclaimSize + overlapReclaimedCoresSize
+			publishedEffectiveTarget = nonOverlapReclaimedCoresSize + overlapReclaimedCoresSize
 			// quota must not exceed the published non-overlap reclaim size.
 			if reclaimedCoresQuota > float64(nonOverlapReclaimedCoresSize) {
 				reclaimedCoresQuota = float64(nonOverlapReclaimedCoresSize)
@@ -595,17 +639,6 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 					"nonOverlapReclaimedCoresSize", nonOverlapReclaimedCoresSize,
 					"overlapReclaimedCoresSize", overlapReclaimedCoresSize)
 			}
-			for poolName, newSize := range joint.DedicatedSizes {
-				for podUID := range dedicatedInfo.podSet[poolName] {
-					result.SetPoolEntry(podUID, numaID, newSize, -1)
-				}
-			}
-		case nonExclusiveJointPassthrough:
-			general.InfoS("non-exclusive reclaim leaves non-whole-core target to QRM",
-				"numaID", numaID,
-				"nonOverlapReclaimedCoresSize", nonOverlapReclaimedCoresSize,
-				"dedicatedPoolCount", len(dedicatedPoolSizes),
-				"reservedForReclaim", reservedForReclaim)
 		}
 	}
 	// Final-state invariant check and observability. This runs after every
@@ -616,7 +649,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	// publishDelta is entry + overlap - baseline: 0 under the publish-layer
 	// conservation invariant (entry + overlap == publishedEffectiveTarget), and
 	// positive precisely when overlap overshoots the target. The baseline is the
-	// constrained target for FakeNUMA and the normalized target for real NUMA.
+	// constrained or normalized target for both real-NUMA and FakeNUMA scopes.
 	publishDelta := nonOverlapReclaimedCoresSize + overlapReclaimedCoresSize - publishedEffectiveTarget
 	invariantStatus := "ok"
 	switch {
