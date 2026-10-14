@@ -107,9 +107,9 @@ func (s *cpuPluginState) GetPodEntries() PodEntries {
 	return s.cpuPluginStateData.GetPodEntries().Clone()
 }
 
-// GetAdvisorStateSnapshot returns one immutable generation for a synchronous
-// advisor request. Entries, machine state, and revision must be captured under
-// the same read lock so the response can never be committed as a newer state.
+// GetAdvisorStateSnapshot returns one immutable state generation. Entries,
+// machine state, and revision are captured under the same read lock so a caller
+// can derive and CAS-commit one coherent candidate.
 func (s *cpuPluginState) GetAdvisorStateSnapshot() (PodEntries, NUMANodeMap, uint64) {
 	s.RLock()
 	defer s.RUnlock()

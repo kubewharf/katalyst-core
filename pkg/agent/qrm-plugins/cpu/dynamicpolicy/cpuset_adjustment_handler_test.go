@@ -87,6 +87,29 @@ func TestCPUSetAdjustmentStateSnapshotRejectsChangedRevision(t *testing.T) {
 	require.False(t, snapshot.matches(source))
 }
 
+func TestCPUSetAdjustmentStateSnapshotAdvisorSnapshotIsIndependent(t *testing.T) {
+	t.Parallel()
+	allocation := &state.AllocationInfo{AllocationResult: machine.NewCPUSet(0)}
+	entries := state.PodEntries{"pod": state.ContainerEntries{"main": allocation}}
+	snapshot := &cpuSetAdjustmentStateSnapshot{
+		podEntries: entries,
+		machineState: state.NUMANodeMap{0: &state.NUMANodeState{
+			DefaultCPUSet: machine.NewCPUSet(0),
+			PodEntries:    entries.Clone(),
+		}},
+		revision: 42,
+	}
+	var reader state.ReadonlyState = snapshot
+	copiedEntries, copiedMachine, revision := reader.GetAdvisorStateSnapshot()
+	require.Equal(t, uint64(42), revision)
+	copiedEntries["pod"]["main"].AllocationResult = machine.NewCPUSet(1)
+	copiedMachine[0].PodEntries["pod"]["main"].AllocationResult = machine.NewCPUSet(2)
+	copiedMachine[0].DefaultCPUSet = machine.NewCPUSet(3)
+	require.True(t, snapshot.podEntries["pod"]["main"].AllocationResult.Equals(machine.NewCPUSet(0)))
+	require.True(t, snapshot.machineState[0].PodEntries["pod"]["main"].AllocationResult.Equals(machine.NewCPUSet(0)))
+	require.True(t, snapshot.machineState[0].DefaultCPUSet.Equals(machine.NewCPUSet(0)))
+}
+
 func TestCPUSetAdjustmentExecutionLeaseStaleContextAfterRelease(t *testing.T) {
 	t.Parallel()
 	p := &DynamicPolicy{adjustment: adjustmentComponent{cpuSetAdjustmentHandlers: map[string]cpusetutil.CPUSetAdjustmentHandler{

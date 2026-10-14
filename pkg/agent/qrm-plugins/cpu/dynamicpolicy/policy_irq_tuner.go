@@ -263,11 +263,7 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 
 	general.Infof("set the current irq exclusive cpu set: %v", irqCPUSet)
 
-	snapshotReader, ok := p.state.(advisorStateSnapshotReader)
-	if !ok {
-		return fmt.Errorf("cpu plugin state does not support advisor state snapshots")
-	}
-	podEntries, baseMachineState, expectedRevision := snapshotReader.GetAdvisorStateSnapshot()
+	podEntries, baseMachineState, expectedRevision := p.state.GetAdvisorStateSnapshot()
 
 	forbidden, err := p.getIRQForbiddenCores(podEntries, baseMachineState)
 	if err != nil {

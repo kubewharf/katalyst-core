@@ -99,7 +99,7 @@ func TestShouldBypassCPUSetAdjustmentForAllocation(t *testing.T) {
 			allocationInfo := &state.AllocationInfo{
 				AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.EmptyOwnerPoolName, tc.qos),
 			}
-			assert.Equal(t, tc.want, p.shouldBypassCPUSetAdjustmentForAllocation(allocationInfo))
+			assert.Equal(t, tc.want, cpusetOmissionAllowed(allocationInfo, p.shouldBypassCPUSetAdjustment()))
 		})
 	}
 }

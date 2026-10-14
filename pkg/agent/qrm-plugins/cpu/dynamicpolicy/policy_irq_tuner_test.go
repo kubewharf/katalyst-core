@@ -62,10 +62,7 @@ type irqStateMutationRecorder struct {
 }
 
 func (s *irqStateMutationRecorder) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
-	snapshotReader := s.State.(interface {
-		GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64)
-	})
-	entries, machineState, revision := snapshotReader.GetAdvisorStateSnapshot()
+	entries, machineState, revision := s.State.GetAdvisorStateSnapshot()
 	if s.afterSnapshot != nil {
 		s.afterSnapshot()
 	}

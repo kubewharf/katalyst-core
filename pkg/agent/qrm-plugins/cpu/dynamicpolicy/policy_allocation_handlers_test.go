@@ -603,7 +603,7 @@ func TestAllocateSharedNumaBindingCPUs(t *testing.T) {
 		policy.state.SetAllocationInfo(podUID, containerName, originAllocationInfo, false)
 
 		req := createReq(4, true)
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false, false)
 		as.Error(err)
 		as.Contains(err.Error(), "cannot change from non-snb to snb during inplace update")
 	})
@@ -641,7 +641,7 @@ func TestAllocateSharedNumaBindingCPUs(t *testing.T) {
 		policy.state.SetAllocationInfo(podUID, containerName, originAllocationInfo, false)
 
 		req := createReq(4, true)
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false, false)
 		if err != nil {
 			as.NotContains(err.Error(), "cannot change from non-snb to snb during inplace update")
 		}
@@ -661,7 +661,7 @@ func TestAllocateSharedNumaBindingCPUs(t *testing.T) {
 		// Clean up previous state
 		policy.state.Delete(podUID, containerName, false)
 
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false, false)
 		// This might fail due to pool issues but it covers the else branch
 		// We expect it NOT to fail with the inplace update error
 		if err != nil {
@@ -682,26 +682,26 @@ func TestAllocateSharedNumaBindingCPUs(t *testing.T) {
 		req := createReq(2, false)
 
 		// Nil req
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), nil, req.Hint, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), nil, req.Hint, false, false)
 		as.Error(err)
 		as.Contains(err.Error(), "nil req")
 
 		// Nil hint
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, nil, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, nil, false, false)
 		as.Error(err)
 		as.Contains(err.Error(), "hint is nil")
 
 		// Empty hint
 		emptyHintReq := createReq(2, false)
 		emptyHintReq.Hint = &pluginapi.TopologyHint{Nodes: []uint64{}}
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, emptyHintReq.Hint, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, emptyHintReq.Hint, false, false)
 		as.Error(err)
 		as.Contains(err.Error(), "hint is empty")
 
 		// Hint with multiple nodes
 		multiNodeHintReq := createReq(2, false)
 		multiNodeHintReq.Hint = &pluginapi.TopologyHint{Nodes: []uint64{0, 1}}
-		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, multiNodeHintReq.Hint, false)
+		_, err = policy.allocateSharedNumaBindingCPUs(context.Background(), req, multiNodeHintReq.Hint, false, false)
 		as.Error(err)
 		as.Contains(err.Error(), "larger than 1 NUMA")
 	})
@@ -748,7 +748,7 @@ func TestAllocateSharedNumaBindingCPUsMarksColdStartRampUp(t *testing.T) {
 		},
 	}
 
-	allocation, err := policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false)
+	allocation, err := policy.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false, false)
 	require.NoError(t, err)
 	require.NotNil(t, allocation)
 	require.True(t, allocation.CheckSharedNUMABinding())
@@ -4329,7 +4329,7 @@ func TestAllocateSharedNUMABindingWithoutHardPartitionUsesAtomicPoolCommitAndPre
 		return nil
 	})
 
-	allocation, err := p.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false)
+	allocation, err := p.allocateSharedNumaBindingCPUs(context.Background(), req, req.Hint, false, false)
 	require.NoError(t, err)
 	require.NotNil(t, allocation)
 	require.Equal(t, initialRevision+2, p.state.GetRevision())
