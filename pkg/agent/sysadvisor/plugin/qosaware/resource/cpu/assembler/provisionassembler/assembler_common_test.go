@@ -17,6 +17,7 @@ limitations under the License.
 package provisionassembler
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -2222,6 +2223,7 @@ func TestAssembleWithoutNUMAExclusivePoolUsesActiveHardTargetAsEffectiveReserve(
 type ordinaryOverlapAssemblerCase struct {
 	capacity                int
 	nonBindingNUMACapacity  int
+	globalNonBinding        bool
 	reserved                int
 	hardPartition           bool
 	hardTarget              int
@@ -2253,10 +2255,16 @@ func runOrdinaryOverlapAssemblerCase(
 	conf.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = tc.hardPartition
 
 	regionMap := map[string]region.QoSRegion{}
+	bindRegion := func(r *FakeRegion) {
+		if tc.globalNonBinding {
+			return
+		}
+		r.SetBindingNumas(machine.NewCPUSet(0))
+		r.SetIsNumaBinding(true)
+	}
 	if tc.sharedRequest > 0 {
 		shared := NewFakeRegion("share", configapi.QoSRegionTypeShare, "share")
-		shared.SetBindingNumas(machine.NewCPUSet(0))
-		shared.SetIsNumaBinding(true)
+		bindRegion(shared)
 		shared.enableReclaim = tc.sharedEnableReclaim
 		shared.podsRequest = float64(tc.sharedRequest)
 		shared.SetProvision(types.ControlKnob{
@@ -2266,8 +2274,7 @@ func runOrdinaryOverlapAssemblerCase(
 	}
 	if tc.isolationUpper > 0 {
 		isolation := NewFakeRegion("isolation", configapi.QoSRegionTypeIsolation, "isolation")
-		isolation.SetBindingNumas(machine.NewCPUSet(0))
-		isolation.SetIsNumaBinding(true)
+		bindRegion(isolation)
 		isolation.SetProvision(types.ControlKnob{
 			configapi.ControlKnobNonIsolatedUpperCPUSize: {Value: float64(tc.isolationUpper)},
 			configapi.ControlKnobNonIsolatedLowerCPUSize: {Value: float64(tc.isolationLower)},
@@ -2280,8 +2287,7 @@ func runOrdinaryOverlapAssemblerCase(
 			ownerPoolName = tc.dedicatedPackage + "/dedicated"
 		}
 		dedicated := NewFakeRegion("dedicated", configapi.QoSRegionTypeDedicated, ownerPoolName)
-		dedicated.SetBindingNumas(machine.NewCPUSet(0))
-		dedicated.SetIsNumaBinding(true)
+		bindRegion(dedicated)
 		dedicated.enableReclaim = tc.dedicatedEnableReclaim
 		dedicated.podsRequest = float64(tc.dedicatedRequest)
 		dedicated.SetPods(types.PodSet{
@@ -2303,6 +2309,9 @@ func runOrdinaryOverlapAssemblerCase(
 	}
 	numaAvailable := map[int]int{0: tc.capacity}
 	nonBindingNUMAs := machine.NewCPUSet()
+	if tc.globalNonBinding {
+		nonBindingNUMAs = machine.NewCPUSet(0)
+	}
 	if tc.nonBindingNUMACapacity > 0 {
 		numaAvailable[1] = tc.nonBindingNUMACapacity
 		nonBindingNUMAs = machine.NewCPUSet(1)
@@ -2330,12 +2339,13 @@ func runOrdinaryOverlapAssemblerCase(
 	ctx := ProvisionContext{
 		DynamicConfiguration: conf.GetDynamicConfiguration(),
 		Snapshot: Snapshot{
-			RegionMap:                                  regionMap,
-			ReservedForReclaim:                         reservedForReclaim,
-			RampUpReclaimCPUSetCap:                     rampUpReclaimCPUSetCap,
-			NUMAAvailable:                              numaAvailable,
-			NonBindingNumas:                            nonBindingNUMAs,
-			AllowSharedCoresOverlapReclaimedCores:      tc.allowSharedOverlap,
+			RegionMap:                             regionMap,
+			ReservedForReclaim:                    reservedForReclaim,
+			RampUpReclaimCPUSetCap:                rampUpReclaimCPUSetCap,
+			NUMAAvailable:                         numaAvailable,
+			NonBindingNumas:                       nonBindingNUMAs,
+			AllowSharedCoresOverlapReclaimedCores: tc.allowSharedOverlap,
+
 			DisableDedicatedCoresOverlapReclaimedCores: tc.disableDedicatedOverlap,
 		},
 	}
@@ -2347,7 +2357,11 @@ func runOrdinaryOverlapAssemblerCase(
 	// steady reserve.
 	if tc.hardPartition {
 		ctx.Snapshot.RampUpDomains = []int{0}
-		scope := NewNonExclusiveReclaimConstraintScope(0)
+		scopeNUMAID := 0
+		if tc.globalNonBinding {
+			scopeNUMAID = commonstate.FakedNUMAID
+		}
+		scope := NewNonExclusiveReclaimConstraintScope(scopeNUMAID)
 		ceiling := rampUpReclaimCPUSetCap[0]
 		ctx.ReclaimConstraint = cputypes.ReclaimConstraintReservedFloor
 		ctx.ReclaimActiveScopes = map[ReclaimConstraintScope]bool{scope: true}
@@ -2359,7 +2373,11 @@ func runOrdinaryOverlapAssemblerCase(
 		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
 	}
 
-	err = pa.assembleWithoutNUMAExclusivePool(ctx, NewRegionMapHelper(regionMap), 0, result)
+	scopeNUMAID := 0
+	if tc.globalNonBinding {
+		scopeNUMAID = commonstate.FakedNUMAID
+	}
+	err = pa.assembleWithoutNUMAExclusivePool(ctx, NewRegionMapHelper(regionMap), scopeNUMAID, result)
 	return result, err
 }
 
@@ -4209,15 +4227,11 @@ func nonExclusiveTestMetaServer(numaAvailable map[int]int, cpusPerCore int) *met
 	return newTestMetaServer(numaAvailable, cpusPerCore)
 }
 
-// TestAssembleWithoutNUMAExclusivePool_PassesThroughOddReclaimWhenNoDedicatedHeadroom is
-// the call-chain proof for the non-exclusive path: under the three hard-partition
-// gates on a real NUMA with SMT2, an odd non-overlap reclaim (3) is published. The
-// non-exclusive assembler sizes the dedicated pool exactly to its requirement minimum,
-// so there is no dedicated headroom to reallocate; the correct behavior is to leave
-// the odd target unchanged and let QRM's steady normalization own whole-core
-// materialization. This exercises descriptor -> pool entries -> joint normalization
-// -> passthrough end to end.
-func TestAssembleWithoutNUMAExclusivePool_PassesThroughOddReclaimWhenNoDedicatedHeadroom(t *testing.T) {
+// TestAssembleWithoutNUMAExclusivePool_NormalizesOddReclaimWithDedicatedHeadroom
+// is the call-chain proof for the real-NUMA non-exclusive path: under the three
+// hard-partition gates on SMT2, odd non-overlap reclaim is rounded to a whole-core
+// value and the released CPU returns to the single dedicated owner.
+func TestAssembleWithoutNUMAExclusivePool_NormalizesOddReclaimWithDedicatedHeadroom(t *testing.T) {
 	t.Parallel()
 	res, err := runOrdinaryOverlapAssemblerCase(t, ordinaryOverlapAssemblerCase{
 		capacity:                34,
@@ -4274,6 +4288,178 @@ func TestAssembleWithoutNUMAExclusivePool_SMT1NoNormalization(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, 3, res.PoolEntries[commonstate.PoolNameReclaim][0].Size)
+}
+
+// TestAssembleWithoutNUMAExclusivePool_GlobalOddReclaimIsWholeCoreInSteadyAndHard
+// locks the FakeNUMA publication contract consumed by QRM's whole-core quota
+// planners. The node failure ran in steady mode (no ramp-up hard partition), so
+// the global odd reclaim must be normalized there too, not only under the
+// hard-partition gate. With a single dedicated owner the released CPU returns
+// to dedicated, keeping reclaim+dedicated conserved.
+func TestAssembleWithoutNUMAExclusivePool_GlobalOddReclaimIsWholeCoreInSteadyAndHard(t *testing.T) {
+	t.Parallel()
+
+	for _, hard := range []bool{false, true} {
+		for _, capacity := range []int{47, 49, 51, 53, 55} {
+			hard, capacity := hard, capacity
+			t.Run(fmt.Sprintf("hard-%v-capacity-%d", hard, capacity), func(t *testing.T) {
+				t.Parallel()
+
+				oddTarget := capacity - 22
+				res, err := runOrdinaryOverlapAssemblerCase(t, ordinaryOverlapAssemblerCase{
+					capacity:                capacity,
+					globalNonBinding:        true,
+					hardPartition:           hard,
+					hardTarget:              oddTarget,
+					disableDedicatedOverlap: true,
+					dedicatedEnableReclaim:  true,
+					dedicatedRequest:        22,
+					dedicatedRequirement:    22,
+					cpusPerCore:             2,
+				})
+				require.NoError(t, err)
+
+				reclaim := res.PoolEntries[commonstate.PoolNameReclaim][commonstate.FakedNUMAID].Size
+				dedicated := res.PoolEntries["dedicated-pod"][commonstate.FakedNUMAID].Size
+				require.Zero(t, reclaim%2, "global reclaim must be whole-core")
+				require.Equal(t, oddTarget-1, reclaim)
+				require.Equal(t, 23, dedicated)
+				require.Equal(t, oddTarget+22, reclaim+dedicated)
+			})
+		}
+	}
+}
+
+// TestAssembleWithoutNUMAExclusivePool_GlobalOddReclaimReturnsResidualToShare covers
+// the common non-binding layout without a dedicated pool: the released CPU goes
+// to the single unpinned share pool so reclaim+share stays conserved.
+func TestAssembleWithoutNUMAExclusivePool_GlobalOddReclaimReturnsResidualToShare(t *testing.T) {
+	t.Parallel()
+
+	res, err := runOrdinaryOverlapAssemblerCase(t, ordinaryOverlapAssemblerCase{
+		capacity:                64,
+		globalNonBinding:        true,
+		disableDedicatedOverlap: true,
+		sharedEnableReclaim:     true,
+		sharedRequest:           39,
+		sharedRequirement:       39,
+		cpusPerCore:             2,
+	})
+	require.NoError(t, err)
+
+	reclaim := res.PoolEntries[commonstate.PoolNameReclaim][commonstate.FakedNUMAID].Size
+	share := res.PoolEntries["share"][commonstate.FakedNUMAID].Size
+	require.Zero(t, reclaim%2, "global reclaim must be whole-core")
+	require.Equal(t, 24, reclaim)
+	require.Equal(t, 40, share)
+	require.Equal(t, 64, reclaim+share)
+}
+
+// TestAssembleWithoutNUMAExclusivePool_GlobalOddReclaimRespectsCommittedAnchor proves
+// the FakeNUMA rounding never drops below the committed reclaim anchor: with
+// reserve 25 the only legal whole-core value is 26, which would have to take a
+// CPU from a workload pool, so the odd target passes through for QRM to reject.
+func TestAssembleWithoutNUMAExclusivePool_GlobalOddReclaimRespectsCommittedAnchor(t *testing.T) {
+	t.Parallel()
+
+	got := roundDownGlobalReclaimToSingleShareForTest(25, 25)
+	require.False(t, got)
+	got = roundDownGlobalReclaimToSingleShareForTest(25, 24)
+	require.True(t, got)
+}
+
+func roundDownGlobalReclaimToSingleShareForTest(target, reserved int) bool {
+	_, _, _, ok := roundDownGlobalReclaimToSingleShare(
+		target, reserved, 2, map[string]int{"share": 39}, map[string]int{"share": 39}, 1)
+	return ok
+}
+
+func TestRoundDownGlobalReclaimToSingleShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		target        int
+		reserved      int
+		width         int
+		requests      map[string]int
+		sizes         map[string]int
+		headroom      int
+		wantOK        bool
+		wantReclaim   int
+		wantShareSize int
+	}{
+		{name: "smt2 odd", target: 25, width: 2, requests: map[string]int{"s": 1}, sizes: map[string]int{"s": 39}, headroom: 1, wantOK: true, wantReclaim: 24, wantShareSize: 40},
+		{name: "smt4 residual 3", target: 27, width: 4, requests: map[string]int{"s": 1}, sizes: map[string]int{"s": 10}, headroom: 3, wantOK: true, wantReclaim: 24, wantShareSize: 13},
+		{name: "aligned", target: 24, width: 2, requests: map[string]int{"s": 1}, sizes: map[string]int{"s": 10}, headroom: 1},
+		{name: "smt1", target: 25, width: 1, requests: map[string]int{"s": 1}, sizes: map[string]int{"s": 10}, headroom: 1},
+		{name: "below anchor", target: 25, reserved: 25, width: 2, requests: map[string]int{"s": 1}, sizes: map[string]int{"s": 10}, headroom: 1},
+		{name: "two shares", target: 25, width: 2, requests: map[string]int{"a": 1, "b": 1}, sizes: map[string]int{"a": 5, "b": 5}, headroom: 1},
+		{name: "no share", target: 25, width: 2, requests: map[string]int{}, sizes: map[string]int{}, headroom: 1},
+		{name: "unknown size", target: 25, width: 2, requests: map[string]int{"s": 1}, sizes: map[string]int{}, headroom: 1},
+		{name: "no headroom", target: 27, width: 4, requests: map[string]int{"s": 1}, sizes: map[string]int{"s": 10}, headroom: 2},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reclaim, name, size, ok := roundDownGlobalReclaimToSingleShare(
+				tt.target, tt.reserved, tt.width, tt.requests, tt.sizes, tt.headroom)
+			require.Equal(t, tt.wantOK, ok)
+			if !ok {
+				require.Equal(t, tt.target, reclaim)
+				return
+			}
+			require.Equal(t, tt.wantReclaim, reclaim)
+			require.Equal(t, tt.wantShareSize, size)
+			require.Equal(t, tt.target-tt.wantReclaim, size-tt.sizes[name])
+		})
+	}
+}
+
+// TestRoundDownGlobalReclaimToSingleShare_T226FieldInput replays the exact
+// FakeNUMA inputs captured on dc05-p14-t226-n044 at 2026-10-14 19:41:03: one
+// unpinned share pool (requirement 130, request 139, pool size 130), one
+// isolation pool of 21, reclaim domain capacity 176, committed reclaim anchor
+// 16 (8 NUMAs x 2 SMT siblings). The advisor published odd non-overlap reclaim
+// 41 while QRM already committed 40, and QRM rejected with
+// "whole-core quota residual quantity 25 is not a multiple of 2". The fix must
+// hold reclaim at 40 and return the one CPU to share; no dedicated pool exists.
+func TestRoundDownGlobalReclaimToSingleShare_T226FieldInput(t *testing.T) {
+	t.Parallel()
+
+	requests := map[string]int{"share": 139}
+	poolSizes := map[string]int{"share": 130, "isolation-data-content": 21}
+	// unpinned domain available 176 minus the current pool sizes 130+21.
+	headroom := 176 - (130 + 21)
+
+	for _, tc := range []struct {
+		name        string
+		reclaim     int
+		wantReclaim int
+		wantShare   int
+	}{
+		{"41-first-failure", 41, 40, 131},
+		{"43", 43, 42, 131},
+		{"45", 45, 44, 131},
+		{"47", 47, 46, 131},
+		{"49-last-failure", 49, 48, 131},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reclaim, name, size, ok := roundDownGlobalReclaimToSingleShare(
+				tc.reclaim, 16, 2, requests, poolSizes, headroom)
+			require.True(t, ok)
+			require.Equal(t, tc.wantReclaim, reclaim)
+			require.Equal(t, "share", name)
+			require.Equal(t, tc.wantShare, size)
+			// The released CPUs fit inside the domain, and 40 stays at or above
+			// the committed anchor 16.
+			require.GreaterOrEqual(t, reclaim, 16)
+			require.LessOrEqual(t, size, 176-21)
+		})
+	}
 }
 
 func ptrToInt(v int) *int { return &v }

@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
@@ -707,6 +708,8 @@ func (r *coordinatorRound) runFixedPointEngine(
 				ProtectedPending:      r.protectedPending.Clone(),
 				ProtectedInCurrentDom: protectedPendingOverlapByDomain(final, r.protectedPending),
 				UnmetTargets:          unmetTargetRels(final, r.targetByRel),
+				Objective:             r.objective.orFullDefault(),
+				Evaluation:            evaluation,
 			}
 		}
 	}
@@ -714,14 +717,22 @@ func (r *coordinatorRound) runFixedPointEngine(
 
 // FixedPointStallError is the bare no-progress stall of the fixed-point engine
 // enriched with the evidence needed to tell which side blocks: the protected
-// pending set, the part of it each current domain still holds, and the
-// controlled rels whose current cpuset differs from their target. It still
-// unwraps to ErrNoProgress so every existing errors.Is classification holds.
+// pending set, the part of it each current domain still holds, the controlled
+// rels whose current cpuset differs from their target, and the final objective
+// evaluation. unmet_targets only covers controlled roots and partitions; leaf
+// expectations, pending scopes, required floors and domain overlap are reported
+// from the evaluation so a stall with unmet_targets=[] still names its blocker.
+// It still unwraps to ErrNoProgress so every existing errors.Is classification
+// holds.
 type FixedPointStallError struct {
 	ProtectedPending      machine.CPUSet
 	ProtectedInCurrentDom map[DomainID]machine.CPUSet
 	UnmetTargets          []string
+	Objective             ConvergenceObjective
+	Evaluation            coordinatorSnapshotEvaluation
 }
+
+const fixedPointStallMaxListedItems = 8
 
 func (e *FixedPointStallError) Error() string {
 	domains := make([]string, 0, len(e.ProtectedInCurrentDom))
@@ -730,14 +741,83 @@ func (e *FixedPointStallError) Error() string {
 	}
 	sort.Strings(domains)
 	unmet := e.UnmetTargets
-	const maxUnmet = 8
 	suffix := ""
-	if len(unmet) > maxUnmet {
-		suffix = fmt.Sprintf(",+%d", len(unmet)-maxUnmet)
-		unmet = unmet[:maxUnmet]
+	if len(unmet) > fixedPointStallMaxListedItems {
+		suffix = fmt.Sprintf(",+%d", len(unmet)-fixedPointStallMaxListedItems)
+		unmet = unmet[:fixedPointStallMaxListedItems]
 	}
-	return fmt.Sprintf("%v: protected_pending=%s protected_in_current_domain=%v unmet_targets=%v%s",
-		ErrNoProgress, e.ProtectedPending.String(), domains, unmet, suffix)
+	return fmt.Sprintf("%v: protected_pending=%s protected_in_current_domain=%v unmet_targets=%v%s%s",
+		ErrNoProgress, e.ProtectedPending.String(), domains, unmet, suffix, e.evaluationSummary())
+}
+
+// evaluationSummary renders only the non-empty blockers of the final objective
+// evaluation, so a healthy field never adds noise to the stall line.
+func (e *FixedPointStallError) evaluationSummary() string {
+	if e.Objective == "" {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("objective=%s", e.Objective)}
+	report := e.Evaluation.Report
+	safety := e.Evaluation.ParentSafety
+	if len(report.NonConvergedTargets) > 0 {
+		parts = append(parts, "non_converged="+formatRelConvergences(report.NonConvergedTargets))
+	}
+	if e.Objective == ConvergenceObjectiveParentSafe {
+		parts = append(parts, fmt.Sprintf("parent_safe=%v", safety.Safe))
+		appendCPUSet := func(name string, cpus machine.CPUSet) {
+			if !cpus.IsEmpty() {
+				parts = append(parts, name+"="+cpus.String())
+			}
+		}
+		appendCPUSet("pending_outside_primary", safety.PendingOutsidePrimary)
+		appendCPUSet("pending_inside_reclaim", safety.PendingInsideReclaim)
+		appendCPUSet("primary_reclaim_overlap", safety.PrimaryReclaimOverlap)
+		if len(safety.PendingScopeDeficit) > 0 {
+			parts = append(parts, "pending_scope_deficit="+formatCPUSetMap(safety.PendingScopeDeficit))
+		}
+		if len(safety.RequiredFloorDeficit) > 0 {
+			parts = append(parts, "required_floor_deficit="+formatCPUSetMap(safety.RequiredFloorDeficit))
+		}
+		if len(safety.UnsafeRequiredRels) > 0 {
+			parts = append(parts, "unsafe_required="+formatRelConvergences(safety.UnsafeRequiredRels))
+		}
+		if len(safety.DeferredLeafMismatches) > 0 {
+			parts = append(parts, fmt.Sprintf("deferred_leaf_mismatches=%d", len(safety.DeferredLeafMismatches)))
+		}
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func formatRelConvergences(items []RelConvergence) string {
+	sorted := append([]RelConvergence(nil), items...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Rel < sorted[j].Rel })
+	out := make([]string, 0, fixedPointStallMaxListedItems)
+	for i, item := range sorted {
+		if i == fixedPointStallMaxListedItems {
+			out = append(out, fmt.Sprintf("+%d", len(sorted)-fixedPointStallMaxListedItems))
+			break
+		}
+		out = append(out, fmt.Sprintf("%s(%s:observed=%s,target=%s)",
+			item.Rel, item.Reason, item.Observed.String(), item.Target.String()))
+	}
+	return "[" + strings.Join(out, ",") + "]"
+}
+
+func formatCPUSetMap(items map[string]machine.CPUSet) string {
+	rels := make([]string, 0, len(items))
+	for rel := range items {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	out := make([]string, 0, fixedPointStallMaxListedItems)
+	for i, rel := range rels {
+		if i == fixedPointStallMaxListedItems {
+			out = append(out, fmt.Sprintf("+%d", len(rels)-fixedPointStallMaxListedItems))
+			break
+		}
+		out = append(out, rel+"="+items[rel].String())
+	}
+	return "[" + strings.Join(out, ",") + "]"
 }
 
 func (e *FixedPointStallError) Unwrap() error { return ErrNoProgress }
