@@ -232,6 +232,7 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 			pending.source, pending.expectedRevision, "revalidate replacement baseline after partition validation",
 			fmt.Errorf("partition validator mutated its candidate"))
 	}
+	p.syncCandidateSidecarsFromMain(candidate)
 	return &preparedCPUPartition{
 		pending:      pending,
 		entries:      candidate,
@@ -252,6 +253,8 @@ func (p *DynamicPolicy) syncCandidateSidecarsFromMain(entries state.PodEntries) 
 			if allocation == nil || !allocation.CheckSideCar() {
 				continue
 			}
+			// applySidecarAllocationInfoFromMainContainer preserves an already-recorded
+			// sidecar "false" internally; the candidate entry already carries it.
 			p.applySidecarAllocationInfoFromMainContainer(allocation, main)
 		}
 	}

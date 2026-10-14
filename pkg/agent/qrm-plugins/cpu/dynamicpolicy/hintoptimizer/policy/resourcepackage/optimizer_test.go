@@ -54,6 +54,10 @@ func (m *MockState) GetMachineState() state.NUMANodeMap {
 // Implement other required methods with empty implementations
 func (m *MockState) GetNUMAHeadroom() map[int]float64 { return nil }
 func (m *MockState) GetPodEntries() state.PodEntries  { return nil }
+func (m *MockState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	return m.GetPodEntries(), m.GetMachineState().Clone(), m.GetRevision()
+}
+
 func (m *MockState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	return nil
 }

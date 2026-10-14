@@ -290,7 +290,7 @@ func getTestDynamicPolicyWithoutInitialization(
 			advisorValidator:   validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
 			featureGateManager: featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
 		},
-		resourcePackageManager: resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(&npd.DummyNPDFetcher{NPD: &nodev1alpha1.NodeProfileDescriptor{}})), machine: machineComponent{machineInfo: machineInfo}, emitter: emitterComponent{emitter: metrics.DummyMetrics{}}, reclaim: reclaimComponent{reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes)}, config: configComponent{conf: conf, qosConfig: qosConfig, dynamicConfig: dynamicConfig, reservedCPUs: reservedCPUs, enableReclaimNUMABinding: true, podDebugAnnoKeys: []string{podDebugAnnoKey}, numaNumberAnnotationKey: consts.PodAnnotationCPUEnhancementNumaNumber, numaIDsAnnotationKey: consts.PodAnnotationCPUEnhancementNumaIDs, topologyAllocationAnnotationKey: coreconsts.QRMPodAnnotationTopologyAllocationKey}, bulkhead: bulkheadComponent{bulkheadManager: bulkheadManager},
+		resourcePackageManager: resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(&npd.DummyNPDFetcher{NPD: &nodev1alpha1.NodeProfileDescriptor{}})), machine: machineComponent{machineInfo: machineInfo}, emitter: emitterComponent{emitter: metrics.DummyMetrics{}}, reclaim: reclaimComponent{reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes)}, config: configComponent{conf: conf, qosConfig: qosConfig, dynamicConfig: dynamicConfig, reservedCPUs: reservedCPUs, enableReclaimNUMABinding: true, podDebugAnnoKeys: []string{podDebugAnnoKey}, podAnnotationKeptKeys: conf.PodAnnotationKeptKeys, numaNumberAnnotationKey: consts.PodAnnotationCPUEnhancementNumaNumber, numaIDsAnnotationKey: consts.PodAnnotationCPUEnhancementNumaIDs, topologyAllocationAnnotationKey: coreconsts.QRMPodAnnotationTopologyAllocationKey}, bulkhead: bulkheadComponent{bulkheadManager: bulkheadManager},
 	}
 	policyImplement.advisorPostCommitCheckpointDir = stateFileDirectory
 	policyImplement.steadyFakeNUMAMigration = &steadyFakeNUMAMigrationIntentStore{
@@ -2294,7 +2294,8 @@ func TestAllocate(t *testing.T) {
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 						},
 					},
@@ -2351,7 +2352,8 @@ func TestAllocate(t *testing.T) {
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 						},
 					},
@@ -2418,6 +2420,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:       cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
@@ -2489,6 +2492,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:       cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationMemoryEnhancementNumaExclusive: "false",
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:            "0",
@@ -2561,6 +2565,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:       cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 								coreconsts.QRMPodAnnotationTopologyAllocationKey:   `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
@@ -2635,6 +2640,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
@@ -2705,6 +2711,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"}}}}`,
@@ -2776,6 +2783,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"300m"}}}}`,
@@ -2875,6 +2883,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"}}}}`,
@@ -2936,8 +2945,9 @@ func TestAllocate(t *testing.T) {
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
 							Annotations: map[string]string{
-								"cpuset_pool":                   "reserve",
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+								"cpuset_pool":                                "reserve",
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSystemCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 						},
 					},
@@ -2997,7 +3007,8 @@ func TestAllocate(t *testing.T) {
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSystemCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSystemCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 						},
 					},
@@ -3065,6 +3076,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"300m"}}}}`,
@@ -3137,6 +3149,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 						},
@@ -3208,6 +3221,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:                 cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
 								consts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
@@ -3283,6 +3297,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "2",
 								"full_pcpus_pairing":                             "true",
@@ -3387,6 +3402,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:                 cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
 								consts.PodAnnotationCPUEnhancementFullPCPUsPairing:           consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
@@ -3465,6 +3481,7 @@ func TestAllocate(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementNumaNumber:     "2",
 								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"4"},"attributes":{"CpusetCpus":"4-5,12-13"}},"3":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"6,14"}}}}`,
@@ -4397,6 +4414,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
@@ -4429,7 +4447,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -4462,7 +4481,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -4494,7 +4514,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -4578,6 +4599,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -4668,6 +4690,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
@@ -4699,7 +4722,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -4731,7 +4755,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -4763,7 +4788,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -4847,6 +4873,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -4936,6 +4963,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
@@ -4968,7 +4996,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -5001,7 +5030,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -5033,7 +5063,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -5117,6 +5148,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5207,6 +5239,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
@@ -5238,7 +5271,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -5333,6 +5367,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5364,6 +5399,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5395,6 +5431,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5538,7 +5575,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -5633,6 +5671,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5664,6 +5703,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5695,6 +5735,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5793,7 +5834,8 @@ func TestGetTopologyHints(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -5888,6 +5930,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5919,6 +5962,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -5950,6 +5994,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -6049,6 +6094,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 							},
@@ -6139,6 +6185,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -6170,6 +6217,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -6201,6 +6249,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
@@ -6348,6 +6397,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:       cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 							},
@@ -6478,6 +6528,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -6837,6 +6888,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -6922,6 +6974,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -6953,6 +7006,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -6984,6 +7038,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -7015,6 +7070,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -8119,7 +8175,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 			3: 2,
 		},
 		Annotations: map[string]string{
-			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+			cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 		},
 	}, resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
@@ -8152,7 +8209,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 			3: 2,
 		},
 		Annotations: map[string]string{
-			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+			cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 		},
 	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
@@ -8197,7 +8255,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 			uint64(3): 2,
 		},
 		Annotations: map[string]string{
-			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+			consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+			cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 		},
 	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
@@ -8269,7 +8328,8 @@ func TestGetResourcesAllocation(t *testing.T) {
 			uint64(3): 4,
 		},
 		Annotations: map[string]string{
-			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+			cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 		},
 	}, resp3.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
@@ -9097,7 +9157,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -9133,7 +9194,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -9169,7 +9231,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -9255,7 +9318,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -9289,7 +9353,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -9323,7 +9388,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -9746,7 +9812,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -9778,7 +9845,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -9810,7 +9878,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -9843,6 +9912,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
@@ -9982,7 +10052,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -10014,7 +10085,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
 						},
@@ -10046,7 +10118,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
@@ -10080,8 +10153,9 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 							},
 							Annotations: map[string]string{
-								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+								consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelDedicatedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey: cpusetOmissionFalse,
+								consts.PodAnnotationMemoryEnhancementKey:     `{"numa_binding": "true"}`,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 						},
@@ -11515,6 +11589,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "1",
 							},
@@ -11545,6 +11620,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								cpuconsts.CPUSetOmissionAllowedAnnotationKey:     cpusetOmissionFalse,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,

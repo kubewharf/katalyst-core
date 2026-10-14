@@ -337,6 +337,9 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
+	// Read the live bypass switch once for this whole operation; a watcher flip
+	// takes effect on the next operation, not midway through this one.
+	live := p.shouldBypassCPUSetAdjustment()
 
 	machineState := p.state.GetMachineState()
 	podEntries := p.state.GetPodEntries()
@@ -394,6 +397,13 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(ctx conte
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("updateAllocationInfoByReq failed with error: %v", err)
 	}
+	// updateAllocationInfoByReq overwrites annotations with req.Annotations.
+	// Restore the persisted cpuset-omission value so request annotations cannot
+	// upgrade "false" to "true" or drop an existing key.
+	inheritCPUSetOmission(allocationInfo, originAllocationInfo)
+	if !cpusetOmissionAllowed(allocationInfo, live) {
+		markCPUSetExposed(allocationInfo)
+	}
 
 	if allocationInfo == nil {
 		general.Infof("pod: %s/%s, container: %s is met firstly, do ramp up with pooled cpus: %s",
@@ -417,6 +427,9 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(ctx conte
 			InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 			RequestQuantity:                  reqFloat64,
 		}
+		// Brand-new MAIN container: record the initial omission decision. It is
+		// folded into this handler's own commit below.
+		initNewMainContainerCPUSetOmission(allocationInfo, req.Annotations, live)
 
 		if shouldRampUp {
 			allocationInfo, err = p.doAndCheckPutAllocationInfo(ctx, allocationInfo, true, persistCheckpoint)
@@ -515,6 +528,9 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(ctx conte
 				req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.RequestQuantity, reqFloat64)
 			allocationInfo.RequestQuantity = reqFloat64
 
+			if !cpusetOmissionAllowed(allocationInfo, live) {
+				markCPUSetExposed(allocationInfo)
+			}
 			if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 				return nil, err
 			}
@@ -570,7 +586,9 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(ctx conte
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
+	if cpusetOmissionAllowed(allocationInfo, live) {
+		clearCPUSetInAllocation(resp.AllocationResult)
+	}
 	return resp, nil
 }
 
@@ -589,6 +607,10 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
+	// Read the live bypass switch once for this whole allocation operation so that
+	// init / mark / response decisions agree even if the watcher flips mid-request;
+	// a change takes effect on the next operation.
+	live := p.shouldBypassCPUSetAdjustment()
 
 	reclaimedAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
@@ -624,6 +646,12 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 		general.Infof("pod: %s/%s, container: %s request to cpu inplace update resize allocation, request: %.2f->%.2f",
 			req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.RequestQuantity, reqFloat64)
 		allocationInfo.RequestQuantity = reqFloat64
+		// Mark the one-way exposure decision BEFORE the single persistent write:
+		// SetAllocationInfo stores a clone, so marking after it would leave the
+		// persisted state unmarked while the response carries the marked value.
+		if !cpusetOmissionAllowed(allocationInfo, live) {
+			markCPUSetExposed(allocationInfo)
+		}
 		if err := p.updateAllocationInfo(req.PodUid, req.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 			return nil, err
 		}
@@ -633,6 +661,12 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 			general.Errorf("pod: %s/%s, container: %s updateAllocationInfoByReq failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("updateAllocationInfoByReq failed with error: %v", err)
+		}
+		// Restore the persisted annotation value after updateAllocationInfoByReq
+		// overwrote annotations with req.Annotations.
+		inheritCPUSetOmission(allocationInfo, originAllocationInfo)
+		if !cpusetOmissionAllowed(allocationInfo, live) {
+			markCPUSetExposed(allocationInfo)
 		}
 
 		machineState := p.state.GetMachineState()
@@ -651,6 +685,9 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 				InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
 				RequestQuantity: reqFloat64,
 			}
+			// Brand-new MAIN reclaimed container: record the initial omission
+			// decision, folded into this handler's own commit below.
+			initNewMainContainerCPUSetOmission(allocationInfo, req.Annotations, live)
 
 			// calculate NUMAs without non-actual numa_binding reclaimed pods
 			reclaimActualBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding))
@@ -704,7 +741,9 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
+	if cpusetOmissionAllowed(allocationInfo, live) {
+		clearCPUSetInAllocation(resp.AllocationResult)
+	}
 
 	return resp, nil
 }
@@ -899,6 +938,19 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
 		RequestQuantity:                  reqFloat64,
 	}
+	// Brand-new MAIN dedicated container gets an initial omission decision only
+	// when there is no existing entry; a re-admitted dedicated container inherits
+	// its persisted value so a request annotation or live flip cannot alter it.
+	// Dedicated is never bypassable, so the resolved value is always "false".
+	live := p.shouldBypassCPUSetAdjustment()
+	if oldAllocationInfo == nil {
+		initNewMainContainerCPUSetOmission(allocationInfo, req.Annotations, live)
+	} else {
+		inheritCPUSetOmission(allocationInfo, oldAllocationInfo)
+		if !cpusetOmissionAllowed(allocationInfo, live) {
+			markCPUSetExposed(allocationInfo)
+		}
+	}
 
 	numaNumber, err := qosutil.AnnotationsGetNUMANumber(req.Annotations, len(machineState), p.config.numaNumberAnnotationKey)
 	if err != nil {
@@ -1041,7 +1093,9 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		}
 		return nil, err
 	}
-	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
+	if cpusetOmissionAllowed(allocationInfo, live) {
+		clearCPUSetInAllocation(resp.AllocationResult)
+	}
 
 	return resp, nil
 }
@@ -1188,6 +1242,12 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 		return &pluginapi.ResourceAllocationResponse{}, nil
 	}
 
+	// Read the live bypass switch once for this whole operation.
+	live := p.shouldBypassCPUSetAdjustment()
+	// Capture the sidecar's previously-persisted omission value BEFORE
+	// applySidecarAllocationInfoFromMainContainer overwrites its annotations from main.
+	existingSidecar := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+
 	// the sidecar container also support inplace update resize, update the allocation and machine state here
 	allocationInfo := &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
@@ -1195,7 +1255,24 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 		InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
 		RequestQuantity: reqFloat64,
 	}
+	// GenerateGenericContainerAllocationMeta copies the request annotations, which may
+	// carry the omission key from the pod spec. The persistent annotation must never be
+	// born from a request: drop any request-seeded value, then seed only the
+	// previously-persisted sidecar value (so an existing "false" stays sticky), and let
+	// the apply core merge from main with the same one-way rule.
+	delete(allocationInfo.Annotations, cpuconsts.CPUSetOmissionAllowedAnnotationKey)
+	if existingSidecar != nil && existingSidecar.Annotations != nil {
+		if val, ok := existingSidecar.Annotations[cpuconsts.CPUSetOmissionAllowedAnnotationKey]; ok {
+			if allocationInfo.Annotations == nil {
+				allocationInfo.Annotations = make(map[string]string)
+			}
+			allocationInfo.Annotations[cpuconsts.CPUSetOmissionAllowedAnnotationKey] = val
+		}
+	}
 	p.applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo)
+	if !cpusetOmissionAllowed(allocationInfo, live) {
+		markCPUSetExposed(allocationInfo)
+	}
 
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
@@ -1220,7 +1297,9 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
+	if cpusetOmissionAllowed(allocationInfo, live) {
+		clearCPUSetInAllocation(resp.AllocationResult)
+	}
 	return resp, nil
 }
 
@@ -1231,9 +1310,12 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 		return p.allocationSidecarHandler(ctx, req, apiconsts.PodAnnotationQoSLevelSharedCores, persistCheckpoint)
 	}
 
+	// Read the live bypass switch once for this whole operation.
+	live := p.shouldBypassCPUSetAdjustment()
+
 	// there is no need to delete old allocationInfo for the container if it exists,
 	// allocateSharedNumaBindingCPUs will re-calculate pool size and avoid counting same entry twice
-	allocationInfo, err := p.allocateSharedNumaBindingCPUs(ctx, req, req.Hint, persistCheckpoint)
+	allocationInfo, err := p.allocateSharedNumaBindingCPUs(ctx, req, req.Hint, persistCheckpoint, live)
 	if err != nil || allocationInfo == nil {
 		general.ErrorS(err, "unable to allocate CPUs",
 			"podNamespace", req.PodNamespace,
@@ -1261,7 +1343,9 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 	if err := p.accompanyReg().AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
-	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
+	if cpusetOmissionAllowed(allocationInfo, live) {
+		clearCPUSetInAllocation(resp.AllocationResult)
+	}
 
 	return resp, nil
 }
@@ -1611,7 +1695,7 @@ func (p *DynamicPolicy) takeByTopologyPreferring(
 }
 
 func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(ctx context.Context, req *pluginapi.ResourceRequest,
-	hint *pluginapi.TopologyHint, persistCheckpoint bool,
+	hint *pluginapi.TopologyHint, persistCheckpoint bool, live bool,
 ) (*state.AllocationInfo, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil req")
@@ -1627,6 +1711,8 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(ctx context.Context, req *
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
+	// live is read once by the caller and threaded through so this operation's
+	// init / mark / response decisions share one value.
 
 	general.InfoS("allocateSharedNumaBindingCPUs by hints",
 		"hints", hint.Nodes,
@@ -1661,6 +1747,12 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(ctx context.Context, req *
 		if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, originAllocationInfo, allocationInfo, persistCheckpoint); err != nil {
 			return nil, err
 		}
+		// Inherit the persisted annotation value; request annotations must not
+		// upgrade or drop the persisted value on resize.
+		inheritCPUSetOmission(allocationInfo, originAllocationInfo)
+		if !cpusetOmissionAllowed(allocationInfo, live) {
+			markCPUSetExposed(allocationInfo)
+		}
 		checkedAllocationInfo, err := p.doAndCheckPutAllocationInfoPodResizingAware(
 			ctx, originAllocationInfo, allocationInfo, false, true, persistCheckpoint)
 		if err != nil {
@@ -1678,6 +1770,20 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(ctx context.Context, req *
 		}
 		return checkedAllocationInfo, nil
 	} else {
+		// Non-resize admission. Distinguish a truly-new MAIN container (origin
+		// absent: record the initial omission decision) from an existing container
+		// being re-admitted (origin present: inherit the persisted value so a
+		// persisted "false" can never be upgraded back to "true" by request
+		// annotations or a live-switch flip).
+		originAllocationInfo := p.state.GetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName)
+		if originAllocationInfo == nil {
+			initNewMainContainerCPUSetOmission(allocationInfo, req.Annotations, live)
+		} else {
+			inheritCPUSetOmission(allocationInfo, originAllocationInfo)
+			if !cpusetOmissionAllowed(allocationInfo, live) {
+				markCPUSetExposed(allocationInfo)
+			}
+		}
 		allocationInfo.RampUp = p.shouldSharedCoresRampUp(ctx, req.PodUid)
 		if !p.isRampUpReclaimHardPartitionEnabled() {
 			if err := p.updateAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, nil, allocationInfo, persistCheckpoint); err != nil {
@@ -4364,10 +4470,23 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 		return p.allocationSidecarHandler(ctx, req, apiconsts.PodAnnotationQoSLevelSystemCores, persistCheckpoint)
 	}
 
+	// Read the live bypass switch once for this whole operation.
+	live := p.shouldBypassCPUSetAdjustment()
 	allocationInfo := &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
 			commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSystemCores),
 		InitTimestamp: time.Now().Format(util.QRMTimeFormat),
+	}
+	// Only a brand-new MAIN system container gets an initial omission decision.
+	// An existing system container re-admitted here inherits its persisted value
+	// so a recorded "false" cannot be upgraded back to "true".
+	if origin := p.state.GetAllocationInfo(req.PodUid, req.ContainerName); origin == nil {
+		initNewMainContainerCPUSetOmission(allocationInfo, req.Annotations, live)
+	} else {
+		inheritCPUSetOmission(allocationInfo, origin)
+		if !cpusetOmissionAllowed(allocationInfo, live) {
+			markCPUSetExposed(allocationInfo)
+		}
 	}
 	poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(p.state.GetPodEntries(), allocationInfo)
 	if err != nil {
@@ -4418,7 +4537,9 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	p.clearCPUSetInAllocationResponseIfNeeded(resp, allocationInfo)
+	if cpusetOmissionAllowed(allocationInfo, live) {
+		clearCPUSetInAllocation(resp.AllocationResult)
+	}
 	return resp, nil
 }
 

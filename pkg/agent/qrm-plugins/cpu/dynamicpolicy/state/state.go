@@ -1007,6 +1007,9 @@ type reader interface {
 	GetMachineState() NUMANodeMap
 	GetNUMAHeadroom() map[int]float64
 	GetPodEntries() PodEntries
+	// GetAdvisorStateSnapshot returns entries, machine state, and revision from
+	// one generation. The returned maps are independent clones owned by the caller.
+	GetAdvisorStateSnapshot() (PodEntries, NUMANodeMap, uint64)
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
 	GetDisableDedicatedCoresOverlapReclaimedCores() bool

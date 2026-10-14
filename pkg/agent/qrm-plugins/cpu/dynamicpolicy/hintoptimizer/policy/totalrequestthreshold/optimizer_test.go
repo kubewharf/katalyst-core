@@ -55,6 +55,10 @@ func (f *fakeState) GetPodEntries() state.PodEntries {
 	return f.podEntries
 }
 
+func (f *fakeState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	return f.podEntries.Clone(), f.machineState.Clone(), f.GetRevision()
+}
+
 func (f *fakeState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	if f.allocations == nil {
 		return nil

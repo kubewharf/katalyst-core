@@ -430,13 +430,20 @@ func newCPUSetAdjustmentStateSnapshot(source state.ReadonlyState) *cpuSetAdjustm
 	if source == nil {
 		return nil
 	}
+	// PodEntries, machine state and revision MUST come from one atomic generation:
+	// calling GetPodEntries/GetMachineState/GetRevision independently could mix
+	// entries from one revision with machine state or a revision from another.
+	// GetAdvisorStateSnapshot captures all three under the same read lock. Headroom
+	// and the overlap flags are monotonic policy knobs without their own revision,
+	// so they are read alongside the snapshot.
+	podEntries, machineState, revision := source.GetAdvisorStateSnapshot()
 	snapshot := &cpuSetAdjustmentStateSnapshot{
-		machineState:     source.GetMachineState(),
+		machineState:     machineState,
 		numaHeadroom:     source.GetNUMAHeadroom(),
-		podEntries:       source.GetPodEntries(),
+		podEntries:       podEntries,
 		allowOverlap:     source.GetAllowSharedCoresOverlapReclaimedCores(),
 		disableDedicated: source.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		revision:         source.GetRevision(),
+		revision:         revision,
 	}
 	return snapshot
 }
@@ -462,6 +469,10 @@ func (s *cpuSetAdjustmentStateSnapshot) GetNUMAHeadroom() map[int]float64 {
 
 func (s *cpuSetAdjustmentStateSnapshot) GetPodEntries() state.PodEntries {
 	return s.podEntries.Clone()
+}
+
+func (s *cpuSetAdjustmentStateSnapshot) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	return s.podEntries.Clone(), s.machineState.Clone(), s.revision
 }
 
 func (s *cpuSetAdjustmentStateSnapshot) GetAllocationInfo(podUID, containerName string) *state.AllocationInfo {
