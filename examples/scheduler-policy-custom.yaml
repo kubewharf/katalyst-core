@@ -53,7 +53,7 @@ data:
           - name: NodeResourcesFit
             args:
               ignoredResourceGroups:
-                - katalyst.kubewharf.io
+                - resource.katalyst.kubewharf.io
           - name: QoSAwareNodeResourcesFit
             args:
               scoringStrategy:
@@ -76,9 +76,9 @@ data:
                   - name: memory
                     weight: 1
                 reclaimedResources:
-                  - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+                  - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                     weight: 1
-                  - name: "katalyst.kubewharf.io/reclaimed_memory"
+                  - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                     weight: 1
           - name: QoSAwareNodeResourcesBalancedAllocation
             args:
@@ -88,7 +88,7 @@ data:
                 - name: memory
                   weight: 1
               reclaimedResources:
-                - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+                - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                   weight: 1
-                - name: "katalyst.kubewharf.io/reclaimed_memory"
+                - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                   weight: 1  
