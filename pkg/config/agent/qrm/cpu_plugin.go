@@ -48,6 +48,8 @@ type CPUDynamicPolicyConfig struct {
 	// EnableCPUPressureEviction indicates whether to enable cpu-pressure eviction, such as cpu load eviction or cpu
 	// suppress eviction
 	EnableCPUPressureEviction bool
+	// EnableLoadEvictionAdvisedThreshold indicates whether load eviction may use advisor-based thresholds.
+	EnableLoadEvictionAdvisedThreshold bool
 	// LoadPressureEvictionSkipPools indicates the ignored pools when check load pressure.
 	LoadPressureEvictionSkipPools []string
 	// EnableSyncingCPUIdle is set to sync specific cgroup path with EnableCPUIdle
@@ -100,9 +102,10 @@ type CPUNativePolicyConfig struct {
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{
 		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{
-			HintOptimizerConfiguration: hintoptimizer.NewHintOptimizerConfiguration(),
-			IRQTunerConfiguration:      irqtuner.NewIRQTunerConfiguration(),
-			BulkheadConfiguration:      bulkhead.NewBulkheadConfiguration(),
+			EnableLoadEvictionAdvisedThreshold: true,
+			HintOptimizerConfiguration:         hintoptimizer.NewHintOptimizerConfiguration(),
+			IRQTunerConfiguration:              irqtuner.NewIRQTunerConfiguration(),
+			BulkheadConfiguration:              bulkhead.NewBulkheadConfiguration(),
 		},
 		CPUNativePolicyConfig: CPUNativePolicyConfig{},
 	}

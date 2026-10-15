@@ -44,6 +44,7 @@ type CPUDynamicPolicyOptions struct {
 	EnableCPUAdvisor                                   bool
 	AdvisorGetAdviceInterval                           time.Duration
 	EnableCPUPressureEviction                          bool
+	EnableLoadEvictionAdvisedThreshold                 bool
 	LoadPressureEvictionSkipPools                      []string
 	EnableSyncingCPUIdle                               bool
 	EnableCPUIdle                                      bool
@@ -77,14 +78,15 @@ func NewCPUOptions() *CPUOptions {
 		ReservedCPUCores:       0,
 		SkipCPUStateCorruption: false,
 		CPUDynamicPolicyOptions: CPUDynamicPolicyOptions{
-			EnableCPUAdvisor:          false,
-			AdvisorGetAdviceInterval:  5 * time.Second,
-			EnableCPUPressureEviction: false,
-			EnableSyncingCPUIdle:      false,
-			EnableCPUIdle:             false,
-			EnableContainerCPUIdle:    false,
-			EnableCPUBurst:            false,
-			EnableCPUWeight:           false,
+			EnableCPUAdvisor:                   false,
+			AdvisorGetAdviceInterval:           5 * time.Second,
+			EnableCPUPressureEviction:          false,
+			EnableLoadEvictionAdvisedThreshold: true,
+			EnableSyncingCPUIdle:               false,
+			EnableCPUIdle:                      false,
+			EnableContainerCPUIdle:             false,
+			EnableCPUBurst:                     false,
+			EnableCPUWeight:                    false,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -123,6 +125,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SkipCPUStateCorruption, "if set true, we will skip cpu state corruption")
 	fs.BoolVar(&o.EnableCPUPressureEviction, "enable-cpu-pressure-eviction", o.EnableCPUPressureEviction,
 		"if set true, it can enable cpu-related eviction, such as cpu pressure eviction and cpu suppression eviction")
+	fs.BoolVar(&o.EnableLoadEvictionAdvisedThreshold, "enable-load-eviction-advised-threshold", o.EnableLoadEvictionAdvisedThreshold,
+		"if set true, load eviction may use advisor-based thresholds when the dynamic conditions are met")
 	fs.StringSliceVar(&o.LoadPressureEvictionSkipPools, "load-pressure-eviction-skip-pools", o.LoadPressureEvictionSkipPools,
 		"the pool in this list will be ignored when check load pressure")
 	fs.BoolVar(&o.EnableSyncingCPUIdle, "enable-syncing-cpu-idle",
@@ -176,6 +180,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.ReservedCPUList = o.ReservedCPUList
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
 	conf.EnableCPUPressureEviction = o.EnableCPUPressureEviction
+	conf.EnableLoadEvictionAdvisedThreshold = o.EnableLoadEvictionAdvisedThreshold
 	conf.LoadPressureEvictionSkipPools = o.LoadPressureEvictionSkipPools
 	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
 	conf.EnableCPUIdle = o.EnableCPUIdle

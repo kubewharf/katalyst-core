@@ -25,6 +25,42 @@ import (
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
+func TestNewCPUOptions_Defaults_LoadEvictionAdvisedThreshold(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	o := NewCPUOptions()
+
+	as.True(o.EnableLoadEvictionAdvisedThreshold)
+}
+
+func TestCPUOptions_AddFlags_ParseLoadEvictionAdvisedThreshold(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	o := NewCPUOptions()
+
+	fss := cliflag.NamedFlagSets{}
+	o.AddFlags(&fss)
+	fs := fss.FlagSet("cpu_resource_plugin")
+
+	as.NotNil(fs.Lookup("enable-load-eviction-advised-threshold"))
+	as.NoError(fs.Parse([]string{"--enable-load-eviction-advised-threshold=true"}))
+	as.True(o.EnableLoadEvictionAdvisedThreshold)
+}
+
+func TestCPUOptions_ApplyTo_CopiesLoadEvictionAdvisedThreshold(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	o := NewCPUOptions()
+	o.EnableLoadEvictionAdvisedThreshold = true
+
+	conf := qrmconfig.NewCPUQRMPluginConfig()
+	as.NoError(o.ApplyTo(conf))
+	as.True(conf.EnableLoadEvictionAdvisedThreshold)
+}
+
 func TestNewCPUOptions_Defaults_ContainerCPUIdle(t *testing.T) {
 	t.Parallel()
 
