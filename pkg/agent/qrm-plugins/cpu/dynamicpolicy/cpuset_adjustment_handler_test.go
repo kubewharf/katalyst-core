@@ -1249,6 +1249,123 @@ func TestAdvisorPostCommitRetryReplaysAllStagesUntilConverged(t *testing.T) {
 	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
 }
 
+// TestAdvisorPostCommitConvergenceDeadlineReleasesWriterFence verifies that a
+// physical_apply failure caused solely by convergence-budget exhaustion drops
+// the writer fence immediately (mirroring recoverStuck) so unrelated Allocate
+// calls do not wait for the 30s stuck threshold. The target and its WAL must
+// remain for the background retry to finish the physical replay.
+func TestAdvisorPostCommitConvergenceDeadlineReleasesWriterFence(t *testing.T) {
+	t.Parallel()
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+
+	p.applyHeadroomHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.applyCgroupConfigsHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.runCPUSetAdjustmentHandlersHook = func(_ context.Context, _ ...cpusetutil.CPUSetAdjustmentMode) error {
+		return fmt.Errorf("run cpuset adjustment handler %q: %w",
+			"cpuset_topology",
+			fmt.Errorf("%w: %s", bulkheadtopology.ErrConvergenceDeadlineExceeded, "deadline=10s"))
+	}
+	p.markAdvisorApplyFailedHook = func(_ uint64) {}
+
+	p.Lock()
+	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
+	p.Unlock()
+
+	require.ErrorContains(t, err, "convergence deadline exceeded")
+	// Target is still pending (retain WAL for retry), but writer fence must be released.
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	require.True(t, target.writerFenceReleased, "writer fence must be released on convergence deadline")
+	require.NotNil(t, p.adjustment.advisorPostCommitTarget, "target must remain for background retry")
+	require.Contains(t, p.adjustment.cpuSetAdjustmentRetryReasons, cpusetutil.RetryReasonApplyFailed)
+	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+}
+
+// TestAdvisorPostCommitGenuineAdjustmentErrorKeepsWriterFence verifies that a
+// non-deadline physical_apply failure (e.g. a cgroup write error bubbled up
+// through runCPUSetAdjustmentHandlers) keeps the writer fence held, because
+// unrelated writers must not race an incomplete physical transaction.
+func TestAdvisorPostCommitGenuineAdjustmentErrorKeepsWriterFence(t *testing.T) {
+	t.Parallel()
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+
+	p.applyHeadroomHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.applyCgroupConfigsHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.runCPUSetAdjustmentHandlersHook = func(_ context.Context, _ ...cpusetutil.CPUSetAdjustmentMode) error {
+		return errors.New("real cgroup write failure: invalid argument")
+	}
+	p.markAdvisorApplyFailedHook = func(_ uint64) {}
+
+	p.Lock()
+	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
+	p.Unlock()
+
+	require.ErrorContains(t, err, "real cgroup write failure")
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	require.False(t, target.writerFenceReleased, "writer fence must stay held on genuine errors")
+	require.NotNil(t, p.adjustment.advisorPostCommitTarget)
+	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+}
+
+// A generic caller deadline has no proof that topology exhausted its own
+// convergence budget, so it must not release the post-commit serialization fence.
+func TestAdvisorPostCommitGenericContextDeadlineKeepsWriterFence(t *testing.T) {
+	t.Parallel()
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+
+	p.applyHeadroomHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.applyCgroupConfigsHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.runCPUSetAdjustmentHandlersHook = func(_ context.Context, _ ...cpusetutil.CPUSetAdjustmentMode) error {
+		return context.DeadlineExceeded
+	}
+	p.markAdvisorApplyFailedHook = func(_ uint64) {}
+
+	p.Lock()
+	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
+	p.Unlock()
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	require.False(t, target.writerFenceReleased,
+		"generic context deadline must not release writer fence")
+	require.NotNil(t, p.adjustment.advisorPostCommitTarget)
+	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+}
+
+// Even with an explicit topology deadline, a failed non-topology stage leaves
+// the transaction incomplete and must keep the writer fence held.
+func TestAdvisorPostCommitConvergenceDeadlineWithStageFailureKeepsWriterFence(t *testing.T) {
+	t.Parallel()
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+
+	p.applyHeadroomHook = func(_ *advisorapi.ListAndWatchResponse) error {
+		return errors.New("headroom apply failed")
+	}
+	p.applyCgroupConfigsHook = func(_ *advisorapi.ListAndWatchResponse) error { return nil }
+	p.runCPUSetAdjustmentHandlersHook = func(_ context.Context, _ ...cpusetutil.CPUSetAdjustmentMode) error {
+		return fmt.Errorf("%w: deadline=10s", bulkheadtopology.ErrConvergenceDeadlineExceeded)
+	}
+	p.markAdvisorApplyFailedHook = func(_ uint64) {}
+
+	p.Lock()
+	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
+	p.Unlock()
+
+	require.ErrorContains(t, err, "headroom apply failed")
+	require.ErrorContains(t, err, "convergence deadline exceeded")
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	require.False(t, target.writerFenceReleased,
+		"independent stage failure must preserve writer fence")
+	require.NotNil(t, p.adjustment.advisorPostCommitTarget)
+	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+}
 
 func TestAdvisorPostCommitNewRevisionSupersedesStaleTarget(t *testing.T) {
 	t.Parallel()

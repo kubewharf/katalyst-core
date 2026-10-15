@@ -1658,6 +1658,29 @@ func (p *DynamicPolicy) reconcileAdvisorPostCommitTarget(
 	if mode != cpusetutil.CPUSetAdjustmentModeRetry {
 		p.markAdvisorApplyFailed(target.revision)
 	}
+
+	// A topology convergence-budget failure can leave the post-commit target
+	// replayable even though this attempt could not complete its final convergence
+	// proof. If the other post-commit stages succeeded, release the writer fence
+	// immediately so unrelated Allocate/RemovePod calls do not wait for the 30s
+	// stuck threshold. Retain the target and WAL for background physical replay.
+	// Never release here when headroom/cgroup application also failed: those are
+	// independent incomplete stages and must preserve the serialization fence.
+	deadlineErr := headroomErr == nil && cgroupErr == nil &&
+		checkpointutils.IsTopologyConvergenceDeadline(adjustmentErr)
+	if deadlineErr {
+		p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+		released := p.releaseAdvisorPostCommitWriterFenceLocked(target)
+		if released && !p.adjustment.cpuSetAdjustmentRetryStopping {
+			p.adjustment.cpuSetAdjustmentRetryDirty = true
+			if p.adjustment.cpuSetAdjustmentRetryReasons == nil {
+				p.adjustment.cpuSetAdjustmentRetryReasons = make(map[cpusetutil.CPUSetAdjustmentRetryReason]struct{})
+			}
+			p.adjustment.cpuSetAdjustmentRetryReasons[cpusetutil.RetryReasonApplyFailed] = struct{}{}
+		}
+		p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+	}
+
 	var stageErrors []string
 	if headroomErr != nil {
 		stageErrors = append(stageErrors, fmt.Sprintf("applyHeadroom failed with error: %v", headroomErr))
