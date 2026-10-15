@@ -40,6 +40,7 @@ import (
 func Test_GetCPUInfoWithTopo(t *testing.T) {
 	mockey.PatchConvey("Test GetCPUInfoWithTopo", t, func() {
 		mockey.Mock(os.Stat).Return(nil, nil).Build()
+		mockey.Mock(getCPUArchitecture).Return(cpuArchAMD64, nil).Build()
 		mockey.PatchConvey("Scenario 1: Successfully obtaining Intel CPU topology", func() {
 			// Arrange: Simulate an Intel CPU environment
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
@@ -53,8 +54,8 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 					{CPUs: []int64{1, 3}}, // Physical core 1, containing logical core 1 and 3
 				},
 			}
-			mockey.Mock(getIntelNumaTopo).Return(mockIntelDomain, nil).Build()
-			mockey.Mock(GetCPUPackageID).Return(0, nil).Build()
+			mockey.Mock(getNumaTopo).Return(mockIntelDomain, nil).Build()
+			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
 			mockey.Mock(GetCPUOnlineStatus).Return(true, nil).Build()
 
 			// Act: call the function to be tested
@@ -91,7 +92,7 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 				},
 			}
 			mockey.Mock(getAMDNumaTopo).Return(mockAmdNuma, nil).Build()
-			mockey.Mock(GetCPUPackageID).Return(0, nil).Build()
+			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
 			mockey.Mock(GetCPUOnlineStatus).Return(true, nil).Build()
 
 			// Act: call the function to be tested
@@ -108,16 +109,45 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 			So(info.CPUOnline[8], ShouldBeTrue)
 		})
 
-		mockey.PatchConvey("Scenario 3: CPU manufacturers are not supported", func() {
+		mockey.PatchConvey("Scenario 3: Successfully obtaining arm64 CPU topology", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.VendorUnknown)
-			// Act: call the function to be tested
+			mockey.Mock(getCPUArchitecture).Return(cpuArchARM64, nil).Build()
+			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
+			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
+
+			genericNuma := &LLCDomain{
+				PhyCores: []PhyCore{
+					{CPUs: []int64{0}},
+					{CPUs: []int64{1}},
+				},
+			}
+			mockey.Mock(getNumaTopo).Return(genericNuma, nil).Build()
+			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
+			mockey.Mock(GetCPUOnlineStatus).Return(true, nil).Build()
+
+			info, err := GetCPUInfoWithTopo()
+
+			So(err, ShouldBeNil)
+			So(info, ShouldNotBeNil)
+			So(info.CPUVendor, ShouldEqual, cpuid.VendorUnknown)
+			So(info.Sockets[0].NumaIDs, ShouldResemble, []int{0})
+			So(info.Sockets[0].Numas[0], ShouldResemble, genericNuma)
+			So(info.Sockets[0].CPUs, ShouldResemble, []int64{0, 1})
+			So(info.CPU2Socket, ShouldResemble, map[int64]int{0: 0, 1: 0})
+			So(info.CPUOnline, ShouldResemble, map[int64]bool{0: true, 1: true})
+		})
+
+		mockey.PatchConvey("Scenario 4: Unsupported CPU architecture is disabled", func() {
+			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.VendorUnknown)
+			mockey.Mock(getCPUArchitecture).Return("ppc64le", nil).Build()
+
 			info, err := GetCPUInfoWithTopo()
 
 			So(info, ShouldBeNil)
 			So(err, ShouldBeNil)
 		})
 
-		mockey.PatchConvey("Scenario 4: Failed to read the node directory", func() {
+		mockey.PatchConvey("Scenario 5: Failed to read the node directory", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
 			expectedErr := errors.New("permission denied")
 			mockey.Mock(os.ReadDir).Return(nil, expectedErr).Build()
@@ -130,14 +160,14 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 			So(err.Error(), ShouldContainSubstring, expectedErr.Error())
 		})
 
-		mockey.PatchConvey("Scenario 5: The offline CPU exists when obtaining the CPU's online status", func() {
+		mockey.PatchConvey("Scenario 6: The offline CPU exists when obtaining the CPU's online status", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
 			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
 			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
 			mockIntelDomain := &LLCDomain{
 				PhyCores: []PhyCore{{CPUs: []int64{0, 1}}},
 			}
-			mockey.Mock(getIntelNumaTopo).Return(mockIntelDomain, nil).Build()
+			mockey.Mock(getNumaTopo).Return(mockIntelDomain, nil).Build()
 			mockey.Mock(GetCPUPackageID).Return(0, nil).Build()
 			mockey.Mock(GetCPUOnlineStatus).To(func(cpuID int64) (bool, error) {
 				if cpuID == 1 {
@@ -154,14 +184,14 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 			So(err.Error(), ShouldEqual, fmt.Sprintf("offline cpu %d exists in /sys/devices/system/node/nodeX/cpu_list", 1))
 		})
 
-		mockey.PatchConvey("Scenario 6: Failed to obtain CPU Package ID", func() {
+		mockey.PatchConvey("Scenario 7: Failed to obtain CPU Package ID", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
 			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
 			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
 			mockIntelDomain := &LLCDomain{
 				PhyCores: []PhyCore{{CPUs: []int64{0}}},
 			}
-			mockey.Mock(getIntelNumaTopo).Return(mockIntelDomain, nil).Build()
+			mockey.Mock(getNumaTopo).Return(mockIntelDomain, nil).Build()
 
 			expectedErr := errors.New("failed to read package id")
 			mockey.Mock(GetCPUPackageID).Return(-1, expectedErr).Build()
@@ -318,7 +348,18 @@ func TestGetNumaPackageID(t *testing.T) {
 			So(id, ShouldEqual, 1)
 		})
 
-		mockey.PatchConvey("Scenario 4: cpulist is not empty, and the package id is failed", func() {
+		mockey.PatchConvey("Scenario 4: unknown package id is normalized to socket 0", func() {
+			mockey.Mock(os.Stat).Return(nil, nil).Build()
+			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{4}, nil).Build()
+			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
+
+			id, err := GetNumaPackageID(0)
+
+			So(err, ShouldBeNil)
+			So(id, ShouldEqual, 0)
+		})
+
+		mockey.PatchConvey("Scenario 5: cpulist is not empty, and the package id is failed", func() {
 			// Arrange: Simulate parsing the CPU list, but fails to get the package id
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{4}, nil).Build()
@@ -334,7 +375,7 @@ func TestGetNumaPackageID(t *testing.T) {
 			So(err.Error(), ShouldContainSubstring, "failed to GetCPUPackageID")
 		})
 
-		mockey.PatchConvey("Scenario 5: cpulist is empty, failed to get the socket number", func() {
+		mockey.PatchConvey("Scenario 6: cpulist is empty, failed to get the socket number", func() {
 			// Arrange: Simulate parsing an empty CPU list and failing to get the number of sockets
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{}, nil).Build()
@@ -350,7 +391,7 @@ func TestGetNumaPackageID(t *testing.T) {
 			So(err.Error(), ShouldContainSubstring, "failed to GetSocketCount")
 		})
 
-		mockey.PatchConvey("Scenario 6: cpulist is empty, socket number is 0", func() {
+		mockey.PatchConvey("Scenario 7: cpulist is empty, socket number is 0", func() {
 			// Arrange: Simulate to parse empty CPU list, and the number of sockets is 0
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{}, nil).Build()
@@ -365,7 +406,7 @@ func TestGetNumaPackageID(t *testing.T) {
 			So(err.Error(), ShouldEqual, "socket count is 0")
 		})
 
-		mockey.PatchConvey("Scene 7: cpulist is empty, socket number is 1", func() {
+		mockey.PatchConvey("Scenario 8: cpulist is empty, socket number is 1", func() {
 			// Arrange: Simulate to parse empty CPU list, and the number of sockets is 1
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{}, nil).Build()
@@ -379,7 +420,7 @@ func TestGetNumaPackageID(t *testing.T) {
 			So(id, ShouldEqual, 0)
 		})
 
-		mockey.PatchConvey("Scenario 8: cpulist is empty, the number of sockets is greater than 1, and the number of nodes is failed", func() {
+		mockey.PatchConvey("Scenario 9: cpulist is empty, the number of sockets is greater than 1, and the number of nodes is failed", func() {
 			// Arrange: Simulate parsing an empty CPU list, the number of sockets is greater than 1, but the number of nodes is failed
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{}, nil).Build()
@@ -396,7 +437,7 @@ func TestGetNumaPackageID(t *testing.T) {
 			So(err.Error(), ShouldContainSubstring, "failed to GetNodeCount")
 		})
 
-		mockey.PatchConvey("Scenario 9: cpulist is empty, the number of sockets is greater than 1, the package id is successfully calculated", func() {
+		mockey.PatchConvey("Scenario 10: cpulist is empty, the number of sockets is greater than 1, the package id is successfully calculated", func() {
 			// Arrange: Simulate and parse the empty CPU list, the number of sockets is greater than 1, and the calculation is successful
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{}, nil).Build()
@@ -881,9 +922,9 @@ func Test_GetSocketCount(t *testing.T) {
 	})
 }
 
-func Test_getIntelNumaTopo(t *testing.T) {
+func Test_getNumaTopo(t *testing.T) {
 	const fakeNodeCPUListFile = "/tmp/node0_cpulist"
-	mockey.PatchConvey("Test getIntelNumaTopo", t, func() {
+	mockey.PatchConvey("Test getNumaTopo", t, func() {
 		mockey.PatchConvey("Scene 1: Get the LLC Domain normally", func() {
 			// Mock general.ParseLinuxListFormatFromFile
 			mockey.Mock(general.ParseLinuxListFormatFromFile).To(func(file string) ([]int64, error) {
@@ -902,7 +943,7 @@ func Test_getIntelNumaTopo(t *testing.T) {
 			mockey.Mock(os.Stat).Return(nil, nil).Build()
 
 			// Act: call the function to be tested
-			llcDomain, err := getIntelNumaTopo(fakeNodeCPUListFile)
+			llcDomain, err := getNumaTopo(fakeNodeCPUListFile)
 
 			// Assert: assertion results
 			So(err, ShouldBeNil)
@@ -921,14 +962,14 @@ func Test_getIntelNumaTopo(t *testing.T) {
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return(nil, expectedErr).Build()
 
 			// Act: call the function to be tested
-			llcDomain, err := getIntelNumaTopo(fakeNodeCPUListFile)
+			llcDomain, err := getNumaTopo(fakeNodeCPUListFile)
 
 			So(llcDomain, ShouldBeNil)
 			So(err, ShouldNotBeNil)
 			So(err.Error(), ShouldContainSubstring, expectedErr.Error())
 		})
 
-		mockey.PatchConvey("Scenario 3: The CPU topology file of the physical core does not exist", func() {
+		mockey.PatchConvey("Scenario 3: Missing physical core topology is skipped", func() {
 			mockey.Mock(os.Stat).To(func(name string) (os.FileInfo, error) {
 				if name == filepath.Join(cpuSysDir, "cpu4/topology/thread_siblings_list") {
 					return nil, os.ErrNotExist
@@ -949,7 +990,7 @@ func Test_getIntelNumaTopo(t *testing.T) {
 			}).Build()
 
 			// Act: call the function to be tested
-			llcDomain, err := getIntelNumaTopo(fakeNodeCPUListFile)
+			llcDomain, err := getNumaTopo(fakeNodeCPUListFile)
 
 			So(err, ShouldBeNil)
 			So(llcDomain, ShouldNotBeNil)
@@ -973,7 +1014,7 @@ func Test_getIntelNumaTopo(t *testing.T) {
 			}).Build()
 
 			// Act: call the function to be tested
-			llcDomain, err := getIntelNumaTopo(fakeNodeCPUListFile)
+			llcDomain, err := getNumaTopo(fakeNodeCPUListFile)
 
 			So(llcDomain, ShouldBeNil)
 			So(err, ShouldNotBeNil)
@@ -991,7 +1032,7 @@ func Test_getIntelNumaTopo(t *testing.T) {
 			}).Build()
 
 			// Act: call the function to be tested
-			llcDomain, err := getIntelNumaTopo(fakeNodeCPUListFile)
+			llcDomain, err := getNumaTopo(fakeNodeCPUListFile)
 
 			So(llcDomain, ShouldBeNil)
 			So(err, ShouldNotBeNil)
