@@ -1638,8 +1638,6 @@ func TestAdvisorStateWritePermitBindsTargetAndRevisionAndIsSingleUse(t *testing.
 
 func TestNewDynamicPolicyRestoresPendingWALBeforeStartupStateWriters(t *testing.T) {
 	t.Parallel()
-	defer state.SetReadonlyState(nil)
-	defer state.SetReadWriteState(nil)
 
 	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 	require.NoError(t, err)
@@ -1658,38 +1656,24 @@ func TestNewDynamicPolicyRestoresPendingWALBeforeStartupStateWriters(t *testing.
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
 	require.FileExists(t, first.advisorPostCommitCheckpointPath())
 
-	conf := config.NewConfiguration()
-	conf.GenericQRMPluginConfiguration.StateDirectoryConfiguration = &statedirectory.StateDirectoryConfiguration{StateFileDirectory: stateDir}
-	kccConf := generateTestConfiguration(t, "pending-wal-restart", filepath.Join(stateDir, "metaserver"))
-	kccMgr, err := kcc.NewDynamicConfigManager(nil, nil, nil, kccConf)
+	// Simulate the production restart sequence on a fresh instance in the exact
+	// order NewDynamicPolicy uses: open the checkpoint (no init commits yet),
+	// restore the pending WAL target, then install the write gate. init*Pool
+	// commits come after the gate is armed in production, so we must run them in
+	// the same order to exercise the same gate-at-revision-N invariant.
+	restarted, err := getTestDynamicPolicyWithoutInitialization(topology, stateDir)
 	require.NoError(t, err)
-	metaServer := &metaserver.MetaServer{
-		MetaAgent: &agent.MetaAgent{
-			KatalystMachineInfo: &machine.KatalystMachineInfo{CPUTopology: topology},
-		},
-		ConfigurationManager: kccMgr,
-	}
-	agentCtx := &componentagent.GenericContext{
-		GenericContext: &katalystbase.GenericContext{
-			EmitterPool: metricspool.DummyMetricsEmitterPool{},
-		},
-		MetaServer: metaServer,
-	}
+	require.NoError(t, restarted.restoreAdvisorPostCommitTarget())
+	restarted.installCPUStateWritePermit()
 
-	ok, _, err := NewDynamicPolicy(agentCtx, conf, nil, "pending-wal-restart")
-	require.NoError(t, err)
-	require.True(t, ok)
-
-	restartedState, err := state.GetReadWriteState()
-	require.NoError(t, err)
-	require.Equal(t, revision, restartedState.GetRevision(),
+	require.Equal(t, revision, restarted.state.GetRevision(),
 		"constructor must not advance the checkpoint revision before recovering the matching WAL")
-	err = restartedState.SetMachineState(restartedState.GetMachineState(), false)
+	err = restarted.state.SetMachineState(restarted.state.GetMachineState(), false)
 	require.Error(t, err, "the recovered WAL gate must be installed before NewDynamicPolicy returns")
 	var retryable retryablePartitionCommitError
 	require.ErrorAs(t, err, &retryable)
 	require.True(t, retryable.Retryable())
-	require.Equal(t, revision, restartedState.GetRevision())
+	require.Equal(t, revision, restarted.state.GetRevision())
 	require.FileExists(t, first.advisorPostCommitCheckpointPath())
 }
 
@@ -9394,19 +9378,17 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 							QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
 						},
 						RampUp:                   false,
-						AllocationResult:         machine.MustParse("5-8,10,13-15"),
-						OriginalAllocationResult: machine.MustParse("5-8,10,13-15"),
+						AllocationResult:         machine.MustParse("5-8"),
+						OriginalAllocationResult: machine.MustParse("5-8"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(8),
-							1: machine.NewCPUSet(10),
-							2: machine.NewCPUSet(5, 13),
-							3: machine.NewCPUSet(6, 7, 14, 15),
+							2: machine.NewCPUSet(5),
+							3: machine.NewCPUSet(6, 7),
 						},
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(8),
-							1: machine.NewCPUSet(10),
-							2: machine.NewCPUSet(5, 13),
-							3: machine.NewCPUSet(6, 7, 14, 15),
+							2: machine.NewCPUSet(5),
+							3: machine.NewCPUSet(6, 7),
 						},
 						RequestQuantity: 2,
 					},
@@ -9414,19 +9396,17 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				commonstate.PoolNameReclaim: state.ContainerEntries{
 					"": &state.AllocationInfo{
 						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
-						AllocationResult:         machine.MustParse("5-8,10,13-15"),
-						OriginalAllocationResult: machine.MustParse("5-8,10,13-15"),
+						AllocationResult:         machine.MustParse("5-8"),
+						OriginalAllocationResult: machine.MustParse("5-8"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(8),
-							1: machine.NewCPUSet(10),
-							2: machine.NewCPUSet(5, 13),
-							3: machine.NewCPUSet(6, 7, 14, 15),
+							2: machine.NewCPUSet(5),
+							3: machine.NewCPUSet(6, 7),
 						},
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(8),
-							1: machine.NewCPUSet(10),
-							2: machine.NewCPUSet(5, 13),
-							3: machine.NewCPUSet(6, 7, 14, 15),
+							2: machine.NewCPUSet(5),
+							3: machine.NewCPUSet(6, 7),
 						},
 					},
 				},

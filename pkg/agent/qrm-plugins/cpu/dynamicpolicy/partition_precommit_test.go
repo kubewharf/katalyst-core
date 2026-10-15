@@ -542,6 +542,56 @@ func TestPreparePendingCPUPartitionRejectsPartialReclaimCore(t *testing.T) {
 	)
 }
 
+func TestPreparePendingCPUPartitionRejectsReclaimEmptiedAfterRepair(t *testing.T) {
+	t.Parallel()
+	// The planned candidate starts with a legal non-empty reclaim pool. The external
+	// validate callback (simulating a repair/resync mutation) then empties the reclaim
+	// pool. The post-validate terminal guard must reject it as errReclaimFallbackEmptyRequired
+	// and leave revision/entries/machineState/checkpoint unchanged.
+	topology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
+	require.NoError(t, err)
+	stateDir := t.TempDir()
+	p, err := getTestDynamicPolicyWithoutInitialization(topology, stateDir)
+	require.NoError(t, err)
+
+	require.NoError(t, p.state.StoreState())
+	initialRevision := p.state.GetRevision()
+	initialEntries := p.state.GetPodEntries()
+	initialMachineState := p.state.GetMachineState()
+	checkpointPath := filepath.Join(stateDir, cpuPluginStateFileName)
+	initialCheckpoint, err := os.ReadFile(checkpointPath)
+	require.NoError(t, err)
+
+	planned := precommitPartitionEntries(
+		coresInNUMA(topology, 0, 0, 1),
+		coresInNUMA(topology, 0, 1, 2),
+	)
+
+	_, _, err = p.commitPendingCPUPartition(pendingCPUPartition{
+		expectedRevision:          initialRevision,
+		entries:                   planned,
+		disableDedicated:          true,
+		persist:                   true,
+		source:                    "reclaim emptied after repair",
+		requireCoreAlignedReclaim: true,
+		enforceSteadyReclaim:      true,
+		validate: func(entries state.PodEntries, _ state.NUMANodeMap, _, _ bool) error {
+			// Simulate a repair/resync that empties the reclaim pool.
+			entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].
+				AllocationResult = machine.NewCPUSet()
+			return nil
+		},
+	})
+
+	require.ErrorIs(t, err, errReclaimFallbackEmptyRequired)
+	require.Equal(t, initialRevision, p.state.GetRevision())
+	require.Equal(t, initialEntries, p.state.GetPodEntries())
+	require.Equal(t, initialMachineState, p.state.GetMachineState())
+	afterCheckpoint, readErr := os.ReadFile(checkpointPath)
+	require.NoError(t, readErr)
+	require.Equal(t, initialCheckpoint, afterCheckpoint)
+}
+
 func testPreparePendingCPUPartitionRejectsReplacementMutation(
 	t *testing.T,
 	mutate func(*machine.CPUTopology, state.PodEntries),
@@ -1507,7 +1557,7 @@ func TestReviseReclaimPoolRejectsIllegalReclaimedRampUp(t *testing.T) {
 		newEntries,
 		machine.NewCPUSet(),
 		machine.NewCPUSet(),
-		false,
+		reclaimFallbackMode{allowSharedOverlap: false, disableDedicatedOverlap: false},
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "reclaim-pod/main")

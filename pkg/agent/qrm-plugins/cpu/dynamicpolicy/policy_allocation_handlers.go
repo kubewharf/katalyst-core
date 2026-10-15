@@ -3241,6 +3241,15 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 ) error {
 	allowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 	disableDedicatedCoresOverlapReclaimedCores := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
+	// This attempt's immutable reclaim-fallback mode: enableReclaim from the
+	// dynamicConf snapshot threaded into this apply, share/dedicated flags from
+	// the committed state. It is built once here and reused by materialization,
+	// revise and precommit validation so they observe the same policy.
+	reclaimMode := reclaimFallbackMode{
+		enableReclaim:           dynamicConf != nil && dynamicConf.EnableReclaim,
+		allowSharedOverlap:      allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedOverlap: disableDedicatedCoresOverlapReclaimedCores,
+	}
 	// Calculate from this adjustment's candidate snapshot so materialization
 	// and precommit validation observe the same RNB ownership.
 	nonReclaimActualBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
@@ -3252,9 +3261,11 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	if !rampUpReclaimFloor.IsEmpty() {
 		poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(rampUpReclaimFloor)
 	}
-	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
-		return fmt.Errorf("entry: %s is empty", commonstate.PoolNameReclaim)
-	}
+	// Do not fail early on an empty reclaim pool here: buildPoolEntries must be able
+	// to materialize an empty reclaim entry so reviseReclaimPool can repair it from
+	// the eligible set. The terminal non-empty/legal check is enforced by the
+	// existing precommit/final validation on the actual newEntries after all
+	// mutations (default share, ramp-up, container, normalize), not by this early guard.
 
 	if err := p.buildPoolEntries(newPodEntries, poolsCPUSet, curEntries); err != nil {
 		return err
@@ -3266,7 +3277,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		newPodEntries,
 		nonReclaimActualBindingNUMAs,
 		unionDedicatedIsolatedCPUSet,
-		allowSharedCoresOverlapReclaimedCores,
+		reclaimMode,
 	)
 	if err != nil {
 		return err
@@ -3533,6 +3544,11 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		persist:          persistCheckpoint,
 		source:           "pool adjustment",
 		validate: func(entries state.PodEntries, ms state.NUMANodeMap, overlap, dedicated bool) error {
+			// Terminal non-empty reclaim check after all mutations; shared helper
+			// with preparePendingCPUPartition so the guard has one source of truth.
+			if err := validateRequiredReclaimPool(entries); err != nil {
+				return err
+			}
 			return p.validatePendingAdvisorPartitionViewWithRampUpExclusionWithDynamicConfig(entries, ms, overlap, dedicated, dynamicConf)
 		},
 		dynamicConfig:             dynamicConf,
@@ -3982,9 +3998,67 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 			poolsCPUSet[commonstate.PoolNameReclaim] = currentReclaim.Union(reclaimFallback)
 		}
 	} else if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
-		// Preserve legacy overlap behavior outside disjoint reclaim mode.
-		general.Infof("fallback takeByNUMABalance in generatePoolsAndIsolation for reclaimedCPUSet: %s", p.reclaim.reservedReclaimedCPUSet.String())
-		poolsCPUSet[commonstate.PoolNameReclaim] = p.reclaim.reservedReclaimedCPUSet.Clone()
+		// Reclaim pool is empty after apportion: build the bounded fallback from the
+		// full hard-eligible set (all CPUs minus reserved/forbidden/system/not-allocatable).
+		// This is computed regardless of allowOverlap: legacy share-overlap may borrow CPUs
+		// already held by shared pools, but hard-excluded CPUs (reserved, forbidden, system,
+		// not-allocatable) are never borrowed. availableCPUs is a first guess; when it is
+		// empty we rebuild from the full machine to get the overlap-eligible superset.
+		priorReclaim := machine.NewCPUSet()
+		if cset, cErr := currentPodEntries.GetCPUSetForPool(commonstate.PoolNameReclaim); cErr == nil {
+			priorReclaim = cset
+		}
+		hardEligible := p.machine.machineInfo.CPUDetails.CPUs().
+			Difference(p.config.reservedCPUs).
+			Difference(p.getNotAllocatablePoolCPUs(currentPodEntries))
+		// The fallback must not re-borrow ownership already apportioned in this very
+		// generation, even when availableCPUs collapses to empty and we fall back to
+		// hardEligible. Dedicated is excluded whenever disableDedicatedOverlap is set
+		// (independent of strict/allowOverlap); share-type pools are excluded whenever
+		// share overlap is not allowed, leaving the bounded legacy share-overlap
+		// exception intact.
+		hardEligible = hardEligible.Difference(modeProhibitedPoolCPUs(poolsCPUSet, reclaimFallbackMode{
+			enableReclaim:           enableReclaim,
+			allowSharedOverlap:      allowOverlap,
+			disableDedicatedOverlap: disableDedicatedOverlap,
+		}))
+		// All paths: eligible must be a subset of hardEligible. availableCPUs is the
+		// unallocated residual but may include forbidden/system CPUs already processed;
+		// intersect it with hardEligible to guarantee hard exclusions on every path.
+		eligible := availableCPUs.Intersection(hardEligible)
+		if eligible.IsEmpty() {
+			eligible = hardEligible
+		}
+		want := p.reclaim.reservedReclaimedCPUsSize
+		mode := reclaimFallbackMode{
+			enableReclaim:           enableReclaim,
+			allowSharedOverlap:      allowOverlap,
+			disableDedicatedOverlap: disableDedicatedOverlap,
+		}
+		if want <= 0 {
+			// No explicit size requirement: use the bounded seed preference intersected
+			// with hard-eligible. Never unfiltered-clone reservedReclaimedCPUSet.
+			seed := p.reclaim.reservedReclaimedCPUSet.Clone().Intersection(eligible)
+			general.Infof("legacy bounded reclaim seed in generatePoolsAndIsolation: %s", seed.String())
+			poolsCPUSet[commonstate.PoolNameReclaim] = seed
+		} else {
+			reclaimFallback, fbErr := selectBoundedReclaimFallback(
+				p.machine.machineInfo.CPUTopology,
+				eligible,
+				priorReclaim,
+				p.reclaim.reservedReclaimedCPUSet,
+				want,
+				mode,
+			)
+			if fbErr != nil {
+				// No unfiltered seed rescue here: if hard-eligible is empty and want>0,
+				// the terminal final-validator rejects the empty reclaim pool (no-write).
+				err = fbErr
+				return
+			}
+			general.Infof("bounded reclaim fallback in generatePoolsAndIsolation: %s", reclaimFallback.String())
+			poolsCPUSet[commonstate.PoolNameReclaim] = reclaimFallback
+		}
 	}
 
 	// deal with forbidden pools and system exclusive pools

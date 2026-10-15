@@ -943,6 +943,9 @@ func syncAdvisorPostCommitDirectory(path string) error {
 	return nil
 }
 
+// removeAdvisorPostCommitPath deletes a post-commit WAL path. It is the production
+// implementation referenced by the per-instance removePostCommitPathHook when a
+// test has not overridden it.
 func removeAdvisorPostCommitPath(path string) error {
 	if path == "" {
 		return nil
@@ -957,11 +960,19 @@ func removeAdvisorPostCommitPath(path string) error {
 }
 
 func (p *DynamicPolicy) removeAdvisorPostCommitCheckpoint() error {
-	return removeAdvisorPostCommitPath(p.advisorPostCommitCheckpointPath())
+	fn := p.removePostCommitPathHook
+	if fn == nil {
+		fn = removeAdvisorPostCommitPath
+	}
+	return fn(p.advisorPostCommitCheckpointPath())
 }
 
 func (p *DynamicPolicy) removeAdvisorPostCommitStaging() error {
-	return removeAdvisorPostCommitPath(p.advisorPostCommitStagingPath())
+	fn := p.removePostCommitPathHook
+	if fn == nil {
+		fn = removeAdvisorPostCommitPath
+	}
+	return fn(p.advisorPostCommitStagingPath())
 }
 
 func (p *DynamicPolicy) removeAdvisorPostCommitCheckpoints() error {

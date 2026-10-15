@@ -4965,7 +4965,11 @@ func TestDynamicPolicyReviseReclaimPoolUsesResponseMode(t *testing.T) {
 			name:         "false to true",
 			oldMode:      false,
 			responseMode: true,
-			expected:     machine.NewCPUSet(0, 2, 4, 6),
+			// CPU 2 is node-reserved (p.config.reservedCPUs={0,2}); the new hard-reserved
+			// filter never re-adds it even in overlap mode. NUMA1 core2={2,6} is broken by
+			// the reserved CPU 2, so the core-aligned NUMA1 backfill picks the whole other
+			// core {3,7} instead of the reserved/half pair {2,6}.
+			expected: machine.NewCPUSet(0, 3, 4, 7),
 		},
 	} {
 		tc := tc
@@ -5021,7 +5025,7 @@ func TestDynamicPolicyReviseReclaimPoolUsesResponseMode(t *testing.T) {
 				newEntries,
 				machine.NewCPUSet(),
 				machine.NewCPUSet(2, 6),
-				tc.responseMode,
+				reclaimFallbackMode{allowSharedOverlap: tc.responseMode, disableDedicatedOverlap: false},
 			)
 			require.NoError(t, err)
 			reclaimPool := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]

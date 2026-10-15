@@ -788,7 +788,7 @@ func TestReviseReclaimPoolFallbackReservedMissReusesCommittedOrSkipsEmpty(t *tes
 				newEntries,
 				machine.NewCPUSet(0),
 				machine.NewCPUSet(),
-				false,
+				reclaimFallbackMode{allowSharedOverlap: false, disableDedicatedOverlap: false},
 			)
 			require.NoError(t, err)
 
@@ -872,7 +872,7 @@ func TestReviseReclaimPoolFailsClosedWhenActiveRNBHasNoFallback(t *testing.T) {
 		newEntries,
 		machine.NewCPUSet(0), // NUMA 0 is the non-reclaim-binding NUMA (skipped).
 		p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(1), // all NUMA-1 CPUs unavailable.
-		false,
+		reclaimFallbackMode{allowSharedOverlap: false, disableDedicatedOverlap: false},
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "active reclaimed-numa-binding on NUMA 1")
@@ -953,7 +953,8 @@ func TestReviseReclaimPoolFourNUMAActiveRNBOnOverlap(t *testing.T) {
 	}
 	newEntries["rnb-pod"]["main"].SetSpecifiedNUMABindingNUMAID([]uint64{3})
 
-	err = p.reviseReclaimPool(newEntries, machine.NewCPUSet(), machine.NewCPUSet(), true)
+	err = p.reviseReclaimPool(newEntries, machine.NewCPUSet(), machine.NewCPUSet(),
+		reclaimFallbackMode{allowSharedOverlap: true, disableDedicatedOverlap: false})
 	require.NoError(t, err)
 
 	reclaimPool := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
@@ -1025,14 +1026,16 @@ func TestReviseReclaimPoolOverlapModeFlip(t *testing.T) {
 
 	// Overlap on: reserved NUMA-3 preference is reused directly.
 	on := newEntries()
-	require.NoError(t, p.reviseReclaimPool(on, machine.NewCPUSet(), machine.NewCPUSet(), true))
+	require.NoError(t, p.reviseReclaimPool(on, machine.NewCPUSet(), machine.NewCPUSet(),
+		reclaimFallbackMode{allowSharedOverlap: true, disableDedicatedOverlap: false}))
 	require.True(t, on[commonstate.PoolNameReclaim][commonstate.FakedContainerName].
 		TopologyAwareAssignments[3].Equals(reserved[3]))
 
 	// Overlap off: the same active RNB is backfilled from the available set as a
 	// core-aligned bucket (mode flip changes selection, not the contract).
 	off := newEntries()
-	require.NoError(t, p.reviseReclaimPool(off, machine.NewCPUSet(), machine.NewCPUSet(), false))
+	require.NoError(t, p.reviseReclaimPool(off, machine.NewCPUSet(), machine.NewCPUSet(),
+		reclaimFallbackMode{allowSharedOverlap: false, disableDedicatedOverlap: false}))
 	numa3 := off[commonstate.PoolNameReclaim][commonstate.FakedContainerName].TopologyAwareAssignments[3]
 	require.False(t, numa3.IsEmpty())
 	require.Equal(t, reserved[3].Size(), numa3.Size())
@@ -1189,14 +1192,17 @@ func TestReviseReclaimPoolOverlapFallbackDropsForbiddenAndOffNUMa(t *testing.T) 
 		},
 		commonstate.PoolNameReclaim: {
 			commonstate.FakedContainerName: &state.AllocationInfo{
-				AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
-				AllocationResult:         machine.NewCPUSet(),
-				TopologyAwareAssignments: map[int]machine.CPUSet{},
+				AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult:                 machine.NewCPUSet(24),
+				OriginalAllocationResult:         machine.NewCPUSet(24),
+				TopologyAwareAssignments:         map[int]machine.CPUSet{1: machine.NewCPUSet(24)},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{1: machine.NewCPUSet(24)},
 			},
 		},
 	}
 
-	require.NoError(t, p.reviseReclaimPool(entries, machine.NewCPUSet(), machine.NewCPUSet(), true))
+	require.NoError(t, p.reviseReclaimPool(entries, machine.NewCPUSet(), machine.NewCPUSet(),
+		reclaimFallbackMode{allowSharedOverlap: true, disableDedicatedOverlap: false}))
 	bucket := entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].
 		TopologyAwareAssignments[0]
 	require.False(t, bucket.IsEmpty())
