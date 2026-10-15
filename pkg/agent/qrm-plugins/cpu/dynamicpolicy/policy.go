@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -409,6 +410,12 @@ type DynamicPolicy struct {
 	runCPUSetAdjustmentHandlersHook func(ctx context.Context, modes ...cpusetutil.CPUSetAdjustmentMode) error
 	markAdvisorApplyFailedHook      func(revision uint64)
 
+	// removePostCommitPathHook deletes a post-commit WAL path. A nil hook runs the
+	// production os.Remove implementation; tests override it on their own instance to
+	// force a cleanup failure without monkey patching a process-global function, which
+	// is what lets the bootstrap recovery tests run under t.Parallel.
+	removePostCommitPathHook func(path string) error
+
 	// allocation-adjustment seams. A nil hook runs the production method; tests
 	// override on their own instance to force a specific adjustment outcome.
 	adjustAtRevisionWithContextHook              func(ctx context.Context, entries state.PodEntries, machineState state.NUMANodeMap, persistCheckpoint bool, expectedRevision uint64) error
@@ -568,6 +575,15 @@ func (p *DynamicPolicy) rollbackAllocationState(
 	return nil
 }
 
+// registerDynamicPolicyGlobals installs the freshly built checkpoint state as
+// the process-wide readonly/readwrite singletons. Production wiring calls the
+// state package setters; tests override it with a no-op (or a per-test capture)
+// so parallel bootstrap tests do not clobber one another's global registration.
+var registerDynamicPolicyGlobals = func(stateImpl state.State) {
+	state.SetReadonlyState(stateImpl)
+	state.SetReadWriteState(stateImpl)
+}
+
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
@@ -679,6 +695,17 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 	policyImplement.installCPUStateWritePermit()
 
+	// Derive and install the default reclaim preference caches unconditionally,
+	// even when a pending advisor post-commit WAL target exists. The durable
+	// reclaim pool entry creation/keep happens later under the pending-WAL guard,
+	// but the volatile caches must be populated so consumers that observe the
+	// policy during WAL replay (and after) never see a half-initialized reclaim
+	// view. The derive is pure: it touches machine topology + reservedCPUs only,
+	// no state/WAL/cgroup.
+	if err := policyImplement.installDerivedReclaimPreference(); err != nil {
+		return false, nil, fmt.Errorf("derive default reclaim preference: %w", err)
+	}
+
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
 	// initialize hint optimizer
@@ -722,8 +749,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 			return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReservePool failed with error: %v", err)
 		}
 
-		if err := policyImplement.initReclaimPool(); err != nil {
-			return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
+		if err := policyImplement.ensureInitialReclaimPool(); err != nil {
+			return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy ensureInitialReclaimPool failed with error: %v", err)
 		}
 	}
 
@@ -737,8 +764,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		}
 	}
 
-	state.SetReadonlyState(stateImpl)
-	state.SetReadWriteState(stateImpl)
+	registerDynamicPolicyGlobals(stateImpl)
 
 	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
 	if err != nil {
@@ -2240,25 +2266,32 @@ func (p *DynamicPolicy) initReservePool() error {
 		commonstate.PoolNameReserve, commonstate.FakedContainerName, curReserveAllocationInfo, true)
 }
 
-// initReclaimPool initializes pools for reclaimed-cores.
-// if this info already exists in state-file, just use it, otherwise calculate right away
-func (p *DynamicPolicy) initReclaimPool() error {
+// deriveDefaultReclaimPreference computes the seed reclaim cset, actual size,
+// and per-NUMA assignments from machine topology + reserved CPUs + the configured
+// target size. It is pure: it reads only machine topology and reservedCPUs, never
+// state/WAL/cgroup. All three outputs are computed locally first; the caller
+// installs them atomically on success so no half-initialized cache is observable.
+func deriveDefaultReclaimPreference(
+	cpuTopology *machine.CPUTopology,
+	cpuDetails machine.CPUDetails,
+	reservedCPUs machine.CPUSet,
+	configuredReclaimSize int,
+) (machine.CPUSet, int, map[int]machine.CPUSet, error) {
 	// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
-	allAvailableCPUs := p.machine.machineInfo.CPUDetails.CPUs().Difference(p.config.reservedCPUs)
-	numaIDs := p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
-	cpusPerCore := p.machine.machineInfo.CPUTopology.CPUsPerCore()
+	allAvailableCPUs := cpuDetails.CPUs().Difference(reservedCPUs)
+	numaIDs := cpuDetails.NUMANodes().ToSliceInt()
+	cpusPerCore := cpuTopology.CPUsPerCore()
 	capacityByNUMA := make(map[int]int, len(numaIDs))
 	for _, numaID := range numaIDs {
-		candidates := allAvailableCPUs.Intersection(
-			p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
+		candidates := allAvailableCPUs.Intersection(cpuDetails.CPUsInNUMANodes(numaID))
 		capacityByNUMA[numaID] = takeCoreAlignedCPUSet(
-			p.machine.machineInfo.CPUTopology, candidates, machine.NewCPUSet(), candidates.Size(),
+			cpuTopology, candidates, machine.NewCPUSet(), candidates.Size(),
 		).Size()
 	}
 	reclaimTargets, err := machine.DistributeConfiguredHardReclaimFloor(
-		capacityByNUMA, nil, p.reclaim.reservedReclaimedCPUsSize, cpusPerCore)
+		capacityByNUMA, nil, configuredReclaimSize, cpusPerCore)
 	if err != nil {
-		return fmt.Errorf("distribute core-aligned reserved reclaim cpus: %w", err)
+		return machine.NewCPUSet(), 0, nil, fmt.Errorf("distribute core-aligned reserved reclaim cpus: %w", err)
 	}
 	availableNUMAIDs := make([]int, 0, len(numaIDs))
 	for _, numaID := range numaIDs {
@@ -2269,29 +2302,53 @@ func (p *DynamicPolicy) initReclaimPool() error {
 	defaultReservedReclaimedCPUSet := machine.NewCPUSet()
 	for _, numaID := range availableNUMAIDs {
 		target := reclaimTargets[numaID]
-		numaCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID)
+		numaCPUs := cpuDetails.CPUsInNUMANodes(numaID)
 		selected := takeCoreAlignedCPUSet(
-			p.machine.machineInfo.CPUTopology,
+			cpuTopology,
 			allAvailableCPUs.Intersection(numaCPUs),
 			numaCPUs,
 			target,
 		)
 		if selected.Size() != target {
-			return fmt.Errorf("select core-aligned reserved reclaim cpus in NUMA %d: got %d, want %d",
+			return machine.NewCPUSet(), 0, nil, fmt.Errorf("select core-aligned reserved reclaim cpus in NUMA %d: got %d, want %d",
 				numaID, selected.Size(), target)
 		}
 		defaultReservedReclaimedCPUSet = defaultReservedReclaimedCPUSet.Union(selected)
 	}
-	p.reclaim.reservedReclaimedCPUSet = defaultReservedReclaimedCPUSet.Clone()
-	p.reclaim.reservedReclaimedCPUsSize = defaultReservedReclaimedCPUSet.Size()
-
-	defaultReservedTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, defaultReservedReclaimedCPUSet)
+	defaultReservedTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(cpuTopology, defaultReservedReclaimedCPUSet)
 	if err != nil {
-		return fmt.Errorf("unable to calculate defaultReservedTopologyAwareAssignments for pool: %s, "+
+		return machine.NewCPUSet(), 0, nil, fmt.Errorf("unable to calculate defaultReservedTopologyAwareAssignments for pool: %s, "+
 			"result cpuset: %s, error: %v", commonstate.PoolNameReclaim, defaultReservedReclaimedCPUSet.String(), err)
 	}
-	p.reclaim.reservedReclaimedTopologyAwareAssignments = machine.DeepcopyCPUAssignment(defaultReservedTopologyAwareAssignments)
+	return defaultReservedReclaimedCPUSet, defaultReservedReclaimedCPUSet.Size(),
+		machine.DeepcopyCPUAssignment(defaultReservedTopologyAwareAssignments), nil
+}
 
+// installDerivedReclaimPreference derives the default reclaim preference from
+// machine topology + reservedCPUs and installs all three volatile caches
+// atomically. It is called unconditionally by the production NewDynamicPolicy
+// constructor, before the pending-WAL guard. On error the caches are left
+// untouched — no half-installed state.
+func (p *DynamicPolicy) installDerivedReclaimPreference() error {
+	derived, size, assignments, err := deriveDefaultReclaimPreference(
+		p.machine.machineInfo.CPUTopology,
+		p.machine.machineInfo.CPUDetails,
+		p.config.reservedCPUs,
+		p.reclaim.reservedReclaimedCPUsSize,
+	)
+	if err != nil {
+		return fmt.Errorf("derive default reclaim preference: %w", err)
+	}
+	p.reclaim.reservedReclaimedCPUSet = derived
+	p.reclaim.reservedReclaimedCPUsSize = size
+	p.reclaim.reservedReclaimedTopologyAwareAssignments = assignments
+	return nil
+}
+
+// ensureInitialReclaimPool preserves an existing valid reclaim pool entry and,
+// when none exists yet, materializes a seed reclaim bucket from the derived
+// preference. It never replaces an existing entry with the seed.
+func (p *DynamicPolicy) ensureInitialReclaimPool() error {
 	reclaimedAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		podEntries := p.state.GetPodEntries()
@@ -2305,13 +2362,23 @@ func (p *DynamicPolicy) initReclaimPool() error {
 			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding)).Difference(noneResidentCPUs)
 
 		reclaimedCPUSet := machine.NewCPUSet()
-		for _, numaID := range availableNUMAIDs {
-			target := p.reclaim.reservedReclaimedTopologyAwareAssignments[numaID].Size()
+		// Iterate NUMA IDs in ascending order to preserve the original
+		// takeCoreAlignedCPUSet priority: Go map iteration order is random and
+		// would non-deterministically change which NUMA absorbs global shortage
+		// fallback.
+		sortedNUMAIDs := make([]int, 0, len(p.reclaim.reservedReclaimedTopologyAwareAssignments))
+		for numaID := range p.reclaim.reservedReclaimedTopologyAwareAssignments {
+			sortedNUMAIDs = append(sortedNUMAIDs, numaID)
+		}
+		sort.Ints(sortedNUMAIDs)
+		for _, numaID := range sortedNUMAIDs {
+			assignment := p.reclaim.reservedReclaimedTopologyAwareAssignments[numaID]
+			target := assignment.Size()
 			candidates := availableCPUs.Intersection(p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
 			selected := takeCoreAlignedCPUSet(
 				p.machine.machineInfo.CPUTopology,
 				candidates,
-				p.reclaim.reservedReclaimedTopologyAwareAssignments[numaID],
+				assignment,
 				target,
 			)
 			reclaimedCPUSet = reclaimedCPUSet.Union(selected)
