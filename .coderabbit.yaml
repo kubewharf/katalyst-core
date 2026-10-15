@@ -1,9 +1,10 @@
 language: "en-US"
 early_access: false
 tone_instructions: >-
-  Prioritize correctness, concurrency safety, nil/error handling, and tests.
-  Write concise English text first, then equivalent Simplified Chinese. Do not
-  translate code, paths, APIs, markers, protobuf names, or error strings.
+  Prioritize correctness, concurrency safety, nil/error, tests. Conservative on
+  data-integrity: only flag provable mismatches; cross-layer transforms are
+  intentional. Write English, then Chinese. Don't translate code, paths, APIs,
+  or markers.
 
 reviews:
   profile: "chill"
@@ -11,14 +12,22 @@ reviews:
   high_level_summary: true
   high_level_summary_instructions: >-
     Summarize runtime behavior changes, affected components, operational or
-    rollout risk, and any config or dependency updates. Call out when changes
-    affect agent, controller, scheduler, or release wiring. Write concise English text 
-    first, then equivalent Simplified Chinese. Do not translate code, paths, APIs, markers, 
-    protobuf names, or error strings.
+    rollout risk, and any config or dependency updates. katalyst-core consumes
+    katalyst-api via go.mod pin; note changes needing a new api field or bump
+    first. Call out when changes affect agent, controller, scheduler, or
+    release wiring. Write concise English text first, then equivalent
+    Simplified Chinese. Do not translate code, paths, APIs, markers, protobuf
+    names, or error strings.
   high_level_summary_in_walkthrough: false
   review_status: true
+  review_details: true
   collapse_walkthrough: true
   poem: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
   slop_detection:
     enabled: true
   auto_review:
@@ -41,6 +50,9 @@ reviews:
     - "!**/*.gif"
     - "!**/*.svg"
   path_instructions:
+    - path: "**"
+      instructions: |
+        Skip CI-enforced issues (gofumpt, go vet, t.Parallel, go mod tidy). Critical/Major only for concrete failures (data loss, panic, correctness bug, security vulnerability, privacy leak, credential exposure); style/speculation is Minor.
     - path: "go.mod"
       instructions: |
         Review dependency and module version changes for runtime behavior risk, katalyst-api compatibility, and transitive Kubernetes or controller-runtime impact.
@@ -64,6 +76,21 @@ reviews:
     - path: "docs/**/*.md"
       instructions: |
         Check for technical accuracy, outdated operational guidance, and mismatches between documented behavior and current runtime wiring.
+    - path: "pkg/metrics/**"
+      instructions: |
+        Flag metric tags with pod UID, namespace, or other high-cardinality values.
+    - path: "pkg/scheduler/**"
+      instructions: |
+        pkg/scheduler is excluded from make test; require focused package tests for scheduling changes.
+    - path: "pkg/webhook/**"
+      instructions: |
+        Flag webhooks that mutate without validation or can reject valid pods.
+    - path: "pkg/util/**"
+      instructions: |
+        pkg/util must remain a leaf package; flag imports of agent/controller/scheduler/webhook code.
+    - path: "{Makefile,hack/**,build/**}"
+      instructions: |
+        Flag build/codegen changes that produce non-reproducible output.
 
 knowledge_base:
   automatic_repository_linking: true
