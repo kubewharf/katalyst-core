@@ -179,3 +179,83 @@ func TestQRMPluginConfigurationRecordsInvalidCATExpression(t *testing.T) {
 		t.Fatalf("ClosCATWays = %#v, want nil after invalid map conversion", bulkheadRDT.ClosCATWays)
 	}
 }
+
+func TestQRMPluginConfigurationRDTDisableOverrideLifecycle(t *testing.T) {
+	t.Parallel()
+
+	// Startup seed: dynamic RDT config starts with DisableRDT=true.
+	config := NewQRMPluginConfiguration()
+	config.RDTConfig.DisableRDT = true
+
+	// Apply AQC with nil RDTConfig → startup seed must be preserved.
+	config.ApplyConfiguration(&crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &configv1alpha1.AdminQoSConfiguration{
+			Spec: configv1alpha1.AdminQoSConfigurationSpec{
+				Config: configv1alpha1.AdminQoSConfig{
+					QRMPluginConfig: &configv1alpha1.QRMPluginConfig{
+						RDTConfig: nil,
+					},
+				},
+			},
+		},
+	})
+	if !config.RDTConfig.DisableRDT {
+		t.Fatal("after nil RDTConfig apply, DisableRDT = false, want preserved true")
+	}
+
+	// Apply AQC with RDTConfig but omitted DisableRDT pointer → seed must stay true.
+	config.ApplyConfiguration(&crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &configv1alpha1.AdminQoSConfiguration{
+			Spec: configv1alpha1.AdminQoSConfigurationSpec{
+				Config: configv1alpha1.AdminQoSConfig{
+					QRMPluginConfig: &configv1alpha1.QRMPluginConfig{
+						RDTConfig: &configv1alpha1.RDTConfig{
+							DisableRDT: nil,
+						},
+					},
+				},
+			},
+		},
+	})
+	if !config.RDTConfig.DisableRDT {
+		t.Fatal("after omitted DisableRDT apply, DisableRDT = false, want preserved true")
+	}
+
+	// Explicit pointer false overrides seed to false.
+	disableRDTFalse := false
+	config.ApplyConfiguration(&crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &configv1alpha1.AdminQoSConfiguration{
+			Spec: configv1alpha1.AdminQoSConfigurationSpec{
+				Config: configv1alpha1.AdminQoSConfig{
+					QRMPluginConfig: &configv1alpha1.QRMPluginConfig{
+						RDTConfig: &configv1alpha1.RDTConfig{
+							DisableRDT: &disableRDTFalse,
+						},
+					},
+				},
+			},
+		},
+	})
+	if config.RDTConfig.DisableRDT {
+		t.Fatal("after explicit false apply, DisableRDT = true, want false")
+	}
+
+	// Explicit pointer true sets back to true.
+	disableRDTTrue := true
+	config.ApplyConfiguration(&crd.DynamicConfigCRD{
+		AdminQoSConfiguration: &configv1alpha1.AdminQoSConfiguration{
+			Spec: configv1alpha1.AdminQoSConfigurationSpec{
+				Config: configv1alpha1.AdminQoSConfig{
+					QRMPluginConfig: &configv1alpha1.QRMPluginConfig{
+						RDTConfig: &configv1alpha1.RDTConfig{
+							DisableRDT: &disableRDTTrue,
+						},
+					},
+				},
+			},
+		},
+	})
+	if !config.RDTConfig.DisableRDT {
+		t.Fatal("after explicit true apply, DisableRDT = false, want true")
+	}
+}
