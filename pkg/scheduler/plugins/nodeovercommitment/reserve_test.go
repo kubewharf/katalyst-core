@@ -24,7 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
 )
@@ -158,7 +158,7 @@ func TestReserve(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			n := &NodeOvercommitment{}
-			cs := framework.NewCycleState()
+			cs := schedulerframework.NewCycleState()
 
 			for _, pod := range tc.pods {
 				n.Reserve(context.TODO(), cs, pod, tc.nodeName)

@@ -290,9 +290,6 @@ func TestGetInTreeProviderPolicies(t *testing.T) {
 		{
 			name: "cpu only",
 			conf: &native.KubeletConfiguration{
-				FeatureGates: map[string]bool{
-					string(features.CPUManager): true,
-				},
 				CPUManagerPolicy: "test-cpu-policy",
 			},
 			res: map[string]string{
@@ -305,7 +302,6 @@ func TestGetInTreeProviderPolicies(t *testing.T) {
 			name: "all policies",
 			conf: &native.KubeletConfiguration{
 				FeatureGates: map[string]bool{
-					string(features.CPUManager):    true,
 					string(features.MemoryManager): true,
 				},
 				CPUManagerPolicy:    "test-cpu-policy",

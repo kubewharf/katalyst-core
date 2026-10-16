@@ -32,11 +32,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	"k8s.io/kubelet/pkg/apis/pluginregistration/v1"
+	pluginregistration "k8s.io/kubelet/pkg/apis/pluginregistration/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
+	"maps"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/deviceprovider/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
@@ -58,6 +58,8 @@ import (
 )
 
 type ManagerImpl struct {
+	pluginapi.UnimplementedRegistrationServer
+
 	ctx context.Context
 
 	mode consts.WorkMode
@@ -302,8 +304,8 @@ func (m *ManagerImpl) GetTopologyHints(pod *v1.Pod, container *v1.Container) map
 			ContainerIndex: containerIndex,
 			PodRole:        pod.Labels[pluginapi.PodRoleLabelKey],
 			PodType:        pod.Annotations[pluginapi.PodTypeAnnotationKey],
-			Labels:         maputil.CopySS(pod.Labels),
-			Annotations:    maputil.CopySS(pod.Annotations),
+			Labels:         maps.Clone(pod.Labels),
+			Annotations:    maps.Clone(pod.Annotations),
 			// use mapped resource name in "ResourceName" to indicates which endpoint to request
 			ResourceName: resource,
 			// use original requested resource name in "ResourceRequests" in order to make plugin identity real requested resource name
@@ -524,8 +526,8 @@ func (m *ManagerImpl) addContainer(pod *v1.Pod, container *v1.Container) error {
 			ResourceName: resource,
 			// use original requested resource name in "ResourceRequests" in order to make plugin identity real requested resource name
 			ResourceRequests: map[string]float64{resource: v.AsApproximateFloat64()},
-			Labels:           maputil.CopySS(pod.Labels),
-			Annotations:      maputil.CopySS(pod.Annotations),
+			Labels:           maps.Clone(pod.Labels),
+			Annotations:      maps.Clone(pod.Annotations),
 			NativeQosClass:   string(v1qos.GetPodQOS(pod)),
 		}
 
@@ -687,7 +689,7 @@ func (m *ManagerImpl) UpdatePodResources(
 		}
 
 		klog.V(4).Infof("[ORM] allocation information for resources %s - accompanying resource: %s for pod: %s/%s, container: %s is %v",
-			resource, accResourceName, pod.Namespace, pod.Name, container.Name, *allocationInfo)
+			resource, accResourceName, pod.Namespace, pod.Name, container.Name, allocationInfo)
 
 		m.podResources.insert(string(pod.UID), container.Name, accResourceName, allocationInfo)
 	}

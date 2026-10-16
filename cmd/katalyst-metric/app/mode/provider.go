@@ -38,7 +38,7 @@ func StartCustomMetricServer(ctx context.Context, baseCtx *katalystbase.GenericC
 	adapter.WithCustomMetrics(providerImp)
 	adapter.WithExternalMetrics(providerImp)
 
-	start := func() error { return adapter.Run(ctx.Done()) }
+	start := func() error { return adapter.Run(ctx) }
 	stop := func() error { return nil }
 	return start, stop, nil
 }

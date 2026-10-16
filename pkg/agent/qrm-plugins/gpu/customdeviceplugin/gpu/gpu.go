@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -318,7 +319,7 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 		}
 
 		// Deep copy deviceReq and inject the current NUMA hint
-		deviceReqCopy := *deviceReq
+		deviceReqCopy := proto.Clone(deviceReq).(*pluginapi.DeviceRequest)
 		deviceReqCopy.Hint = &pluginapi.TopologyHint{
 			Nodes:     nodes,
 			Preferred: false,
@@ -326,7 +327,7 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 
 		result, err := manager.AllocateDevicesUsingStrategy(
 			resReq,
-			&deviceReqCopy,
+			deviceReqCopy,
 			p.DeviceTopologyRegistry,
 			p.Conf.GPUQRMPluginConfig,
 			p.Emitter,

@@ -29,8 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
+	"maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -1027,8 +1027,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				ContainerName:        req.ContainerName,
 				ContainerType:        req.ContainerType,
 				ContainerIndex:       req.ContainerIndex,
-				Labels:               maputil.CopySS(req.Labels),
-				Annotations:          maputil.CopySS(req.Annotations),
+				Labels:               maps.Clone(req.Labels),
+				Annotations:          maps.Clone(req.Annotations),
 				QosLevel:             qosLevel,
 				RequestQuantity:      uint64(reqInt),
 				RequestMilliQuantity: uint64(reqFloat64 * 1000),

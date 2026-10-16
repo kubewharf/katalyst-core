@@ -143,7 +143,7 @@ func setupReporterManager(t *testing.T, ctx context.Context, socketDir string, c
 
 	pluginManager.AddHandler(m.GetHandlerType(), plugincache.PluginHandler(m))
 
-	go pluginManager.Run(kubeletconfig.NewSourcesReady(func(_ sets.String) bool { return true }), ctx.Done())
+	go pluginManager.Run(kubeletconfig.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
 
 	return m
 }

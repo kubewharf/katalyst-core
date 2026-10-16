@@ -623,7 +623,7 @@ func (m *EvictionManger) emitPluginValidateResult(pluginName string, strict bool
 		metrics.MetricTag{Key: "user", Val: user})
 }
 
-func (m *EvictionManger) RegisterPlugin(pluginName string, endpoint string, _ []string) error {
+func (m *EvictionManger) RegisterPlugin(pluginName string, endpoint string, _ []string, _ *time.Duration) error {
 	general.Infof(" Registering Plugin %s at endpoint %s", pluginName, endpoint)
 
 	e, err := endpointpkg.NewRemoteEndpointImpl(endpoint, pluginName)
@@ -636,7 +636,7 @@ func (m *EvictionManger) RegisterPlugin(pluginName string, endpoint string, _ []
 	return nil
 }
 
-func (m *EvictionManger) DeRegisterPlugin(pluginName string) {
+func (m *EvictionManger) DeRegisterPlugin(pluginName, _ string) {
 	m.endpointLock.Lock()
 	defer m.endpointLock.Unlock()
 

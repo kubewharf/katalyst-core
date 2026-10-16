@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -113,7 +113,7 @@ func TestReserve(t *testing.T) {
 		cnr, nodeName := makeTestReserveNode()
 		c.AddOrUpdateCNR(cnr)
 
-		f, err := runtime.NewFramework(nil, nil,
+		f, err := runtime.NewFramework(context.Background(), nil, nil,
 			runtime.WithSnapshotSharedLister(newTestSharedLister(nil, nil)))
 		assert.NoError(t, err)
 		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"), f)
@@ -121,7 +121,7 @@ func TestReserve(t *testing.T) {
 
 		n := &v1.Node{}
 		n.SetName(nodeName)
-		nodeInfo := framework.NewNodeInfo()
+		nodeInfo := schedulerframework.NewNodeInfo()
 		nodeInfo.SetNode(n)
 
 		// pod can be allocated on node
