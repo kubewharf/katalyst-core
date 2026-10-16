@@ -180,17 +180,21 @@ replace (
 	// BulkheadRDTConfig, CATPolicy/CATPlacementPolicy/CATBitUsage, the CATWays
 	// expression variables, MemoryGuardConfig.CriticalWatermarkSource,
 	// CPUProvisionConfig.ReclaimedCPUMaxRatio/FillDefaultSharePoolWithNonReclaimCPUs,
-	// CPUAdvisorConfig.DisableDedicatedCoresOverlapReclaimedCores, ...) that are
-	// not yet in an official kubewharf/katalyst-api release. They are provided by
-	// the published branch feat/qrm-sysadvisor-bulkhead-api
-	// (github.com/luomingmeng/katalyst-api @ 2489a858f32f16aa3b76bd552f5eac490feeaf86,
+	// CPUAdvisorConfig.DisableDedicatedCoresOverlapReclaimedCores, and the
+	// reclaimed-memory safe-zone gate knobs
+	// MemoryPressureEvictionConfig.EnableReclaimedMemorySafeZoneGate (*bool,
+	// default false) / ReclaimedMemoryUsageRatioThreshold (*float64, [0,1],
+	// default 0)) that are not yet in an official kubewharf/katalyst-api release.
+	// They are provided by the published branch feat/qrm-sysadvisor-bulkhead-api
+	// (github.com/luomingmeng/katalyst-api @ b0997c3d5605bbac9d4e8b2adf4a2c4b32fb8caa,
+	// tree 867ebac99c21d555cb95909479e958b244c83ee2,
 	// PR https://github.com/kubewharf/katalyst-api/pull/230). The fork carries no
 	// upstream tags, so Go resolves this branch head as a v0.0.0 pseudo-version
-	// (same convention as the prior 978cc28577a5 pin below). Keep this pin until the
-	// branch merges upstream / cuts an official release, then drop the replace and
-	// bump the require above to the upstream version. Do NOT merge with this replace
-	// unresolved.
-	github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20261010092749-2489a858f32f
+	// (same convention as the prior pins). The safe-zone gate knobs live on this
+	// branch head. Keep this pin until the branch merges upstream / cuts an
+	// official release, then drop the replace and bump the require above to the
+	// upstream version. Do NOT merge with this replace unresolved.
+	github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20261016162027-b0997c3d5605
 
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
