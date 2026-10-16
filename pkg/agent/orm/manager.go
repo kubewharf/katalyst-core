@@ -32,7 +32,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	"k8s.io/kubelet/pkg/apis/pluginregistration/v1"
+	pluginregistration "k8s.io/kubelet/pkg/apis/pluginregistration/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -58,6 +58,8 @@ import (
 )
 
 type ManagerImpl struct {
+	pluginapi.UnimplementedRegistrationServer
+
 	ctx context.Context
 
 	mode consts.WorkMode

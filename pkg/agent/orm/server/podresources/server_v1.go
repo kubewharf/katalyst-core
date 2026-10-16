@@ -27,6 +27,8 @@ import (
 )
 
 type v1PodResourcesServer struct {
+	v1.UnimplementedPodResourcesListerServer
+
 	podsProvider      PodsProvider
 	resourcesProvider ResourcesProvider
 	devicesProvider   DevicesProvider

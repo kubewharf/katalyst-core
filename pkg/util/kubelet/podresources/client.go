@@ -119,6 +119,20 @@ func (p *podResourcesClient) GetAllocatableResources(ctx context.Context, in *v1
 	return p.client.GetAllocatableResources(ctx, in, opts...)
 }
 
+// Get wraps the Get method of v1.PodResourcesListerClient
+func (p *podResourcesClient) Get(ctx context.Context, in *v1.GetPodResourcesRequest,
+	opts ...grpc.CallOption,
+) (*v1.GetPodResourcesResponse, error) {
+	p.RLock()
+	defer p.RUnlock()
+
+	if !p.isInitialized {
+		return nil, errNotInitialized
+	}
+
+	return p.client.Get(ctx, in, opts...)
+}
+
 // GetClientFunc is a function to get a client for the PodResourcesLister grpc service.
 type GetClientFunc func(socket string, connectionTimeout time.Duration, maxMsgSize int) (v1.PodResourcesListerClient, *grpc.ClientConn, error)
 
