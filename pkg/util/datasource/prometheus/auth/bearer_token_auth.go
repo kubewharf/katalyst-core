@@ -39,5 +39,9 @@ func (p *tokenAuthRoundTripperProvider) GetAuthRoundTripper(c *ClientAuth) (http
 	if len(c.BearerToken) == 0 {
 		return nil, fmt.Errorf("invalid bearer token for bearer token auth")
 	}
-	return config.NewAuthorizationCredentialsRoundTripper("Bearer", config.Secret(c.BearerToken), p.next), nil
+	return config.NewAuthorizationCredentialsRoundTripper(
+		"Bearer",
+		config.NewInlineSecret(c.BearerToken),
+		p.next,
+	), nil
 }

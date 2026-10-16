@@ -39,5 +39,9 @@ func (p *basicAuthRoundTripperProvider) GetAuthRoundTripper(c *ClientAuth) (http
 	if len(c.Username) == 0 || len(c.Password) == 0 {
 		return nil, fmt.Errorf("invalid user name or password for basic auth")
 	}
-	return config.NewBasicAuthRoundTripper(c.Username, config.Secret(c.Password), "", p.next), nil
+	return config.NewBasicAuthRoundTripper(
+		config.NewInlineSecret(c.Username),
+		config.NewInlineSecret(c.Password),
+		p.next,
+	), nil
 }
