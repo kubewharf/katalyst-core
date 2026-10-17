@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -79,6 +80,11 @@ type MetricSyncerNode struct {
 
 	metaServer *metaserver.MetaServer
 	metaReader metacache.MetaReader
+
+	// wg tracks the background goroutines spawned in Run so that Run waits for
+	// them to exit after ctx is cancelled, avoiding goroutine leaks on
+	// shutdown or partial start failure.
+	wg sync.WaitGroup
 }
 
 func NewMetricSyncerNode(conf *config.Configuration, _ interface{},
@@ -113,12 +119,30 @@ func (n *MetricSyncerNode) Name() string {
 	return types.MetricSyncerNameNode
 }
 
-func (n *MetricSyncerNode) Run(ctx context.Context) {
+func (n *MetricSyncerNode) Run(ctx context.Context) error {
+	// Validate dependencies up front, before spawning any goroutine. This turns
+	// a would-be nil-pointer panic inside a detached goroutine into an
+	// observable error that the emitter can act on.
+	if err := n.validate(); err != nil {
+		return err
+	}
+
 	rChan := make(chan metrictypes.NotifiedResponse, 20)
 	rNUMAChan := make(chan metrictypes.NotifiedResponse, 20)
-	go n.receiveRawNode(ctx, rChan)
-	go n.receiveRawNUMA(ctx, rNUMAChan)
-	go wait.Until(func() { n.advisorMetric(ctx) }, time.Second*3, ctx.Done())
+
+	n.wg.Add(3)
+	go func() {
+		defer n.wg.Done()
+		n.receiveRawNode(ctx, rChan)
+	}()
+	go func() {
+		defer n.wg.Done()
+		n.receiveRawNUMA(ctx, rNUMAChan)
+	}()
+	go func() {
+		defer n.wg.Done()
+		wait.Until(func() { n.advisorMetric(ctx) }, time.Second*3, ctx.Done())
+	}()
 
 	// there is no need to deRegister for node-related metric
 	for rawMetricName := range n.metricMapping {
@@ -138,6 +162,27 @@ func (n *MetricSyncerNode) Run(ctx context.Context) {
 			}, rNUMAChan)
 		}
 	}
+
+	<-ctx.Done()
+	// Wait for the background goroutines we spawned to actually exit, so that
+	// the emitter's wait does not return while our goroutines are still running.
+	n.wg.Wait()
+	return nil
+}
+
+// validate ensures the dependencies that Run dereferences are initialized. It is
+// called before any goroutine is spawned so a missing dependency is reported as
+// an error rather than panicking inside a background goroutine.
+func (n *MetricSyncerNode) validate() error {
+	switch {
+	case n.metaServer == nil:
+		return fmt.Errorf("metric syncer node: metaServer is not initialized")
+	case n.metaServer.MetricsFetcher == nil:
+		return fmt.Errorf("metric syncer node: metaServer.MetricsFetcher is not initialized")
+	case n.metaServer.KatalystMachineInfo == nil:
+		return fmt.Errorf("metric syncer node: metaServer.KatalystMachineInfo is not initialized")
+	}
+	return nil
 }
 
 // receiveRawNode receives notified response from raw data source
