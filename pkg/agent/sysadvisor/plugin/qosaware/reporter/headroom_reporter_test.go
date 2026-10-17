@@ -27,6 +27,7 @@ import (
 	"time"
 
 	info "github.com/google/cadvisor/info/v1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -43,12 +44,17 @@ import (
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
+	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_memory"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -457,7 +463,7 @@ func TestGetReclaimedResource(t *testing.T) {
 				headroomManagers: headroomManagers,
 			}
 
-			got, err := r.getReclaimedResource()
+			got, err := r.getReclaimedResource(false, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getReclaimedResource() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -796,4 +802,235 @@ func TestReviseReclaimedResource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newCPUFG() *advisorsvc.FeatureGate {
+	return &advisorsvc.FeatureGate{
+		Name: feature_cpu.NegotiationFeatureGateCPUHeadroomReporting,
+		Type: finders.FeatureGateTypeCPU,
+	}
+}
+
+func newMemoryFG() *advisorsvc.FeatureGate {
+	return &advisorsvc.FeatureGate{
+		Name: feature_memory.NegotiationFeatureGateMemoryHeadroomReporting,
+		Type: finders.FeatureGateTypeMemory,
+	}
+}
+
+func newMockHeadroomManager(name v1.ResourceName, milliValue bool, alloc, cap string) *MockHeadroomManager {
+	return &MockHeadroomManager{
+		name:            name,
+		milliValue:      milliValue,
+		allocatable:     resource.MustParse(alloc),
+		capacity:        resource.MustParse(cap),
+		numaAllocatable: map[int]resource.Quantity{0: resource.MustParse(alloc)},
+		numaCapacity:    map[int]resource.Quantity{0: resource.MustParse(cap)},
+	}
+}
+
+func getOrInit(m map[string]map[string]*advisorsvc.FeatureGate, key string) map[string]*advisorsvc.FeatureGate {
+	if v, ok := m[key]; ok {
+		return v
+	}
+	return map[string]*advisorsvc.FeatureGate{}
+}
+
+func TestShouldSkipReporting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		fgs        map[string]*advisorsvc.FeatureGate
+		nilReader  bool
+		wantCPU    bool
+		wantMemory bool
+	}{
+		{
+			name:       "nil metaReader returns no skip",
+			nilReader:  true,
+			wantCPU:    false,
+			wantMemory: false,
+		},
+		{
+			name:       "empty feature gates returns no skip",
+			fgs:        map[string]*advisorsvc.FeatureGate{},
+			wantCPU:    false,
+			wantMemory: false,
+		},
+		{
+			name: "cpu feature gate only",
+			fgs: map[string]*advisorsvc.FeatureGate{
+				feature_cpu.NegotiationFeatureGateCPUHeadroomReporting: newCPUFG(),
+			},
+			wantCPU:    true,
+			wantMemory: false,
+		},
+		{
+			name: "memory feature gate only",
+			fgs: map[string]*advisorsvc.FeatureGate{
+				feature_memory.NegotiationFeatureGateMemoryHeadroomReporting: newMemoryFG(),
+			},
+			wantCPU:    false,
+			wantMemory: true,
+		},
+		{
+			name: "both feature gates present",
+			fgs: map[string]*advisorsvc.FeatureGate{
+				feature_cpu.NegotiationFeatureGateCPUHeadroomReporting:       newCPUFG(),
+				feature_memory.NegotiationFeatureGateMemoryHeadroomReporting: newMemoryFG(),
+			},
+			wantCPU:    true,
+			wantMemory: true,
+		},
+		{
+			name: "unrelated feature gate ignored",
+			fgs: map[string]*advisorsvc.FeatureGate{
+				"other_fg": {Name: "other_fg"},
+			},
+			wantCPU:    false,
+			wantMemory: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &headroomReporterPlugin{}
+			if !tt.nilReader {
+				mc := metacache.NewDummyMetaCacheImp()
+				if len(tt.fgs) > 0 {
+					byType := map[string]map[string]*advisorsvc.FeatureGate{}
+					for k, fg := range tt.fgs {
+						byType[fg.Type] = getOrInit(byType, fg.Type)
+						byType[fg.Type][k] = fg
+					}
+					for fgType, group := range byType {
+						require.NoError(t, mc.SetSupportedWantedFeatureGates(fgType, group))
+					}
+				}
+				r.metaReader = mc
+			}
+
+			skipCPU, skipMemory, err := r.shouldSkipReporting()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCPU, skipCPU)
+			assert.Equal(t, tt.wantMemory, skipMemory)
+		})
+	}
+}
+
+func TestGetReclaimedResource_SkipFlags(t *testing.T) {
+	t.Parallel()
+
+	buildPlugin := func() *headroomReporterPlugin {
+		return &headroomReporterPlugin{
+			headroomManagers: map[v1.ResourceName]manager.HeadroomManager{
+				consts.ReclaimedResourceMilliCPU: newMockHeadroomManager(v1.ResourceCPU, true, "0", "20000"),
+				consts.ReclaimedResourceMemory:   newMockHeadroomManager(v1.ResourceMemory, false, "15Gi", "30Gi"),
+			},
+		}
+	}
+
+	t.Run("no skip returns both resources", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildPlugin().getReclaimedResource(false, false)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Contains(t, got.resourceNameMap, consts.ReclaimedResourceMilliCPU)
+		assert.Contains(t, got.resourceNameMap, consts.ReclaimedResourceMemory)
+	})
+
+	t.Run("skip cpu drops cpu only", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildPlugin().getReclaimedResource(true, false)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.NotContains(t, got.resourceNameMap, consts.ReclaimedResourceMilliCPU)
+		assert.Contains(t, got.resourceNameMap, consts.ReclaimedResourceMemory)
+		assert.NotContains(t, got.allocatable, consts.ReclaimedResourceMilliCPU)
+		assert.Contains(t, got.allocatable, consts.ReclaimedResourceMemory)
+	})
+
+	t.Run("skip memory drops memory only", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildPlugin().getReclaimedResource(false, true)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Contains(t, got.resourceNameMap, consts.ReclaimedResourceMilliCPU)
+		assert.NotContains(t, got.resourceNameMap, consts.ReclaimedResourceMemory)
+	})
+
+	t.Run("skip both returns nil", func(t *testing.T) {
+		t.Parallel()
+		got, err := buildPlugin().getReclaimedResource(true, true)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+}
+
+func TestGetReportContent_SkipReporting(t *testing.T) {
+	t.Parallel()
+
+	newPlugin := func(fgs map[string]*advisorsvc.FeatureGate) *headroomReporterPlugin {
+		mc := metacache.NewDummyMetaCacheImp()
+		byType := map[string]map[string]*advisorsvc.FeatureGate{}
+		for k, fg := range fgs {
+			if _, ok := byType[fg.Type]; !ok {
+				byType[fg.Type] = map[string]*advisorsvc.FeatureGate{}
+			}
+			byType[fg.Type][k] = fg
+		}
+		for fgType, group := range byType {
+			_ = mc.SetSupportedWantedFeatureGates(fgType, group)
+		}
+
+		dynConf := dynamic.NewDynamicAgentConfiguration()
+		return &headroomReporterPlugin{
+			headroomManagers: map[v1.ResourceName]manager.HeadroomManager{
+				consts.ReclaimedResourceMilliCPU: newMockHeadroomManager(v1.ResourceCPU, true, "1000", "20000"),
+				consts.ReclaimedResourceMemory:   newMockHeadroomManager(v1.ResourceMemory, false, "1Gi", "30Gi"),
+			},
+			metaReader:  mc,
+			dynamicConf: dynConf,
+			emitter:     metrics.DummyMetrics{},
+		}
+	}
+
+	t.Run("both feature gates set returns empty response", func(t *testing.T) {
+		t.Parallel()
+		r := newPlugin(map[string]*advisorsvc.FeatureGate{
+			feature_cpu.NegotiationFeatureGateCPUHeadroomReporting:       newCPUFG(),
+			feature_memory.NegotiationFeatureGateMemoryHeadroomReporting: newMemoryFG(),
+		})
+
+		resp, err := r.GetReportContent(context.Background(), &v1alpha1.Empty{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Empty(t, resp.Content)
+	})
+
+	t.Run("no feature gate reports both", func(t *testing.T) {
+		t.Parallel()
+		r := newPlugin(map[string]*advisorsvc.FeatureGate{})
+
+		resp, err := r.GetReportContent(context.Background(), &v1alpha1.Empty{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.NotEmpty(t, resp.Content)
+	})
+
+	t.Run("only cpu feature gate still reports memory", func(t *testing.T) {
+		t.Parallel()
+		r := newPlugin(map[string]*advisorsvc.FeatureGate{
+			feature_cpu.NegotiationFeatureGateCPUHeadroomReporting: newCPUFG(),
+		})
+
+		resp, err := r.GetReportContent(context.Background(), &v1alpha1.Empty{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.NotEmpty(t, resp.Content)
+	})
 }

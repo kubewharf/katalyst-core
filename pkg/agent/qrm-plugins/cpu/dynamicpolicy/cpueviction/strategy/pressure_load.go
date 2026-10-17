@@ -74,12 +74,13 @@ var handleMetrics = sets.NewString(
 
 type CPUPressureLoadEviction struct {
 	sync.Mutex
-	state       state.ReadonlyState
-	emitter     metrics.MetricEmitter
-	metaServer  *metaserver.MetaServer
-	qosConf     *generic.QoSConfiguration
-	dynamicConf *dynamic.DynamicAgentConfiguration
-	skipPools   sets.String
+	state                  state.ReadonlyState
+	emitter                metrics.MetricEmitter
+	metaServer             *metaserver.MetaServer
+	qosConf                *generic.QoSConfiguration
+	dynamicConf            *dynamic.DynamicAgentConfiguration
+	enableAdvisedThreshold bool
+	skipPools              sets.String
 
 	metricsHistory map[string]util.Entries
 
@@ -97,15 +98,16 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 	conf *config.Configuration, readonlyState state.ReadonlyState,
 ) (CPUPressureEviction, error) {
 	plugin := &CPUPressureLoadEviction{
-		state:            readonlyState,
-		emitter:          emitter,
-		metaServer:       metaServer,
-		metricsHistory:   make(map[string]util.Entries),
-		qosConf:          conf.QoSConfiguration,
-		dynamicConf:      conf.DynamicAgentConfiguration,
-		skipPools:        sets.NewString(conf.LoadPressureEvictionSkipPools...),
-		syncPeriod:       conf.LoadEvictionSyncPeriod,
-		configTranslator: commonstate.OwnerPoolNameTranslator,
+		state:                  readonlyState,
+		emitter:                emitter,
+		metaServer:             metaServer,
+		metricsHistory:         make(map[string]util.Entries),
+		qosConf:                conf.QoSConfiguration,
+		dynamicConf:            conf.DynamicAgentConfiguration,
+		enableAdvisedThreshold: conf.EnableLoadEvictionAdvisedThreshold,
+		skipPools:              sets.NewString(conf.LoadPressureEvictionSkipPools...),
+		syncPeriod:             conf.LoadEvictionSyncPeriod,
+		configTranslator:       commonstate.OwnerPoolNameTranslator,
 	}
 
 	systemReservedCores, reserveErr := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
@@ -429,11 +431,10 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, nil)
 
-	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
-	if coreNumReservedForReclaim.Value() > int64(p.metaServer.NumCPUs) {
-		coreNumReservedForReclaim.Set(int64(p.metaServer.NumCPUs))
-	}
-	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
+	dynamicConf := p.dynamicConf.GetDynamicConfiguration()
+	// mirror the advisor's regular reclaim path so the shared-pool limit honors
+	// NUMA-level reserved ratio/floor overrides instead of only the global reserve.
+	reservedForReclaim := machine.ResolvePerNUMAReservedForReclaim(dynamicConf, p.metaServer.CPUTopology)
 
 	reservedForReclaimInSharedNuma := 0
 	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
@@ -463,7 +464,7 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		Time: collectTime,
 	}
 
-	useAdvisedThreshold := p.checkPressureWithAdvisedThreshold()
+	useAdvisedThreshold := p.shouldUseAdvisedThreshold()
 
 	if useAdvisedThreshold && !allowSharedCoresOverlapReclaimedCores {
 		// it must not be triggered when it's healthy
@@ -623,6 +624,10 @@ func (p *CPUPressureLoadEviction) getMetricHistorySumForPod(metricName string, p
 		}
 	}
 	return ret
+}
+
+func (p *CPUPressureLoadEviction) shouldUseAdvisedThreshold() bool {
+	return p.enableAdvisedThreshold && p.checkPressureWithAdvisedThreshold()
 }
 
 // checkPressureWithAdvisedThreshold returns if we should check pressure according to advisor.

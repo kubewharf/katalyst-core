@@ -10,6 +10,7 @@ require (
 	github.com/cilium/ebpf v0.7.0
 	github.com/containerd/cgroups v1.0.1
 	github.com/containerd/nri v0.6.0
+	github.com/davecgh/go-spew v1.1.1
 	github.com/evanphx/json-patch v5.6.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/gogo/protobuf v1.3.2
@@ -20,7 +21,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.16-0.20260821030437-30cad9a7d51d
+	github.com/kubewharf/katalyst-api v0.5.13-0.20260729044702-c877c7604cba
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
@@ -91,7 +92,6 @@ require (
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/docker/distribution v2.8.1+incompatible // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/emicklei/go-restful v2.16.0+incompatible // indirect
@@ -176,6 +176,26 @@ require (
 )
 
 replace (
+	// WIP: this refactor depends on katalyst-api CRD types (BulkheadConfig,
+	// BulkheadRDTConfig, CATPolicy/CATPlacementPolicy/CATBitUsage, the CATWays
+	// expression variables, MemoryGuardConfig.CriticalWatermarkSource,
+	// CPUProvisionConfig.ReclaimedCPUMaxRatio/FillDefaultSharePoolWithNonReclaimCPUs,
+	// CPUAdvisorConfig.DisableDedicatedCoresOverlapReclaimedCores, and the
+	// reclaimed-memory safe-zone gate knobs
+	// MemoryPressureEvictionConfig.EnableReclaimedMemorySafeZoneGate (*bool,
+	// default false) / ReclaimedMemoryUsageRatioThreshold (*float64, [0,1],
+	// default 0)) that are not yet in an official kubewharf/katalyst-api release.
+	// They are provided by the published branch feat/qrm-sysadvisor-bulkhead-api
+	// (github.com/luomingmeng/katalyst-api @ b0997c3d5605bbac9d4e8b2adf4a2c4b32fb8caa,
+	// tree 867ebac99c21d555cb95909479e958b244c83ee2,
+	// PR https://github.com/kubewharf/katalyst-api/pull/230). The fork carries no
+	// upstream tags, so Go resolves this branch head as a v0.0.0 pseudo-version
+	// (same convention as the prior pins). The safe-zone gate knobs live on this
+	// branch head. Keep this pin until the branch merges upstream / cuts an
+	// official release, then drop the replace and bump the require above to the
+	// upstream version. Do NOT merge with this replace unresolved.
+	github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20261016162027-b0997c3d5605
+
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6

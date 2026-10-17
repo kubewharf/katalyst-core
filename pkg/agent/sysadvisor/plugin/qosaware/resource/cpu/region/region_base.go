@@ -18,13 +18,14 @@ package region
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"math"
 	"sync"
 
 	"go.uber.org/atomic"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -49,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
@@ -227,6 +229,12 @@ type QoSRegionBase struct {
 
 	isNumaBinding   bool
 	isNumaExclusive bool
+
+	// injected dependencies for getEffectiveReclaimResource — overridable in
+	// tests so parallel subtests can stub without patching package-level
+	// functions (which mockey serializes at process scope).
+	isQuotaCtrlKnobEnabled func(metacache.MetaReader) (bool, error)
+	getCPUWithRelativePath func(string) (*common.CPUStats, error)
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
@@ -256,10 +264,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, resourcePackageName str
 			MaxRampUpStep:     conf.MaxRampUpStep,
 			MaxRampDownStep:   conf.MaxRampDownStep,
 			MinRampDownPeriod: conf.MinRampDownPeriod,
-			NeedHTAligned: func() bool {
-				return machine.SmtActive() &&
-					!conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores &&
-					regionType == v1alpha1.QoSRegionTypeShare
+			CPUsPerCore: func() int {
+				return metaServer.CPUTopology.CPUsPerCore()
 			},
 		},
 
@@ -274,6 +280,15 @@ func NewQoSRegionBase(name string, ownerPoolName string, resourcePackageName str
 
 		isNumaBinding:   isNumaBinding,
 		isNumaExclusive: isNumaExclusive,
+
+		isQuotaCtrlKnobEnabled: metacache.IsQuotaCtrlKnobEnabled,
+		getCPUWithRelativePath: cgroupmgr.GetCPUWithRelativePath,
+	}
+	r.cpuRegulatorOptions.NeedHTAligned = func() bool {
+		return r.DynamicConfiguration != nil &&
+			machine.SmtActive() &&
+			!r.DynamicConfiguration.AllowSharedCoresOverlapReclaimedCores &&
+			regionType == v1alpha1.QoSRegionTypeShare
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
@@ -761,9 +776,14 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 	}
 }
 
-// getIndicators returns indicator targets from spd and current by region specific indicator getters
+// getIndicators returns indicator targets from spd and current by region specific indicator getters.
+// It is the single entry point of the indicator subtree (getIndicatorTarget, fetchGetter, expandTarget,
+// getMetricThreshold), so guarding DynamicConfiguration here protects every downstream dereference.
 func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
-	indicatorTargetConfig, ok := r.conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration[r.regionType]
+	if r.DynamicConfiguration == nil {
+		return nil, fmt.Errorf("dynamic configuration is nil")
+	}
+	indicatorTargetConfig, ok := r.DynamicConfiguration.RegionIndicatorTargetConfiguration[r.regionType]
 	if !ok {
 		return nil, fmt.Errorf("get %v indicators failed", r.regionType)
 	}
@@ -771,6 +791,7 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 	general.Infof("indicatorTargetConfig: %v, region %v", indicatorTargetConfig, r.name)
 
 	indicators := make(types.Indicator)
+	unavailableCount := 0
 	for _, indicator := range indicatorTargetConfig {
 		indicatorName := indicator.Name
 		defaultTarget := indicator.Target
@@ -782,7 +803,17 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 
 		current, err := indicatorCurrentGetter()
 		if err != nil {
-			return nil, err
+			if stderrors.Is(err, errIndicatorUnavailable) {
+				unavailableCount++
+				general.Warningf(
+					"skip unavailable indicator %s for region %s: %v",
+					indicatorName,
+					r.name,
+					err,
+				)
+				continue
+			}
+			return nil, fmt.Errorf("get current indicator %s for region %s: %w", indicatorName, r.name, err)
 		}
 
 		target := r.getIndicatorTarget(indicatorName, defaultTarget)
@@ -791,8 +822,12 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 			Current: current,
 			Target:  target,
 		}
-		if indicatorValue.Target <= 0 || indicatorValue.Current <= 0 {
-			klog.ErrorS(nil, "invalid indicator", "indicatorName", indicatorName, "indicatorValue", indicatorValue)
+		if !isIndicatorValueValid(r.regionType, indicatorName, indicatorValue) {
+			klog.ErrorS(nil, "invalid indicator",
+				"regionName", r.name,
+				"indicatorName", indicatorName,
+				"indicatorValue", indicatorValue,
+			)
 			continue
 		}
 
@@ -804,9 +839,16 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 				"binding_numas":  r.bindingNumas.String(),
 			})...)
 	}
+	if len(indicators) == 0 && unavailableCount > 0 {
+		return nil, fmt.Errorf(
+			"%w: no valid configured indicators for region %s",
+			errIndicatorUnavailable,
+			r.name,
+		)
+	}
 	if r.conf.PolicyRama.EnableBorwein && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
 		general.Infof("try to update indicators by borwein model")
-		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
+		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet, r.DynamicConfiguration), nil
 	} else {
 		return indicators, nil
 	}
@@ -824,7 +866,7 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 
 	indicatorTarget := defaultTarget
 	servicePerformanceTarget, err := r.metaServer.ServiceSystemPerformanceTarget(ctx, pod.ObjectMeta)
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return nil, err
 	} else if err != nil {
 		return &indicatorTarget, nil
@@ -851,8 +893,16 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 	return &indicatorTarget, nil
 }
 
-// UpdateStatus updates region status based on resource and control essentials
+// UpdateStatus updates region status based on resource and control essentials.
+// It takes the region lock so that the writes to r.regionStatus are synchronized
+// with GetStatus() (which clones r.regionStatus under the same lock); otherwise
+// a concurrent GetStatus could observe a half-updated regionStatus map. The
+// helpers it calls (updateOvershootStatus, updateBoundType) stay lock-free, so
+// there is no re-entrant locking.
 func (r *QoSRegionBase) UpdateStatus() {
+	r.Lock()
+	defer r.Unlock()
+
 	overshoot := r.updateOvershootStatus()
 	r.updateBoundType(overshoot)
 }
@@ -966,20 +1016,52 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 		numaID = r.bindingNumas.ToSliceInt()[0]
 	}
 
-	quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(r.metaReader)
+	quotaCtrlKnobEnabled, err := r.isQuotaCtrlKnobEnabled(r.metaReader)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	reclaimPath := common.GetReclaimRelativeRootCgroupPath(r.conf.ReclaimRelativeRootCgroupPath, numaID)
-	cpuStats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
-	if err != nil {
-		return 0, 0, err
+	// resolve the reclaim cgroup paths for this region's existing NUMA scope,
+	// across all registered reclaim consumers (multiple disjoint subtrees).
+	var reclaimPaths []string
+	if r.isNumaBinding {
+		reclaimPaths = reclaim.AggregateNumaBindingCgroupPaths()[numaID]
+	} else {
+		reclaimPaths = reclaim.AggregateCgroupPaths()
 	}
-	if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit || !quotaCtrlKnobEnabled {
+
+	if !quotaCtrlKnobEnabled {
 		quota = common.CPUQuotaUnlimit
 	} else {
-		quota = float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
+		var summed float64
+		found := false
+		unlimited := false
+		for _, path := range reclaimPaths {
+			cpuStats, err := r.getCPUWithRelativePath(path)
+			if err != nil {
+				general.Infof("skip missing reclaim cgroup %s: %v", path, err)
+				continue
+			}
+			found = true
+			// an uncapped subtree lets the reclaim tier burst freely, so any
+			// unlimited path makes the whole scope unlimited.
+			if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit {
+				unlimited = true
+				break
+			}
+
+			if cpuStats.CpuPeriod == 0 {
+				general.Infof("skip reclaim cgroup %s with zero CpuPeriod", path)
+				continue
+			}
+
+			summed += float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
+		}
+		if unlimited || !found {
+			quota = common.CPUQuotaUnlimit
+		} else {
+			quota = summed
+		}
 	}
 
 	for _, numaID := range r.bindingNumas.ToSliceInt() {
@@ -1030,7 +1112,7 @@ func (r *QoSRegionBase) restrictProvisionControlKnob(originControlKnob map[types
 }
 
 func (r *QoSRegionBase) expandTarget(target float64, indicatorName workloadv1alpha1.ServiceSystemIndicatorName) float64 {
-	expandFactors := r.conf.GetDynamicConfiguration().IndicatorTargetMetricThresholdExpandFactors
+	expandFactors := r.DynamicConfiguration.IndicatorTargetMetricThresholdExpandFactors
 	factor, ok := expandFactors[string(indicatorName)]
 	if !ok {
 		return target
@@ -1046,25 +1128,34 @@ func (r *QoSRegionBase) getIndicatorTarget(indicatorName workloadv1alpha1.Servic
 }
 
 func (r *QoSRegionBase) fetchGetter(indicatorName workloadv1alpha1.ServiceSystemIndicatorName) (indicatorTargetGetter, string) {
-	defaultGetterName := r.conf.GetDynamicConfiguration().IndicatorTargetDefaultGetter
-	getterName, ok := r.conf.GetDynamicConfiguration().IndicatorTargetGetters[string(indicatorName)]
+	defaultGetterName := r.DynamicConfiguration.IndicatorTargetDefaultGetter
+	getterName, ok := r.DynamicConfiguration.IndicatorTargetGetters[string(indicatorName)]
 	// if not specified, use default
 	if !ok || getterName == "" {
 		getterName = defaultGetterName
 	}
 	if indicatorName == workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio {
-		overrideGetterName, err := strategygroup.StrategyPolicyOverrideForNode(
+		getterName = strategygroup.StrategyPolicyOverrideForNodeWithDynamicConfiguration(
 			map[string]string{coreconsts.StrategyNameMetricThreshold: string(pkgconsts.IndicatorTargetGetterMetricThreshold)},
-			getterName, r.conf)
-		if err != nil {
-			general.Warningf("failed to get strategy policy override for node, err: %v", err)
-		}
-		getterName = overrideGetterName
+			getterName,
+			r.DynamicConfiguration,
+		)
 	}
 	getter, ok := r.indicatorTargetGetters[getterName]
 	if !ok {
 		getter = r.indicatorTargetGetters[defaultGetterName]
 		getterName = defaultGetterName
+	}
+	// Neither the requested nor the default getter is registered (e.g. an empty or
+	// misconfigured default getter name). Returning a nil function here would panic
+	// when getIndicatorTarget invokes it, so fall back to a safe passthrough that
+	// keeps the configured default target.
+	if getter == nil {
+		general.Errorf("indicator target getter %q (default %q) is not registered for %v, fallback to passthrough",
+			getterName, defaultGetterName, indicatorName)
+		return func(_ workloadv1alpha1.ServiceSystemIndicatorName, defaultTarget float64) float64 {
+			return defaultTarget
+		}, "passthrough"
 	}
 
 	return getter, getterName
@@ -1078,7 +1169,7 @@ func (r *QoSRegionBase) getMetricThreshold(indicatorName workloadv1alpha1.Servic
 	}
 
 	thresholdVal := threshold.GetMetricThreshold(thresholdMetricName, r.metaServer,
-		r.conf.GetDynamicConfiguration().MetricThresholdConfiguration.Threshold)
+		r.DynamicConfiguration.MetricThresholdConfiguration.Threshold)
 
 	if thresholdVal == nil {
 		general.Errorf("got no valid threshold for %v, fallback to default %v", thresholdMetricName, defaultTarget)

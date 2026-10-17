@@ -22,6 +22,173 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+func TestSelectCPUsByTopology(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.CPUTopology{
+		NumCPUs:      8,
+		NumCores:     4,
+		NumSockets:   2,
+		NumNUMANodes: 2,
+		CPUDetails: machine.CPUDetails{
+			0: {NUMANodeID: 0, SocketID: 0, CoreID: 0, L3CacheID: 0},
+			1: {NUMANodeID: 0, SocketID: 0, CoreID: 0, L3CacheID: 0},
+			2: {NUMANodeID: 0, SocketID: 0, CoreID: 1, L3CacheID: 0},
+			3: {NUMANodeID: 0, SocketID: 0, CoreID: 1, L3CacheID: 0},
+			4: {NUMANodeID: 1, SocketID: 1, CoreID: 2, L3CacheID: 1},
+			5: {NUMANodeID: 1, SocketID: 1, CoreID: 2, L3CacheID: 1},
+			6: {NUMANodeID: 1, SocketID: 1, CoreID: 3, L3CacheID: 1},
+			7: {NUMANodeID: 1, SocketID: 1, CoreID: 3, L3CacheID: 1},
+		},
+	}
+
+	t.Run("prefers a complete socket", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := SelectCPUsByTopology(topology, machine.NewCPUSet(0, 1, 2, 3, 4, 6), 4, false)
+		if err != nil {
+			t.Fatalf("SelectCPUsByTopology returned error: %v", err)
+		}
+		want := machine.NewCPUSet(0, 1, 2, 3)
+		if !got.Equals(want) {
+			t.Fatalf("SelectCPUsByTopology() = %v, want complete socket %v", got, want)
+		}
+	})
+
+	t.Run("prefers a complete core", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := SelectCPUsByTopology(topology, machine.NewCPUSet(0, 2, 3, 4), 2, false)
+		if err != nil {
+			t.Fatalf("SelectCPUsByTopology returned error: %v", err)
+		}
+		want := machine.NewCPUSet(2, 3)
+		if !got.Equals(want) {
+			t.Fatalf("SelectCPUsByTopology() = %v, want complete core %v", got, want)
+		}
+	})
+
+	t.Run("falls back to remaining threads", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := SelectCPUsByTopology(topology, machine.NewCPUSet(0, 2, 4), 2, false)
+		if err != nil {
+			t.Fatalf("SelectCPUsByTopology returned error: %v", err)
+		}
+		want := machine.NewCPUSet(0, 4)
+		if !got.Equals(want) {
+			t.Fatalf("SelectCPUsByTopology() = %v, want thread fallback %v", got, want)
+		}
+	})
+
+	t.Run("rejects insufficient candidates", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := SelectCPUsByTopology(topology, machine.NewCPUSet(0, 2), 3, false)
+		if err == nil {
+			t.Fatal("SelectCPUsByTopology returned nil error for insufficient candidates")
+		}
+		if !got.IsEmpty() {
+			t.Fatalf("SelectCPUsByTopology() = %v, want empty result", got)
+		}
+	})
+
+	t.Run("falls back by logical ID when topology is nil", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := SelectCPUsByTopology(nil, machine.NewCPUSet(5, 1, 3), 2, false)
+		if err != nil {
+			t.Fatalf("SelectCPUsByTopology returned error: %v", err)
+		}
+		want := machine.NewCPUSet(1, 3)
+		if !got.Equals(want) {
+			t.Fatalf("SelectCPUsByTopology() = %v, want logical-ID fallback %v", got, want)
+		}
+	})
+
+	t.Run("uses unknown CPUs after complete known cores", func(t *testing.T) {
+		t.Parallel()
+
+		partialTopology := &machine.CPUTopology{
+			NumCPUs:      4,
+			NumCores:     2,
+			NumSockets:   1,
+			NumNUMANodes: 1,
+			CPUDetails: machine.CPUDetails{
+				4: {NUMANodeID: 0, SocketID: 0, CoreID: 2, L3CacheID: 0},
+				5: {NUMANodeID: 0, SocketID: 0, CoreID: 2, L3CacheID: 0},
+			},
+		}
+
+		got, err := SelectCPUsByTopology(partialTopology, machine.NewCPUSet(1, 2, 4, 5), 3, false)
+		if err != nil {
+			t.Fatalf("SelectCPUsByTopology returned error: %v", err)
+		}
+		want := machine.NewCPUSet(1, 4, 5)
+		if !got.Equals(want) {
+			t.Fatalf("SelectCPUsByTopology() = %v, want known complete core then logical-ID fallback %v", got, want)
+		}
+	})
+
+	t.Run("reports all candidates as available with partial metadata", func(t *testing.T) {
+		t.Parallel()
+
+		partialTopology := &machine.CPUTopology{
+			NumCPUs:      2,
+			NumCores:     1,
+			NumSockets:   1,
+			NumNUMANodes: 1,
+			CPUDetails: machine.CPUDetails{
+				0: {NUMANodeID: 0, SocketID: 0, CoreID: 0, L3CacheID: 0},
+			},
+		}
+
+		got, err := SelectCPUsByTopology(partialTopology, machine.NewCPUSet(0, 1), 3, false)
+		if err == nil {
+			t.Fatal("SelectCPUsByTopology returned nil error for insufficient candidates")
+		}
+		if !got.IsEmpty() {
+			t.Fatalf("SelectCPUsByTopology() = %v, want empty result", got)
+		}
+		want := "insufficient CPUs: requested 3, available 2"
+		if err.Error() != want {
+			t.Fatalf("SelectCPUsByTopology() error = %q, want %q", err, want)
+		}
+	})
+
+	t.Run("matches TakeByTopology when L3 alignment is disabled", func(t *testing.T) {
+		t.Parallel()
+
+		info := &machine.KatalystMachineInfo{CPUTopology: topology}
+		for _, tc := range []struct {
+			name        string
+			candidates  machine.CPUSet
+			requirement int
+		}{
+			{name: "socket", candidates: machine.NewCPUSet(0, 1, 2, 3, 4, 6), requirement: 4},
+			{name: "core", candidates: machine.NewCPUSet(0, 2, 3, 4), requirement: 2},
+			{name: "threads", candidates: machine.NewCPUSet(0, 2, 4), requirement: 2},
+		} {
+			tc := tc
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				got, err := SelectCPUsByTopology(topology, tc.candidates, tc.requirement, false)
+				if err != nil {
+					t.Fatalf("SelectCPUsByTopology returned error: %v", err)
+				}
+				want, err := TakeByTopology(info, tc.candidates, tc.requirement, false)
+				if err != nil {
+					t.Fatalf("TakeByTopology returned error: %v", err)
+				}
+				if !got.Equals(want) {
+					t.Fatalf("SelectCPUsByTopology() = %v, TakeByTopology() = %v", got, want)
+				}
+			})
+		}
+	})
+}
+
 // TestTakeByTopology tests the TakeByTopology function with comprehensive scenarios
 // covering various CPU allocation strategies including socket, NUMA node, core, and thread level allocations.
 // It also tests L3 cache alignment and complex topology scenarios.

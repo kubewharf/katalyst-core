@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -97,6 +98,11 @@ type MetricSyncerPod struct {
 	modelToCustomizedEmitterFunc map[string]func()
 
 	enableBorwein bool
+
+	// wg tracks the background goroutines spawned in Run so that Run waits for
+	// them to exit after ctx is canceled, avoiding goroutine leaks on
+	// shutdown or partial start failure.
+	wg sync.WaitGroup
 }
 
 func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
@@ -144,14 +150,50 @@ func (p *MetricSyncerPod) Name() string {
 	return types.MetricSyncerNamePod
 }
 
-func (p *MetricSyncerPod) Run(ctx context.Context) {
+func (p *MetricSyncerPod) Run(ctx context.Context) error {
+	// Validate dependencies up front, before spawning any goroutine. This turns
+	// a would-be nil-pointer panic inside a detached goroutine into an
+	// observable error that the emitter can act on.
+	if err := p.validate(); err != nil {
+		return err
+	}
+
 	p.ctx = ctx
-	go wait.Until(p.syncChanel, p.emitterConf.PodSyncPeriod, ctx.Done())
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		wait.Until(p.syncChanel, p.emitterConf.PodSyncPeriod, ctx.Done())
+	}()
 
 	if p.enableBorwein {
 		klog.Infof("borwein enabled, start to emit model metric periodically")
-		go wait.Until(p.modelMetric, p.emitterConf.PodSyncPeriod, ctx.Done())
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			wait.Until(p.modelMetric, p.emitterConf.PodSyncPeriod, ctx.Done())
+		}()
 	}
+
+	<-ctx.Done()
+	// Wait for the background goroutines we spawned to actually exit, so that
+	// the emitter's wait does not return while our goroutines are still running.
+	p.wg.Wait()
+	return nil
+}
+
+// validate ensures the dependencies that Run dereferences are initialized. It is
+// called before any goroutine is spawned so a missing dependency is reported as
+// an error rather than panicking inside a background goroutine.
+func (p *MetricSyncerPod) validate() error {
+	switch {
+	case p.metaServer == nil:
+		return fmt.Errorf("metric syncer pod: metaServer is not initialized")
+	case p.metaServer.MetricsFetcher == nil:
+		return fmt.Errorf("metric syncer pod: metaServer.MetricsFetcher is not initialized")
+	case p.metaReader == nil:
+		return fmt.Errorf("metric syncer pod: metaReader is not initialized")
+	}
+	return nil
 }
 
 func (p *MetricSyncerPod) syncChanel() {

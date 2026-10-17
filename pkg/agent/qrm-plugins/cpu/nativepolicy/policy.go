@@ -348,7 +348,6 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 	p.Lock()
 	defer func() {
 		if respErr != nil {
-			_ = p.removeContainer(req.PodUid, req.ContainerName)
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw)
 		}
 
@@ -457,7 +456,10 @@ func (p *NativePolicy) GetResourcesAllocation(_ context.Context,
 					allocationInfo.TopologyAwareAssignments = clonedDefaultCPUSetTopologyAwareAssignments
 					allocationInfo.OriginalTopologyAwareAssignments = clonedDefaultCPUSetTopologyAwareAssignments
 
-					p.state.SetAllocationInfo(podUID, containerName, allocationInfo, true)
+					if err := p.state.SetAllocationInfo(podUID, containerName, allocationInfo, true); err != nil {
+						return nil, fmt.Errorf("persist normalized shared allocation for pod %s container %s: %w",
+							podUID, containerName, err)
+					}
 				}
 			default:
 				general.Errorf("skip container because the pool name is not supported, pod: %s, container: %s, cpuset: %s",
@@ -600,37 +602,35 @@ func (p *NativePolicy) RemovePod(ctx context.Context,
 }
 
 func (p *NativePolicy) removePod(podUID string) error {
+	revision := p.state.GetRevision()
 	podEntries := p.state.GetPodEntries()
 	if len(podEntries[podUID]) == 0 {
 		return nil
 	}
 	delete(podEntries, podUID)
+	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
+	if currentRevision := p.state.GetRevision(); currentRevision != revision {
+		return fmt.Errorf("%w while snapshotting native pod removal: expected=%d actual=%d",
+			state.ErrStaleStateRevision, revision, currentRevision)
+	}
 
 	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries, false)
-	p.state.SetMachineState(updatedMachineState, false)
-	return p.state.StoreState()
-}
-
-func (p *NativePolicy) removeContainer(podUID, containerName string) error {
-	podEntries := p.state.GetPodEntries()
-	if podEntries[podUID][containerName] == nil {
-		return nil
+	if err := p.state.CommitAdvisorStateIfRevision(
+		revision,
+		podEntries,
+		updatedMachineState,
+		allowOverlap,
+		disableDedicatedOverlap,
+		true,
+	); err != nil {
+		return fmt.Errorf("persist native pod removal atomically: %w", err)
 	}
-	delete(podEntries[podUID], containerName)
-
-	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
-	if err != nil {
-		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
-	}
-
-	p.state.SetPodEntries(podEntries, false)
-	p.state.SetMachineState(updatedMachineState, false)
-	return p.state.StoreState()
+	return nil
 }
 
 // getContainerRequestedCores parses and returns request cores for the given container

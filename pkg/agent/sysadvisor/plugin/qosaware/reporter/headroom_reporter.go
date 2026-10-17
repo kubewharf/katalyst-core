@@ -36,6 +36,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/resource"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_memory"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -129,6 +131,7 @@ type headroomReporterPlugin struct {
 	headroomManagers      map[v1.ResourceName]manager.HeadroomManager
 	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 
+	metaReader  metacache.MetaReader
 	dynamicConf *dynamic.DynamicAgentConfiguration
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -165,6 +168,7 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 	reporter := &headroomReporterPlugin{
 		headroomManagers:      headroomManagers,
 		numaSocketZoneNodeMap: util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
+		metaReader:            metaCache,
 		dynamicConf:           conf.DynamicAgentConfiguration,
 		emitter:               emitter,
 	}
@@ -232,10 +236,18 @@ func (r *headroomReporterPlugin) Stop() error {
 }
 
 func (r *headroomReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
-	var err error
-	res, err := r.getReclaimedResource()
+	skipCPU, skipMemory, err := r.shouldSkipReporting()
 	if err != nil {
 		return nil, err
+	}
+
+	res, err := r.getReclaimedResource(skipCPU, skipMemory)
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		general.Infof("[headroom-reporter] skip headroom reporting: QRM handles both CPU and Memory headroom")
+		return &v1alpha1.GetReportContentResponse{}, nil
 	}
 
 	// revise reclaimed resource to avoid resource fragmentation
@@ -256,6 +268,23 @@ func (r *headroomReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1
 	}, nil
 }
 
+// shouldSkipReporting returns whether CPU and/or Memory headroom reporting should be
+// skipped on the sysadvisor side, based on feature gates negotiated with QRM plugins.
+// When QRM advertises the feature gate, the corresponding QRM plugin reports headroom
+// itself and sysadvisor must stay silent for that resource to avoid double-reporting.
+func (r *headroomReporterPlugin) shouldSkipReporting() (bool, bool, error) {
+	if r.metaReader == nil {
+		return false, false, nil
+	}
+	featureGates, err := r.metaReader.GetSupportedWantedFeatureGates()
+	if err != nil {
+		return false, false, err
+	}
+	_, skipCPU := featureGates[feature_cpu.NegotiationFeatureGateCPUHeadroomReporting]
+	_, skipMemory := featureGates[feature_memory.NegotiationFeatureGateMemoryHeadroomReporting]
+	return skipCPU, skipMemory, nil
+}
+
 func (r *headroomReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server v1alpha1.ReporterPlugin_ListAndWatchReportContentServer) error {
 	for {
 		select {
@@ -267,7 +296,7 @@ func (r *headroomReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, se
 	}
 }
 
-func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, error) {
+func (r *headroomReporterPlugin) getReclaimedResource(skipCPU, skipMemory bool) (*reclaimedResource, error) {
 	var (
 		err     error
 		errList []error
@@ -280,6 +309,12 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 	resourceNameMap := make(map[v1.ResourceName]v1.ResourceName)
 	milliValue := make(map[v1.ResourceName]bool)
 	for reportName, rm := range r.headroomManagers {
+		if skipCPU && reportName == apiconsts.ReclaimedResourceMilliCPU {
+			continue
+		}
+		if skipMemory && reportName == apiconsts.ReclaimedResourceMemory {
+			continue
+		}
 		// get origin resource name
 		resourceNameMap[reportName] = rm.Name()
 		milliValue[reportName] = rm.MilliValue()
@@ -326,6 +361,11 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 
 	if len(errList) > 0 {
 		return nil, errors.NewAggregate(errList)
+	}
+
+	// nothing left to report — QRM handles every managed resource
+	if len(resourceNameMap) == 0 {
+		return nil, nil
 	}
 
 	return &reclaimedResource{

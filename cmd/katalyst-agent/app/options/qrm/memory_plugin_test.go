@@ -25,6 +25,27 @@ import (
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
+func TestQRMPluginsOptions_ApplyTo_ResctrlFlagsRemainCompatible(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	options := NewQRMPluginsOptions()
+	fss := cliflag.NamedFlagSets{}
+	options.AddFlags(&fss)
+	fs := fss.FlagSet("resctrl")
+
+	as.NoError(fs.Parse([]string{
+		"--pod-admit-resctrl-layout-hint=true",
+		"--resctrl-skip-cleanup-closids=system,legacy",
+	}))
+
+	conf := qrmconfig.NewQRMPluginsConfiguration()
+	as.NoError(options.ApplyTo(conf))
+	as.True(conf.ResctrlConfig.EnableResctrlHint)
+	as.ElementsMatch([]string{"system", "legacy"}, conf.ResctrlConfig.SkipCleanupClosIDs.UnsortedList())
+	as.Empty(conf.ResctrlConfig.DefaultClosIDs)
+}
+
 func TestNewMemoryOptions_Defaults_LogCache(t *testing.T) {
 	t.Parallel()
 

@@ -17,58 +17,20 @@ limitations under the License.
 package monitor
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestGroupMBStats_NormalizeShareSubgroups(t *testing.T) {
+func TestGroupMBStatsKeepsPhysicalCLOSKeysDistinct(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name                 string
-		gms                  GroupMBStats
-		wantStats            GroupMBStats
-		wantIsSharedSubgroup bool
-	}{
-		{
-			name: "happy path with shared subgroup",
-			gms: map[string]GroupMB{
-				"shared-30": map[int]MBInfo{},
-				"/":         map[int]MBInfo{},
-				"shared-60": map[int]MBInfo{},
-			},
-			wantStats: map[string]GroupMB{
-				"share-30": map[int]MBInfo{},
-				"/":        map[int]MBInfo{},
-				"share-60": map[int]MBInfo{},
-			},
-			wantIsSharedSubgroup: true,
-		},
-		{
-			name: "happy path without shared subgroup",
-			gms: map[string]GroupMB{
-				"share-30": map[int]MBInfo{},
-				"/":        map[int]MBInfo{},
-				"share":    map[int]MBInfo{},
-			},
-			wantStats: map[string]GroupMB{
-				"share-30": map[int]MBInfo{},
-				"/":        map[int]MBInfo{},
-				"share":    map[int]MBInfo{},
-			},
-			wantIsSharedSubgroup: false,
-		},
+
+	stats := GroupMBStats{
+		"shared-50": {0: {TotalMB: 100}},
+		"share-50":  {0: {TotalMB: 200}},
 	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			gotStats, gotIsSharedSubgroup := tt.gms.NormalizeShareSubgroups()
-			if !reflect.DeepEqual(gotStats, tt.wantStats) {
-				t.Errorf("NormalizeShareSubgroups() gotStats = %v, want %v", gotStats, tt.wantStats)
-			}
-			if gotIsSharedSubgroup != tt.wantIsSharedSubgroup {
-				t.Errorf("NormalizeShareSubgroups() gotIsSharedSubgroup = %v, want %v", gotIsSharedSubgroup, tt.wantIsSharedSubgroup)
-			}
-		})
-	}
+
+	require.Len(t, stats, 2)
+	require.Equal(t, 100, stats["shared-50"].SumStat().TotalMB)
+	require.Equal(t, 200, stats["share-50"].SumStat().TotalMB)
 }

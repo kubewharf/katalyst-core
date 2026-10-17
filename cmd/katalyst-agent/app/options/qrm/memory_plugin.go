@@ -19,10 +19,8 @@ package qrm
 import (
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	utilflag "github.com/kubewharf/katalyst-core/pkg/util/flags"
@@ -47,7 +45,6 @@ type MemoryOptions struct {
 
 	SockMemOptions
 	LogCacheOptions
-	ResctrlOptions
 }
 
 type SockMemOptions struct {
@@ -75,25 +72,6 @@ type LogCacheOptions struct {
 	FileFilters []string
 }
 
-type ResctrlOptions struct {
-	EnableResctrlHint                     bool
-	EnableResctrlGroupLifecycleManagement bool
-	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
-	// based on its cpu set pool annotation
-	CPUSetPoolToSharedSubgroup map[string]int
-	DefaultSharedSubgroup      int
-	EnabledQoS                 []string
-
-	// MonGroupEnabledClosIDs specifies mon_groups layout policy of kubelet
-	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
-	// that need no memory bandwidth control (which would exceed the closid limit of hardware).
-	MonGroupEnabledClosIDs []string
-	// MonGroupMaxCountRatio is the ratio of mon_groups max count in info/L3_MON/num_rmids
-	MonGroupMaxCountRatio float64
-
-	SkipCleanupClosIDs []string
-}
-
 func NewMemoryOptions() *MemoryOptions {
 	return &MemoryOptions{
 		PolicyName:                                    "dynamic",
@@ -119,15 +97,6 @@ func NewMemoryOptions() *MemoryOptions {
 			MaxInterval:            time.Second * 60 * 60 * 2,
 			PathList:               []string{},
 			FileFilters:            []string{".*\\.log.*"},
-		},
-		ResctrlOptions: ResctrlOptions{
-			EnableResctrlHint:                     false,
-			EnableResctrlGroupLifecycleManagement: false,
-			CPUSetPoolToSharedSubgroup:            make(map[string]int),
-			DefaultSharedSubgroup:                 -1,
-			EnabledQoS:                            []string{apiconsts.PodAnnotationQoSLevelSharedCores},
-			MonGroupEnabledClosIDs:                []string{},
-			SkipCleanupClosIDs:                    []string{},
 		},
 		ExtraMemoryResources: []string{},
 	}
@@ -182,25 +151,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the absolute path list where files will be checked to evict page cache")
 	fs.StringSliceVar(&o.FileFilters, "qrm-memory-logcache-file-filters",
 		o.FileFilters, "string list to filter log files, default to *log*")
-
-	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
-		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
-	fs.BoolVar(&o.EnableResctrlGroupLifecycleManagement, "enable-resctrl-group-lifecycle-management",
-		o.EnableResctrlGroupLifecycleManagement, "if set true, we will enable resctrl group lifecycle management")
-	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
-		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
-	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
-		o.DefaultSharedSubgroup, "default subgroup for shared qos")
-	fs.StringSliceVar(&o.EnabledQoS, "resctrl-enabled-qos",
-		o.EnabledQoS, "enabled qos levels to create resctrl closID")
-	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled-closids",
-		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
-	fs.Float64Var(&o.MonGroupMaxCountRatio, "resctrl-mon-groups-max-count-ratio",
-		o.MonGroupMaxCountRatio, "ratio of mon_groups max count")
 	fs.StringSliceVar(&o.ExtraMemoryResources, "extra-memory-resources", o.ExtraMemoryResources,
 		"extra memory resources such as hugepages-*")
-	fs.StringSliceVar(&o.SkipCleanupClosIDs, "resctrl-skip-cleanup-closids",
-		o.SkipCleanupClosIDs, "a list of resctrl closID directories to skip cleaning")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -226,15 +178,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.MaxInterval = o.MaxInterval
 	conf.PathList = o.PathList
 	conf.FileFilters = o.FileFilters
-	conf.EnableResctrlHint = o.EnableResctrlHint
-	conf.EnableResctrlGroupLifecycleManagement = o.EnableResctrlGroupLifecycleManagement
-	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
-	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
-	conf.EnabledQoS = o.EnabledQoS
-	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
-	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
 	conf.ExtraMemoryResources = o.ExtraMemoryResources
-	conf.SkipCleanupClosIDs = sets.NewString(o.SkipCleanupClosIDs...)
 
 	for _, reservation := range o.ReservedNumaMemory {
 		conf.ReservedNumaMemory[reservation.NumaNode] = reservation.Limits
