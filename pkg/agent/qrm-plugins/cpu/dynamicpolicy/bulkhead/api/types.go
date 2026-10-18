@@ -149,6 +149,16 @@ type PeriodicalCapable interface {
 	PeriodicalHandler(context.Context, PeriodicalHandlerContext) error
 }
 
+// CurrentEnabledProvider is the explicit pure current-enabled capability used by
+// the periodic gate. It reports whether the plugin is currently enabled from
+// config without mutating lifecycle state; unlike Enable it has no side effect.
+// Reset-owning plugins implement it; a plugin that does not is treated as no-fire
+// on the cleanup path (it is neither adjusted nor reset here). Compile-time
+// conformance is asserted per plugin package.
+type CurrentEnabledProvider interface {
+	CurrentEnabled(HandlerContext) bool
+}
+
 // TopologyPlugin is the optional capability for the single plugin that owns the
 // DesiredView -> AppliedView convergence. Apply returns an opaque TopologyOutcome;
 // the manager switches on Level and never inspects topology internals.

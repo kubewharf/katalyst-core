@@ -1378,6 +1378,277 @@ func (p *fakePlugin) CPUSetAdjustmentDisabledHandler(ctx context.Context, _ bulk
 	return p.disabledErr
 }
 
+// enabledProbeFake implements the pure CurrentEnabled probe and a counted Enable so
+// tests prove the gate uses the probe and performs no Enable side effect.
+type enabledProbeFake struct {
+	*fakePlugin
+	currentEnabled bool
+	probeCalls     int
+	enableCalls    int
+}
+
+func (f *enabledProbeFake) CurrentEnabled(bulkheadapi.HandlerContext) bool {
+	f.probeCalls++
+	return f.currentEnabled
+}
+
+func (f *enabledProbeFake) Enable(bulkheadapi.HandlerContext) bool {
+	f.enableCalls++
+	return f.currentEnabled
+}
+
+func fencedCleanupCtx(pass bool) cpusetutil.CPUSetAdjustmentHandlerCtx {
+	return cpusetutil.CPUSetAdjustmentHandlerCtx{
+		Generation: 1,
+		CommitIfGenerationCurrent: func(_ uint64, commit func()) bool {
+			if !pass {
+				return false
+			}
+			commit()
+			return true
+		},
+	}
+}
+
+// TestAuthoritativeGateFullyEnabledRestartNoOp: a fully enabled target after restart
+// reports no cleanup need from the pure probe; the gate never calls Enable, runs no
+// disabled handler, and mutates no view or bookkeeping.
+func TestAuthoritativeGateFullyEnabledRestartNoOp(t *testing.T) {
+	t.Parallel()
+	owner := &enabledProbeFake{fakePlugin: &fakePlugin{name: "cpuset_topology"}, currentEnabled: true}
+	worker := &enabledProbeFake{fakePlugin: &fakePlugin{name: "workqueue"}, currentEnabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner, worker}}
+
+	if m.HasPendingDisabledReset(nil) {
+		t.Fatal("fully enabled target after restart must not report a cleanup need")
+	}
+	if owner.enableCalls != 0 || worker.enableCalls != 0 {
+		t.Fatal("gate called Enable (lifecycle side effect)")
+	}
+	if owner.probeCalls == 0 || worker.probeCalls == 0 {
+		t.Fatal("gate did not use the pure CurrentEnabled probe")
+	}
+	if owner.disabledCalls != 0 || worker.disabledCalls != 0 {
+		t.Fatal("no-need gate ran a disabled handler")
+	}
+	if m.appliedView != nil || m.appliedViewRevision != 0 || m.appliedViewValidForPeriodical {
+		t.Fatalf("no-need tick mutated applied view=%v revision=%d valid=%t",
+			m.appliedView, m.appliedViewRevision, m.appliedViewValidForPeriodical)
+	}
+}
+
+// TestResetOnlyDisabledConfigRunsCleanupOnce: a currently-disabled plugin with a
+// recorded leaving-enabled transition runs its disabled handler once through the
+// reset-only traversal, records completion under the fence, and the second tick is
+// idempotent. Reset-only never publishes an AppliedView.
+func TestResetOnlyDisabledConfigRunsCleanupOnce(t *testing.T) {
+	t.Parallel()
+	worker := &enabledProbeFake{fakePlugin: &fakePlugin{name: "workqueue"}, currentEnabled: false}
+	m := &Manager{plugins: []bulkheadapi.Plugin{worker}}
+	m.lastCPUSetAdjustmentEnabled = map[string]bool{"workqueue": true}
+
+	if !m.HasPendingDisabledReset(nil) {
+		t.Fatal("disabled current config must report a cleanup need")
+	}
+	in := fencedCleanupCtx(true)
+	ctx := WithDisabledCleanupOnly(context.Background())
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err != nil {
+		t.Fatalf("reset-only round: %v", err)
+	}
+	if worker.disabledCalls != 1 {
+		t.Fatalf("disabledCalls=%d, want 1", worker.disabledCalls)
+	}
+	if got := m.lastCPUSetAdjustmentEnabled["workqueue"]; got != false {
+		t.Fatalf("completion mask=%v, want false", got)
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err != nil {
+		t.Fatalf("second reset-only round: %v", err)
+	}
+	if worker.disabledCalls != 1 {
+		t.Fatalf("disabledCalls=%d after second tick, want 1 (idempotent)", worker.disabledCalls)
+	}
+	if m.appliedView != nil {
+		t.Fatal("reset-only traversal published an AppliedView")
+	}
+}
+
+// TestResetOnlyHardErrorFailsClosed: a real cleanup error fails closed, retains the
+// cleanup need, and records no completion.
+func TestResetOnlyHardErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	worker := &enabledProbeFake{
+		fakePlugin:     &fakePlugin{name: "workqueue", disabledErr: errors.New("cleanup exploded")},
+		currentEnabled: false,
+	}
+	m := &Manager{plugins: []bulkheadapi.Plugin{worker}}
+	m.lastCPUSetAdjustmentEnabled = map[string]bool{"workqueue": true}
+
+	in := fencedCleanupCtx(true)
+	ctx := WithDisabledCleanupOnly(context.Background())
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err == nil {
+		t.Fatal("hard cleanup error must fail closed")
+	}
+	if worker.disabledCalls != 1 {
+		t.Fatalf("disabledCalls=%d, want 1 attempt", worker.disabledCalls)
+	}
+	if !m.HasPendingDisabledReset(nil) {
+		t.Fatal("failed cleanup must retain the cleanup need")
+	}
+}
+
+// TestResetOnlyStaleFenceRetainsNeed: a stale generation fence commits nothing,
+// records no completion, and retains the cleanup need.
+func TestResetOnlyStaleFenceRetainsNeed(t *testing.T) {
+	t.Parallel()
+	worker := &enabledProbeFake{fakePlugin: &fakePlugin{name: "workqueue"}, currentEnabled: false}
+	m := &Manager{plugins: []bulkheadapi.Plugin{worker}}
+	m.lastCPUSetAdjustmentEnabled = map[string]bool{"workqueue": true}
+
+	in := fencedCleanupCtx(false)
+	ctx := WithDisabledCleanupOnly(context.Background())
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err == nil {
+		t.Fatal("stale fence must fail closed")
+	}
+	if !m.HasPendingDisabledReset(nil) {
+		t.Fatal("stale cleanup must retain the cleanup need")
+	}
+}
+
+// probeReconcilerFake is a probe-backed disabled-topology reconciler for reset-only
+// regression coverage.
+type probeReconcilerFake struct {
+	*fakePlugin
+	currentEnabled    bool
+	needsReset        bool
+	markCompleteCalls int
+	reconcileCalls    int
+}
+
+func (f *probeReconcilerFake) CurrentEnabled(bulkheadapi.HandlerContext) bool {
+	return f.currentEnabled
+}
+
+func (f *probeReconcilerFake) ShouldReconcileWhenDisabled(context.Context, bulkheadapi.HandlerContext) bool {
+	return false
+}
+
+func (f *probeReconcilerFake) ReconcileDisabled(context.Context, bulkheadapi.HandlerContext) (bulkheadapi.TopologyOutcome, error) {
+	f.reconcileCalls++
+	return bulkheadapi.TopologyOutcome{}, nil
+}
+
+func (f *probeReconcilerFake) NeedsDisabledReset() bool { return f.needsReset }
+
+func (f *probeReconcilerFake) MarkDisabledResetComplete() {
+	f.markCompleteCalls++
+	f.needsReset = false
+}
+
+// TestResetOnlyTopologyReconcilerCompletesOnce: the reconciler disabled handler runs
+// once, MarkDisabledResetComplete commits under the fence, ReconcileDisabled never
+// runs, no AppliedView is published, and the second run is idle.
+func TestResetOnlyTopologyReconcilerCompletesOnce(t *testing.T) {
+	t.Parallel()
+	owner := &probeReconcilerFake{
+		fakePlugin:     &fakePlugin{name: "cpuset_topology"},
+		currentEnabled: false,
+		needsReset:     true,
+	}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner}}
+
+	in := fencedCleanupCtx(true)
+	ctx := WithDisabledCleanupOnly(context.Background())
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err != nil {
+		t.Fatalf("reset-only reconciler round: %v", err)
+	}
+	if owner.disabledCalls != 1 {
+		t.Fatalf("disabledCalls=%d, want 1", owner.disabledCalls)
+	}
+	if owner.markCompleteCalls != 1 {
+		t.Fatalf("markCompleteCalls=%d, want 1", owner.markCompleteCalls)
+	}
+	if owner.reconcileCalls != 0 {
+		t.Fatalf("reset-only ran ReconcileDisabled %d times, want 0", owner.reconcileCalls)
+	}
+	if m.appliedView != nil {
+		t.Fatal("reset-only traversal published an AppliedView")
+	}
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err != nil {
+		t.Fatalf("second reset-only round: %v", err)
+	}
+	if owner.disabledCalls != 1 {
+		t.Fatalf("disabledCalls=%d after second run, want 1 (idle)", owner.disabledCalls)
+	}
+}
+
+// TestResetOnlyDeferredOwnerContinuesAndFailsClosed: a deferred owner retains its
+// need, independent plugin cleanup still runs, and the overall periodic phase fails
+// closed so ordinary periodical effects are suppressed.
+func TestResetOnlyDeferredOwnerContinuesAndFailsClosed(t *testing.T) {
+	t.Parallel()
+	owner := &probeReconcilerFake{
+		fakePlugin:     &fakePlugin{name: "cpuset_topology", disabledErr: bulkheadapi.ErrDisabledResetDeferred},
+		currentEnabled: false,
+		needsReset:     true,
+	}
+	worker := &enabledProbeFake{fakePlugin: &fakePlugin{name: "workqueue"}, currentEnabled: false}
+	m := &Manager{plugins: []bulkheadapi.Plugin{owner, worker}}
+	m.lastCPUSetAdjustmentEnabled = map[string]bool{"workqueue": true}
+
+	in := fencedCleanupCtx(true)
+	ctx := WithDisabledCleanupOnly(context.Background())
+	if err := m.RunCPUSetAdjustmentHandlers(ctx, in); err == nil {
+		t.Fatal("deferred cleanup must fail closed and suppress ordinary periodical")
+	}
+	if !owner.needsReset {
+		t.Fatal("deferred owner must retain the cleanup need")
+	}
+	if owner.markCompleteCalls != 0 {
+		t.Fatalf("deferred owner must not be marked complete, got %d", owner.markCompleteCalls)
+	}
+	if worker.disabledCalls != 1 {
+		t.Fatalf("independent worker disabledCalls=%d, want 1", worker.disabledCalls)
+	}
+}
+
+// TestGateInvalidatesAppliedViewForPeriodical proves that at detection the gate
+// invalidates the cached applied view under gate serialization before ordinary
+// periodical can observe the old target view, while retaining the old pointer.
+func TestGateInvalidatesAppliedViewForPeriodical(t *testing.T) {
+	t.Parallel()
+	worker := &enabledProbeFake{fakePlugin: &fakePlugin{name: "workqueue"}, currentEnabled: false}
+	m := &Manager{plugins: []bulkheadapi.Plugin{worker}}
+	m.lastCPUSetAdjustmentEnabled = map[string]bool{"workqueue": true}
+	m.appliedViewValidForPeriodical = true
+	m.appliedView = &model.AppliedView{}
+
+	if !m.HasPendingDisabledReset(nil) {
+		t.Fatal("gate must detect the cleanup need")
+	}
+	if m.appliedViewValidForPeriodical {
+		t.Fatal("old target view must be invalidated at gate detection")
+	}
+	if m.appliedView == nil {
+		t.Fatal("old appliedView pointer must be retained")
+	}
+}
+
+// TestNonProviderNoFire proves a plugin without CurrentEnabledProvider is no-fire:
+// the gate reports no need and never invokes its disabled handler.
+func TestNonProviderNoFire(t *testing.T) {
+	t.Parallel()
+	worker := &fakePlugin{name: "workqueue"}
+	m := &Manager{plugins: []bulkheadapi.Plugin{worker}}
+	m.lastCPUSetAdjustmentEnabled = map[string]bool{"workqueue": true}
+
+	if m.HasPendingDisabledReset(nil) {
+		t.Fatal("a non-provider plugin must be no-fire, not treated as cleanup need")
+	}
+	if worker.disabledCalls != 0 {
+		t.Fatal("no-fire plugin must not run a disabled handler")
+	}
+}
+
 func TestManagerApplyLockWaitIsCancelable(t *testing.T) {
 	t.Parallel()
 	blocking := &fakePlugin{

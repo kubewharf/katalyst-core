@@ -96,8 +96,15 @@ func NewCPUListPluginWithManager(config *qrmresctrl.ResctrlConfig, manager CPULi
 
 func (p *CPUListPlugin) Name() string { return CPUListPluginName }
 
-func (p *CPUListPlugin) Enable(in bulkheadapi.HandlerContext) bool {
+var _ bulkheadapi.CurrentEnabledProvider = (*CPUListPlugin)(nil)
+
+// CurrentEnabled is the pure config enable decision; Enable delegates to it.
+func (p *CPUListPlugin) CurrentEnabled(in bulkheadapi.HandlerContext) bool {
 	return enableCPUList(in.DynamicConf)
+}
+
+func (p *CPUListPlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	return p.CurrentEnabled(in)
 }
 
 func (p *CPUListPlugin) CPUSetAdjustmentHandler(ctx context.Context, in bulkheadapi.HandlerContext) error {

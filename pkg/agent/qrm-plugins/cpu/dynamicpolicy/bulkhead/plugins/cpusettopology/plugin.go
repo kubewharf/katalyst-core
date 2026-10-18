@@ -246,20 +246,22 @@ func (p *CPUSetTopologyPlugin) resolveContainerRelSafe(podUID, containerID strin
 
 func (p *CPUSetTopologyPlugin) Name() string { return CPUSetTopologyPluginName }
 
-func (p *CPUSetTopologyPlugin) Enable(in bulkheadapi.HandlerContext) bool {
+var _ bulkheadapi.CurrentEnabledProvider = (*CPUSetTopologyPlugin)(nil)
+
+// CurrentEnabled is the pure, side-effect-free enable decision: the cgroup v2 gate
+// and the config predicate, without touching lastEnabled/resetComplete. The periodic
+// gate calls it directly; Enable delegates to it before preserving lifecycle state.
+func (p *CPUSetTopologyPlugin) CurrentEnabled(in bulkheadapi.HandlerContext) bool {
 	if p.disabledOnCgroupV2(context.Background()) {
-		if p.lastEnabled {
-			// enabled -> disabled (cgroup v2 gate closed): require a fresh reset.
-			p.resetComplete = false
-		}
-		p.lastEnabled = false
 		return false
 	}
-	curr := enableBulkheadCpusetTopology(in)
-	if curr {
-		// The plugin is actively managing the partition DAG.
-	} else if p.lastEnabled {
-		// enabled -> disabled: a fresh disabled reset is required next round.
+	return enableBulkheadCpusetTopology(in)
+}
+
+func (p *CPUSetTopologyPlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	curr := p.CurrentEnabled(in)
+	if !curr && p.lastEnabled {
+		// enabled -> disabled (cgroup v2 gate closed or config off): require a fresh reset.
 		p.resetComplete = false
 	}
 	p.lastEnabled = curr

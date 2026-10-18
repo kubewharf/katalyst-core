@@ -59,8 +59,15 @@ func NewWorkqueuePlugin(conf *config.Configuration) bulkheadapi.Plugin {
 
 func (p *WorkqueuePlugin) Name() string { return WorkqueuePluginName }
 
-func (p *WorkqueuePlugin) Enable(in bulkheadapi.HandlerContext) bool {
+var _ bulkheadapi.CurrentEnabledProvider = (*WorkqueuePlugin)(nil)
+
+// CurrentEnabled is the pure config enable decision; Enable delegates to it.
+func (p *WorkqueuePlugin) CurrentEnabled(in bulkheadapi.HandlerContext) bool {
 	return enableBulkheadWorkqueue(in.DynamicConf)
+}
+
+func (p *WorkqueuePlugin) Enable(in bulkheadapi.HandlerContext) bool {
+	return p.CurrentEnabled(in)
 }
 
 func (p *WorkqueuePlugin) CPUSetAdjustmentHandler(_ context.Context, in bulkheadapi.HandlerContext) error {

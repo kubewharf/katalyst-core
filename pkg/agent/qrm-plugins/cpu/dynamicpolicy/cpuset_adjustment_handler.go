@@ -36,6 +36,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	checkpointutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -1977,6 +1978,15 @@ func (p *DynamicPolicy) reconcileDirtyCPUSetAdjustment() error {
 	return err
 }
 
+// runBulkheadPeriodicalHandlers reconciles dirty state, then either runs the
+// leaving-enabled disable-transition cleanup through the canonical adjustment
+// primitive in reset-only mode, or the ordinary periodical handlers. The pre-lease
+// authoritative gate decides from current DynamicConf; a false result acquires no
+// lease and builds no snapshot. On a cleanup need, runCPUSetAdjustmentHandlers reuses
+// its existing lease, state/topology snapshot, generation bump and
+// generation/config/state fence; the reset-only branch skips DesiredView build/publish,
+// enabled adjustment and reclaim-only ReconcileDisabled. A fail-closed cleanup error
+// suppresses the ordinary periodical handlers for this tick.
 func (p *DynamicPolicy) runBulkheadPeriodicalHandlers(
 	coreConf *config.Configuration,
 	extraConf interface{},
@@ -1985,6 +1995,30 @@ func (p *DynamicPolicy) runBulkheadPeriodicalHandlers(
 	metaServer *metaserver.MetaServer,
 ) {
 	reconcileErr := p.reconcileDirtyCPUSetAdjustment()
+
+	var dyn *dynamicconfig.Configuration
+	if p.config.dynamicConfig != nil {
+		dyn = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
+	needsCleanup := p.bulkhead.bulkheadManager != nil &&
+		p.bulkhead.bulkheadManager.HasPendingDisabledReset(dyn)
+
+	var resetErr error
+	if needsCleanup {
+		ctx, cancel := context.WithTimeout(context.Background(), cpuSetAdjustmentHandlerTimeout(p.config.conf))
+		ctx = bulkhead.WithDisabledCleanupOnly(ctx)
+		resetErr = p.runCPUSetAdjustmentHandlers(ctx)
+		cancel()
+	}
+	if resetErr != nil {
+		_ = general.UpdateHealthzStateByError(cpuconsts.SyncBulkhead, resetErr)
+		general.ErrorS(resetErr, "bulkhead leaving-enabled cleanup failed; ordinary periodical suppressed")
+		if reconcileErr != nil {
+			_ = general.UpdateHealthzStateByError(cpuconsts.SyncBulkhead, reconcileErr)
+		}
+		return
+	}
+
 	if p.bulkhead.bulkheadManager != nil {
 		p.bulkhead.bulkheadManager.RunPeriodicalHandlers(coreConf, extraConf, dynamicConf, emitter, metaServer)
 	}

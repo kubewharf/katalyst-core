@@ -237,9 +237,180 @@ func (m *Manager) discoverTopologyPlugin() error {
 	return nil
 }
 
+// disabledCleanupOnlyCtxKey marks a canonical adjustment round as a reset-only
+// leaving-enabled disable-transition cleanup: it reuses the canonical lease,
+// state/topology snapshot, generation bump and generation/config/state fence, but
+// skips DesiredView build/publish, enabled adjustment and reclaim-only ReconcileDisabled.
+type disabledCleanupOnlyCtxKey struct{}
+
+// WithDisabledCleanupOnly tags a context so the registered bulkhead handler runs
+// the reset-only traversal instead of a full Apply round.
+func WithDisabledCleanupOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, disabledCleanupOnlyCtxKey{}, true)
+}
+
+func disabledCleanupOnlyRequested(ctx context.Context) bool {
+	_, ok := ctx.Value(disabledCleanupOnlyCtxKey{}).(bool)
+	return ok
+}
+
 func (m *Manager) RunCPUSetAdjustmentHandlers(ctx context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+	if disabledCleanupOnlyRequested(ctx) {
+		return m.runDisabledCleanupOnly(ctx, in)
+	}
 	_, err := m.Apply(ctx, in)
 	return err
+}
+
+// runDisabledCleanupOnly is the reset-only traversal. It runs only the disabled
+// handler for currently-disabled probe-backed plugins that still owe a
+// leaving-enabled disable-transition cleanup, under the caller's canonical
+// generation fence; it builds/publishes no Desired/Applied view, runs no enabled
+// adjustment and no reclaim-only ReconcileDisabled. A deferred owner retains the
+// need, continues independent plugin cleanup, and records a deferred outcome so
+// the periodic phase fails closed; a hard error or stale generation fails closed.
+func (m *Manager) runDisabledCleanupOnly(ctx context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+	if err := m.mu.Lock(ctx); err != nil {
+		return err
+	}
+	defer m.mu.Unlock()
+	if err := m.discoverTopologyPlugin(); err != nil {
+		return err
+	}
+	handlerCtx := bulkheadapi.HandlerContext{CPUSetAdjustmentHandlerCtx: in}
+	disabledRoundStart := time.Now()
+	order := make([]bulkheadapi.Plugin, 0, len(m.plugins))
+	if m.topologyOwner != nil {
+		order = append(order, m.topologyOwner)
+	}
+	for _, p := range m.plugins {
+		if p != m.topologyOwner {
+			order = append(order, p)
+		}
+	}
+	deferredOutcome := false
+	for _, p := range order {
+		hc := bulkheadapi.HandlerContext{CPUSetAdjustmentHandlerCtx: in}
+		if !m.disabledCleanupNeed(p, hc) {
+			continue
+		}
+		deferred, err := m.runSinglePluginDisabledCleanup(ctx, in, &handlerCtx, p, disabledRoundStart)
+		if err != nil {
+			return err
+		}
+		deferredOutcome = deferredOutcome || deferred
+	}
+	if deferredOutcome {
+		return fmt.Errorf("bulkhead leaving-enabled cleanup deferred; ordinary periodical suppressed")
+	}
+	return nil
+}
+
+// runSinglePluginDisabledCleanup runs one plugin's disabled handler and commits
+// completion/bookkeeping under the generation fence. A deferred owner retains the
+// cleanup need and reports deferred=true; a hard error or stale generation fails
+// closed. The topology deadline applies only to the reconciler/topology owner;
+// generic plugins use the plain ctx to match existing Apply semantics.
+func (m *Manager) runSinglePluginDisabledCleanup(
+	ctx context.Context,
+	in cpusetutil.CPUSetAdjustmentHandlerCtx,
+	handlerCtx *bulkheadapi.HandlerContext,
+	p bulkheadapi.Plugin,
+	disabledRoundStart time.Time,
+) (bool, error) {
+	adjuster, ok := p.(bulkheadapi.AdjustmentCapable)
+	if !ok {
+		return false, nil
+	}
+	_, isReconciler := p.(bulkheadapi.DisabledTopologyReconciler)
+	callCtx := ctx
+	var cancel context.CancelFunc
+	if isReconciler || p == m.topologyOwner {
+		callCtx, cancel = context.WithDeadline(ctx, disabledRoundStart.Add(managerTopologyDeadline(in.CoreConf)))
+		defer cancel()
+	}
+	resetErr := adjuster.CPUSetAdjustmentDisabledHandler(callCtx, *handlerCtx)
+	if resetErr != nil && errors.Is(resetErr, bulkheadapi.ErrDisabledResetDeferred) {
+		// Retain the need: no completion commit; the caller continues independent
+		// plugins and records a deferred outcome so the periodic phase fails closed.
+		emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "deferred", resetErr.Error())
+		return true, nil
+	}
+	reconciler, _ := p.(bulkheadapi.DisabledTopologyReconciler)
+	committed := commitIfGenerationCurrent(in, func() {
+		if resetErr != nil {
+			return
+		}
+		if reconciler != nil {
+			reconciler.MarkDisabledResetComplete()
+			return
+		}
+		if m.lastCPUSetAdjustmentEnabled == nil {
+			m.lastCPUSetAdjustmentEnabled = make(map[string]bool)
+		}
+		m.lastCPUSetAdjustmentEnabled[p.Name()] = false
+	})
+	if !committed {
+		return false, staleGenerationError()
+	}
+	if resetErr != nil {
+		emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "failed", resetErr.Error())
+		return false, fmt.Errorf("bulkhead plugin %q leaving-enabled cleanup failed: %w", p.Name(), resetErr)
+	}
+	emitBulkheadPluginResult(handlerCtx.Emitter, "cpuset_adjustment_disabled", p.Name(), "success", "")
+	return false, nil
+}
+
+// disabledCleanupNeed is the single current-enabled + cleanup-need decision shared
+// by the pre-lease gate and the reset-only traversal. A candidate must explicitly
+// implement the pure probe; a plugin without it defaults to no-fire and is neither
+// adjusted nor cleaned here.
+func (m *Manager) disabledCleanupNeed(p bulkheadapi.Plugin, hc bulkheadapi.HandlerContext) bool {
+	provider, ok := p.(bulkheadapi.CurrentEnabledProvider)
+	if !ok {
+		return false
+	}
+	if provider.CurrentEnabled(hc) {
+		return false
+	}
+	if reconciler, ok := p.(bulkheadapi.DisabledTopologyReconciler); ok {
+		return reconciler.NeedsDisabledReset()
+	}
+	if _, ok := p.(bulkheadapi.AdjustmentCapable); !ok {
+		return false
+	}
+	return m.needsDisabledReset(p.Name())
+}
+
+// HasPendingDisabledReset is the pre-lease authoritative gate. It reuses
+// disabledCleanupNeed against current DynamicConf and keeps a plugin only when it
+// is currently disabled and still owes a leaving-enabled disable-transition cleanup.
+// It acquires no lease, builds no snapshot, and never calls Apply; a false result
+// lets the hot path proceed straight to the ordinary periodical handlers.
+func (m *Manager) HasPendingDisabledReset(dyn *dynamicconfig.Configuration) bool {
+	// Serialize the current-enabled read against the locked lifecycle/bookkeeping
+	// writes; the gate never performs a mutation itself.
+	if err := m.mu.Lock(context.Background()); err != nil {
+		// A lock failure fails the gate open (proceed to ordinary periodical) but
+		// must not stay silent: surface the failure so a persistent lock error is
+		// observable instead of silently suppressing the cleanup gate.
+		general.Warningf("bulkhead HasPendingDisabledReset failed to acquire manager lock: %v", err)
+		return false
+	}
+	defer m.mu.Unlock()
+	hc := bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{DynamicConf: dyn},
+	}
+	for _, p := range m.plugins {
+		if m.disabledCleanupNeed(p, hc) {
+			// At detection, before ordinary periodical can observe the old target
+			// view, invalidate the cached applied view under gate serialization;
+			// retain the old pointer and only clear the validity flag.
+			m.appliedViewValidForPeriodical = false
+			return true
+		}
+	}
+	return false
 }
 
 // Apply converges topology before running partition-dependent plugins and
