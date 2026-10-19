@@ -297,7 +297,7 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 ) (advisorapi.BlockCPUSet, error) {
 	topology := p.machine.machineInfo.CPUTopology
 	allCPUs := topology.CPUDetails.CPUs()
-	machineState := p.state.GetMachineState()
+	podEntries, machineState, _ := p.state.GetAdvisorStateSnapshot()
 	rpPinnedCPUSet := machineState.GetResourcePackagePinnedCPUSet()
 
 	if dynamicConf == nil {
@@ -310,7 +310,7 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 	}
 	nonReclaimableCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(disableReclaimSelector, machineState)
 	descriptors, err := buildAdvisorBlockDescriptors(
-		resp, topology.CPUDetails, p.state.GetPodEntries(), rpPinnedCPUSet, nonReclaimableCPUSet,
+		resp, topology.CPUDetails, podEntries, rpPinnedCPUSet, nonReclaimableCPUSet,
 	)
 	if err != nil {
 		return nil, err
@@ -318,7 +318,9 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 	// Runtime-config gate: target-driven provenance is honored only when all three
 	// runtime-config conditions hold. Otherwise every descriptor stays on the
 	// legacy floor/ownership path regardless of block quantities.
-	descriptors = p.applyTargetDrivenReclaimGate(descriptors)
+	allowElasticActual := dynamicConf.EnableReclaim && dynamicConf.EnableRampUpReclaimHardPartition &&
+		resp.DisableDedicatedCoresOverlapReclaimedCores
+	descriptors = applyTargetDrivenReclaimGate(descriptors, allowElasticActual)
 
 	result := advisorapi.NewBlockCPUSet()
 	available, err := p.allocateStaticAndForbiddenPools(resp, result, allCPUs)
@@ -331,7 +333,7 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 	// ordinary shared-core entries remain eligible for fake-NUMA balancing.
 	// Reuse the same set in normalization and solving so both phases agree on
 	// which NUMAs are immutable.
-	skipNUMAs := p.state.GetPodEntries().SteadyExclusiveNUMAs(topology)
+	skipNUMAs := podEntries.SteadyExclusiveNUMAs(topology)
 	if resp.DisableDedicatedCoresOverlapReclaimedCores {
 		if hardActive {
 			descriptors, err = normalizeAdvisorDescriptorsForHardPartitionWholeCoreReclaim(
@@ -361,7 +363,8 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 			(!hardActive && descriptor.Class == advisorBlockClassShared && descriptor.NUMAID != commonstate.FakedNUMAID)
 	})
 	available, err = p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
-		core, available, result, true, hardActive, checkpointTransition, skipNUMAs)
+		core, available, result, true, hardActive, checkpointTransition, skipNUMAs,
+		podEntries, allowElasticActual)
 	if err != nil {
 		return nil, fmt.Errorf("solve dedicated and mandatory reclaim: %w", err)
 	}
@@ -378,7 +381,9 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 				return !allocated
 			})
 		}
-		available, err = p.solveAdvisorDescriptorPhase(members, available, result, false, hardActive)
+		available, err = p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			members, available, result, false, hardActive, nil, skipNUMAs,
+			podEntries, allowElasticActual)
 		if err != nil {
 			return nil, fmt.Errorf("solve source/isolation component %q: %w", sourceBlockID, err)
 		}
@@ -460,9 +465,12 @@ func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransition(
 	hardActive bool,
 	checkpointTransition *steadyFakeNUMAMigrationCheckpointTransition,
 ) (machine.CPUSet, error) {
-	skipNUMAs := p.state.GetPodEntries().SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology)
+	entries := p.state.GetPodEntries()
+	skipNUMAs := entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology)
 	return p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
-		descriptors, available, result, preserveClass, hardActive, checkpointTransition, skipNUMAs)
+		descriptors, available, result, preserveClass, hardActive, checkpointTransition, skipNUMAs,
+		entries, p.isRampUpReclaimHardPartitionEnabled() &&
+			p.state.GetDisableDedicatedCoresOverlapReclaimedCores())
 }
 
 func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
@@ -473,6 +481,8 @@ func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSk
 	hardActive bool,
 	checkpointTransition *steadyFakeNUMAMigrationCheckpointTransition,
 	skipNUMAs sets.Int,
+	requestEntries state.PodEntries,
+	allowElasticActual bool,
 ) (machine.CPUSet, error) {
 	if len(descriptors) == 0 {
 		return available, nil
@@ -548,7 +558,8 @@ func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSk
 		requestQuantity := float64(descriptor.Quantity)
 		requestGroupKey := demandKey
 		if class == advisorBlockClassDedicated {
-			requestQuantity = p.advisorDescriptorRequestQuantity(descriptor)
+			requestQuantity = advisorDescriptorRequestQuantityFromEntries(
+				descriptor, requestEntries, allowElasticActual)
 			owners := append([]string(nil), descriptor.Owners...)
 			sort.Strings(owners)
 			requestGroupKey = strings.Join(owners, "\x1f")
@@ -628,16 +639,30 @@ func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSk
 	return available.Difference(used), nil
 }
 
-func (p *DynamicPolicy) advisorDescriptorRequestQuantity(descriptor advisorBlockDescriptor) float64 {
+func advisorDescriptorRequestQuantityFromEntries(
+	descriptor advisorBlockDescriptor,
+	entries state.PodEntries,
+	allowElasticActual bool,
+) float64 {
 	requestQuantity := float64(descriptor.Quantity)
 	for _, owner := range descriptor.Owners {
 		_, entryName, subEntryName, _, ok := advisorDescriptorOwner(owner)
-		if !ok {
+		if !ok || entries[entryName] == nil {
 			continue
 		}
-		allocationInfo := p.state.GetAllocationInfo(entryName, subEntryName)
-		if allocationInfo != nil && allocationInfo.RequestQuantity > requestQuantity {
-			requestQuantity = allocationInfo.RequestQuantity
+		allocationInfo := entries[entryName][subEntryName]
+		if allocationInfo == nil {
+			continue
+		}
+		ownerRequest := allocationInfo.RequestQuantity
+		if allowElasticActual && allocationInfo.RampUp &&
+			allocationInfo.CheckDedicatedNUMABinding() &&
+			!allocationInfo.OriginalAllocationResult.IsEmpty() &&
+			float64(allocationInfo.OriginalAllocationResult.Size()) < ownerRequest {
+			ownerRequest = float64(allocationInfo.OriginalAllocationResult.Size())
+		}
+		if ownerRequest > requestQuantity {
+			requestQuantity = ownerRequest
 		}
 	}
 	return requestQuantity

@@ -210,3 +210,70 @@ func TestWiderLeafTouchingReclaimFallsThrough(t *testing.T) {
 		t.Fatalf("expected = %s, want desired %s", got.String(), desired.String())
 	}
 }
+
+func TestReclassifyAdmissionDeferredLeavesScopesPrimaryCleanup(t *testing.T) {
+	t.Parallel()
+
+	const rel = "kubepods/pod-a/container-a"
+	for _, tc := range []struct {
+		name         string
+		current      machine.CPUSet
+		target       machine.CPUSet
+		reclaim      machine.CPUSet
+		wantDeferred bool
+	}{
+		{
+			name:         "primary internal relocation",
+			current:      machine.NewCPUSet(7, 11, 55, 59),
+			target:       machine.NewCPUSet(0, 4, 48, 52),
+			reclaim:      machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			wantDeferred: true,
+		},
+		{
+			name:         "missing desired business cpu",
+			current:      machine.NewCPUSet(0, 4),
+			target:       machine.NewCPUSet(0, 4, 48, 52),
+			reclaim:      machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			wantDeferred: false,
+		},
+		{
+			name:         "current touches reclaim",
+			current:      machine.NewCPUSet(1, 7, 11, 55),
+			target:       machine.NewCPUSet(0, 4, 48, 52),
+			reclaim:      machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			wantDeferred: false,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := &expectedCPUSetBuildResult{
+				ExpectedByRel:     map[string]machine.CPUSet{rel: tc.target.Clone()},
+				DeferredLeafByRel: map[string]machine.CPUSet{},
+			}
+			plugin := &CPUSetTopologyPlugin{cgroup: &fakeCgroupClient{
+				cpus: map[string]machine.CPUSet{rel: tc.current.Clone()},
+			}}
+
+			plugin.reclassifyAdmissionDeferredLeaves(context.Background(), tc.reclaim, result)
+
+			deferred, isDeferred := result.DeferredLeafByRel[rel]
+			if isDeferred != tc.wantDeferred {
+				t.Fatalf("deferred=%v, want %v; expected=%v deferred_map=%v",
+					isDeferred, tc.wantDeferred, result.ExpectedByRel, result.DeferredLeafByRel)
+			}
+			if tc.wantDeferred {
+				if !deferred.Equals(tc.target) {
+					t.Fatalf("deferred target=%s, want %s", deferred.String(), tc.target.String())
+				}
+				if _, ok := result.ExpectedByRel[rel]; ok {
+					t.Fatalf("deferred relocation remained synchronously required: %v", result.ExpectedByRel)
+				}
+				return
+			}
+			if expected, ok := result.ExpectedByRel[rel]; !ok || !expected.Equals(tc.target) {
+				t.Fatalf("synchronous expected target=%v, want %s", result.ExpectedByRel, tc.target.String())
+			}
+		})
+	}
+}

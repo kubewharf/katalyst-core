@@ -2813,6 +2813,10 @@ func TestCPUSetTopologyPluginNoSystemFilterWhenSystemRelUnset(t *testing.T) {
 
 func TestCPUSetTopologyPluginAdmissionDeadlineStartsBeforeSiblingDiscovery(t *testing.T) {
 	t.Parallel()
+	// This test asserts a 250ms wall-clock deadline. Do not run it in parallel
+	// with the package's I/O-heavy convergence matrix: scheduler starvation would
+	// test host load rather than whether the deadline is installed before sibling
+	// discovery.
 
 	const safeDuration = 250 * time.Millisecond
 	deadlineObserved := false

@@ -34,6 +34,68 @@ import (
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
+func TestAdvisorDescriptorRequestQuantityUsesElasticActualFloor(t *testing.T) {
+	t.Parallel()
+
+	p, err := getTestDynamicPolicyWithInitialization(mustDummyTopology(t, 8, 1, 1), t.TempDir())
+	require.NoError(t, err)
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, false))
+	allocation := &state.AllocationInfo{
+		AllocationMeta: commonstate.AllocationMeta{
+			PodUid:        "pod",
+			ContainerName: "main",
+			QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+			Annotations: map[string]string{
+				apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+			},
+		},
+		RampUp:                   true,
+		AllocationResult:         machine.NewCPUSet(0, 1, 2, 3),
+		OriginalAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+		RequestQuantity:          6,
+	}
+	require.NoError(t, p.state.SetAllocationInfo("pod", "main", allocation, false))
+	descriptor := advisorBlockDescriptor{
+		Class:    advisorBlockClassDedicated,
+		Quantity: 4,
+		Owners: []string{
+			canonicalAdvisorBlockOwner(
+				commonstate.PoolNameDedicated, "pod", "main", ""),
+		},
+	}
+
+	require.Equal(t, float64(4), advisorDescriptorRequestQuantityFromEntries(
+		descriptor, p.state.GetPodEntries(),
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores()))
+
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = false
+	require.Equal(t, float64(6), advisorDescriptorRequestQuantityFromEntries(
+		descriptor, p.state.GetPodEntries(),
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores()))
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(false, false))
+	require.Equal(t, float64(6), advisorDescriptorRequestQuantityFromEntries(
+		descriptor, p.state.GetPodEntries(),
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores()))
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, false))
+
+	allocation.RampUp = false
+	require.NoError(t, p.state.SetAllocationInfo("pod", "main", allocation, false))
+	require.Equal(t, float64(6), advisorDescriptorRequestQuantityFromEntries(
+		descriptor, p.state.GetPodEntries(),
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores()))
+}
+
+func mustDummyTopology(t *testing.T, cpus, sockets, numas int) *machine.CPUTopology {
+	t.Helper()
+	topology, err := machine.GenerateDummyCPUTopology(cpus, sockets, numas)
+	require.NoError(t, err)
+	return topology
+}
+
 func TestDeriveAdvisorIsolationSourcePool(t *testing.T) {
 	t.Parallel()
 

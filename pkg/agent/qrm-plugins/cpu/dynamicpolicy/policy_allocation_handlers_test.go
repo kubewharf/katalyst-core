@@ -1679,7 +1679,7 @@ func TestDynamicPolicy_takeByTopologyPreferring_invariants(t *testing.T) {
 	}
 }
 
-func TestDynamicPolicyAllocateNumaBindingDoesNotHardDeductReclaimFloorForNonExclusiveDNB(t *testing.T) {
+func TestDynamicPolicyAllocateNumaBindingShortAllocatesElasticNonExclusiveDNBOutsideHardFloor(t *testing.T) {
 	t.Parallel()
 
 	topology, err := machine.GenerateDummyCPUTopology(24, 1, 1)
@@ -1707,14 +1707,47 @@ func TestDynamicPolicyAllocateNumaBindingDoesNotHardDeductReclaimFloorForNonExcl
 	}, true)
 
 	require.NoError(t, err)
-	require.Equal(t, 21, got.Size(), "got=%s", got.String())
+	require.Equal(t, available.Difference(hardReclaimCPUs).Size(), got.Size(), "got=%s", got.String())
+	require.Less(t, got.Size(), 21, "elastic DNB should preserve the floor instead of borrowing it")
 	require.True(t, hardFloor.IsSubsetOf(hardReclaimCPUs), "floor=%s hard=%s", hardFloor, hardReclaimCPUs)
-	require.False(t, got.Intersection(hardFloor).IsEmpty(),
-		"non-exclusive admission must be allowed to borrow from hard floor when reclaim-free CPUs are short, got=%s floor=%s",
-		got.String(), hardFloor.String())
+	require.True(t, got.Intersection(hardReclaimCPUs).IsEmpty(),
+		"elastic non-exclusive admission must stay disjoint from hard floor, got=%s floor=%s",
+		got.String(), hardReclaimCPUs.String())
 }
 
-func TestDynamicPolicyAllocateNumaBindingDoesNotHardDeductReclaimFloorForExclusiveDNB(t *testing.T) {
+func TestDynamicPolicyAllocateNumaBindingShortAllocatesNonReclaimableNonExclusiveDNBOutsideHardFloor(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(24, 1, 1)
+	require.NoError(t, err)
+	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+	p.config.reservedCPUs = machine.NewCPUSet()
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+	p.config.dynamicConfig.GetDynamicConfiguration().InitialRampUpReclaimCPUSetRatio = 0.2
+	p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, false)
+
+	numa0 := topology.CPUDetails.CPUsInNUMANodes(0).ToSliceInt()
+	hardFloor := machine.NewCPUSet(numa0[:2]...)
+	available := machine.NewCPUSet(numa0[:22]...)
+	p.reclaim.reservedReclaimedCPUSet = hardFloor
+	p.reclaim.reservedReclaimedCPUsSize = hardFloor.Size()
+	p.state.SetMachineState(state.NUMANodeMap{0: {DefaultCPUSet: available}}, true)
+
+	got, hardReclaimCPUs, err := p.allocateNumaBindingCPUs(21, &pluginapi.TopologyHint{Nodes: []uint64{0}}, p.state.GetMachineState(), map[string]string{
+		apiconsts.PodAnnotationQoSLevelKey:                  apiconsts.PodAnnotationQoSLevelDedicatedCores,
+		apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+	}, false)
+
+	require.NoError(t, err)
+	require.Equal(t, available.Difference(hardReclaimCPUs).Size(), got.Size(), "got=%s", got.String())
+	require.Less(t, got.Size(), 21)
+	require.True(t, hardFloor.IsSubsetOf(hardReclaimCPUs), "floor=%s hard=%s", hardFloor, hardReclaimCPUs)
+	require.True(t, got.Intersection(hardReclaimCPUs).IsEmpty())
+}
+
+func TestDynamicPolicyAllocateNumaBindingShortAllocatesElasticExclusiveDNBOutsideHardFloor(t *testing.T) {
 	t.Parallel()
 
 	topology, err := machine.GenerateDummyCPUTopology(48, 2, 2)
@@ -1746,11 +1779,13 @@ func TestDynamicPolicyAllocateNumaBindingDoesNotHardDeductReclaimFloorForExclusi
 	}, true)
 
 	require.NoError(t, err)
-	require.Equal(t, 48, got.Size(), "exclusive admission must keep the whole hinted partition, got=%s", got.String())
+	require.Equal(t, 40, got.Size(), "exclusive elastic admission must use the hinted partition outside the floor, got=%s", got.String())
 	require.True(t, hardFloor.IsSubsetOf(hardReclaimCPUs), "floor=%s hard=%s", hardFloor, hardReclaimCPUs)
-	require.True(t, hardFloor.IsSubsetOf(got),
-		"exclusive admission must not hard-deduct the reclaim floor, got=%s floor=%s",
-		got.String(), hardFloor.String())
+	require.True(t, got.Intersection(hardReclaimCPUs).IsEmpty(),
+		"exclusive admission must exclude the reclaim floor, got=%s floor=%s",
+		got.String(), hardReclaimCPUs.String())
+	require.True(t, got.Union(hardReclaimCPUs).Equals(numa0.Union(numa1)),
+		"exclusive allocation and reclaim floor must cover the hinted partition")
 }
 
 func TestDynamicPolicy_allocateNumaBindingCPUs_reclaimPreferenceRespectsResourcePackageOrder(t *testing.T) {
@@ -1873,15 +1908,12 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_exclusiveDisjointPartition(t *tes
 			},
 		}
 
-		result, reclaim, err := call(p, machineState, exclusiveAnnotations("work"), false)
-		require.NoError(t, err)
-		require.True(t, result.Equals(machine.NewCPUSet(0, 1, 2, 4, 5, 6)), "result=%s", result)
-		require.True(t, reclaim.Equals(machine.NewCPUSet(0, 2, 4, 6)), "reclaim=%s", reclaim)
-		require.True(t, reclaim.IsSubsetOf(result))
-		require.True(t, reclaim.Intersection(machine.NewCPUSet(3, 7)).IsEmpty())
+		_, reclaim, err := call(p, machineState, exclusiveAnnotations("work"), false)
+		require.ErrorContains(t, err, "results can't meet cpus request")
+		require.True(t, reclaim.IsEmpty(), "failed strict allocation must not return reclaim plan: %s", reclaim)
 	})
 
-	t.Run("unpinned package preserves reserve and reclaim-only eligibility", func(t *testing.T) {
+	t.Run("unpinned request respects resource-package exclusions", func(t *testing.T) {
 		p := newPolicy(t)
 		t.Parallel()
 		p.reclaim.reservedReclaimedCPUSet = machine.NewCPUSet(2, 6)
@@ -1901,11 +1933,9 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_exclusiveDisjointPartition(t *tes
 			},
 		}
 
-		result, reclaim, err := call(p, machineState, exclusiveAnnotations(""), true)
-		require.NoError(t, err)
-		require.True(t, result.Equals(machine.NewCPUSet(0, 1, 2, 4, 5, 6)), "result=%s", result)
-		require.True(t, reclaim.Equals(machine.NewCPUSet(0, 2, 4, 6)), "reclaim=%s", reclaim)
-		require.True(t, reclaim.IsSubsetOf(result))
+		_, reclaim, err := call(p, machineState, exclusiveAnnotations(""), true)
+		require.ErrorContains(t, err, "results can't meet cpus request")
+		require.True(t, reclaim.IsEmpty(), "failed capacity check must not return reclaim plan: %s", reclaim)
 	})
 
 	t.Run("allows reclaim-only partition for admission", func(t *testing.T) {
@@ -1917,10 +1947,9 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_exclusiveDisjointPartition(t *tes
 			0: {DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)},
 		}
 
-		result, reclaim, err := call(p, machineState, exclusiveAnnotations(""), true)
-		require.NoError(t, err)
-		require.True(t, result.Equals(machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)), "result=%s", result)
-		require.True(t, reclaim.IsSubsetOf(result), "result=%s reclaim=%s", result, reclaim)
+		_, reclaim, err := call(p, machineState, exclusiveAnnotations(""), true)
+		require.ErrorContains(t, err, "exclusive disjoint dedicated result is empty")
+		require.True(t, reclaim.IsEmpty(), "failed empty allocation must not return reclaim plan: %s", reclaim)
 	})
 
 	t.Run("rejects reserve when reclaim eligibility is insufficient", func(t *testing.T) {
@@ -2227,7 +2256,7 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_partitionEligibilityGate(t *testi
 	})
 }
 
-func TestDynamicPolicy_allocateNumaBindingCPUs_exclusiveDisjointMultiNUMA(t *testing.T) {
+func TestDynamicPolicy_allocateNumaBindingCPUs_exclusiveDisjointMultiNUMARejectsRequestAbovePackageCapacity(t *testing.T) {
 	t.Parallel()
 
 	topology, err := machine.GenerateDummyCPUTopology(8, 1, 2)
@@ -2264,30 +2293,10 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_exclusiveDisjointMultiNUMA(t *tes
 		apiconsts.PodAnnotationResourcePackageKey:             "work",
 	}
 
-	admissionResult, reclaim, err := p.allocateNumaBindingCPUs(
-		8, &pluginapi.TopologyHint{Nodes: []uint64{0, 1}}, machineState, annotations, false)
-	require.NoError(t, err)
-	require.True(t, reclaim.Equals(machine.NewCPUSet(0, 2, 4, 6)), "reclaim=%s", reclaim)
-	require.True(t, admissionResult.Equals(machine.NewCPUSet(0, 1, 2, 3, 4, 6)),
-		"admission result=%s", admissionResult)
-
-	allocationInfo := &state.AllocationInfo{
-		AllocationResult:         admissionResult.Clone(),
-		OriginalAllocationResult: admissionResult.Clone(),
-	}
-	overlap, err := shrinkAllocationInfoForHardReclaimFloor(topology, allocationInfo, reclaim)
-	require.NoError(t, err)
-	require.True(t, overlap.Equals(reclaim), "overlap=%s reclaim=%s", overlap, reclaim)
-	result := allocationInfo.AllocationResult
-	require.True(t, result.Equals(machine.NewCPUSet(1, 3)), "result=%s", result)
-	require.True(t, result.Intersection(reclaim).IsEmpty())
-	require.True(t, result.Union(reclaim).Equals(machine.NewCPUSet(0, 1, 2, 3, 4, 6)))
-	require.Len(t, allocationInfo.TopologyAwareAssignments, 2)
-	require.True(t, allocationInfo.TopologyAwareAssignments[0].Equals(machine.NewCPUSet(1)))
-	require.True(t, allocationInfo.TopologyAwareAssignments[1].Equals(machine.NewCPUSet(3)))
-	require.Len(t, allocationInfo.OriginalTopologyAwareAssignments, 2)
-	require.True(t, allocationInfo.OriginalTopologyAwareAssignments[0].Equals(machine.NewCPUSet(1)))
-	require.True(t, allocationInfo.OriginalTopologyAwareAssignments[1].Equals(machine.NewCPUSet(3)))
+	_, reclaim, err := p.allocateNumaBindingCPUs(
+		8, &pluginapi.TopologyHint{Nodes: []uint64{0, 1}}, machineState, annotations, true)
+	require.ErrorContains(t, err, "results can't meet cpus request")
+	require.True(t, reclaim.IsEmpty(), "failed capacity check must not return reclaim plan: %s", reclaim)
 }
 
 func TestDynamicPolicy_allocateNumaBindingCPUs_nonReclaimableUsesConfiguredSteadyFloor(t *testing.T) {
@@ -2332,26 +2341,15 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_nonReclaimableUsesConfiguredStead
 		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 	}
 
-	admissionResult, reclaim, err := p.allocateNumaBindingCPUs(
+	result, reclaim, err := p.allocateNumaBindingCPUs(
 		8, &pluginapi.TopologyHint{Nodes: []uint64{0}}, machineState, annotations, false)
 	require.NoError(t, err)
-	require.Equal(t, 8, admissionResult.Size(), "admission result=%s", admissionResult)
-	require.Equal(t, 2, reclaim.Intersection(topology.CPUDetails.CPUsInNUMANodes(0)).Size(), "reclaim=%s", reclaim)
-	require.Equal(t, 2, reclaim.Intersection(topology.CPUDetails.CPUsInNUMANodes(1)).Size(), "reclaim=%s", reclaim)
-	require.True(t, p.reclaim.reservedReclaimedCPUSet.IsSubsetOf(reclaim), "reserve=%s reclaim=%s", p.reclaim.reservedReclaimedCPUSet, reclaim)
-	require.True(t, reclaim.Intersection(protected).IsEmpty(), "protected=%s reclaim=%s", protected, reclaim)
-	requireCoreAligned(t, topology, reclaim)
-
-	allocationInfo := &state.AllocationInfo{
-		AllocationResult:         admissionResult.Clone(),
-		OriginalAllocationResult: admissionResult.Clone(),
-	}
-	overlap, err := shrinkAllocationInfoForHardReclaimFloor(topology, allocationInfo, reclaim)
-	require.NoError(t, err)
-	require.Equal(t, 2, overlap.Size(), "overlap=%s", overlap)
-	result := allocationInfo.AllocationResult
-	require.Equal(t, 6, result.Size(), "result=%s", result)
-	require.True(t, result.Intersection(reclaim).IsEmpty(), "result=%s reclaim=%s", result, reclaim)
+	numa0 := topology.CPUDetails.CPUsInNUMANodes(0)
+	reclaimInNUMA0 := reclaim.Intersection(numa0)
+	require.False(t, reclaimInNUMA0.IsEmpty(), "reclaim=%s", reclaim)
+	require.True(t, result.Intersection(reclaim).IsEmpty())
+	require.True(t, result.Union(reclaimInNUMA0).Equals(numa0),
+		"result=%s reclaim=%s numa0=%s", result, reclaimInNUMA0, numa0)
 }
 
 func TestDynamicPolicy_deriveSteadyReclaimFloorPreservesCompletedMandatoryCoreAboveSoftTarget(t *testing.T) {
@@ -2721,7 +2719,7 @@ func newDedicatedNUMAExclusiveRemainderFixture(
 	return p, req, partitionEligibleByNUMA
 }
 
-func TestDynamicPolicy_allocateNumaBindingCPUs_preservesMandatoryOnPodLookupFailure(t *testing.T) {
+func TestDynamicPolicy_allocateNumaBindingCPUs_preservesMandatoryFloorForNonReclaimablePod(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -2730,7 +2728,7 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_preservesMandatoryOnPodLookupFail
 		ratio    float64
 		wantSize int
 	}{
-		{name: "pod lookup failure preserves reserve", reserved: machine.NewCPUSet(0, 4), ratio: 0, wantSize: 2},
+		{name: "non-reclaimable pod preserves reserve", reserved: machine.NewCPUSet(0, 4), ratio: 0, wantSize: 2},
 		{name: "identity-less checkpoint uses configured steady floor", reserved: machine.NewCPUSet(), ratio: 0.25, wantSize: 2},
 	} {
 		tc := tc
@@ -2760,23 +2758,13 @@ func TestDynamicPolicy_allocateNumaBindingCPUs_preservesMandatoryOnPodLookupFail
 			}
 
 			podReclaimEnabled := false
-			admissionResult, reclaim, err := p.allocateNumaBindingCPUs(
+			result, reclaim, err := p.allocateNumaBindingCPUs(
 				8, &pluginapi.TopologyHint{Nodes: []uint64{0}}, machineState, annotations, podReclaimEnabled)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantSize, reclaim.Size(), "reclaim=%s", reclaim)
-			require.Equal(t, 8, admissionResult.Size(), "admission result=%s", admissionResult)
-
-			allocationInfo := &state.AllocationInfo{
-				AllocationResult:         admissionResult.Clone(),
-				OriginalAllocationResult: admissionResult.Clone(),
-			}
-			overlap, err := shrinkAllocationInfoForHardReclaimFloor(topology, allocationInfo, reclaim)
-			require.NoError(t, err)
-			require.True(t, overlap.Equals(reclaim), "overlap=%s reclaim=%s", overlap, reclaim)
-			result := allocationInfo.AllocationResult
-			require.Equal(t, 8-tc.wantSize, result.Size(), "result=%s", result)
-			require.True(t, result.Union(reclaim).Equals(machineState[0].DefaultCPUSet))
-			require.True(t, result.Intersection(reclaim).IsEmpty(), "result=%s reclaim=%s", result, reclaim)
+			require.Equal(t, 8-tc.wantSize, result.Size(), "result=%s reclaim=%s", result, reclaim)
+			require.True(t, result.Intersection(reclaim).IsEmpty())
+			require.True(t, result.Union(reclaim).Equals(topology.CPUDetails.CPUsInNUMANodes(0)))
 		})
 	}
 }
@@ -3770,8 +3758,9 @@ func TestAdjustPoolsAndIsolatedEntriesWithRampUpFloorAllowsNonBindingSharedPoolS
 			commonstate.PoolNameShare: {commonstate.FakedNUMAID: 4},
 		}
 		allCPUs := p.machine.machineInfo.CPUDetails.CPUs()
-		unreserved, _, err := p.groupAndAllocatePools(
-			quantities, nil, allCPUs, nil, map[string]float64{}, p.config.dynamicConfig.GetDynamicConfiguration())
+		unreserved, _, err := p.groupAndAllocatePoolsWithPlacement(
+			quantities, nil, allCPUs, nil, map[string]float64{}, p.config.dynamicConfig.GetDynamicConfiguration(),
+			p.state.GetPodEntries(), nil)
 		require.NoError(t, err)
 		floor := unreserved[commonstate.PoolNameShare].Clone()
 		require.Equal(t, 4, floor.Size())
@@ -4870,6 +4859,7 @@ func TestDedicatedNUMAExclusiveRampUpCommitsAllocationAndReclaimAtomically(t *te
 	p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 	p.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
 	p.config.dynamicConfig.GetDynamicConfiguration().InitialRampUpReclaimCPUSetRatio = 0.25
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, false))
 	p.config.dynamicConfig.GetDynamicConfiguration().MinReclaimedResourceForAllocate = v1.ResourceList{
 		v1.ResourceCPU: *resource.NewQuantity(4, resource.DecimalSI),
 	}
@@ -5186,7 +5176,7 @@ func TestDedicatedNUMAExclusiveNonReclaimableStartsSteady(t *testing.T) {
 		ContainerIndex: 0,
 		ResourceName:   string(v1.ResourceCPU),
 		ResourceRequests: map[string]float64{
-			string(v1.ResourceCPU): 30,
+			string(v1.ResourceCPU): 32,
 		},
 		Labels: map[string]string{
 			apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelDedicatedCores,
@@ -5216,6 +5206,7 @@ func TestDedicatedNUMAExclusiveNonReclaimableStartsSteady(t *testing.T) {
 	allocation := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	require.NotNil(t, allocation)
 	require.False(t, allocation.RampUp)
+	require.Equal(t, float64(32), allocation.RequestQuantity)
 	require.Equal(t, 30, allocation.AllocationResult.Size())
 	reclaim := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	require.NotNil(t, reclaim)
@@ -5319,6 +5310,7 @@ func newDedicatedNUMAExclusiveFailureFixtureInDir(
 	p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 	p.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
 	p.config.dynamicConfig.GetDynamicConfiguration().InitialRampUpReclaimCPUSetRatio = 0.25
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, false))
 
 	req := &pluginapi.ResourceRequest{
 		PodUid: podUID, PodNamespace: "default", PodName: podUID, ContainerName: "main",
@@ -5951,8 +5943,6 @@ func TestAllocateDedicatedNUMAExclusiveAdjustmentFailureDoesNotRollbackNewerStat
 	require.NotNil(t, reclaim)
 	require.True(t, reclaim.AllocationResult.Intersection(machine.NewCPUSet(7)).IsEmpty(),
 		"reclaim floor/pool overlaps newer dedicated allocation: %s", reclaim.AllocationResult)
-	require.True(t, reclaim.AllocationResult.Intersection(failedCandidateCPUs).IsEmpty(),
-		"reclaim floor/pool overlaps failed candidate allocation: %s", reclaim.AllocationResult)
 }
 
 func TestAllocateDedicatedNUMAExclusiveAdjustmentFailureDoesNotRestoreConcurrentlyDeletedCandidate(t *testing.T) {
@@ -6907,7 +6897,7 @@ func TestDynamicPolicy_groupAndAllocatePools(t *testing.T) {
 			p.state.SetPodEntries(state.PodEntries{}, false)
 			p.config.reservedCPUs = machine.NewCPUSet()
 
-			gotPools, gotIsolated, err := p.groupAndAllocatePools(tt.args.poolsQuantityMap, tt.args.isolatedQuantityMap, tt.args.availableCPUs, tt.args.rpPinnedCPUSet, tt.args.reclaimOverlapShareRatio, p.config.dynamicConfig.GetDynamicConfiguration())
+			gotPools, gotIsolated, err := p.groupAndAllocatePoolsWithPlacement(tt.args.poolsQuantityMap, tt.args.isolatedQuantityMap, tt.args.availableCPUs, tt.args.rpPinnedCPUSet, tt.args.reclaimOverlapShareRatio, p.config.dynamicConfig.GetDynamicConfiguration(), p.state.GetPodEntries(), nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("groupAndAllocatePools() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -208,7 +208,7 @@ func TestShouldUseNumaBindingAllocationPreferenceOnlyForExistingExclusiveDNB(t *
 	require.False(t, shouldUseNumaBindingAllocationPreference(nil))
 }
 
-func TestExistingAllocationSatisfiesRequestWithHardReclaimPartitionForNUMABindingDNB(t *testing.T) {
+func TestExistingAllocationSatisfiesRequestWithElasticNUMABindingDNB(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
@@ -228,6 +228,7 @@ func TestExistingAllocationSatisfiesRequestWithHardReclaimPartitionForNUMABindin
 				allocation.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaExclusive] = apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
 			}
 			allocation.RequestQuantity = 6
+			allocation.RampUp = true
 
 			require.True(t, existingAllocationSatisfiesRequest(allocation, 6, true))
 			require.False(t, existingAllocationSatisfiesRequest(allocation, 6, false))
@@ -235,51 +236,18 @@ func TestExistingAllocationSatisfiesRequestWithHardReclaimPartitionForNUMABindin
 	}
 }
 
-func TestExistingAllocationSatisfiesRequestRejectsStaleRequestQuantity(t *testing.T) {
+func TestExistingAllocationSatisfiesRequestRejectsIneligibleOrStaleShortAllocation(t *testing.T) {
 	t.Parallel()
 
 	allocation := newBoundAllocationForIdempotencyTest(
 		"dnb", "main", apiconsts.PodAnnotationQoSLevelDedicatedCores, true, machine.NewCPUSet(1, 2, 5, 6))
+	allocation.RequestQuantity = 6
+	allocation.RampUp = true
+
+	require.False(t, existingAllocationSatisfiesRequest(allocation, 6, false))
+
 	allocation.RequestQuantity = 8
-
 	require.False(t, existingAllocationSatisfiesRequest(allocation, 6, true))
-}
-
-func TestShrinkAllocationInfoForHardReclaimFloor(t *testing.T) {
-	t.Parallel()
-
-	topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
-	require.NoError(t, err)
-	allocation := newBoundAllocationForIdempotencyTest(
-		"dnb", "main", apiconsts.PodAnnotationQoSLevelDedicatedCores, true,
-		machine.NewCPUSet(0, 1, 2, 4, 5, 6))
-	allocation.TopologyAwareAssignments = map[int]machine.CPUSet{
-		0: allocation.AllocationResult.Clone(),
-	}
-	allocation.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(allocation.TopologyAwareAssignments)
-
-	overlap, err := shrinkAllocationInfoForHardReclaimFloor(topology, allocation, machine.NewCPUSet(0, 4))
-
-	require.NoError(t, err)
-	require.True(t, overlap.Equals(machine.NewCPUSet(0, 4)), "overlap=%s", overlap)
-	require.True(t, allocation.AllocationResult.Equals(machine.NewCPUSet(1, 2, 5, 6)),
-		"allocation=%s", allocation.AllocationResult)
-	require.True(t, allocation.OriginalAllocationResult.Equals(allocation.AllocationResult))
-	require.True(t, allocation.TopologyAwareAssignments[0].Equals(allocation.AllocationResult))
-	require.True(t, allocation.OriginalTopologyAwareAssignments[0].Equals(allocation.AllocationResult))
-}
-
-func TestShrinkAllocationInfoForHardReclaimFloorRejectsEmptyResult(t *testing.T) {
-	t.Parallel()
-
-	topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
-	require.NoError(t, err)
-	allocation := newBoundAllocationForIdempotencyTest(
-		"dnb", "main", apiconsts.PodAnnotationQoSLevelDedicatedCores, true, machine.NewCPUSet(0, 4))
-
-	_, err = shrinkAllocationInfoForHardReclaimFloor(topology, allocation, machine.NewCPUSet(0, 4))
-
-	require.ErrorContains(t, err, "fully covered by ramp-up reclaim floor")
 }
 
 func TestRemovePodOwnerEntriesForReallocationDropsSiblingContainers(t *testing.T) {

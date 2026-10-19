@@ -227,6 +227,26 @@ func TestDynamicPolicy_takeByTieredPreferredCPUs(t *testing.T) {
 		require.True(t, taken.Union(remaining).Equals(available))
 		require.True(t, taken.Intersection(remaining).IsEmpty())
 	})
+
+	t.Run("sub-core tail keeps protected own history excluded with atomic donor", func(t *testing.T) {
+		t.Parallel()
+
+		topology, err := machine.GenerateDummyCPUTopology(8, 2, 2)
+		require.NoError(t, err)
+		policy := &DynamicPolicy{machine: machineComponent{machineInfo: &machine.KatalystMachineInfo{CPUTopology: topology}}}
+		available := machine.NewCPUSet(0, 4, 1, 5, 2, 3)
+		protected := machine.NewCPUSet(2)
+		donorClosure, err := policy.atomicDonorCoreClosure(machine.NewCPUSet(1, 5))
+		require.NoError(t, err)
+
+		taken, remaining, err := policy.takeByTieredPreferredCPUsWithProtected(
+			available, []machine.CPUSet{protected}, 3, protected, donorClosure)
+		require.NoError(t, err)
+		require.True(t, taken.Intersection(protected).IsEmpty(),
+			"sub-core tail must not re-admit protected history: taken=%s", taken.String())
+		require.True(t, remaining.Intersection(protected).Equals(protected))
+		require.True(t, taken.Union(remaining).Equals(available))
+	})
 }
 
 // assertTieredTakenCoreAligned fails when a core-aligned test case returns a
@@ -292,7 +312,11 @@ func TestBuildIsolationSourcePreferredCPUs(t *testing.T) {
 		},
 	}
 
-	preferred := buildIsolationSourcePreferredCPUs(entries)
+	snapshot := buildPoolPlacementSnapshot(
+		entries, nil,
+		map[string]map[int]int{commonstate.PoolNameShare: {commonstate.FakedNUMAID: 1}},
+		nil, machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11, 14, 15), false)
+	preferred := snapshot.borrowedByPool
 	require.Contains(t, preferred, commonstate.PoolNameShare)
 	require.True(t, preferred[commonstate.PoolNameShare].Equals(machine.NewCPUSet(8, 9, 10)),
 		"source share preferred should union both isolation cpusets, got %s",
@@ -343,7 +367,12 @@ func TestBuildDedicatedSourcePreferredCPUs(t *testing.T) {
 		},
 	}
 
-	preferredByPool, preferredByContainer := buildDedicatedSourcePreferredCPUs(entries)
+	snapshot := buildPoolPlacementSnapshot(
+		entries, nil,
+		map[string]map[int]int{commonstate.PoolNameShare: {commonstate.FakedNUMAID: 1}},
+		map[string]map[string]int{"pod1": {"c1": 2}, "pod2": {"c1": 1}},
+		machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11, 12), false)
+	preferredByPool, preferredByContainer := snapshot.borrowedByPool, snapshot.dedicatedByContainer
 
 	require.Contains(t, preferredByPool, commonstate.PoolNameShare)
 	require.True(t, preferredByPool[commonstate.PoolNameShare].Equals(machine.NewCPUSet(8, 9, 12)),
@@ -386,7 +415,7 @@ func TestDynamicPolicy_takeCPUsForContainersWithPreferred(t *testing.T) {
 	require.True(t, remaining.Equals(machine.NewCPUSet(0, 1, 2, 3)))
 }
 
-func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
+func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithTiersSinglePreference(t *testing.T) {
 	t.Parallel()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
@@ -409,8 +438,9 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 		// A 4-CPU pool can reuse at most two of them while staying core-aligned.
 		preferred := map[string]machine.CPUSet{commonstate.PoolNameShare: machine.NewCPUSet(8, 9, 10)}
 
-		remaining, err := p.takeCPUsForPoolsInPlaceWithPreferred(
-			poolsQuantityMap, poolsCPUSet, available, preferred)
+		remaining, err := p.takeCPUsForPoolsInPlaceWithTiers(
+			poolsQuantityMap, poolsCPUSet, available,
+			map[string][]machine.CPUSet{commonstate.PoolNameShare: {preferred[commonstate.PoolNameShare]}}, nil)
 		require.NoError(t, err)
 
 		share := poolsCPUSet[commonstate.PoolNameShare]
@@ -429,8 +459,8 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 		available := machine.NewCPUSet(0, 1, 2, 3)
 		poolsQuantityMap := map[string]int{"batch": 2}
 
-		remaining, err := p.takeCPUsForPoolsInPlaceWithPreferred(
-			poolsQuantityMap, poolsCPUSet, available, nil)
+		remaining, err := p.takeCPUsForPoolsInPlaceWithTiers(
+			poolsQuantityMap, poolsCPUSet, available, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, 2, poolsCPUSet["batch"].Size())
 		require.Equal(t, 2, remaining.Size())
@@ -450,8 +480,12 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 			commonstate.PoolNameReclaim: machine.NewCPUSet(0, 8),
 		}
 
-		remaining, err := p.takeCPUsForPoolsInPlaceWithPreferred(
-			poolsQuantityMap, poolsCPUSet, available, preferred)
+		remaining, err := p.takeCPUsForPoolsInPlaceWithTiers(
+			poolsQuantityMap, poolsCPUSet, available,
+			map[string][]machine.CPUSet{
+				commonstate.PoolNameShare:   {preferred[commonstate.PoolNameShare]},
+				commonstate.PoolNameReclaim: {preferred[commonstate.PoolNameReclaim]},
+			}, nil)
 		require.NoError(t, err)
 
 		require.True(t, poolsCPUSet[commonstate.PoolNameReclaim].Equals(machine.NewCPUSet(0, 8)),
@@ -464,7 +498,7 @@ func TestDynamicPolicy_takeCPUsForPoolsInPlaceWithPreferred(t *testing.T) {
 	})
 }
 
-func TestDynamicPolicy_generateProportionalPoolsCPUSetInPlaceWithPreferred(t *testing.T) {
+func TestDynamicPolicy_generateProportionalPoolsCPUSetInPlaceWithTiersSinglePreference(t *testing.T) {
 	t.Parallel()
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
@@ -487,8 +521,9 @@ func TestDynamicPolicy_generateProportionalPoolsCPUSetInPlaceWithPreferred(t *te
 		commonstate.PoolNameShare: machine.NewCPUSet(8, 9),
 	}
 
-	remaining, err := p.generateProportionalPoolsCPUSetInPlaceWithPreferred(
-		poolsQuantityMap, poolsCPUSet, available, preferred)
+	remaining, err := p.generateProportionalPoolsCPUSetInPlaceWithTiers(
+		poolsQuantityMap, poolsCPUSet, available,
+		map[string][]machine.CPUSet{commonstate.PoolNameShare: {preferred[commonstate.PoolNameShare]}}, nil)
 	require.NoError(t, err)
 	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Contains(8))
 	require.True(t, poolsCPUSet[commonstate.PoolNameShare].Contains(9))

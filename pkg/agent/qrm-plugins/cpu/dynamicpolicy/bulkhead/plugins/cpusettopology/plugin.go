@@ -72,13 +72,17 @@ var (
 )
 
 type CPUSetTopologyPlugin struct {
-	cfg                bulkheadconfig.BulkheadConfiguration
-	cgroup             cgroupclient.CgroupClient
-	now                func() time.Time
-	pendingProtections map[string]pendingPodProtection
-	deferredLeafDrains map[string]deferredLeafDrain
-	modeGateMu         sync.Mutex
-	modeGate           *topology.ModeGate
+	cfg    bulkheadconfig.BulkheadConfiguration
+	cgroup cgroupclient.CgroupClient
+	// resolveContainerRel is a test-only override for deterministic synthetic
+	// cgroup hierarchies. Production constructors leave it nil and use
+	// resolveContainerRelPathFromID directly through resolveContainerRelSafe.
+	resolveContainerRel func(podUID, containerID string) (string, error)
+	now                 func() time.Time
+	pendingProtections  map[string]pendingPodProtection
+	deferredLeafDrains  map[string]deferredLeafDrain
+	modeGateMu          sync.Mutex
+	modeGate            *topology.ModeGate
 
 	// resetComplete records whether the authoritative disabled reset has run
 	// since the plugin last observed a genuine enabled->disabled transition or a
@@ -194,7 +198,23 @@ func NewCPUSetTopologyPlugin(conf *config.Configuration) bulkheadapi.Plugin {
 
 // NewCPUSetTopologyPluginWithCgroupClient injects the cgroup client factory.
 // A nil factory defaults to cgroupclient.NewCgroupClient.
-func NewCPUSetTopologyPluginWithCgroupClient(conf *config.Configuration, factory cgroupclient.CgroupClientFactory) bulkheadapi.Plugin {
+func NewCPUSetTopologyPluginWithCgroupClient(
+	conf *config.Configuration,
+	factory cgroupclient.CgroupClientFactory,
+) bulkheadapi.Plugin {
+	return NewCPUSetTopologyPluginWithDependencies(conf, factory, nil)
+}
+
+// NewCPUSetTopologyPluginWithDependencies is a test-only constructor exported
+// solely because integration tests in the sibling bulkhead package exercise the
+// real topology plugin against a synthetic cgroup hierarchy. Production wiring
+// must use NewCPUSetTopologyPlugin or NewCPUSetTopologyPluginWithCgroupClient and
+// must not override container path resolution.
+func NewCPUSetTopologyPluginWithDependencies(
+	conf *config.Configuration,
+	factory cgroupclient.CgroupClientFactory,
+	containerRelResolver func(podUID, containerID string) (string, error),
+) bulkheadapi.Plugin {
 	var cfg bulkheadconfig.BulkheadConfiguration
 	if conf != nil && conf.CPUQRMPluginConfig != nil && conf.CPUQRMPluginConfig.BulkheadConfiguration != nil {
 		cfg = *conf.CPUQRMPluginConfig.BulkheadConfiguration
@@ -202,14 +222,26 @@ func NewCPUSetTopologyPluginWithCgroupClient(conf *config.Configuration, factory
 	if factory == nil {
 		factory = cgroupclient.DefaultCgroupClientFactory()
 	}
-	return &CPUSetTopologyPlugin{
-		cfg:                cfg,
-		cgroup:             factory(),
-		now:                time.Now,
-		pendingProtections: map[string]pendingPodProtection{},
-		deferredLeafDrains: map[string]deferredLeafDrain{},
-		modeGate:           topology.NewModeGate(),
+	plugin := &CPUSetTopologyPlugin{
+		cfg:                 cfg,
+		cgroup:              factory(),
+		resolveContainerRel: containerRelResolver,
+		now:                 time.Now,
+		pendingProtections:  map[string]pendingPodProtection{},
+		deferredLeafDrains:  map[string]deferredLeafDrain{},
+		modeGate:            topology.NewModeGate(),
 	}
+	return plugin
+}
+
+// resolveContainerRelSafe isolates the test-only resolver override from the
+// production path. A nil override is the production invariant and directly
+// delegates to resolveContainerRelPathFromID.
+func (p *CPUSetTopologyPlugin) resolveContainerRelSafe(podUID, containerID string) (string, error) {
+	if p.resolveContainerRel != nil {
+		return p.resolveContainerRel(podUID, containerID)
+	}
+	return resolveContainerRelPathFromID(podUID, containerID)
 }
 
 func (p *CPUSetTopologyPlugin) Name() string { return CPUSetTopologyPluginName }
@@ -2252,7 +2284,7 @@ func (p *CPUSetTopologyPlugin) classifyFreshPodsForReset(
 		if containerID == "" {
 			return
 		}
-		rel, err := resolveContainerRelPathFromID(podUID, containerID)
+		rel, err := p.resolveContainerRelSafe(podUID, containerID)
 		if err != nil || rel == "" {
 			general.InfofV(2, "cpuset_topology: disabled reset could not resolve container id=%q rel: %v", containerID, err)
 			return
@@ -2463,7 +2495,7 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 						Err:   metapod.ErrContainerNotFound,
 					}
 				} else {
-					rel, err = resolveContainerRelPathFromID(podUID, containerID)
+					rel, err = p.resolveContainerRelSafe(podUID, containerID)
 				}
 			} else {
 				rel, containerID, err = bulkheadutils.ResolveContainerRelPathAndIDCacheOnlyWithContext(
@@ -2841,7 +2873,7 @@ func (p *CPUSetTopologyPlugin) resolveMaterializedContainerFromFreshID(
 	previous resolvedContainerCPUSet,
 	containerID string,
 ) (resolvedContainerCPUSet, error) {
-	rel, err := resolveContainerRelPathFromID(podUID, containerID)
+	rel, err := p.resolveContainerRelSafe(podUID, containerID)
 	if err != nil {
 		return resolvedContainerCPUSet{}, err
 	}
@@ -3210,11 +3242,13 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(ctx context.Con
 		if readErr != nil || current.Equals(cpus) {
 			continue
 		}
-		// Admission parent-safe only needs materialized leaves to avoid the
-		// reclaim domain while the exact leaf write catches up. This accepts both
-		// old superset cleanup and primary-internal relocation after transient
-		// pending protection has removed pending CPUs from the shadow reclaim set.
-		if current.Intersection(shadowReclaim).IsEmpty() &&
+		// Admission parent-safe only needs a materialized leaf with stale CPUs to
+		// avoid reclaim while its exact cleanup catches up. Requiring at least one
+		// current-only CPU admits both old-superset cleanup and primary-internal
+		// relocation, but keeps a leaf that merely lost desired business CPUs in
+		// ExpectedByRel so admission repairs that loss synchronously.
+		if !current.Difference(cpus).IsEmpty() &&
+			current.Intersection(shadowReclaim).IsEmpty() &&
 			cpus.Intersection(shadowReclaim).IsEmpty() {
 			expectedRes.DeferredLeafByRel[rel] = cpus.Clone()
 			delete(expectedRes.ExpectedByRel, rel)

@@ -40,18 +40,21 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	bulkheadtopology "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils/topology"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	podmeta "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -4228,4 +4231,81 @@ func TestQueuedRetryRequestsAlwaysProduceOneTrailingLatestStateRound(t *testing.
 			}
 		})
 	}
+}
+
+func TestBulkheadPeriodicAdjustmentOnlyReconcilesDirtyState(t *testing.T) {
+	t.Parallel()
+	general.RegisterReportCheck(cpuconsts.SyncBulkhead, 0, general.HealthzCheckStateReady)
+	t.Cleanup(func() { general.UnregisterHealthCheck(cpuconsts.SyncBulkhead) })
+	for _, tt := range []struct {
+		name      string
+		dirty     bool
+		queued    bool
+		fail      bool
+		wantCalls int
+		wantDirty bool
+	}{
+		{name: "clean state"},
+		{name: "dirty state", dirty: true, wantCalls: 1},
+		{name: "queued retry", dirty: true, queued: true, wantDirty: true},
+		{name: "failed reconcile", dirty: true, fail: true, wantCalls: 1, wantDirty: true},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dyn := dynamicconfig.NewDynamicAgentConfiguration()
+			dyn.GetDynamicConfiguration().AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable = true
+			var calls int
+			p := &DynamicPolicy{
+				config:   configComponent{dynamicConfig: dyn},
+				bulkhead: bulkheadComponent{bulkheadManager: &bulkhead.Manager{}},
+				adjustment: adjustmentComponent{
+					cpuSetAdjustmentRetryDirty:  tt.dirty,
+					cpuSetAdjustmentRetryQueued: tt.queued,
+					cpuSetAdjustmentHandlers: map[string]cpusetutil.CPUSetAdjustmentHandler{
+						"record": func(_ context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+							calls++
+							require.Equal(t, cpusetutil.CPUSetAdjustmentModePeriodic, in.Mode)
+							if tt.fail {
+								return errors.New("reconcile failed")
+							}
+							return nil
+						},
+					},
+				},
+			}
+			p.runBulkheadPeriodicalHandlers(nil, nil, dyn, nil, nil)
+			require.Equal(t, tt.wantCalls, calls)
+			require.Equal(t, tt.wantDirty, p.adjustment.cpuSetAdjustmentRetryDirty)
+			require.Equal(t, tt.queued, p.adjustment.cpuSetAdjustmentRetryQueued)
+			if !tt.wantDirty {
+				p.runBulkheadPeriodicalHandlers(nil, nil, dyn, nil, nil)
+				require.Equal(t, tt.wantCalls, calls, "a clean subsequent sweep must not repeat adjustment")
+			}
+		})
+	}
+}
+
+// TestBulkheadPeriodicalCleanTickSkipsAdjustmentWhenNoPendingDisabledReset: a clean
+// tick whose authoritative gate reports no leaving-enabled cleanup need must not
+// acquire the lease or enter the canonical adjustment path; it proceeds to the
+// ordinary periodical handlers instead.
+func TestBulkheadPeriodicalCleanTickSkipsAdjustmentWhenNoPendingDisabledReset(t *testing.T) {
+	t.Parallel()
+	dyn := dynamicconfig.NewDynamicAgentConfiguration()
+	var adjustmentCalls int
+	p := &DynamicPolicy{
+		config:   configComponent{dynamicConfig: dyn},
+		bulkhead: bulkheadComponent{bulkheadManager: &bulkhead.Manager{}},
+		adjustment: adjustmentComponent{
+			cpuSetAdjustmentHandlers: map[string]cpusetutil.CPUSetAdjustmentHandler{
+				"recorder": func(_ context.Context, _ cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+					adjustmentCalls++
+					return nil
+				},
+			},
+		},
+	}
+	p.runBulkheadPeriodicalHandlers(nil, nil, dyn, nil, nil)
+	require.Equal(t, 0, adjustmentCalls, "gate-false clean tick must skip the canonical adjustment path")
 }

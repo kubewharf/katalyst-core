@@ -17,6 +17,7 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,6 +56,89 @@ func exclusiveAnnotations() map[string]string {
 	}
 }
 
+func nonExclusiveAnnotations() map[string]string {
+	return map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaBinding:   apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: "false",
+	}
+}
+
+func TestDynamicPolicy_hardPartitionShortAllocationDoesNotDependOnPodReclaimability(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name              string
+		annotations       map[string]string
+		podReclaimEnabled bool
+	}{
+		{name: "exclusive reclaimable", annotations: exclusiveAnnotations(), podReclaimEnabled: true},
+		{name: "exclusive non-reclaimable", annotations: exclusiveAnnotations(), podReclaimEnabled: false},
+		{name: "non-exclusive reclaimable", annotations: nonExclusiveAnnotations(), podReclaimEnabled: true},
+		{name: "non-exclusive non-reclaimable", annotations: nonExclusiveAnnotations(), podReclaimEnabled: false},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newExclusiveDNBPolicy(t)
+			topology := p.machine.machineInfo.CPUTopology
+			numa0 := topology.CPUDetails.CPUsInNUMANodes(0)
+			floor := coresInNUMA(topology, 0, 0, 1)
+			p.reclaim.reservedReclaimedCPUSet = floor.Clone()
+			p.reclaim.reservedReclaimedCPUsSize = floor.Size()
+			setLiveReclaimPool(t, p, floor)
+
+			result, selectedFloor, err := p.allocateNumaBindingCPUs(
+				numa0.Size(), &pluginapi.TopologyHint{Nodes: []uint64{0}},
+				wholeNUMAMachineState(t, p), tc.annotations, tc.podReclaimEnabled)
+			require.NoError(t, err)
+			floorInNUMA := selectedFloor.Intersection(numa0)
+			require.Equal(t, numa0.Size()-floorInNUMA.Size(), result.Size())
+			require.True(t, result.Intersection(selectedFloor).IsEmpty(),
+				"result=%s floor=%s", result, selectedFloor)
+			require.True(t, result.Union(floorInNUMA).Equals(numa0),
+				"result=%s floor=%s eligible=%s", result, floorInNUMA, numa0)
+		})
+	}
+}
+
+func TestDynamicPolicy_hardPartitionShortAllocationRejectsRequestAboveRawEligible(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name        string
+		annotations map[string]string
+	}{
+		{name: "exclusive", annotations: exclusiveAnnotations()},
+		{name: "non-exclusive", annotations: nonExclusiveAnnotations()},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newExclusiveDNBPolicy(t)
+			topology := p.machine.machineInfo.CPUTopology
+			numa0 := topology.CPUDetails.CPUsInNUMANodes(0)
+			floor := coresInNUMA(topology, 0, 0, 1)
+			p.reclaim.reservedReclaimedCPUSet = floor.Clone()
+			p.reclaim.reservedReclaimedCPUsSize = floor.Size()
+			setLiveReclaimPool(t, p, floor)
+
+			result, floor, err := p.allocateNumaBindingCPUs(
+				numa0.Size()+1, &pluginapi.TopologyHint{Nodes: []uint64{0}},
+				wholeNUMAMachineState(t, p), tc.annotations, false)
+			require.Error(t, err)
+			if tc.name == "exclusive" {
+				require.ErrorContains(t, err, "results can't meet cpus request")
+			} else {
+				require.ErrorContains(t, err, "take cpu for NUMA not exclusive binding container failed")
+			}
+			require.True(t, result.IsEmpty(), "result must be empty on capacity rejection: %s", result)
+			require.True(t, floor.IsEmpty(), "reclaim floor must be empty on capacity rejection: %s", floor)
+		})
+	}
+}
+
 func wholeNUMAMachineState(t *testing.T, p *DynamicPolicy) state.NUMANodeMap {
 	machineState := state.NUMANodeMap{}
 	for _, numaID := range p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
@@ -72,18 +156,6 @@ func setLiveReclaimPool(t *testing.T, p *DynamicPolicy, cpus machine.CPUSet) {
 			AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 			AllocationResult: cpus.Clone(),
 		}, false))
-}
-
-// shrinkResult shrinks the admission result around the hard reclaim floor and
-// returns the post-shrink DNB result, mirroring the production shrink step.
-func shrinkResult(t *testing.T, topology *machine.CPUTopology, result, floor machine.CPUSet) machine.CPUSet {
-	ai := &state.AllocationInfo{
-		AllocationResult:         result.Clone(),
-		OriginalAllocationResult: result.Clone(),
-	}
-	_, err := shrinkAllocationInfoForHardReclaimFloor(topology, ai, floor)
-	require.NoError(t, err)
-	return ai.AllocationResult
 }
 
 // TestDynamicPolicy_exclusiveDNBAnchorsReclaimFloorOnLivePool is the regression
@@ -114,12 +186,11 @@ func TestDynamicPolicy_exclusiveDNBAnchorsReclaimFloorOnLivePool(t *testing.T) {
 	require.True(t, liveFloor.IsSubsetOf(floor), "floor=%s want live=%s", floor, liveFloor)
 	require.True(t, floor.Equals(liveFloor), "floor=%s live=%s", floor, liveFloor)
 
-	shrunk := shrinkResult(t, topology, result, floor)
-	// The live floor is preserved (not swallowed) and the DNB still gets 30 CPUs.
-	require.True(t, shrunk.Intersection(liveFloor).IsEmpty(),
-		"live floor swallowed: shrunk=%s live=%s", shrunk, liveFloor)
-	require.Equal(t, 30, shrunk.Size(), "shrunk=%s", shrunk)
-	require.True(t, shrunk.Union(floor).Equals(result))
+	// The live floor is preserved by construction and the DNB still gets 30 CPUs.
+	require.True(t, result.Intersection(liveFloor).IsEmpty(),
+		"live floor swallowed: result=%s live=%s", result, liveFloor)
+	require.Equal(t, 30, result.Size(), "result=%s", result)
+	require.True(t, result.Union(floor).Equals(topology.CPUDetails.CPUsInNUMANodes(0)))
 }
 
 // TestDynamicPolicy_exclusiveDNBAnchorEqualsLiveLeavesFloor verifies that when
@@ -142,8 +213,7 @@ func TestDynamicPolicy_exclusiveDNBAnchorEqualsLiveLeavesFloor(t *testing.T) {
 		2, &pluginapi.TopologyHint{Nodes: []uint64{0}}, machineState, exclusiveAnnotations(), true)
 	require.NoError(t, err)
 	require.True(t, anchor.IsSubsetOf(floor), "floor=%s anchor=%s", floor, anchor)
-	shrunk := shrinkResult(t, topology, result, floor)
-	require.True(t, shrunk.Intersection(anchor).IsEmpty(), "shrunk=%s", shrunk)
+	require.True(t, result.Intersection(anchor).IsEmpty(), "result=%s", result)
 }
 
 // TestDynamicPolicy_exclusiveDNBLiveFloorOnUnrelatedNUMAUnaffected verifies
@@ -168,8 +238,7 @@ func TestDynamicPolicy_exclusiveDNBLiveFloorOnUnrelatedNUMAUnaffected(t *testing
 	// The hinted NUMA0 floor must not reach into NUMA1's live reclaim.
 	require.True(t, floor.Intersection(topology.CPUDetails.CPUsInNUMANodes(1)).IsEmpty(),
 		"floor=%s leaked into NUMA1", floor)
-	shrunk := shrinkResult(t, topology, result, floor)
-	require.Equal(t, result.Size()-floor.Intersection(result).Size(), shrunk.Size())
+	require.True(t, result.Intersection(floor).IsEmpty(), "result=%s floor=%s", result, floor)
 }
 
 // TestDynamicPolicy_exclusiveDNBSkipsLiveCoreWithProtectedSibling verifies the
@@ -203,7 +272,9 @@ func TestDynamicPolicy_exclusiveDNBSkipsLiveCoreWithProtectedSibling(t *testing.
 	require.True(t, floor.Intersection(machine.NewCPUSet(protectedSibling)).IsEmpty(),
 		"floor=%s protected=%d", floor, protectedSibling)
 	requireCoreAligned(t, topology, floor)
-	_ = result
+	require.NotEmpty(t, result, "admitted exclusive DNB result must not be empty")
+	require.True(t, result.Intersection(machine.NewCPUSet(protectedSibling)).IsEmpty(),
+		"result=%s must not contain protected sibling %d", result, protectedSibling)
 }
 
 // TestDynamicPolicy_exclusiveDNBAnchorFloorUnderSteadyPath is the regression test
@@ -249,9 +320,143 @@ func TestDynamicPolicy_exclusiveDNBAnchorFloorUnderSteadyPath(t *testing.T) {
 	require.False(t, floorNUMA0.Intersection(coresInNUMA(topology, 0, 0, 1)).
 		Equals(coresInNUMA(topology, 0, 0, 1)), "stale anchor still in floor: floor=%s", floorNUMA0)
 
-	shrunk := shrinkResult(t, topology, result, floor)
-	// The relocated live floor is preserved (not swallowed) and the DNB gets 30 CPUs.
-	require.True(t, shrunk.Intersection(liveNUMA0).IsEmpty(),
-		"live floor swallowed: shrunk=%s live=%s", shrunk, liveNUMA0)
-	require.Equal(t, 30, shrunk.Size(), "shrunk=%s", shrunk)
+	// The relocated live floor is excluded before constructing the DNB result.
+	require.True(t, result.Intersection(liveNUMA0).IsEmpty(),
+		"live floor swallowed: result=%s live=%s", result, liveNUMA0)
+	require.Equal(t, 30, result.Size(), "result=%s", result)
+}
+
+// TestSubtractReclaimFloorFromQuantityMapUsesFinalTargetSemantics locks the
+// boundary between the advisor's final pool target and the allocator's remaining
+// work after a hard floor has already been selected.
+func TestSubtractReclaimFloorFromQuantityMapUsesFinalTargetSemantics(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(128, 4, 4)
+	require.NoError(t, err)
+	floor := machine.NewCPUSet()
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		floor = floor.Union(coresInNUMA(topology, numaID, 0, 3))
+	}
+	require.Equal(t, 24, floor.Size())
+
+	t.Run("fake numa target is reduced by the whole floor", func(t *testing.T) {
+		t.Parallel()
+		original := map[string]map[int]int{
+			commonstate.PoolNameReclaim: {commonstate.FakedNUMAID: 24},
+			commonstate.PoolNameShare:   {commonstate.FakedNUMAID: 80},
+		}
+		copied := copyPoolQuantityMap(original)
+		subtractReclaimFloorFromQuantityMap(copied, floor, topology)
+		require.Equal(t, 0, copied[commonstate.PoolNameReclaim][commonstate.FakedNUMAID])
+		require.Equal(t, 80, copied[commonstate.PoolNameShare][commonstate.FakedNUMAID])
+		require.Equal(t, 24, original[commonstate.PoolNameReclaim][commonstate.FakedNUMAID],
+			"caller-owned advisor quantity must remain unchanged")
+	})
+
+	t.Run("per numa targets consume only their local floor", func(t *testing.T) {
+		t.Parallel()
+		original := map[string]map[int]int{
+			commonstate.PoolNameReclaim: {0: 8, 1: 4, 2: 6, 3: 10},
+		}
+		copied := copyPoolQuantityMap(original)
+		subtractReclaimFloorFromQuantityMap(copied, floor, topology)
+		require.Equal(t, map[int]int{0: 2, 1: 0, 2: 0, 3: 4}, copied[commonstate.PoolNameReclaim])
+		require.Equal(t, map[int]int{0: 8, 1: 4, 2: 6, 3: 10}, original[commonstate.PoolNameReclaim])
+	})
+}
+
+// TestDynamicPolicy_exclusiveDNBPreservesNearMachinePhysicalAllocationThroughPrecommit
+// replays the complete failure shape that used to reach precommit with a
+// whole-machine transient candidate: 128 eligible CPUs, request 124, and a
+// 24-CPU hard reclaim floor. Allocation must form the 104-CPU physical result
+// before pool planning, and the real pool-adjustment/precommit path must preserve
+// that result and the declared request instead of observing reclaim capacity 0.
+func TestDynamicPolicy_exclusiveDNBPreservesNearMachinePhysicalAllocationThroughPrecommit(t *testing.T) {
+	t.Parallel()
+
+	p := newExclusiveDNBPolicy(t)
+	topology := p.machine.machineInfo.CPUTopology
+	machineState := wholeNUMAMachineState(t, p)
+	all := topology.CPUDetails.CPUs()
+
+	floor := machine.NewCPUSet()
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		floor = floor.Union(coresInNUMA(topology, numaID, 0, 3))
+	}
+	require.Equal(t, 24, floor.Size())
+	p.reclaim.reservedReclaimedCPUSet = floor.Clone()
+	p.reclaim.reservedReclaimedCPUsSize = floor.Size()
+	setLiveReclaimPool(t, p, floor)
+
+	actual, derivedFloor, err := p.allocateNumaBindingCPUs(
+		124,
+		&pluginapi.TopologyHint{Nodes: []uint64{0, 1, 2, 3}},
+		machineState,
+		exclusiveAnnotations(),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 104, actual.Size())
+	require.True(t, derivedFloor.Equals(floor), "derived=%s floor=%s", derivedFloor, floor)
+	require.True(t, actual.Intersection(floor).IsEmpty())
+	require.True(t, actual.Union(floor).Equals(all))
+
+	assignments, err := machine.GetNumaAwareAssignments(topology, actual)
+	require.NoError(t, err)
+	allocation := &state.AllocationInfo{
+		AllocationMeta: commonstate.AllocationMeta{
+			PodUid:        "near-machine-exclusive",
+			PodNamespace:  "default",
+			PodName:       "near-machine-exclusive",
+			ContainerName: "main",
+			QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+			Annotations:   exclusiveAnnotations(),
+		},
+		AllocationResult:                 actual.Clone(),
+		OriginalAllocationResult:         actual.Clone(),
+		TopologyAwareAssignments:         machine.DeepcopyCPUAssignment(assignments),
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+		RequestQuantity:                  124,
+		RampUp:                           true,
+	}
+	allocation.SetSpecifiedNUMABindingNUMAID([]uint64{0, 1, 2, 3})
+	entries := state.PodEntries{
+		allocation.PodUid: {allocation.ContainerName: allocation},
+		commonstate.PoolNameReclaim: {
+			commonstate.FakedContainerName: {
+				AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult:         floor.Clone(),
+				OriginalAllocationResult: floor.Clone(),
+			},
+		},
+	}
+	p.state.SetMachineState(machineState, false)
+	p.state.SetPodEntries(entries, false)
+
+	err = p.adjustPoolsAndIsolatedEntriesWithRampUpFloorForModeAtRevision(
+		context.Background(),
+		map[string]map[int]int{commonstate.PoolNameReclaim: {commonstate.FakedNUMAID: 24}},
+		nil,
+		entries,
+		machineState,
+		false,
+		floor,
+		false,
+		p.state.GetRevision(),
+		defaultShareMaterializationNormal,
+		p.config.dynamicConfig.GetDynamicConfiguration(),
+	)
+	require.NoError(t, err)
+
+	committed := p.state.GetAllocationInfo(allocation.PodUid, allocation.ContainerName)
+	require.NotNil(t, committed)
+	require.Equal(t, float64(124), committed.RequestQuantity)
+	require.True(t, committed.AllocationResult.Equals(actual),
+		"physical actual expanded or moved: got=%s want=%s", committed.AllocationResult, actual)
+	committedReclaim, err := p.state.GetPodEntries().GetCPUSetForPool(commonstate.PoolNameReclaim)
+	require.NoError(t, err)
+	require.Equal(t, 24, committedReclaim.Size())
+	require.True(t, floor.IsSubsetOf(committedReclaim), "reclaim=%s floor=%s", committedReclaim, floor)
+	require.True(t, committed.AllocationResult.Intersection(committedReclaim).IsEmpty())
 }

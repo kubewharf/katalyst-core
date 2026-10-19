@@ -1057,7 +1057,40 @@ const (
 	advisorPostCommitRecoveryReplay
 	advisorPostCommitRecoveryBeforeCommit
 	advisorPostCommitRecoverySuperseded
+	// advisorPostCommitRecoveryUnknown marks a v2 record that sits ahead of the
+	// canonical revision but cannot be proven to be our own uncommitted intent
+	// (currentRevision < preCommitRevision). It must fail closed and be retained
+	// rather than arbitrarily cleaned like a known before-commit staging record.
+	advisorPostCommitRecoveryUnknown
 )
+
+func (state advisorPostCommitRecoveryState) String() string {
+	switch state {
+	case advisorPostCommitRecoveryCleanup:
+		return "cleanup"
+	case advisorPostCommitRecoveryReplay:
+		return "replay"
+	case advisorPostCommitRecoveryBeforeCommit:
+		return "before-commit"
+	case advisorPostCommitRecoverySuperseded:
+		return "superseded"
+	case advisorPostCommitRecoveryUnknown:
+		return "unknown-ahead"
+	default:
+		return "unknown"
+	}
+}
+
+func advisorPostCommitTargetSummary(
+	target *advisorPostCommitTarget,
+	recovery advisorPostCommitRecoveryState,
+) string {
+	if target == nil {
+		return fmt.Sprintf("revision=0 preCommit=0 recovery=%s", recovery)
+	}
+	return fmt.Sprintf("revision=%d preCommit=%d recovery=%s",
+		target.revision, target.preCommitRevision, recovery)
+}
 
 func advisorPostCommitRecoveryForRevision(
 	target *advisorPostCommitTarget,
@@ -1081,7 +1114,11 @@ func advisorPostCommitRecoveryForRevision(
 	if currentRevision > target.revision {
 		return advisorPostCommitRecoverySuperseded
 	}
-	return advisorPostCommitRecoveryCleanup
+	// currentRevision < preCommitRevision: the record is parked ahead of the
+	// canonical state and cannot be proven to be our own uncommitted intent.
+	// Retain it and fail closed instead of silently deleting an unknown future
+	// slot (distinguish from the known BeforeCommit uncommitted staging above).
+	return advisorPostCommitRecoveryUnknown
 }
 
 func (p *DynamicPolicy) restoreAdvisorPostCommitTarget() error {
@@ -1102,18 +1139,36 @@ func (p *DynamicPolicy) restoreAdvisorPostCommitTarget() error {
 	activeRecovery := advisorPostCommitRecoveryForRevision(active, mainRevision)
 	stagingRecovery := advisorPostCommitRecoveryForRevision(staging, mainRevision)
 
+	// An unclassifiable ahead record (unknown future slot) must fail closed and
+	// be retained; it is neither a known uncommitted BeforeCommit staging record
+	// we may discard nor a superseded obsolete record we may clean up.
+	if activeRecovery == advisorPostCommitRecoveryUnknown ||
+		stagingRecovery == advisorPostCommitRecoveryUnknown {
+		return fmt.Errorf(
+			"unexpected ahead advisor post-commit checkpoint retained for inspection: canonical revision=%d, active=(%s), staging=(%s)",
+			mainRevision,
+			advisorPostCommitTargetSummary(active, activeRecovery),
+			advisorPostCommitTargetSummary(staging, stagingRecovery))
+	}
+
 	var selected *advisorPostCommitTarget
-	if stagingErr == nil && stagingRecovery == advisorPostCommitRecoveryReplay {
+	switch {
+	// A valid replayable slot is authoritative because its revision exactly
+	// matches canonical state. The sibling is only crash residue at that point:
+	// staging promotion replaces a corrupt/stale active slot, while active replay
+	// removes a corrupt/stale staging slot. A corrupt slot still fails closed when
+	// no valid replayable sibling exists.
+	case stagingErr == nil && stagingRecovery == advisorPostCommitRecoveryReplay:
 		selected = staging
 		if err := p.promoteAdvisorPostCommitStaging(); err != nil {
 			return err
 		}
-	} else if activeErr == nil && activeRecovery == advisorPostCommitRecoveryReplay {
+	case activeErr == nil && activeRecovery == advisorPostCommitRecoveryReplay:
 		selected = active
 		if err := p.removeAdvisorPostCommitStaging(); err != nil {
 			return err
 		}
-	} else {
+	default:
 		if activeErr != nil {
 			return fmt.Errorf("corrupted active advisor post-commit checkpoint: %w", activeErr)
 		}

@@ -66,25 +66,49 @@ func deriveIsolationSourceSharePool(allocationInfo *state.AllocationInfo) (strin
 // takeByTieredPreferredCPUs allocates exactly cpuRequirement cpus from
 // availableCPUs. It prefers complete physical cores before any sub-core tail;
 // within each phase, ordered preferred tiers are consumed before the remaining
-// available CPUs. It returns the taken set and the remaining available set.
-// This is the shared building block that lets isolation cpusets be carved from
-// their source share pool region and recycled back to it across recomputes.
+// available CPUs. The trailing protected set are other pools' legal exact own
+// histories that a growth/fallback spill must not take; the current pool's own
+// exact match is unaffected. It returns the taken set and the remaining
+// available set. This is the shared building block that lets isolation cpusets
+// be carved from their source share pool region and recycled back to it across
+// recomputes.
 func (p *DynamicPolicy) takeByTieredPreferredCPUs(
 	availableCPUs machine.CPUSet,
 	preferredTiers []machine.CPUSet,
 	cpuRequirement int,
 	atomicDonors ...machine.CPUSet,
 ) (machine.CPUSet, machine.CPUSet, error) {
+	atomicDonorClosure, err := p.atomicDonorCoreClosure(atomicDonors...)
+	if err != nil {
+		return machine.NewCPUSet(), availableCPUs, err
+	}
+	return p.takeByTieredPreferredCPUsWithProtected(
+		availableCPUs, preferredTiers, cpuRequirement, machine.NewCPUSet(), atomicDonorClosure)
+}
+
+func (p *DynamicPolicy) atomicDonorCoreClosure(atomicDonors ...machine.CPUSet) (machine.CPUSet, error) {
+	closure := machine.NewCPUSet()
+	for _, donor := range atomicDonors {
+		donorClosure, err := completeCoresForCPUSet(p.machine.machineInfo.CPUTopology, donor)
+		if err != nil {
+			return machine.NewCPUSet(), err
+		}
+		closure = closure.Union(donorClosure)
+	}
+	return closure, nil
+}
+
+// takeByTieredPreferredCPUsWithProtected is the tiered taker with an explicit
+// protected set and a precomputed atomic-donor core closure.
+func (p *DynamicPolicy) takeByTieredPreferredCPUsWithProtected(
+	availableCPUs machine.CPUSet,
+	preferredTiers []machine.CPUSet,
+	cpuRequirement int,
+	protected machine.CPUSet,
+	atomicDonorClosure machine.CPUSet,
+) (machine.CPUSet, machine.CPUSet, error) {
 	remaining := availableCPUs.Clone()
 	taken := machine.NewCPUSet()
-	atomicDonorClosure := machine.NewCPUSet()
-	for _, donor := range atomicDonors {
-		closure, err := completeCoresForCPUSet(p.machine.machineInfo.CPUTopology, donor)
-		if err != nil {
-			return machine.NewCPUSet(), availableCPUs, err
-		}
-		atomicDonorClosure = atomicDonorClosure.Union(closure)
-	}
 	respectsAtomicDonors := func(candidate machine.CPUSet) bool {
 		touched := candidate.Intersection(atomicDonorClosure)
 		if touched.IsEmpty() {
@@ -108,24 +132,39 @@ func (p *DynamicPolicy) takeByTieredPreferredCPUs(
 	// Preserve an exact historical placement byte-for-byte. This keeps the
 	// non-hard-partition reclaim path stable when its previous cpuset already
 	// satisfies the complete request; prefer-whole applies when allocation must
-	// combine or trim candidates.
+	// combine or trim candidates. A borrowed/return tier's exact hit must never
+	// take another pool's reserved own history; only the current pool's own tier
+	// may match against protected-free candidates.
 	for _, tier := range preferredTiers {
 		candidate := tier.Intersection(remaining)
-		if candidate.Size() == cpuRequirement && respectsAtomicDonors(candidate) {
-			return candidate, remaining.Difference(candidate), nil
+		if candidate.Size() != cpuRequirement || !respectsAtomicDonors(candidate) {
+			continue
 		}
+		// Any exact hit overlapping another pool's reserved own history is
+		// forbidden, including a borrowed/return tier that coincides with it.
+		if !candidate.Intersection(protected).IsEmpty() {
+			continue
+		}
+		return candidate, remaining.Difference(candidate), nil
 	}
 
 	// Keep allocation inside the preferred source domain when that domain can
 	// satisfy the request by itself. Only an insufficient preferred domain may
-	// borrow sibling or tail CPUs from the rest of availableCPUs.
+	// borrow sibling or tail CPUs from the rest of availableCPUs. Reserved own
+	// history of other pools is always excluded from selectable, whether the
+	// preferred domain satisfies the request or not.
 	preferredDomain := machine.NewCPUSet()
 	for _, tier := range preferredTiers {
 		preferredDomain = preferredDomain.Union(tier.Intersection(remaining))
 	}
-	selectable := remaining.Clone()
-	if atomicDonorClosure.IsEmpty() && preferredDomain.Size() >= cpuRequirement {
-		selectable = preferredDomain
+	selectable := remaining.Difference(protected)
+	domainSet := preferredDomain.Difference(protected)
+	// Only stay inside the preferred domain when the unprotected part of that
+	// domain can itself satisfy the request; otherwise spill from the remaining
+	// available set minus protected. With no protected set this is identical to
+	// the legacy preferred-domain behavior.
+	if atomicDonorClosure.IsEmpty() && domainSet.Size() >= cpuRequirement {
+		selectable = domainSet
 	}
 
 	preference := func(candidate machine.CPUSet) (int, int) {
@@ -215,7 +254,7 @@ func (p *DynamicPolicy) takeByTieredPreferredCPUs(
 	// A tail may not take a sibling from an atomic donor core: donor CPUs can
 	// move only through the complete-core loop above.
 	if !atomicDonorClosure.IsEmpty() {
-		selectable = remaining.Difference(atomicDonorClosure)
+		selectable = remaining.Difference(protected).Difference(atomicDonorClosure)
 	}
 	for taken.Size() < cpuRequirement && !selectable.IsEmpty() {
 		cpuCandidates := make([]rankedCandidate, 0, selectable.Size())
@@ -257,108 +296,125 @@ func (p *DynamicPolicy) takeByTieredPreferredCPUs(
 	return taken, remaining, nil
 }
 
-// buildIsolationSourcePreferredCPUs scans the current pod entries and, for every
-// shared_cores isolation container whose source share pool can be derived, records
-// its current cpuset under that source pool. The resulting map lets the source share
-// pool preferentially reclaim exactly those cpus when the isolation shrinks, is deleted,
-// or the container returns to the share pool, keeping cpuset churn minimal. Entries whose
-// source cannot be derived are skipped so the legacy behavior is preserved for them.
-func buildIsolationSourcePreferredCPUs(entries state.PodEntries) map[string]machine.CPUSet {
-	preferred := make(map[string]machine.CPUSet)
-
-	for _, containerEntries := range entries {
-		// pool entries themselves are not isolation containers; skip them.
-		if containerEntries.IsPoolEntry() {
-			continue
-		}
-
-		for _, allocationInfo := range containerEntries {
-			if allocationInfo == nil {
-				continue
-			}
-			if !commonstate.IsIsolationPool(allocationInfo.GetOwnerPoolName()) {
-				continue
-			}
-
-			sourcePool, ok := deriveIsolationSourceSharePool(allocationInfo)
-			if !ok {
-				continue
-			}
-
-			existing := preferred[sourcePool]
-			preferred[sourcePool] = existing.Union(allocationInfo.AllocationResult)
-		}
-	}
-
-	return preferred
+type poolPlacementSnapshot struct {
+	borrowedByPool       map[string]machine.CPUSet
+	dedicatedByContainer map[string]map[string]machine.CPUSet
+	ownByPool            map[string]machine.CPUSet
+	historicalReclaim    machine.CPUSet
 }
 
-// buildDedicatedSourcePreferredCPUs scans the current pod entries and records
-// non-NUMA-binding dedicated_cores allocations as soft preferences for the next
-// recompute. The container preference lets an unchanged dedicated container reuse
-// its historical cpuset, while the share-pool preference lets those CPUs flow back
-// to the default share pool first when the dedicated container shrinks or disappears.
-//
-// NUMA-binding dedicated allocations keep the legacy path for now because their
-// source pool semantics are NUMA-scoped and need a separate design.
-func buildDedicatedSourcePreferredCPUs(entries state.PodEntries) (
-	map[string]machine.CPUSet,
-	map[string]map[string]machine.CPUSet,
-) {
-	preferredByPool := make(map[string]machine.CPUSet)
-	preferredByContainer := make(map[string]map[string]machine.CPUSet)
-
+func buildPoolPlacementSnapshot(
+	entries state.PodEntries,
+	numaResourcePackagePinnedCPUSet map[int]map[string]machine.CPUSet,
+	requestedPools map[string]map[int]int,
+	isolatedQuantityMap map[string]map[string]int,
+	availableCPUs machine.CPUSet,
+	includeReclaim bool,
+) *poolPlacementSnapshot {
+	snapshot := &poolPlacementSnapshot{
+		borrowedByPool:       make(map[string]machine.CPUSet),
+		dedicatedByContainer: make(map[string]map[string]machine.CPUSet),
+		ownByPool:            make(map[string]machine.CPUSet),
+		historicalReclaim:    machine.NewCPUSet(),
+	}
 	for podUID, containerEntries := range entries {
+		if allocationInfo := containerEntries[commonstate.FakedContainerName]; allocationInfo != nil {
+			if podUID == commonstate.PoolNameReclaim && includeReclaim {
+				snapshot.historicalReclaim = allocationInfo.AllocationResult.Intersection(availableCPUs)
+				if !snapshot.historicalReclaim.IsEmpty() {
+					snapshot.borrowedByPool[commonstate.PoolNameReclaim] = snapshot.historicalReclaim.Clone()
+				}
+			} else if podUID != commonstate.PoolNameShare {
+				if _, requested := requestedPools[podUID]; requested {
+					if cset := allocationInfo.AllocationResult.Intersection(availableCPUs); !cset.IsEmpty() {
+						snapshot.ownByPool[podUID] = cset
+					}
+				}
+			}
+		}
 		if containerEntries.IsPoolEntry() {
 			continue
 		}
-
 		for containerName, allocationInfo := range containerEntries {
-			if allocationInfo == nil {
+			if allocationInfo == nil || allocationInfo.AllocationResult.IsEmpty() {
 				continue
 			}
-			if !allocationInfo.CheckDedicated() || allocationInfo.CheckNUMABinding() {
-				continue
+			if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores &&
+				commonstate.IsIsolationPool(allocationInfo.GetOwnerPoolName()) {
+				var sourcePool string
+				if allocationInfo.CheckSharedNUMABinding() {
+					sourceInfo := allocationInfo.Clone()
+					sourceInfo.OwnerPoolName = commonstate.EmptyOwnerPoolName
+					canonical, _, err := state.GetCanonicalSharedNUMABindingPoolKey(
+						numaResourcePackagePinnedCPUSet, sourceInfo)
+					if err == nil {
+						sourcePool = canonical
+					}
+				} else if derived, ok := deriveIsolationSourceSharePool(allocationInfo); ok {
+					sourcePool = derived
+				}
+				if _, requested := requestedPools[sourcePool]; requested {
+					if cset := allocationInfo.AllocationResult.Intersection(availableCPUs); !cset.IsEmpty() {
+						snapshot.borrowedByPool[sourcePool] = snapshot.borrowedByPool[sourcePool].Union(cset)
+					}
+				}
 			}
-			if allocationInfo.AllocationResult.IsEmpty() {
-				continue
+			if allocationInfo.CheckDedicated() && !allocationInfo.CheckNUMABinding() {
+				cset := allocationInfo.AllocationResult.Intersection(availableCPUs)
+				if cset.IsEmpty() {
+					continue
+				}
+				if _, requested := requestedPools[commonstate.PoolNameShare]; requested {
+					snapshot.borrowedByPool[commonstate.PoolNameShare] = snapshot.borrowedByPool[commonstate.PoolNameShare].Union(cset)
+				}
+				if containers := isolatedQuantityMap[podUID]; containers != nil {
+					if _, requested := containers[containerName]; requested {
+						if snapshot.dedicatedByContainer[podUID] == nil {
+							snapshot.dedicatedByContainer[podUID] = make(map[string]machine.CPUSet)
+						}
+						snapshot.dedicatedByContainer[podUID][containerName] = cset
+					}
+				}
 			}
-
-			preferredByPool[commonstate.PoolNameShare] = preferredByPool[commonstate.PoolNameShare].Union(allocationInfo.AllocationResult)
-			if preferredByContainer[podUID] == nil {
-				preferredByContainer[podUID] = make(map[string]machine.CPUSet)
-			}
-			preferredByContainer[podUID][containerName] = allocationInfo.AllocationResult.Clone()
 		}
 	}
-
-	return preferredByPool, preferredByContainer
+	return snapshot
 }
 
-func buildHistoricalPoolEntryPreferredCPUs(entries state.PodEntries, poolNames ...string) map[string]machine.CPUSet {
-	preferred := make(map[string]machine.CPUSet)
-	for _, poolName := range poolNames {
-		if entries[poolName] == nil {
+// assemblePoolPreferredTiers orders each pool's OWN frozen history as tier 0 and
+// appends borrowed isolation / dedicated-return preferences as later tiers. The
+// own tier stays a separate entry so the exact-match phase can reuse the
+// historical cpuset byte-for-byte instead of matching a diluted union.
+func assemblePoolPreferredTiers(
+	ownPreferredCPUsByPool, borrowedPreferredCPUsByPool map[string]machine.CPUSet,
+) map[string][]machine.CPUSet {
+	tiers := make(map[string][]machine.CPUSet)
+	for poolName, cset := range ownPreferredCPUsByPool {
+		if cset.IsEmpty() {
 			continue
 		}
-		allocationInfo := entries[poolName][commonstate.FakedContainerName]
-		if allocationInfo == nil || allocationInfo.AllocationResult.IsEmpty() {
-			continue
-		}
-		preferred[poolName] = allocationInfo.AllocationResult.Clone()
+		tiers[poolName] = append(tiers[poolName], cset.Clone())
 	}
-	return preferred
+	for poolName, cset := range borrowedPreferredCPUsByPool {
+		if cset.IsEmpty() {
+			continue
+		}
+		tiers[poolName] = append(tiers[poolName], cset)
+	}
+	return tiers
 }
 
-// takeCPUsForPoolsInPlaceWithPreferred behaves like takeCPUsForPoolsInPlace, but for pools
-// that carry a preferred cpuset (their historically carved isolation cpus) it takes from that
-// preferred set first and only spills to the remaining available cpus afterwards. Pools without
-// a preferred set fall back to the plain NUMA-balanced take, so behavior is unchanged for them.
-func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
+// takeCPUsForPoolsInPlaceWithTiers behaves like takeCPUsForPoolsInPlace, but for
+// pools that carry ordered preference tiers it takes from tier 0 (the pool's OWN
+// frozen historical placement) first and only spills to later borrowed tiers
+// and the remaining available cpus afterwards. Pools without a tier fall back to
+// the plain NUMA-balanced take, so behavior is unchanged for them.
+func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithTiers(
 	poolsQuantityMap map[string]int,
 	poolsCPUSet map[string]machine.CPUSet,
 	availableCPUs machine.CPUSet,
-	preferredCPUsByPool map[string]machine.CPUSet,
+	preferredTiersByPool map[string][]machine.CPUSet,
+	ownHistoryByPool map[string]machine.CPUSet,
 	atomicDonors ...machine.CPUSet,
 ) (machine.CPUSet, error) {
 	originalAvailableCPUSet := availableCPUs.Clone()
@@ -367,8 +423,8 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 	sort.SliceStable(sortedPoolNames, func(i, j int) bool {
 		leftPoolName := sortedPoolNames[i]
 		rightPoolName := sortedPoolNames[j]
-		leftPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[leftPoolName].IsEmpty()
-		rightPreferred := preferredCPUsByPool != nil && !preferredCPUsByPool[rightPoolName].IsEmpty()
+		leftPreferred := len(preferredTiersByPool[leftPoolName]) > 0
+		rightPreferred := len(preferredTiersByPool[rightPoolName]) > 0
 		if leftPreferred != rightPreferred {
 			return leftPreferred
 		}
@@ -382,6 +438,40 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 		}
 		return leftPoolName < rightPoolName
 	})
+
+	atomicDonorClosure, err := p.atomicDonorCoreClosure(atomicDonors...)
+	if err != nil {
+		return originalAvailableCPUSet, err
+	}
+
+	// Per-pool own-history reservation. Only a pool's own committed history may be
+	// reserved: borrowed/return tiers (default share, reclaim) are never reserved,
+	// so their legacy strategy is untouched. A history reserves only when it is an
+	// exact complete request, respects the atomic donor closure, and stays disjoint
+	// from an already-reserved winner. Overlapping own histories are mutually
+	// exclusive: the first sorted winner reserves, the overlapping loser does not
+	// reserve and falls back to soft spill rather than blindly double-reserving.
+	ownReservation := make(map[string]machine.CPUSet)
+	reservedTaken := machine.NewCPUSet()
+	for _, name := range sortedPoolNames {
+		own := ownHistoryByPool[name]
+		if own.IsEmpty() {
+			continue
+		}
+		ownExact := own.Intersection(availableCPUs)
+		if ownExact.Size() != poolsQuantityMap[name] {
+			continue
+		}
+		if !p.validReservedOwnExact(ownExact, atomicDonorClosure) {
+			continue
+		}
+		if !ownExact.Intersection(reservedTaken).IsEmpty() {
+			continue
+		}
+		ownReservation[name] = ownExact
+		reservedTaken = reservedTaken.Union(ownExact)
+	}
+
 	for _, poolName := range sortedPoolNames {
 		if _, found := poolsCPUSet[poolName]; found {
 			return originalAvailableCPUSet, fmt.Errorf("duplicated pool: %s", poolName)
@@ -389,13 +479,14 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 
 		req := poolsQuantityMap[poolName]
 
-		var preferredTiers []machine.CPUSet
-		if preferred, ok := preferredCPUsByPool[poolName]; ok && !preferred.IsEmpty() {
-			preferredTiers = []machine.CPUSet{preferred}
-		}
+		// Protected = other winners' reserved own history only. reservedTaken is
+		// the disjoint union of winners, so subtracting this pool's own reservation
+		// avoids a per-pool O(P²) union scan; the current pool's own candidate is
+		// never protected against itself.
+		protected := reservedTaken.Difference(ownReservation[poolName])
 
-		cset, remaining, err := p.takeByTieredPreferredCPUs(
-			availableCPUs, preferredTiers, req, atomicDonors...)
+		cset, remaining, err := p.takeByTieredPreferredCPUsWithProtected(
+			availableCPUs, preferredTiersByPool[poolName], req, protected, atomicDonorClosure)
 		if err != nil {
 			return originalAvailableCPUSet, fmt.Errorf("take cpu for pool: %s of req: %d failed with error: %v",
 				poolName, req, err)
@@ -408,15 +499,33 @@ func (p *DynamicPolicy) takeCPUsForPoolsInPlaceWithPreferred(
 	return availableCPUs, nil
 }
 
-// generateProportionalPoolsCPUSetInPlaceWithPreferred mirrors
-// generateProportionalPoolsCPUSetInPlace but uses preferred-aware taking when the
-// proportional requests can be satisfied disjointly. If available CPUs cannot satisfy
-// even one CPU per pool, it preserves the legacy shared-available behavior.
-func (p *DynamicPolicy) generateProportionalPoolsCPUSetInPlaceWithPreferred(
+// validReservedOwnExact checks a candidate own history that we intend to reserve:
+// it must respect the atomic donor closure (a donor may only be touched through a
+// complete core) and decompose into complete hardware cores. An invalid partial
+// history is not reserved and simply falls back to soft spill.
+func (p *DynamicPolicy) validReservedOwnExact(candidate, atomicDonorClosure machine.CPUSet) bool {
+	touched := candidate.Intersection(atomicDonorClosure)
+	if !touched.IsEmpty() {
+		touchedClosure, err := completeCoresForCPUSet(p.machine.machineInfo.CPUTopology, touched)
+		if err != nil || !touchedClosure.IsSubsetOf(candidate) {
+			return false
+		}
+	}
+	complete, err := completeCoresForCPUSet(p.machine.machineInfo.CPUTopology, candidate)
+	return err == nil && complete.Equals(candidate)
+}
+
+// generateProportionalPoolsCPUSetInPlaceWithTiers mirrors
+// generateProportionalPoolsCPUSetInPlace but consumes ordered preference tiers
+// (own history first) when the proportional requests can be satisfied disjointly.
+// If available CPUs cannot satisfy even one CPU per pool, it preserves the legacy
+// shared-available behavior.
+func (p *DynamicPolicy) generateProportionalPoolsCPUSetInPlaceWithTiers(
 	poolsQuantityMap map[string]int,
 	poolsCPUSet map[string]machine.CPUSet,
 	availableCPUs machine.CPUSet,
-	preferredCPUsByPool map[string]machine.CPUSet,
+	preferredTiersByPool map[string][]machine.CPUSet,
+	ownHistoryByPool map[string]machine.CPUSet,
 	atomicDonors ...machine.CPUSet,
 ) (machine.CPUSet, error) {
 	availableSize := availableCPUs.Size()
@@ -437,8 +546,8 @@ func (p *DynamicPolicy) generateProportionalPoolsCPUSetInPlaceWithPreferred(
 		return machine.NewCPUSet(), nil
 	}
 
-	return p.takeCPUsForPoolsInPlaceWithPreferred(
-		proportionalPoolsQuantityMap, poolsCPUSet, availableCPUs, preferredCPUsByPool, atomicDonors...)
+	return p.takeCPUsForPoolsInPlaceWithTiers(
+		proportionalPoolsQuantityMap, poolsCPUSet, availableCPUs, preferredTiersByPool, ownHistoryByPool, atomicDonors...)
 }
 
 // takeCPUsForContainersWithPreferred first tries to reuse the preferred cpuset for

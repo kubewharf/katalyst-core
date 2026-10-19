@@ -414,11 +414,11 @@ func TestNewDynamicPolicyBootstrapSupersededWALIsCleanedUp(t *testing.T) {
 		"superseded WAL checkpoint must be cleaned up")
 }
 
-// TestNewDynamicPolicyBootstrapCorruptStagingWALReturnsError verifies that a
-// TestNewDynamicPolicyBootstrapCorruptStagingIgnoredWhenActiveReplays covers the
-// WAL matrix cell: a valid active WAL that replays takes precedence; a corrupt
-// staging slot is treated as a stale artifact and cleaned up, NOT a fatal error.
-func TestNewDynamicPolicyBootstrapCorruptStagingIgnoredWhenActiveReplays(t *testing.T) {
+// TestNewDynamicPolicyBootstrapCorruptStagingIsRemovedWhenActiveReplays covers
+// the authoritative-slot WAL matrix cell: a valid active WAL whose revision
+// exactly matches canonical state is sufficient to replay. A corrupt sibling
+// cannot supersede that authority and is removed as stale residue.
+func TestNewDynamicPolicyBootstrapCorruptStagingIsRemovedWhenActiveReplays(t *testing.T) {
 	t.Parallel()
 
 	topology := contiguous180CPUTopology(t)
@@ -436,16 +436,26 @@ func TestNewDynamicPolicyBootstrapCorruptStagingIgnoredWhenActiveReplays(t *test
 	))
 	revision := first.state.GetRevision()
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
+	activePath := first.advisorPostCommitCheckpointPath()
+	require.FileExists(t, activePath)
+	activeBytes, err := os.ReadFile(activePath)
+	require.NoError(t, err)
 
-	// Leave active intact, plant corrupt staging next to it.
+	// Leave the authoritative active record intact and plant a corrupt staging
+	// sibling. Startup must replay active and discard only the invalid sibling.
 	stagingPath := filepath.Join(first.advisorPostCommitCheckpointDir, advisorPostCommitStagingName)
 	require.NoError(t, os.WriteFile(stagingPath, []byte("CORRUPT-STAGING-BLOB"), 0o644))
 
 	agentCtx := freshRealConstructorContext(t, topology, stateDir)
 	conf := freshRealConstructorConf(t, stateDir)
 	ok, _, err := NewDynamicPolicy(agentCtx, conf, nil, "corrupt-staging-active-replays")
-	require.NoError(t, err, "valid active replay must tolerate corrupt staging (precedence)")
+	require.NoError(t, err)
 	require.True(t, ok)
+	require.NoFileExists(t, stagingPath, "corrupt sibling must be removed after authoritative replay")
+
+	retainedActive, err := os.ReadFile(activePath)
+	require.NoError(t, err)
+	require.Equal(t, activeBytes, retainedActive, "authoritative active record must remain untouched")
 }
 
 // TestNewDynamicPolicyBootstrapCorruptStagingWithoutActiveErrors covers the WAL

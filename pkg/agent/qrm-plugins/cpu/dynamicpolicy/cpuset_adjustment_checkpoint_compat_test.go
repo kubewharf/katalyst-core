@@ -189,6 +189,9 @@ func TestAdvisorCheckpointCompatPromoteInterruptedPrefersNewerStaging(t *testing
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	p.advisorPostCommitCheckpointDir = t.TempDir()
+	// Advance once so the stale active fixture below uses a valid (pre-1, pre)
+	// revision transition instead of underflowing a zero starting revision.
+	commitStateToNext(t, p)
 	pre := p.state.GetRevision()
 	post, err := nextAdvisorRevision(pre)
 	require.NoError(t, err)
@@ -199,7 +202,9 @@ func TestAdvisorCheckpointCompatPromoteInterruptedPrefersNewerStaging(t *testing
 	newResp := &advisorapi.ListAndWatchResponse{
 		ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/new-staging"}},
 	}
-	// Active holds the pre-commit (old) record; staging holds the post-commit.
+	// Active holds the decodable pre-commit (stale) record; staging holds the
+	// post-commit record. The stale active must decode cleanly so fail-closed
+	// recovery only blocks on genuinely undecodable slots.
 	require.NoError(t, os.WriteFile(
 		p.advisorPostCommitCheckpointPath(),
 		legacyV2CheckpointBytes(t, pre-1, pre, oldResp, nil, false),

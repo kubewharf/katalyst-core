@@ -17,7 +17,6 @@ limitations under the License.
 package dynamicpolicy
 
 import (
-	"fmt"
 	"math"
 	"sort"
 
@@ -63,35 +62,6 @@ func existingAllocationSatisfiesRequest(
 	return int(math.Ceil(allocationInfo.RequestQuantity)) == reqInt
 }
 
-func shrinkAllocationInfoForHardReclaimFloor(
-	topology *machine.CPUTopology,
-	allocationInfo *state.AllocationInfo,
-	hardReclaimCPUs machine.CPUSet,
-) (machine.CPUSet, error) {
-	if allocationInfo == nil || hardReclaimCPUs.IsEmpty() {
-		return machine.NewCPUSet(), nil
-	}
-	overlap := allocationInfo.AllocationResult.Intersection(hardReclaimCPUs)
-	if overlap.IsEmpty() {
-		return machine.NewCPUSet(), nil
-	}
-
-	shrunken := allocationInfo.AllocationResult.Difference(overlap)
-	if shrunken.IsEmpty() {
-		return machine.NewCPUSet(), fmt.Errorf("DNB allocation %s is fully covered by ramp-up reclaim floor %s",
-			allocationInfo.AllocationResult.String(), hardReclaimCPUs.String())
-	}
-	topologyAwareAssignments, err := machine.GetNumaAwareAssignments(topology, shrunken)
-	if err != nil {
-		return machine.NewCPUSet(), fmt.Errorf("get topology aware assignments for shrunken DNB allocation failed: %w", err)
-	}
-	allocationInfo.AllocationResult = shrunken.Clone()
-	allocationInfo.OriginalAllocationResult = shrunken.Clone()
-	allocationInfo.TopologyAwareAssignments = topologyAwareAssignments
-	allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
-	return overlap, nil
-}
-
 func removePodOwnerEntriesForReallocation(podEntries state.PodEntries, podUID, containerName string) {
 	containerEntries := podEntries[podUID]
 	if containerEntries == nil {
@@ -132,10 +102,9 @@ func removePodOwnerEntriesForReallocation(podEntries state.PodEntries, podUID, c
 	}
 }
 
-func (p *DynamicPolicy) numaBindingAllocationPreferenceFromState(
-	podUID, containerName string,
+func numaBindingAllocationPreferenceFromEntries(
+	podEntries state.PodEntries, podUID, containerName string,
 ) *numaBindingAllocationPreference {
-	podEntries := p.state.GetPodEntries()
 	preference := &numaBindingAllocationPreference{
 		currentRequestAllocation: machine.NewCPUSet(),
 		reclaim:                  machine.NewCPUSet(),
