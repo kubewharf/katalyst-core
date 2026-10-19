@@ -20,12 +20,12 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
 
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
 )
 
-func (n *NodeOvercommitment) Reserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
+func (n *NodeOvercommitment) Reserve(ctx context.Context, state framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
 	podCopy := pod.DeepCopy()
 	podCopy.Spec.NodeName = nodeName
 
@@ -34,7 +34,7 @@ func (n *NodeOvercommitment) Reserve(ctx context.Context, state *framework.Cycle
 	return framework.NewStatus(framework.Success, "")
 }
 
-func (n *NodeOvercommitment) Unreserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) {
+func (n *NodeOvercommitment) Unreserve(ctx context.Context, state framework.CycleState, pod *corev1.Pod, nodeName string) {
 	podCopy := pod.DeepCopy()
 	podCopy.Spec.NodeName = nodeName
 

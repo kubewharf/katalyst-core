@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
+	"maps"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	evictionpluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -779,8 +779,8 @@ func TestGetTopEvictionPods(t *testing.T) {
 						UID:         types.UID(entry.PodUid),
 						Name:        entry.PodName,
 						Namespace:   entry.PodNamespace,
-						Annotations: maputil.CopySS(entry.Annotations),
-						Labels:      maputil.CopySS(entry.Labels),
+						Annotations: maps.Clone(entry.Annotations),
+						Labels:      maps.Clone(entry.Labels),
 					},
 					Spec: v1.PodSpec{
 						Containers: []v1.Container{

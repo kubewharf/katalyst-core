@@ -36,9 +36,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
+	resourceutil "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
-	resourceutil "k8s.io/kubernetes/pkg/api/v1/resource"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -391,7 +391,7 @@ func (p *topologyAdapterImpl) addNumaSocketChildrenZoneNodes(generator *util.Top
 				continue
 			}
 
-			zoneNode, parentZoneNode, err := p.generateZoneNode(*quantity)
+			zoneNode, parentZoneNode, err := p.generateZoneNode(quantity)
 			if err != nil {
 				errList = append(errList, fmt.Errorf("get zone key from quantity %v failed: %v", quantity, err))
 				continue
@@ -685,7 +685,7 @@ func (p *topologyAdapterImpl) reviseSharedCoresPodAllocated(pod *v1.Pod, podAllo
 			(!resourceList.Cpu().IsZero() || !resourceList.Memory().IsZero()) {
 
 			// revise the allocated resources to the binding numa node
-			requests, _ := resourceutil.PodRequestsAndLimits(pod)
+			requests := resourceutil.PodRequests(pod, resourceutil.PodResourcesOptions{})
 			if requests != nil {
 				(*resourceList)[v1.ResourceCPU] = requests.Cpu().DeepCopy()
 				(*resourceList)[v1.ResourceMemory] = requests.Memory().DeepCopy()
@@ -720,7 +720,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 				continue
 			}
 
-			zoneNode, _, err := p.generateZoneNode(*quantity)
+			zoneNode, _, err := p.generateZoneNode(quantity)
 			if err != nil {
 				errList = append(errList, fmt.Errorf("get zone node from quantity %v failed: %v", quantity, err))
 				continue
@@ -1048,7 +1048,7 @@ func (p *topologyAdapterImpl) addTopologyAwareQuantity(zoneResourceList map[util
 			continue
 		}
 
-		zoneNode, _, err := p.generateZoneNode(*quantity)
+		zoneNode, _, err := p.generateZoneNode(quantity)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("get zone node from quantity %v failed: %v", quantity, err))
 			continue
@@ -1107,7 +1107,7 @@ func addZoneQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, zoneNo
 //   - if Type is empty, it means that the zone is socket or numa according to TopologyLevel
 //   - if Type is not empty, it means that the zone is a child of socket or a child of numa determined by TopologyLevel,
 //     and the zone name is determined by the quantity name or its resource identifier if existed.
-func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQuantity) (util.ZoneNode, *util.ZoneNode, error) {
+func (p *topologyAdapterImpl) generateZoneNode(quantity *podresv1.TopologyAwareQuantity) (util.ZoneNode, *util.ZoneNode, error) {
 	nodeID := int(quantity.Node)
 	if len(quantity.Type) == 0 {
 		switch quantity.TopologyLevel {

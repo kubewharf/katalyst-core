@@ -20,13 +20,15 @@ import (
 	"context"
 
 	v1 "k8s.io/kubelet/pkg/apis/podresources/v1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
+	"maps"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type v1PodResourcesServer struct {
+	v1.UnimplementedPodResourcesListerServer
+
 	podsProvider      PodsProvider
 	resourcesProvider ResourcesProvider
 	devicesProvider   DevicesProvider
@@ -61,8 +63,8 @@ func (p *v1PodResourcesServer) List(ctx context.Context, req *v1.ListPodResource
 		pRes := v1.PodResources{
 			Name:        pod.Name,
 			Namespace:   pod.Namespace,
-			Labels:      maputil.CopySS(pod.Labels),
-			Annotations: maputil.CopySS(pod.Annotations),
+			Labels:      maps.Clone(pod.Labels),
+			Annotations: maps.Clone(pod.Annotations),
 			Containers:  make([]*v1.ContainerResources, len(pod.Spec.Containers)),
 		}
 

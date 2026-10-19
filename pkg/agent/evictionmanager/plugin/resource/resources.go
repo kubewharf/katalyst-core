@@ -123,7 +123,7 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context, _ *pluginapi
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to list pods from metaServer: %v", err)
 		klog.Errorf("[%s] %s", b.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	filteredPods := native.FilterPods(activePods, b.podFilter)
@@ -141,7 +141,7 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context, _ *pluginapi
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to get resources: %v", err)
 		klog.Errorf("[%s] %s", b.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	native.EmitResourceMetrics(MetricsNamePodResource, allocatable, map[string]string{
