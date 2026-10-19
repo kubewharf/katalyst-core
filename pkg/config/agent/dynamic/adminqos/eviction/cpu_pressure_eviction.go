@@ -23,24 +23,26 @@ import (
 )
 
 type CPUPressureEvictionConfiguration struct {
-	EnableLoadEviction                      bool
-	LoadUpperBoundRatio                     float64
-	LoadLowerBoundRatio                     float64
-	LoadThresholdMetPercentage              float64
-	LoadMetricRingSize                      int
-	LoadEvictionCoolDownTime                time.Duration
-	EnableSuppressionEviction               bool
-	MaxSuppressionToleranceRate             float64
-	MinSuppressionToleranceDuration         time.Duration
-	GracePeriod                             int64
-	NumaCPUPressureEvictionConfiguration    NumaCPUPressureEvictionConfiguration
-	NumaSysCPUPressureEvictionConfiguration NumaSysCPUPressureEvictionConfiguration
+	EnableLoadEviction                               bool
+	LoadUpperBoundRatio                              float64
+	LoadLowerBoundRatio                              float64
+	LoadThresholdMetPercentage                       float64
+	LoadMetricRingSize                               int
+	LoadEvictionCoolDownTime                         time.Duration
+	EnableSuppressionEviction                        bool
+	MaxSuppressionToleranceRate                      float64
+	MinSuppressionToleranceDuration                  time.Duration
+	GracePeriod                                      int64
+	NumaCPUPressureEvictionConfiguration             NumaCPUPressureEvictionConfiguration
+	NumaSysCPUPressureEvictionConfiguration          NumaSysCPUPressureEvictionConfiguration
+	SuppressionUsageCPUPressureEvictionConfiguration SuppressionUsageCPUPressureEvictionConfiguration
 }
 
 func NewCPUPressureEvictionConfiguration() *CPUPressureEvictionConfiguration {
 	return &CPUPressureEvictionConfiguration{
-		NumaCPUPressureEvictionConfiguration:    NewNumaCPUPressureEvictionConfiguration(),
-		NumaSysCPUPressureEvictionConfiguration: NewNumaSysCPUPressureEvictionConfiguration(),
+		NumaCPUPressureEvictionConfiguration:             NewNumaCPUPressureEvictionConfiguration(),
+		NumaSysCPUPressureEvictionConfiguration:          NewNumaSysCPUPressureEvictionConfiguration(),
+		SuppressionUsageCPUPressureEvictionConfiguration: NewSuppressionUsageCPUPressureEvictionConfiguration(),
 	}
 }
 
@@ -91,4 +93,5 @@ func (c *CPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.DynamicC
 
 	c.NumaCPUPressureEvictionConfiguration.ApplyConfiguration(conf)
 	c.NumaSysCPUPressureEvictionConfiguration.ApplyConfiguration(conf)
+	c.SuppressionUsageCPUPressureEvictionConfiguration.ApplyConfiguration(conf)
 }
