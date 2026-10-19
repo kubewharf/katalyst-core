@@ -244,7 +244,7 @@ func freezeContainerLifecycleProofs(
 	involvedPods := make(map[string]struct{}, len(proofs))
 	logicalKeys := make(map[containerLifecycleProofKey]struct{}, len(proofs))
 	containerIDOwners := make(map[string]containerLifecycleProofKey, len(proofs))
-	relativePathOwners := make(map[string]containerLifecycleProofKey, len(proofs))
+	relativePathOwners := make(map[string]containerLifecycleProof, len(proofs))
 	for i := range proofs {
 		proof := proofs[i].clone()
 		if proof.PodUID == "" || proof.ContainerName == "" {
@@ -282,12 +282,13 @@ func freezeContainerLifecycleProofs(
 			containerIDOwners[proof.ContainerID] = key
 		}
 		if proof.State == containerLifecycleResolved {
-			if owner, exists := relativePathOwners[proof.RelativePath]; exists && owner != key {
+			if owner, exists := relativePathOwners[proof.RelativePath]; exists &&
+				(owner.PodUID != proof.PodUID || !owner.DesiredCPUSet.Equals(proof.DesiredCPUSet)) {
 				return containerLifecycleProofSet{}, fmt.Errorf(
 					"relative path %q is owned by both pod=%q container=%q and pod=%q container=%q",
-					proof.RelativePath, owner.podUID, owner.containerName, key.podUID, key.containerName)
+					proof.RelativePath, owner.PodUID, owner.ContainerName, proof.PodUID, proof.ContainerName)
 			}
-			relativePathOwners[proof.RelativePath] = key
+			relativePathOwners[proof.RelativePath] = proof
 		}
 		involvedPods[proof.PodUID] = struct{}{}
 		frozen.OrderedProofs[i] = proof

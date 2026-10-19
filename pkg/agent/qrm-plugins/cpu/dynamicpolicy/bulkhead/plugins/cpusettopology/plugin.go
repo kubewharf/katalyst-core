@@ -2313,7 +2313,15 @@ func safeWidenRelsForReset(protectedLeaves map[string]struct{}) map[string]struc
 }
 
 type expectedCPUSetOwnerBinder struct {
-	ownerByRel map[string]containerLifecycleProofKey
+	ownerByRel map[string]expectedCPUSetOwner
+}
+
+// expectedCPUSetOwner persists the logical owner and the consensus CPUSet recorded
+// for a relative path. The consensus must not be read back from whichever target
+// map (ExpectedByRel or DeferredLeafByRel) is being filled on the current call.
+type expectedCPUSetOwner struct {
+	key  containerLifecycleProofKey
+	cpus machine.CPUSet
 }
 
 func (b *expectedCPUSetOwnerBinder) bind(
@@ -2321,12 +2329,13 @@ func (b *expectedCPUSetOwnerBinder) bind(
 	container resolvedContainerCPUSet,
 ) error {
 	owner := lifecycleProofLogicalKey(container.PodUID, container.ContainerName)
-	if previous, exists := b.ownerByRel[container.Rel]; exists && previous != owner {
+	if previous, exists := b.ownerByRel[container.Rel]; exists &&
+		(previous.key.podUID != owner.podUID || !previous.cpus.Equals(container.CPUs)) {
 		return fmt.Errorf(
 			"relative path %q is owned by both pod=%q container=%q and pod=%q container=%q",
-			container.Rel, previous.podUID, previous.containerName, owner.podUID, owner.containerName)
+			container.Rel, previous.key.podUID, previous.key.containerName, owner.podUID, owner.containerName)
 	}
-	b.ownerByRel[container.Rel] = owner
+	b.ownerByRel[container.Rel] = expectedCPUSetOwner{key: owner, cpus: container.CPUs}
 	target[container.Rel] = container.CPUs
 	return nil
 }
@@ -2512,7 +2521,7 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 	out.FreshPodsByUID = freshPodsByUID
 	var lifecycleProofs []containerLifecycleProof
 	ownerBinder := expectedCPUSetOwnerBinder{
-		ownerByRel: make(map[string]containerLifecycleProofKey),
+		ownerByRel: make(map[string]expectedCPUSetOwner),
 	}
 	for podUID, outcomes := range outcomesByPod {
 		if len(outcomes.resolved) == 0 && len(outcomes.pending) == 0 {
