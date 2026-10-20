@@ -1131,10 +1131,10 @@ func (p *DynamicPolicy) restoreAdvisorPostCommitTarget() error {
 		mainRevision = p.state.GetRevision()
 	}
 	// Read both slots through the shared CheckpointStore. Recover returns
-	// (nil, nil) for a missing file, so a non-nil error now always means a
-	// corrupt or unreadable slot (the legacy os.IsNotExist distinction is
-	// absorbed by the store). The four-way recovery decision below is pure
-	// revision-CAS business logic and is unchanged.
+	// (nil, nil) for a missing file, so a non-nil error always means a corrupt or
+	// unreadable slot. Recovery then compares every valid slot against the main
+	// revision: an ahead slot remains fail-closed, while a replayable current slot
+	// may replace a corrupt or stale sibling.
 	active, activeErr := p.recoverAdvisorPostCommitName(advisorPostCommitCheckpointName)
 	staging, stagingErr := p.recoverAdvisorPostCommitName(advisorPostCommitStagingName)
 	activeRecovery := advisorPostCommitRecoveryForRevision(active, mainRevision)
@@ -1833,6 +1833,33 @@ func (p *DynamicPolicy) retryLatestCPUSetAdjustment(
 		return adjustmentErr
 	}
 	return persistErr
+}
+
+func dynamicBulkheadEnabled(conf *dynamicconfig.DynamicAgentConfiguration) bool {
+	if conf == nil {
+		return false
+	}
+	current := conf.GetDynamicConfiguration()
+	return current != nil && current.AdminQoSConfiguration != nil &&
+		current.AdminQoSConfiguration.CPUPluginConfiguration != nil &&
+		current.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig.Enable
+}
+
+func (p *DynamicPolicy) markRestoredCPUSetAdjustmentDirty() {
+	// Deferred leaf progress is intentionally process-local; the canonical CPU
+	// checkpoint is the durable target. After restart, one existing periodic Full
+	// reconcile must compare concrete allocations with live cgroups so a handoff
+	// interrupted before its retry is not forgotten. Skip this one-shot startup
+	// work while bulkhead is disabled and for pool-only initialization.
+	if !dynamicBulkheadEnabled(p.config.dynamicConfig) {
+		return
+	}
+	for _, containers := range p.state.GetPodEntries() {
+		if !containers.IsPoolEntry() && len(containers) > 0 {
+			p.markCPUSetAdjustmentDirty(cpusetutil.RetryReasonRecoveryCommit)
+			return
+		}
+	}
 }
 
 func (p *DynamicPolicy) markCPUSetAdjustmentDirty(reason cpusetutil.CPUSetAdjustmentRetryReason) {

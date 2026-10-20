@@ -694,6 +694,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, fmt.Errorf("restore pending advisor post-commit target: %w", err)
 	}
 	policyImplement.installCPUStateWritePermit()
+	policyImplement.markRestoredCPUSetAdjustmentDirty()
 
 	// Derive and install the default reclaim preference caches unconditionally,
 	// even when a pending advisor post-commit WAL target exists. The durable

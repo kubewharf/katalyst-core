@@ -40,13 +40,14 @@ const (
 type CPUSetAdjustmentRetryReason string
 
 const (
-	RetryReasonStaleState     CPUSetAdjustmentRetryReason = "stale_state"
-	RetryReasonDeferredLeaf   CPUSetAdjustmentRetryReason = "deferred_leaf"
-	RetryReasonOwnershipLost  CPUSetAdjustmentRetryReason = "ownership_lost"
-	RetryReasonRestoreFailed  CPUSetAdjustmentRetryReason = "restore_failed"
-	RetryReasonApplyFailed    CPUSetAdjustmentRetryReason = "apply_failed"
-	RetryReasonPersistFailed  CPUSetAdjustmentRetryReason = "persist_failed"
-	RetryReasonRecoveryCommit CPUSetAdjustmentRetryReason = "recovery_commit"
+	RetryReasonStaleState      CPUSetAdjustmentRetryReason = "stale_state"
+	RetryReasonDeferredLeaf    CPUSetAdjustmentRetryReason = "deferred_leaf"
+	RetryReasonOwnershipLost   CPUSetAdjustmentRetryReason = "ownership_lost"
+	RetryReasonRestoreFailed   CPUSetAdjustmentRetryReason = "restore_failed"
+	RetryReasonApplyFailed     CPUSetAdjustmentRetryReason = "apply_failed"
+	RetryReasonPersistFailed   CPUSetAdjustmentRetryReason = "persist_failed"
+	RetryReasonRecoveryCommit  CPUSetAdjustmentRetryReason = "recovery_commit"
+	RetryReasonFixedPointStall CPUSetAdjustmentRetryReason = "fixed_point_stall"
 )
 
 func (m CPUSetAdjustmentMode) OrFullDefault() CPUSetAdjustmentMode {
