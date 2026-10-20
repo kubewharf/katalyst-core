@@ -72,6 +72,14 @@ func isZeroCPUDefaultShareWithoutOwnership(allocationInfo *state.AllocationInfo)
 		machine.CountCPUAssignmentCPUs(allocationInfo.OriginalTopologyAwareAssignments) == 0
 }
 
+func preserveZeroCPUDefaultShareWithoutOwnership(allocationInfo *state.AllocationInfo) {
+	allocationInfo.OwnerPoolName = commonstate.PoolNameShare
+	allocationInfo.AllocationResult = machine.NewCPUSet()
+	allocationInfo.OriginalAllocationResult = machine.NewCPUSet()
+	allocationInfo.TopologyAwareAssignments = map[int]machine.CPUSet{}
+	allocationInfo.OriginalTopologyAwareAssignments = map[int]machine.CPUSet{}
+}
+
 var ErrDefaultShareResidualQuantityMismatch = errors.New("default share residual quantity exceeds advised quantity")
 
 type DefaultShareResidualQuantityError struct {
@@ -3581,11 +3589,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					// may therefore be legitimately absent after advisor regulation.
 					// Keep the allocation metadata empty instead of manufacturing CPU
 					// ownership or requiring a zero-sized pool entry.
-					newPodEntries[podUID][containerName].OwnerPoolName = commonstate.PoolNameShare
-					newPodEntries[podUID][containerName].AllocationResult = machine.NewCPUSet()
-					newPodEntries[podUID][containerName].OriginalAllocationResult = machine.NewCPUSet()
-					newPodEntries[podUID][containerName].TopologyAwareAssignments = map[int]machine.CPUSet{}
-					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = map[int]machine.CPUSet{}
+					preserveZeroCPUDefaultShareWithoutOwnership(newPodEntries[podUID][containerName])
 				} else {
 					poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newPodEntries)
 					if err != nil {

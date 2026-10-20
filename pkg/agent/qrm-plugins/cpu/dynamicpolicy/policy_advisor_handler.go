@@ -2683,6 +2683,11 @@ func (p *DynamicPolicy) applyAdvisorNonPoolContainerEntries(
 					continue containerLoop
 				}
 
+				if isZeroCPUDefaultShareWithoutOwnership(allocationInfo) {
+					preserveZeroCPUDefaultShareWithoutOwnership(newEntries[podUID][containerName])
+					continue containerLoop
+				}
+
 				ownerPoolName, err := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
 				if err != nil {
 					return err
@@ -3223,6 +3228,10 @@ func (p *DynamicPolicy) syncReclaimAndShareAllocationsWithFinalPools(
 				}
 			case allocation.CheckShared() && ownerPoolName == commonstate.PoolNameShare:
 				if poolEntry == nil {
+					if isZeroCPUDefaultShareWithoutOwnership(allocation) {
+						preserveZeroCPUDefaultShareWithoutOwnership(allocation)
+						continue
+					}
 					return fmt.Errorf("sync reclaim override owner %s/%s: default share pool entry is missing",
 						podUID, containerName)
 				}

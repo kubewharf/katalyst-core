@@ -1987,6 +1987,23 @@ func TestDynamicPolicyApplyBlocksUsesNegotiatedReclaimPlanWhenFreeCPUsCannotMeet
 	policy.config.dynamicConfig.GetDynamicConfiguration().InitialRampUpReclaimCPUSetRatio = 0.25
 
 	entries := state.PodEntries{
+		"zero-cpu-pod": {
+			"main": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "zero-cpu-pod",
+					ContainerName: "main",
+					OwnerPoolName: commonstate.PoolNameShare,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationAggregatedRequestsKey: `{"cpu":"0"}`,
+					},
+				},
+				AllocationResult:                 machine.NewCPUSet(),
+				OriginalAllocationResult:         machine.NewCPUSet(),
+				TopologyAwareAssignments:         map[int]machine.CPUSet{},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{},
+			},
+		},
 		"dedicated-pod": {
 			"main": &state.AllocationInfo{
 				AllocationMeta: commonstate.AllocationMeta{
@@ -2042,6 +2059,66 @@ func TestDynamicPolicyApplyBlocksUsesNegotiatedReclaimPlanWhenFreeCPUsCannotMeet
 	require.NoError(t, err)
 	require.True(t, pending.entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].
 		AllocationResult.Equals(machine.NewCPUSet(0, 4)))
+	zeroCPUShare := pending.entries["zero-cpu-pod"]["main"]
+	require.NotNil(t, zeroCPUShare)
+	require.Equal(t, commonstate.PoolNameShare, zeroCPUShare.OwnerPoolName)
+	require.True(t, zeroCPUShare.AllocationResult.IsEmpty())
+	require.True(t, zeroCPUShare.OriginalAllocationResult.IsEmpty())
+	require.Empty(t, zeroCPUShare.TopologyAwareAssignments)
+	require.Empty(t, zeroCPUShare.OriginalTopologyAwareAssignments)
+}
+
+func TestSyncReclaimAndShareAllocationsKeepsOnlyZeroCPUDefaultShareWithoutPool(t *testing.T) {
+	t.Parallel()
+
+	newAllocation := func() *state.AllocationInfo {
+		return &state.AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        "zero-cpu-pod",
+				ContainerName: "main",
+				OwnerPoolName: commonstate.PoolNameShare,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationAggregatedRequestsKey: `{"cpu":"0"}`,
+				},
+			},
+			AllocationResult:                 machine.NewCPUSet(),
+			OriginalAllocationResult:         machine.NewCPUSet(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{},
+		}
+	}
+	newPolicy := func(t *testing.T) *DynamicPolicy {
+		t.Helper()
+		topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+		require.NoError(t, err)
+		p, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
+		require.NoError(t, err)
+		return p
+	}
+
+	t.Run("metadata-only zero request", func(t *testing.T) {
+		t.Parallel()
+		p := newPolicy(t)
+		allocation := newAllocation()
+		entries := state.PodEntries{"zero-cpu-pod": {"main": allocation}}
+		require.NoError(t, p.syncReclaimAndShareAllocationsWithFinalPools(entries))
+		require.Equal(t, commonstate.PoolNameShare, allocation.OwnerPoolName)
+		require.True(t, allocation.AllocationResult.IsEmpty())
+		require.True(t, allocation.OriginalAllocationResult.IsEmpty())
+		require.Empty(t, allocation.TopologyAwareAssignments)
+		require.Empty(t, allocation.OriginalTopologyAwareAssignments)
+	})
+
+	t.Run("positive request remains fail closed", func(t *testing.T) {
+		t.Parallel()
+		p := newPolicy(t)
+		allocation := newAllocation()
+		allocation.RequestQuantity = 1
+		entries := state.PodEntries{"zero-cpu-pod": {"main": allocation}}
+		err := p.syncReclaimAndShareAllocationsWithFinalPools(entries)
+		require.ErrorContains(t, err, "default share pool entry is missing")
+	})
 }
 
 func TestDynamicPolicyApplyBlocksMaterializesDefaultShareFromResidual(t *testing.T) {

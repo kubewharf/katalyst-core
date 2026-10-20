@@ -84,12 +84,15 @@ func GetAvailableNUMAsAndReclaimedCoresWithDynamicConfiguration(conf *config.Con
 
 		if !reclaimEnable {
 			memset := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
-			if memset.IsEmpty() && !containerInfo.RampUp {
+			level := PodDisableReclaimLevel(ctx, metaServer, podUID)
+			requireMemset := level == v1alpha1.DisableReclaimLevelNUMA ||
+				level == v1alpha1.DisableReclaimLevelSocket ||
+				(level == v1alpha1.DisableReclaimLevelPod && containerInfo.IsDedicatedNumaExclusive())
+			if memset.IsEmpty() && requireMemset && !containerInfo.RampUp {
 				errList = append(errList, fmt.Errorf("container(%v/%v) TopologyAwareAssignments is empty", containerInfo.PodName, containerName))
 				return true
 			}
 
-			level := PodDisableReclaimLevel(ctx, metaServer, podUID)
 			switch level {
 			case v1alpha1.DisableReclaimLevelNUMA:
 				availNUMAs = availNUMAs.Difference(memset)
