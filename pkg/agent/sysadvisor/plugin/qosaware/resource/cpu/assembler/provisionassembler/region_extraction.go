@@ -149,11 +149,50 @@ func getEligibilityDomainCapacities(
 		unpinnedReserve
 }
 
-func extractShareRegionInfo(shareRegions []region.QoSRegion, pinnedCPUSizeByPkg map[string]int, nonReclaimablePackages sets.String) (regionInfo, map[string]*regionInfo, error) {
+func extractShareRegionInfo(
+	shareRegions []region.QoSRegion,
+	pinnedCPUSizeByPkg map[string]int,
+	nonReclaimablePackages sets.String,
+	metaReader metacache.MetaReader,
+) (regionInfo, map[string]*regionInfo, error) {
 	unpinnedRegionInfo := initRegionInfo()
 	pinnedRegionInfos := make(map[string]*regionInfo)
 
 	for _, r := range shareRegions {
+		poolName := r.OwnerPoolName()
+		request := r.GetPodsRequest()
+		if poolName == commonstate.PoolNameShare && !r.IsNumaBinding() &&
+			r.GetResourcePackageName() == "" && request <= 0 {
+			hasCPUOwnership := false
+			if poolSize, ok := metaReader.GetPoolSize(poolName); ok && poolSize > 0 {
+				hasCPUOwnership = true
+			}
+			if !hasCPUOwnership {
+				for podUID, containers := range r.GetPods() {
+					for containerName := range containers {
+						container, ok := metaReader.GetContainerInfo(podUID, containerName)
+						if ok && container != nil &&
+							(!container.TopologyAwareAssignments.MergeCPUSet().IsEmpty() ||
+								!container.OriginalTopologyAwareAssignments.MergeCPUSet().IsEmpty()) {
+							hasCPUOwnership = true
+							break
+						}
+					}
+					if hasCPUOwnership {
+						break
+					}
+				}
+			}
+			if !hasCPUOwnership {
+				// A zero-request default non-NUMA share region with no committed
+				// CPUs is metadata only. Its containers inherit their parent cpuset
+				// and must not keep a zero-sized pool active. Named/NUMA/package
+				// pools, a positive request, or any current/original CPU ownership
+				// still take the normal path and retain the zero-size safety guard.
+				continue
+			}
+		}
+
 		controlKnob, err := r.GetProvision()
 		if err != nil {
 			return regionInfo{}, nil, err
@@ -176,9 +215,14 @@ func extractShareRegionInfo(shareRegions []region.QoSRegion, pinnedCPUSizeByPkg 
 			reclaimEnable = false // override reclaim Enable if the resource package is non-reclaimable
 		}
 
-		ri.requirements[r.OwnerPoolName()] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
-		ri.requests[r.OwnerPoolName()] = general.Max(1, int(math.Ceil(r.GetPodsRequest())))
-		ri.reclaimEnable[r.OwnerPoolName()] = reclaimEnable
+		// The one-CPU floor is intentional for every active placement domain.
+		// Named pools retain a distinct ownership/isolation identity even when
+		// their aggregate request is zero, so they still need a concrete pool
+		// entry that QRM can validate and inherit. Only the default non-NUMA,
+		// unpinned share region may be filtered above as metadata-only.
+		ri.requirements[poolName] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
+		ri.requests[poolName] = general.Max(1, int(math.Ceil(request)))
+		ri.reclaimEnable[poolName] = reclaimEnable
 		if reclaimEnable {
 			if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
 				if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
@@ -186,7 +230,7 @@ func extractShareRegionInfo(shareRegions []region.QoSRegion, pinnedCPUSizeByPkg 
 				}
 			}
 		}
-		ri.regionMap[r.OwnerPoolName()] = r
+		ri.regionMap[poolName] = r
 	}
 
 	return unpinnedRegionInfo, pinnedRegionInfos, nil

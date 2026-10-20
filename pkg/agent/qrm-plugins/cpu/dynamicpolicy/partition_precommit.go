@@ -591,6 +591,9 @@ func validatePendingPoolOwnershipWithView(entries state.PodEntries, view reclaim
 				(!allocation.CheckShared() && !allocation.CheckReclaimed()) {
 				continue
 			}
+			if isZeroCPUDefaultShareWithoutOwnership(allocation) {
+				continue
+			}
 			ownerPool := allocation.GetOwnerPoolName()
 			if ownerPool == commonstate.EmptyOwnerPoolName {
 				return fmt.Errorf("%s allocation %s/%s has empty owner pool",

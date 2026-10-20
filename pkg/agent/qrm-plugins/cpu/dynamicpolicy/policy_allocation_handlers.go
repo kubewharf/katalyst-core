@@ -50,6 +50,28 @@ import (
 	rputil "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
+// Only the default non-NUMA share pool can be metadata-only: it represents
+// inheriting the parent cpuset rather than owning a separately sized placement
+// domain. A named, NUMA-bound, or resource-package pool keeps explicit ownership
+// even when its aggregate request is zero; the advisor must materialize that pool
+// and QRM must validate the returned entry. Keep this predicate aligned with
+// extractShareRegionInfo.
+func isZeroCPUDefaultShareWithoutOwnership(allocationInfo *state.AllocationInfo) bool {
+	if allocationInfo == nil || !allocationInfo.CheckShared() ||
+		allocationInfo.CheckSharedNUMABinding() || allocationInfo.RampUp ||
+		allocationInfo.GetPoolName() != commonstate.PoolNameShare ||
+		allocationInfo.GetResourcePackageName() != "" ||
+		allocationInfo.RequestQuantity != 0 ||
+		allocationInfo.Annotations[apiconsts.PodAnnotationAggregatedRequestsKey] == "" {
+		return false
+	}
+
+	return allocationInfo.AllocationResult.IsEmpty() &&
+		allocationInfo.OriginalAllocationResult.IsEmpty() &&
+		machine.CountCPUAssignmentCPUs(allocationInfo.TopologyAwareAssignments) == 0 &&
+		machine.CountCPUAssignmentCPUs(allocationInfo.OriginalTopologyAwareAssignments) == 0
+}
+
 var ErrDefaultShareResidualQuantityMismatch = errors.New("default share residual quantity exceeds advised quantity")
 
 type DefaultShareResidualQuantityError struct {
@@ -3553,6 +3575,17 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 						newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 						newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					}
+				} else if isZeroCPUDefaultShareWithoutOwnership(allocationInfo) {
+					// A zero-request, non-NUMA-binding shared container owns no CPUs;
+					// its runtime leaf inherits the parent cpuset. The default share pool
+					// may therefore be legitimately absent after advisor regulation.
+					// Keep the allocation metadata empty instead of manufacturing CPU
+					// ownership or requiring a zero-sized pool entry.
+					newPodEntries[podUID][containerName].OwnerPoolName = commonstate.PoolNameShare
+					newPodEntries[podUID][containerName].AllocationResult = machine.NewCPUSet()
+					newPodEntries[podUID][containerName].OriginalAllocationResult = machine.NewCPUSet()
+					newPodEntries[podUID][containerName].TopologyAwareAssignments = map[int]machine.CPUSet{}
+					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = map[int]machine.CPUSet{}
 				} else {
 					poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newPodEntries)
 					if err != nil {

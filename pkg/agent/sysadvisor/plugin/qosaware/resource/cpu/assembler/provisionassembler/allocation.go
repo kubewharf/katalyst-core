@@ -63,7 +63,8 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 	}
 
-	unpinnedShareRegionInfo, pinnedShareRegionInfos, err := extractShareRegionInfo(shareRegions, pinnedCPUSizeByPkg, nonReclaimablePackages)
+	unpinnedShareRegionInfo, pinnedShareRegionInfos, err := extractShareRegionInfo(
+		shareRegions, pinnedCPUSizeByPkg, nonReclaimablePackages, pa.metaReader)
 	if err != nil {
 		return err
 	}

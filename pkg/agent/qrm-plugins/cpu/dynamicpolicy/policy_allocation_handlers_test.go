@@ -8976,3 +8976,97 @@ func TestCommittedReclaimPoolCPUs(t *testing.T) {
 		require.True(t, again.Equals(machine.NewCPUSet(0, 2, 4)), "again=%s", again.String())
 	})
 }
+
+func TestApplyPoolsAndIsolatedInfoKeepsZeroCPUDefaultShareUnowned(t *testing.T) {
+	t.Parallel()
+
+	newAllocation := func() *state.AllocationInfo {
+		return &state.AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        "zero-cpu-pod",
+				PodNamespace:  "default",
+				PodName:       "zero-cpu-pod",
+				ContainerName: "main",
+				OwnerPoolName: commonstate.PoolNameShare,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationAggregatedRequestsKey: `{"cpu":"0"}`,
+				},
+			},
+			AllocationResult:                 machine.NewCPUSet(),
+			OriginalAllocationResult:         machine.NewCPUSet(),
+			TopologyAwareAssignments:         map[int]machine.CPUSet{},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{},
+		}
+	}
+	newPolicy := func(t *testing.T, allocation *state.AllocationInfo) *DynamicPolicy {
+		t.Helper()
+		p := newPoolAdjustmentRampUpTestPolicy(t, false, false)
+		p.state.SetPodEntries(state.PodEntries{
+			"zero-cpu-pod": {"main": allocation},
+			commonstate.PoolNameReclaim: {
+				commonstate.FakedContainerName: &state.AllocationInfo{
+					AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+					AllocationResult:                 machine.NewCPUSet(1, 5),
+					OriginalAllocationResult:         machine.NewCPUSet(1, 5),
+					TopologyAwareAssignments:         map[int]machine.CPUSet{0: machine.NewCPUSet(1, 5)},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(1, 5)},
+				},
+			},
+		}, false)
+		return p
+	}
+	run := func(t *testing.T, allocation *state.AllocationInfo) (*DynamicPolicy, error) {
+		t.Helper()
+		p := newPolicy(t, allocation)
+		err := p.applyPoolsAndIsolatedInfo(
+			map[string]machine.CPUSet{commonstate.PoolNameReclaim: machine.NewCPUSet(1, 5)},
+			map[string]map[string]machine.CPUSet{}, p.state.GetPodEntries(), p.state.GetMachineState(),
+			sets.NewInt(), false, machine.NewCPUSet(), defaultShareMaterializationPlan{}, p.state.GetRevision(),
+			p.config.dynamicConfig.GetDynamicConfiguration())
+		return p, err
+	}
+
+	t.Run("authoritative zero request without ownership stays empty", func(t *testing.T) {
+		p, err := run(t, newAllocation())
+		require.NoError(t, err)
+		got := p.state.GetAllocationInfo("zero-cpu-pod", "main")
+		require.NotNil(t, got)
+		require.Equal(t, commonstate.PoolNameShare, got.OwnerPoolName)
+		require.True(t, got.AllocationResult.IsEmpty())
+		require.True(t, got.OriginalAllocationResult.IsEmpty())
+		require.Empty(t, got.TopologyAwareAssignments)
+		require.Empty(t, got.OriginalTopologyAwareAssignments)
+	})
+
+	tests := []struct {
+		name   string
+		mutate func(*state.AllocationInfo)
+	}{
+		{name: "missing authoritative request evidence", mutate: func(a *state.AllocationInfo) {
+			delete(a.Annotations, apiconsts.PodAnnotationAggregatedRequestsKey)
+		}},
+		{name: "positive request", mutate: func(a *state.AllocationInfo) { a.RequestQuantity = 1 }},
+		{name: "current ownership", mutate: func(a *state.AllocationInfo) {
+			a.AllocationResult = machine.NewCPUSet(2, 6)
+			a.TopologyAwareAssignments = map[int]machine.CPUSet{1: machine.NewCPUSet(2, 6)}
+		}},
+		{name: "original ownership", mutate: func(a *state.AllocationInfo) {
+			a.OriginalAllocationResult = machine.NewCPUSet(2, 6)
+			a.OriginalTopologyAwareAssignments = map[int]machine.CPUSet{1: machine.NewCPUSet(2, 6)}
+		}},
+		{name: "numa binding", mutate: func(a *state.AllocationInfo) {
+			a.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] = apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable
+		}},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name+" remains fail closed", func(t *testing.T) {
+			a := newAllocation()
+			tt.mutate(a)
+			_, err := run(t, a)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "pool")
+		})
+	}
+}
