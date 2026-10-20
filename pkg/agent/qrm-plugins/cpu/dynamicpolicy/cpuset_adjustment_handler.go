@@ -2007,7 +2007,14 @@ func (p *DynamicPolicy) runBulkheadPeriodicalHandlers(
 	if needsCleanup {
 		ctx, cancel := context.WithTimeout(context.Background(), cpuSetAdjustmentHandlerTimeout(p.config.conf))
 		ctx = bulkhead.WithDisabledCleanupOnly(ctx)
+		// runCPUSetAdjustmentHandlers expects the caller to hold the policy lock:
+		// it releases the lock only to run handlers and re-acquires it before
+		// returning. Take the lock at this boundary because the periodic cleanup
+		// entry has not held it otherwise; cancel outside the lock so context
+		// release never participates in the locking window.
+		p.Lock()
 		resetErr = p.runCPUSetAdjustmentHandlers(ctx)
+		p.Unlock()
 		cancel()
 	}
 	if resetErr != nil {
