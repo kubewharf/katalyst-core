@@ -1200,6 +1200,76 @@ func TestSharedProjectionNoEligibleIsIdentity(t *testing.T) {
 	}
 }
 
+func TestProjectPendingProtectionsUsesAppliedReclaimAsClipAuthority(t *testing.T) {
+	t.Parallel()
+
+	topo := &machine.CPUTopology{CPUDetails: machine.CPUDetails{}}
+	for cpu := 0; cpu < 96; cpu++ {
+		topo.CPUDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: cpu / 48, SocketID: 0, CoreID: cpu % 48}
+	}
+	all := topo.CPUDetails.CPUs()
+	reclaim := machine.NewCPUSet(0, 24, 48, 72)
+	runtime := all.Difference(reclaim)
+	// The physical primary observation is one generation behind and still misses
+	// two CPUs that are not reclaimed. It must not narrow the runtime protection.
+	observedPrimary := runtime.Difference(machine.NewCPUSet(1, 49))
+	base := &model.DesiredView{CPUSetPartitionView: model.CPUSetPartitionView{
+		NonReclaimPool:        observedPrimary,
+		DesiredNonReclaimPool: runtime,
+	}}
+	applied := &model.AppliedView{CPUSetPartitionView: model.CPUSetPartitionView{
+		NonReclaimPool:   observedPrimary,
+		ReclaimEffective: reclaim,
+	}}
+	input := []topology.PendingProtection{{
+		PodUID:              "pending",
+		ScopeRel:            "kubepods/pod-pending",
+		CPUs:                runtime,
+		SharedProjectedCPUs: runtime,
+	}}
+
+	got := ProjectPendingProtectionsToDesiredNonReclaim(base, topo, input, applied)
+	if len(got) != 1 || !got[0].CPUs.Equals(runtime) {
+		t.Fatalf("projected protection = %+v, want complete runtime allocation %s", got, runtime)
+	}
+	if overlap := got[0].CPUs.Intersection(reclaim); !overlap.IsEmpty() {
+		t.Fatalf("projected protection overlaps applied reclaim: %s", overlap)
+	}
+	if !input[0].CPUs.Equals(runtime) {
+		t.Fatalf("input protection mutated: got=%s want=%s", input[0].CPUs, runtime)
+	}
+}
+
+func TestProjectPendingProtectionsStillExcludesAppliedReclaim(t *testing.T) {
+	t.Parallel()
+
+	topo := &machine.CPUTopology{CPUDetails: machine.CPUDetails{}}
+	for cpu := 0; cpu < 8; cpu++ {
+		topo.CPUDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: 0, SocketID: 0, CoreID: cpu}
+	}
+	all := topo.CPUDetails.CPUs()
+	reclaim := machine.NewCPUSet(0, 4)
+	base := &model.DesiredView{CPUSetPartitionView: model.CPUSetPartitionView{
+		NonReclaimPool:        all.Difference(reclaim),
+		DesiredNonReclaimPool: all.Difference(reclaim),
+	}}
+	applied := &model.AppliedView{CPUSetPartitionView: model.CPUSetPartitionView{
+		ReclaimEffective: reclaim,
+	}}
+	input := []topology.PendingProtection{{
+		PodUID:              "pending",
+		ScopeRel:            "kubepods/pod-pending",
+		CPUs:                all,
+		SharedProjectedCPUs: all,
+	}}
+
+	got := ProjectPendingProtectionsToDesiredNonReclaim(base, topo, input, applied)
+	want := all.Difference(reclaim)
+	if len(got) != 1 || !got[0].CPUs.Equals(want) {
+		t.Fatalf("projected protection = %+v, want non-reclaim complement %s", got, want)
+	}
+}
+
 func TestProjectPendingProtectionsToDesiredNonReclaimClipsFullMachinePlaceholder(t *testing.T) {
 	t.Parallel()
 	topo := make4NUMASMTTopology()

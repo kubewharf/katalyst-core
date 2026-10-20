@@ -3899,12 +3899,37 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		return
 	}
 
+	enableReclaim := dynamicConf != nil && dynamicConf.EnableReclaim
+	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
+	strictDisjointReclaim := enableReclaim && !allowOverlap && disableDedicatedOverlap
+	configuredReclaimMinimum := machine.NewCPUSet()
+
 	poolsCPUSet = make(map[string]machine.CPUSet)
 	var nbpErr error
 	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet, poolsQuantityMap, availableCPUs, dynamicConf)
 	if nbpErr != nil {
 		err = fmt.Errorf("generateNUMABindingPoolsCPUSetInPlace failed with error: %v", nbpErr)
 		return
+	}
+
+	// Reserve the configured reclaim minimum after hard NUMA-binding pools but
+	// before soft non-binding pools and isolation entries. The active ramp-up
+	// floor has already been removed by the caller, so this local set covers only
+	// the remaining configured minimum. Reserving later lets soft pools consume
+	// the capacity and may leave logical CPUs without a complete physical core.
+	// Keep this separate from rampUpReclaimFloor: it is planning capacity, not an
+	// active-domain floor, and must not change short-allocation/precommit scope.
+	if strictDisjointReclaim && enforceReclaimMinimum && explicitReclaimQuantity == 0 {
+		minimumOutsideFloor := p.reclaim.reservedReclaimedCPUsSize - rampUpReclaimFloor.Size()
+		if minimumOutsideFloor > 0 {
+			configuredReclaimMinimum, err = p.selectDisjointReclaimFallback(
+				availableCPUs.Difference(rampUpReclaimFloor), minimumOutsideFloor)
+			if err != nil {
+				return
+			}
+			availableCPUs = availableCPUs.Difference(configuredReclaimMinimum)
+		}
 	}
 
 	nonBindingAvailableCPUs := machine.NewCPUSet()
@@ -3935,9 +3960,6 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	preferredCPUsByContainer := placement.dedicatedByContainer
 	ownPoolPreferredCPUs := placement.ownByPool
 	poolPreferredTiers := assemblePoolPreferredTiers(ownPoolPreferredCPUs, preferredCPUsByPool)
-	enableReclaim := dynamicConf != nil && dynamicConf.EnableReclaim
-	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
-	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
 	var historicalReclaimDonors []machine.CPUSet
 	if enableReclaim && !allowOverlap &&
 		disableDedicatedOverlap && !placement.historicalReclaim.IsEmpty() {
@@ -4051,7 +4073,6 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	general.Infof("poolsCPUSet after reclaim apportion/overlap: %+v", poolsCPUSet)
 
 	currentPodEntries := p.state.GetPodEntries()
-	strictDisjointReclaim := enableReclaim && !allowOverlap && disableDedicatedOverlap
 	if enableReclaim && !allowOverlap && poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		if cset, cErr := currentPodEntries.GetCPUSetForPool(commonstate.PoolNameReclaim); cErr == nil && !cset.IsEmpty() {
 			allocatedNonReclaimCPUs := machine.NewCPUSet()
@@ -4081,6 +4102,9 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 				commonstate.PoolNameReclaim, cset.String(), allocatedNonReclaimCPUs.String(), poolsCPUSet[commonstate.PoolNameReclaim].String())
 		}
 	}
+	if !configuredReclaimMinimum.IsEmpty() {
+		poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(configuredReclaimMinimum)
+	}
 
 	if strictDisjointReclaim && enforceReclaimMinimum && explicitReclaimQuantity == 0 {
 		minimumOutsideFloor := p.reclaim.reservedReclaimedCPUsSize - rampUpReclaimFloor.Size()
@@ -4089,14 +4113,9 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 		}
 		currentReclaim := poolsCPUSet[commonstate.PoolNameReclaim]
 		if currentReclaim.Size() < minimumOutsideFloor {
-			missing := minimumOutsideFloor - currentReclaim.Size()
-			reclaimFallback, fallbackErr := p.selectDisjointReclaimFallback(
-				availableCPUs.Difference(currentReclaim), missing)
-			if fallbackErr != nil {
-				err = fallbackErr
-				return
-			}
-			poolsCPUSet[commonstate.PoolNameReclaim] = currentReclaim.Union(reclaimFallback)
+			err = fmt.Errorf("configured reclaim minimum planning invariant violated: got %d, want at least %d",
+				currentReclaim.Size(), minimumOutsideFloor)
+			return
 		}
 	} else if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		// Reclaim pool is empty after apportion: build the bounded fallback from the

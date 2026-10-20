@@ -3207,6 +3207,107 @@ func TestDynamicPolicy_generatePoolsAndIsolation_preservesAdvisorReclaimForSeedP
 		poolsCPUSet["seedpool-stable-0"].String())
 }
 
+func TestDynamicPolicy_generatePoolsAndIsolation_reservesConfiguredMinimumBeforeSoftPools(t *testing.T) {
+	t.Parallel()
+
+	// Replays the generic capacity shape from a live admission: 96 eligible
+	// logical CPUs (SMT2), soft pools asking for 93, and a disjoint configured
+	// reclaim minimum of 4. Reserving reclaim after the pools leaves only three
+	// CPUs, of which at most one physical core is complete. The planner must
+	// reserve the whole-core minimum first and proportionally shrink only the
+	// soft pools; no workload-specific pool or node identity is required here.
+	topology, err := machine.GenerateDummyCPUTopology(96, 2, 24)
+	require.NoError(t, err)
+	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+
+	p.config.reservedCPUs = machine.NewCPUSet()
+	p.reclaim.reservedReclaimedCPUSet = machine.NewCPUSet(0, 24, 48, 72)
+	p.reclaim.reservedReclaimedCPUsSize = 4
+	p.reclaim.reservedReclaimedTopologyAwareAssignments = map[int]machine.CPUSet{
+		0: machine.NewCPUSet(0, 48),
+		1: machine.NewCPUSet(24, 72),
+	}
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	require.NoError(t, p.state.SetAllowSharedCoresOverlapReclaimedCores(false, true))
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, true))
+
+	poolsCPUSet, _, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{
+			"soft-pool":               {commonstate.FakedNUMAID: 1},
+			commonstate.PoolNameShare: {commonstate.FakedNUMAID: 92},
+		},
+		map[string]map[string]int{},
+		topology.CPUDetails.CPUs(),
+		map[string]float64{},
+		generatePoolsAndIsolationOptions{
+			enforceReclaimMinimum: true,
+			dynamicConf:           p.config.dynamicConfig.GetDynamicConfiguration(),
+		},
+	)
+	require.NoError(t, err)
+
+	reclaim := poolsCPUSet[commonstate.PoolNameReclaim]
+	soft := poolsCPUSet["soft-pool"]
+	share := poolsCPUSet[commonstate.PoolNameShare]
+	require.Equal(t, 4, reclaim.Size())
+	require.NoError(t, assertCoreAligned(reclaim, topology))
+	require.Equal(t, 1, soft.Size())
+	require.Equal(t, 91, share.Size())
+	require.True(t, reclaim.Intersection(soft.Union(share)).IsEmpty(),
+		"reclaim=%s soft=%s share=%s", reclaim, soft, share)
+	require.Equal(t, 96, reclaim.Union(soft).Union(share).Size())
+}
+
+func TestDynamicPolicy_generatePoolsAndIsolation_reservesConfiguredMinimumAfterNUMABindingPools(t *testing.T) {
+	t.Parallel()
+
+	// The configured minimum is a lower-priority capacity reservation than a
+	// concrete NUMA-binding pool. It must be selected from the remaining common
+	// capacity so a preferred reclaim history cannot steal the binding pool's
+	// only eligible domain; only soft non-binding pools may shrink.
+	topology, err := machine.GenerateDummyCPUTopology(8, 2, 2)
+	require.NoError(t, err)
+	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+
+	p.config.reservedCPUs = machine.NewCPUSet()
+	p.reclaim.reservedReclaimedCPUSet = topology.CPUDetails.CPUsInNUMANodes(0)
+	p.reclaim.reservedReclaimedCPUsSize = 2
+	p.reclaim.reservedReclaimedTopologyAwareAssignments = map[int]machine.CPUSet{
+		0: topology.CPUDetails.CPUsInNUMANodes(0),
+	}
+	p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+	require.NoError(t, p.state.SetAllowSharedCoresOverlapReclaimedCores(false, true))
+	require.NoError(t, p.state.SetDisableDedicatedCoresOverlapReclaimedCores(true, true))
+
+	poolsCPUSet, _, err := p.generatePoolsAndIsolation(
+		map[string]map[int]int{
+			"binding-pool":            {0: 4},
+			commonstate.PoolNameShare: {commonstate.FakedNUMAID: 3},
+		},
+		map[string]map[string]int{},
+		topology.CPUDetails.CPUs(),
+		map[string]float64{},
+		generatePoolsAndIsolationOptions{
+			enforceReclaimMinimum: true,
+			dynamicConf:           p.config.dynamicConfig.GetDynamicConfiguration(),
+		},
+	)
+	require.NoError(t, err)
+
+	binding := poolsCPUSet["binding-pool"]
+	reclaim := poolsCPUSet[commonstate.PoolNameReclaim]
+	share := poolsCPUSet[commonstate.PoolNameShare]
+	require.True(t, binding.Equals(topology.CPUDetails.CPUsInNUMANodes(0)), "binding=%s", binding)
+	require.True(t, reclaim.IsSubsetOf(topology.CPUDetails.CPUsInNUMANodes(1)), "reclaim=%s", reclaim)
+	require.Equal(t, 2, reclaim.Size())
+	require.NoError(t, assertCoreAligned(reclaim, topology))
+	require.Equal(t, 2, share.Size())
+	require.True(t, binding.Intersection(reclaim.Union(share)).IsEmpty())
+	require.True(t, reclaim.Intersection(share).IsEmpty())
+}
+
 func TestDynamicPolicy_generatePoolsAndIsolation_reselectsDisjointWholeCoreForEmptyCurrentReclaim(t *testing.T) {
 	t.Parallel()
 

@@ -481,11 +481,12 @@ func renderPendingProtectionsDiagnostic(protections []topology.PendingProtection
 // admissionNonReclaimFallbackAuthority reports which non-reclaim partition the
 // soft projection clipped against, mirroring
 // bulkheadutils.ProjectPendingProtectionsToDesiredNonReclaim without mutating
-// anything. The clip authority is the manager-owned validated non-reclaim
-// partition (pre-admission AppliedView NonReclaimPool, or the equivalent
-// materialized validated partition folded into the DesiredView); the business
-// DesiredNonReclaimPool is business truth and is deliberately not the clip
-// authority. Read-only diagnostic.
+// anything. When an AppliedView carries a validated reclaim set, the authority
+// is its complement inside availability; this avoids treating a temporarily
+// lagging physical NonReclaimPool as a ceiling. Otherwise the equivalent
+// materialized DesiredView partition is used. DesiredNonReclaimPool remains
+// business truth and is deliberately not the clip authority. Read-only
+// diagnostic.
 func admissionNonReclaimFallbackAuthority(in bulkheadapi.HandlerContext) string {
 	if !in.ProjectPendingToDesiredNonReclaim {
 		return "projection_disabled"
@@ -493,8 +494,8 @@ func admissionNonReclaimFallbackAuthority(in bulkheadapi.HandlerContext) string 
 	if in.DesiredView == nil {
 		return "no_desired_view"
 	}
-	if in.AppliedView != nil && !in.AppliedView.NonReclaimPool.IsEmpty() {
-		return "applied_validated_non_reclaim_pool"
+	if in.AppliedView != nil && !in.AppliedView.ReclaimEffective.IsEmpty() {
+		return "applied_reclaim_complement"
 	}
 	if !in.DesiredView.NonReclaimPool.IsEmpty() {
 		return "desired_view_validated_non_reclaim_pool"

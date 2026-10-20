@@ -319,24 +319,22 @@ func projectSharedPending(
 // validatedNonReclaimAuthority returns the manager-owned validated non-reclaim
 // partition used to clip pending protections on a soft, non-overlap admission.
 //
-// The clipping authority is deliberately NOT the business DesiredNonReclaimPool.
-// DesiredNonReclaimPool is the target the planner wants to grow into, not a
-// validated ceiling: on the admission round it can already have self-expanded to
-// absorb the whole NUMA the pending pod wants (it then equals the whole NUMA the
-// pending scope already covers), so intersecting the pending scope with it clips
-// nothing and lets the primary widen onto a reclaim bucket, dropping that bucket's
-// required floor and stalling at a bare fixed-point no-progress.
-//
-// The clipping authority is instead the non-reclaim partition already validated on
-// the node: the pre-admission AppliedView's NonReclaimPool (the manager-owned
-// prior partition), falling back to the equivalent materialized validated
-// partition folded into the DesiredView. Request quantities, AQC/KCC sizing, and
-// a machine-wide fallback are deliberately not consulted. A nil/initial applied
-// view with no materialized fallback yields an empty set; the caller treats that
-// as fail-closed (preserving protections verbatim as exact).
-func validatedNonReclaimAuthority(base *model.DesiredView, applied *model.AppliedView) machine.CPUSet {
-	if applied != nil && !applied.NonReclaimPool.IsEmpty() {
-		return applied.NonReclaimPool
+// When a validated AppliedView exists, reclaim is the authoritative exclusion:
+// non-reclaim is `available - applied reclaim`. AppliedView.NonReclaimPool is a
+// physical observation and may temporarily lag a parent expansion; using it as
+// the clip authority can drop CPUs which are neither reclaimed nor otherwise
+// unavailable, weakening the runtime parent-safety proof. The complement keeps
+// every available non-reclaim CPU while still excluding the exact applied
+// reclaim set. If no valid applied reclaim exists, the materialized DesiredView
+// non-reclaim partition remains the fail-closed fallback.
+func validatedNonReclaimAuthority(
+	base *model.DesiredView,
+	applied *model.AppliedView,
+	available machine.CPUSet,
+) machine.CPUSet {
+	if applied != nil && !applied.ReclaimEffective.IsEmpty() &&
+		applied.ReclaimEffective.Difference(available).IsEmpty() {
+		return available.Difference(applied.ReclaimEffective)
 	}
 	if base != nil {
 		return base.NonReclaimPool
@@ -351,8 +349,9 @@ func validatedNonReclaimAuthority(base *model.DesiredView, applied *model.Applie
 // would reclassify reclaim as non-reclaim and produce an empty system target.
 //
 // The pending scope is clipped to the manager-owned validated non-reclaim
-// partition (the pre-admission AppliedView NonReclaimPool, or the equivalent
-// materialized validated partition folded into the DesiredView). The business
+// partition (the complement of pre-admission AppliedView ReclaimEffective inside
+// availability, or the equivalent materialized DesiredView partition). The
+// business
 // DesiredNonReclaimPool remains business truth and is deliberately NOT the clip
 // authority: on this round it can already have self-expanded to the whole NUMA the
 // pending pod wants, which would clip nothing and widen the primary onto a reclaim
@@ -393,7 +392,7 @@ func ProjectPendingProtectionsToDesiredNonReclaim(
 	// so it can release reclaim CPUs but never claim new ones. When there is no
 	// validated non-reclaim domain at all the domain below is empty and every
 	// protection takes the verbatim exact-seed retention branch (fail-closed).
-	nonReclaimAuthority := validatedNonReclaimAuthority(base, applied)
+	nonReclaimAuthority := validatedNonReclaimAuthority(base, applied, available)
 	sharedDomain := nonReclaimAuthority.Intersection(available).
 		Difference(base.Dedicated).Difference(base.Isolation)
 	out := make([]topology.PendingProtection, 0, len(protections))

@@ -83,9 +83,9 @@ func e2e128Reclaim() machine.CPUSet {
 // primary widen onto the {4,68} reclaim bucket, dropped reclaimed-0 out of the
 // spec / required floor, and stalled at a bare ErrNoProgress with zero writes.
 //
-// The fix clips against the pre-admission AppliedView's validated NonReclaimPool
-// instead. The pending whole-NUMA0 intersects the validated 30 on NUMA0, so the
-// projection becomes 30 = {0-3,5-15,64-67,69-79}: the {4,68} reclaim bucket is
+// The fix clips against the complement of the pre-admission AppliedView's
+// validated ReclaimEffective instead. The pending whole-NUMA0 intersects the
+// validated 30 on NUMA0, so the projection becomes 30 = {0-3,5-15,64-67,69-79}: the {4,68} reclaim bucket is
 // retained in the spec / required floor and Converge writes the leaf shrink
 // 32 -> 30 to drain {4,68} into the already-enforced bucket.
 func TestAdmissionProjectionAuthorityUsesAppliedValidatedNonReclaim(t *testing.T) {
