@@ -339,6 +339,7 @@ func Test_controller_linux(t *testing.T) {
 
 	PatchConvey("Test_classifyNicsByThroughputFirstTime", t, func() {
 		ic := &IrqTuningController{
+			emitter: metrics.DummyMetrics{},
 			conf: &config.IrqTuningConfig{
 				NormalThroughputNics: []config.NicInfo{
 					{
@@ -376,9 +377,6 @@ func Test_controller_linux(t *testing.T) {
 				},
 			}
 
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
-
 			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
 
 			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
@@ -410,9 +408,6 @@ func Test_controller_linux(t *testing.T) {
 					},
 				},
 			}
-
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
 
 			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
 
@@ -497,6 +492,7 @@ func Test_controller_linux(t *testing.T) {
 
 	PatchConvey("Test_periodicTuning", t, func() {
 		ic := &IrqTuningController{
+			emitter: metrics.DummyMetrics{},
 			conf: &config.IrqTuningConfig{
 				NormalThroughputNics: []config.NicInfo{
 					{
@@ -522,8 +518,6 @@ func Test_controller_linux(t *testing.T) {
 
 		PatchConvey("Scenario 1: failed to syncNics", func() {
 			Mock((*IrqTuningController).syncNics).Return(nil, false, fmt.Errorf("sync nic failed")).Build()
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
 
 			ic.periodicTuning(nil)
 
@@ -545,8 +539,6 @@ func Test_controller_linux(t *testing.T) {
 
 			Mock((*IrqTuningController).syncNics).Return(nil, false, nil).Build()
 			Mock((*IrqTuningController).updateNicIrqTuningManagers).Return(fmt.Errorf("updateNicIrqTuningManagers failed")).Build()
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
 
 			ic.periodicTuning(oldConf)
 
