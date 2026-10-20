@@ -74,9 +74,6 @@ func TestNewBulkheadConfigurationDefaultsConvergenceBudgetAndDrainSelection(t *t
 	if selection.GroupByNUMA || !selection.RequirePairedSwapProgress {
 		t.Fatalf("selection defaults must use full-drain with paired progress and no small-step topology grouping: %+v", selection)
 	}
-	if !cfg.EnableAdmissionLeafDefer {
-		t.Fatal("admission leaf defer must be enabled by default")
-	}
 	if cfg.AdmissionMaxRequiredWrites != 0 {
 		t.Fatalf("admission required write budget = %d, want 0/auto", cfg.AdmissionMaxRequiredWrites)
 	}

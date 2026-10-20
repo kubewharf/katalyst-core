@@ -53,10 +53,7 @@ import (
 
 const CPUSetTopologyPluginName = "cpuset_topology"
 
-const (
-	defaultPendingPodProtectionTTL = 10 * time.Second
-	defaultDeferredLeafDrainTTL    = 2 * time.Minute
-)
+const defaultPendingPodProtectionTTL = 10 * time.Second
 
 var (
 	_ bulkheadapi.Plugin                     = (*CPUSetTopologyPlugin)(nil)
@@ -80,7 +77,6 @@ type CPUSetTopologyPlugin struct {
 	resolveContainerRel func(podUID, containerID string) (string, error)
 	now                 func() time.Time
 	pendingProtections  map[string]pendingPodProtection
-	deferredLeafDrains  map[string]deferredLeafDrain
 	modeGateMu          sync.Mutex
 	modeGate            *topology.ModeGate
 
@@ -153,13 +149,6 @@ type pendingPodProtection struct {
 	protectUntil time.Time
 }
 
-type deferredLeafDrain struct {
-	target       machine.CPUSet
-	firstSeen    time.Time
-	lastSeen     time.Time
-	protectUntil time.Time
-}
-
 type disabledResetNotConvergedError struct {
 	state    topology.ConvergenceState
 	applied  int
@@ -228,7 +217,6 @@ func NewCPUSetTopologyPluginWithDependencies(
 		resolveContainerRel: containerRelResolver,
 		now:                 time.Now,
 		pendingProtections:  map[string]pendingPodProtection{},
-		deferredLeafDrains:  map[string]deferredLeafDrain{},
 		modeGate:            topology.NewModeGate(),
 	}
 	return plugin
@@ -710,8 +698,7 @@ func (p *CPUSetTopologyPlugin) runNormalAdjustment(
 	publish func(bulkheadapi.TopologyResult),
 ) error {
 	handlerStartedAt := time.Now()
-	if p.cfg.EnableAdmissionLeafDefer &&
-		in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission &&
+	if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission &&
 		p.cfg.AdmissionSafeDuration > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadline(ctx, handlerStartedAt.Add(p.cfg.AdmissionSafeDuration))
@@ -728,6 +715,7 @@ func (p *CPUSetTopologyPlugin) runNormalAdjustment(
 		return result, err
 	}
 	_, err := runCPUSetTopologyAdjustmentWithResult(ctx, in, budget, attempt)
+	scheduleFixedPointRetry(in.Mode, err, in.ScheduleFullRetry)
 	return err
 }
 
@@ -975,15 +963,6 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 			return &shadowHoldDiagnosticError{reason: shadow.HoldReason, note: note}
 		}
 		shadowView := shadow.AsPartitionView(&in.DesiredView.CPUSetPartitionView)
-		// Re-apply admission leaf deferral on the shadow projection so pending
-		// leaves stay deferred until the next convergence round. The folded shadow
-		// reclaim CPUSet is passed explicitly rather than reading the (unfolded)
-		// business DesiredView, so the deferral test uses the same non-reclaim /
-		// reclaim boundary the shadow specs are built from. The business view is
-		// never mutated.
-		if p.cfg.EnableAdmissionLeafDefer && in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
-			p.reclassifyAdmissionDeferredLeaves(ctx, shadow.ReclaimEffective, expectedRes)
-		}
 		specs, err = bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, shadowView, cpuDetails, siblings, relExists)
 		if err != nil {
 			return fmt.Errorf("build shadow bulkhead topology inputs: %w", err)
@@ -993,17 +972,20 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 			return fmt.Errorf("build shadow bulkhead topology dag: %w", err)
 		}
 	}
-	requiredCPUSetByRel := topology.RequiredCPUSetByRelFromNodeSpecs(specs)
-	p.recordDeferredLeafDrains(expectedRes.DeferredLeafByRel)
-	if err := p.drainSafeDeferredLeaves(ctx, in.DesiredView, dag, adjustmentBudget); err != nil {
-		return fmt.Errorf("drain deferred cpuset leaves: %w", err)
+	if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
+		effectiveReclaim := in.DesiredView.DesiredReclaimEffective
+		if coversProtectedView {
+			effectiveReclaim = shadow.ReclaimEffective
+		}
+		p.reclassifyAdmissionDeferredLeaves(ctx, in, effectiveReclaim, expectedRes)
 	}
+	requiredCPUSetByRel := topology.RequiredCPUSetByRelFromNodeSpecs(specs)
 	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s protected_rel_count=%d",
 		len(specs), len(siblings), len(expectedRes.ExpectedByRel), len(protections),
 		protectedPending.String(), len(protectedByRel))
 	reservedCPUSet := in.DesiredView.Reserve
 	objective := topology.ConvergenceObjectiveFull
-	if p.cfg.EnableAdmissionLeafDefer && in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
+	if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
 		objective = topology.ConvergenceObjectiveParentSafe
 	}
 	// DIAGNOSTIC ONLY: on every admission, right before the coordinator Converge,
@@ -1056,7 +1038,6 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 			if err != nil {
 				return fmt.Errorf("derive parent-safe applied view from final topology snapshot: %w", err)
 			}
-			p.recordDeferredLeafDrains(expectedRes.DeferredLeafByRel)
 			finalAppliedView = appliedView
 			return nil
 		},
@@ -1111,7 +1092,7 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		emitBulkheadPruneResult(in.Emitter, "skipped", reason)
 		return &topologyApplyNonConvergedError{result: res}
 	}
-	if res.ParentSafe {
+	if res.ParentSafe && len(expectedRes.DeferredLeafByRel) > 0 {
 		if err := handleDeferredLeafRetry(in.Mode, in.ScheduleFullRetry); err != nil {
 			return err
 		}
@@ -1135,6 +1116,20 @@ func (p *CPUSetTopologyPlugin) ensureBulkheadReclaimSiblingDirs(ctx context.Cont
 		}
 	}
 	return nil
+}
+
+func scheduleFixedPointRetry(
+	mode cpusetutil.CPUSetAdjustmentMode,
+	err error,
+	schedule func(cpusetutil.CPUSetAdjustmentRetryReason),
+) {
+	// The current admission remains fail-closed. Only enqueue one fresh-state Full
+	// retry; Retry/Periodic failures stay dirty in the existing bounded retry loop
+	// and must not recursively schedule themselves.
+	if mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission &&
+		errors.Is(err, topology.ErrNoProgress) && schedule != nil {
+		schedule(cpusetutil.RetryReasonFixedPointStall)
+	}
 }
 
 func handleDeferredLeafRetry(
@@ -1231,6 +1226,24 @@ func appliedViewFromFinalSnapshotWithDeferredCleanup(
 	validatedProofs, err := validateContainerLifecycleProofs(ctx, metaServer, lifecycleProofs)
 	if err != nil {
 		return nil, err
+	}
+	// Resolved leaves are not DAG nodes, but their stable final-snapshot identity
+	// is the historical authority needed to prove a later same-owner handoff.
+	// Reuse the already captured snapshot after strict lifecycle validation; this
+	// adds no cgroup reads and does not authorize pending or retired containers.
+	for _, proof := range validatedProofs.OrderedProofs {
+		if proof.State != containerLifecycleResolved || proof.RelativePath == "" {
+			continue
+		}
+		entry, ok := snapshot.Entries[proof.RelativePath]
+		if !ok {
+			return nil, fmt.Errorf("final snapshot misses resolved container rel %q", proof.RelativePath)
+		}
+		applied.RelProofByRel[proof.RelativePath] = model.CgroupRelProof{
+			Device: entry.Identity.Device,
+			Inode:  entry.Identity.Inode,
+			CPUSet: entry.CPUs.Clone(),
+		}
 	}
 	containerCPUSetByPod, err := containerCPUSetByPodFromFinalSnapshot(
 		snapshot, validatedProofs, deferredCleanupRels)
@@ -2200,6 +2213,7 @@ type podLifecycleClassification struct {
 // not written).
 type expectedCPUSetBuildResult struct {
 	ExpectedByRel     map[string]machine.CPUSet
+	CurrentByRel      map[string]machine.CPUSet
 	DeferredLeafByRel map[string]machine.CPUSet
 	PendingByPod      []pendingContainerCPUSet
 	// FreshPodsByUID is the single strict fresh pod snapshot obtained for the whole
@@ -2451,6 +2465,7 @@ func fetchStrictFreshPodsByUID(ctx context.Context, in bulkheadapi.HandlerContex
 func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in bulkheadapi.HandlerContext) (*expectedCPUSetBuildResult, error) {
 	out := &expectedCPUSetBuildResult{
 		ExpectedByRel:     map[string]machine.CPUSet{},
+		CurrentByRel:      map[string]machine.CPUSet{},
 		DeferredLeafByRel: map[string]machine.CPUSet{},
 	}
 	if in.DesiredView == nil || !hasNonEmptyDesiredCPUSet(in.DesiredView.ContainerCPUSetByPod) {
@@ -2585,20 +2600,12 @@ func (p *CPUSetTopologyPlugin) buildExpectedCPUSetByRel(ctx context.Context, in 
 			continue
 		}
 		for _, container := range classification.Resolved {
-			if p.cfg.EnableAdmissionLeafDefer && in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
+			if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
 				current, readErr := p.cgroup.ReadCPUSet(ctx, container.Rel)
+				if readErr == nil {
+					out.CurrentByRel[container.Rel] = current.Clone()
+				}
 				if readErr == nil && !current.Equals(container.CPUs) {
-					// A leaf that is currently wider than its desired allocation
-					// (e.g. still inheriting its parent envelope) and does not
-					// touch reclaim is recorded for a later safe drain down to
-					// desired.
-					if container.CPUs.IsSubsetOf(current) &&
-						current.Intersection(in.DesiredView.DesiredReclaimEffective).IsEmpty() {
-						if bindErr := ownerBinder.bind(out.DeferredLeafByRel, container); bindErr != nil {
-							errs = append(errs, bindErr)
-						}
-						continue
-					}
 					// Symmetric reclaim-carve case: an already-placed protected leaf
 					// is currently narrower than its desired allocation, and the
 					// only CPUs it is missing are exactly the reclaim-effective
@@ -3230,202 +3237,88 @@ func (p *CPUSetTopologyPlugin) allowedPendingPodScopeCandidates(podUID string) m
 	return allowed
 }
 
-// reclassifyAdmissionDeferredLeaves marks a leaf deferred when neither its
-// current nor its expected target touches the folded shadow reclaim set. The
-// shadow reclaim CPUSet is passed in directly so the test uses the same
-// non-reclaim/reclaim boundary the shadow specs derive from; the business
-// DesiredView is never read or mutated here.
-func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(ctx context.Context, shadowReclaim machine.CPUSet, expectedRes *expectedCPUSetBuildResult) {
-	if expectedRes == nil || len(expectedRes.ExpectedByRel) == 0 {
+// reclassifyAdmissionDeferredLeaves removes only owner-proven leaf mismatches
+// from the synchronous admission objective. Admission performs no leaf writes;
+// the existing Full retry converges exact targets through TopologyCoordinator.
+func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
+	ctx context.Context,
+	in bulkheadapi.HandlerContext,
+	shadowReclaim machine.CPUSet,
+	expectedRes *expectedCPUSetBuildResult,
+) {
+	if expectedRes == nil || len(expectedRes.ExpectedByRel) == 0 ||
+		in.State == nil || in.DesiredView == nil {
 		return
 	}
-	for rel, cpus := range expectedRes.ExpectedByRel {
-		current, readErr := p.cgroup.ReadCPUSet(ctx, rel)
-		if readErr != nil || current.Equals(cpus) {
+	proofByRel := make(map[string]containerLifecycleProof, len(expectedRes.LifecycleProofs.OrderedProofs))
+	for _, proof := range expectedRes.LifecycleProofs.OrderedProofs {
+		if proof.State == containerLifecycleResolved && proof.RelativePath != "" {
+			proofByRel[proof.RelativePath] = proof
+		}
+	}
+	for rel, target := range expectedRes.ExpectedByRel {
+		current, ok := expectedRes.CurrentByRel[rel]
+		var readErr error
+		if !ok {
+			current, readErr = p.cgroup.ReadCPUSet(ctx, rel)
+		}
+		if readErr != nil || current.Equals(target) ||
+			!current.Intersection(shadowReclaim).IsEmpty() ||
+			!target.Intersection(shadowReclaim).IsEmpty() {
 			continue
 		}
-		// Admission parent-safe only needs a materialized leaf with stale CPUs to
-		// avoid reclaim while its exact cleanup catches up. Requiring at least one
-		// current-only CPU admits both old-superset cleanup and primary-internal
-		// relocation, but keeps a leaf that merely lost desired business CPUs in
-		// ExpectedByRel so admission repairs that loss synchronously.
-		if !current.Difference(cpus).IsEmpty() &&
-			current.Intersection(shadowReclaim).IsEmpty() &&
-			cpus.Intersection(shadowReclaim).IsEmpty() {
-			expectedRes.DeferredLeafByRel[rel] = cpus.Clone()
-			delete(expectedRes.ExpectedByRel, rel)
-		}
-	}
-}
-
-func (p *CPUSetTopologyPlugin) recordDeferredLeafDrains(deferred map[string]machine.CPUSet) {
-	if len(deferred) == 0 {
-		return
-	}
-	if p.now == nil {
-		p.now = time.Now
-	}
-	if p.deferredLeafDrains == nil {
-		p.deferredLeafDrains = map[string]deferredLeafDrain{}
-	}
-
-	now := p.now()
-	for rel, target := range deferred {
-		old := p.deferredLeafDrains[rel]
-		firstSeen := old.firstSeen
-		if firstSeen.IsZero() {
-			firstSeen = now
-		}
-		p.deferredLeafDrains[rel] = deferredLeafDrain{
-			target:       target.Clone(),
-			firstSeen:    firstSeen,
-			lastSeen:     now,
-			protectUntil: now.Add(defaultDeferredLeafDrainTTL),
-		}
-	}
-}
-
-func (p *CPUSetTopologyPlugin) drainSafeDeferredLeaves(
-	ctx context.Context,
-	view *model.DesiredView,
-	dag *topology.TopoDAG,
-	adjustmentBudget *topology.AdjustmentBudget,
-) error {
-	if len(p.deferredLeafDrains) == 0 || view == nil || dag == nil {
-		return nil
-	}
-	if p.now == nil {
-		p.now = time.Now
-	}
-
-	now := p.now()
-	for rel, drain := range p.deferredLeafDrains {
-		if !now.Before(drain.protectUntil) {
-			general.Warningf("bulkhead: deferred leaf drain expired, rel=%q target=%s first_seen=%s last_seen=%s",
-				rel, drain.target.String(), drain.firstSeen.Format(time.RFC3339Nano), drain.lastSeen.Format(time.RFC3339Nano))
-			delete(p.deferredLeafDrains, rel)
+		proof, ok := proofByRel[rel]
+		if !ok || !proof.DesiredCPUSet.Equals(target) {
 			continue
 		}
-
-		done, wrote, err := p.tryDrainOneDeferredLeaf(
-			ctx, view, dag, rel, drain.target, adjustmentBudget)
-		if err != nil {
-			general.Warningf("bulkhead: deferred leaf drain skipped, rel=%q target=%s err=%v", rel, drain.target.String(), err)
-			if wrote || errors.Is(err, topology.ErrAdjustmentWriteBudgetExceeded) {
-				return err
-			}
+		allocation := in.State.GetAllocationInfo(proof.PodUID, proof.ContainerName)
+		ownerID, ok := bulkheadutils.LeafPoolIdentityForAllocation(allocation)
+		if !ok || !ownerID.Valid() {
 			continue
 		}
-		if done {
-			delete(p.deferredLeafDrains, rel)
+		desiredOwner, ok := in.DesiredView.PoolOwners[ownerID]
+		if !ok || !target.IsSubsetOf(desiredOwner.ExpectedCPUSet) {
+			continue
 		}
-	}
-	return nil
-}
-
-func (p *CPUSetTopologyPlugin) tryDrainOneDeferredLeaf(
-	ctx context.Context,
-	view *model.DesiredView,
-	dag *topology.TopoDAG,
-	rel string,
-	target machine.CPUSet,
-	adjustmentBudget *topology.AdjustmentBudget,
-) (bool, bool, error) {
-	if target.IsEmpty() {
-		return true, false, nil
-	}
-
-	current, err := p.cgroup.ReadCPUSet(ctx, rel)
-	if err != nil {
-		if _, statErr := p.cgroup.StatDir(ctx, rel); statErr != nil {
-			return true, false, nil
+		applied := in.AppliedView
+		if applied == nil {
+			continue
 		}
-		return false, false, fmt.Errorf("read leaf cpuset %q: %w", rel, err)
-	}
-	if current.Equals(target) {
-		return true, false, nil
-	}
-
-	parentRel := path.Dir(rel)
-	parent, err := p.cgroup.ReadCPUSet(ctx, parentRel)
-	if err != nil {
-		return false, false, fmt.Errorf("read parent cpuset %q: %w", parentRel, err)
-	}
-	if !target.IsSubsetOf(parent) {
-		return false, false, fmt.Errorf("target %s is outside parent %q cpuset %s", target.String(), parentRel, parent.String())
-	}
-	if !target.Intersection(view.DesiredReclaimEffective).IsEmpty() {
-		return false, false, fmt.Errorf("target %s overlaps desired reclaim %s", target.String(), view.DesiredReclaimEffective.String())
-	}
-
-	actualReclaim, err := p.readActualReclaimUnion(ctx, dag)
-	if err != nil {
-		return false, false, err
-	}
-	if !target.Intersection(actualReclaim).IsEmpty() {
-		return false, false, fmt.Errorf("target %s overlaps actual reclaim %s", target.String(), actualReclaim.String())
-	}
-
-	reservation, err := adjustmentBudget.ReserveExecution(topology.ExecutionReservationCost{
-		Forward: topology.PhysicalWriteCost{CPUSetWrites: 1},
-	})
-	if err != nil {
-		return false, false, err
-	}
-	wrote := false
-	defer func() {
-		if wrote {
-			if settleErr := reservation.Settle(
-				topology.PhysicalWriteCost{CPUSetWrites: 1},
-				topology.PhysicalWriteCost{},
-			); settleErr != nil {
-				general.Warningf("cpuset_topology: settle forward reservation for deferred leaf write: %v", settleErr)
-			}
-		} else {
-			if settleErr := reservation.Settle(
-				topology.PhysicalWriteCost{},
-				topology.PhysicalWriteCost{},
-			); settleErr != nil {
-				general.Warningf("cpuset_topology: settle rollback reservation for deferred leaf write: %v", settleErr)
+		projection := applied.PoolProjection
+		historicalOwner, ok := projection.CPUSetByIdentity[ownerID]
+		if !ok || !target.IsSubsetOf(historicalOwner) ||
+			!target.Intersection(projection.AmbiguousCPUs).IsEmpty() ||
+			!target.Intersection(projection.UncoveredCPUs).IsEmpty() {
+			continue
+		}
+		conflict := false
+		for otherOwner, cpus := range projection.CPUSetByIdentity {
+			if otherOwner != ownerID && !target.Intersection(cpus).IsEmpty() {
+				conflict = true
+				break
 			}
 		}
-	}()
-	if err := reservation.RecordWriteAttempt(
-		ctx, false, topology.PhysicalWriteCost{CPUSetWrites: 1}); err != nil {
-		return false, false, err
-	}
-	wrote = true
-	if err := p.cgroup.ApplyCPUSet(ctx, rel, &cgcommon.CPUSetData{CPUs: target.String(), WriteEmptyCPUs: target.IsEmpty()}); err != nil {
-		return false, wrote, fmt.Errorf("write deferred leaf cpuset %q target=%s: %w", rel, target.String(), err)
-	}
-	after, err := p.cgroup.ReadCPUSet(ctx, rel)
-	if err != nil {
-		return false, wrote, fmt.Errorf("verify deferred leaf cpuset %q: %w", rel, err)
-	}
-	if !after.Equals(target) {
-		return false, wrote, fmt.Errorf("verify deferred leaf cpuset %q got=%s want=%s", rel, after.String(), target.String())
-	}
-
-	general.Infof("bulkhead: deferred leaf exact drained, rel=%q target=%s", rel, target.String())
-	return true, wrote, nil
-}
-
-func (p *CPUSetTopologyPlugin) readActualReclaimUnion(ctx context.Context, dag *topology.TopoDAG) (machine.CPUSet, error) {
-	out := machine.NewCPUSet()
-	for _, node := range dag.Nodes() {
-		if node.Domain != topology.DomainReclaim {
+		if conflict {
 			continue
 		}
-		cpus, err := p.cgroup.ReadCPUSet(ctx, node.Rel)
-		if err != nil {
-			if _, statErr := p.cgroup.StatDir(ctx, node.Rel); statErr != nil {
+
+		// Growing a strict subset releases no CPU, so fresh lifecycle identity,
+		// canonical desired ownership and absence of historical conflicts are
+		// sufficient. Superset cleanup and relocation release current-only CPUs;
+		// require the latest applied rel proof and same-owner projection to cover
+		// the complete current set before allowing unrelated admission to proceed.
+		if !current.Difference(target).IsEmpty() {
+			relProof, ok := applied.RelProofByRel[rel]
+			if !ok || !relProof.CPUSet.Equals(current) {
 				continue
 			}
-			return machine.NewCPUSet(), fmt.Errorf("read actual reclaim cpuset %q: %w", node.Rel, err)
+			if !current.IsSubsetOf(historicalOwner) {
+				continue
+			}
 		}
-		out = out.Union(cpus)
+		expectedRes.DeferredLeafByRel[rel] = target.Clone()
+		delete(expectedRes.ExpectedByRel, rel)
 	}
-	return out, nil
 }
 
 func topologyCoversProtectedView(topology *machine.CPUTopology, view *model.DesiredView, protected machine.CPUSet) bool {

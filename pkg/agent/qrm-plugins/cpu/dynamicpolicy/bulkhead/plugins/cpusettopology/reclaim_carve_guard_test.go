@@ -22,14 +22,19 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
+	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 // runCarveCase executes the builder once and returns the ExpectedByRel target
@@ -67,8 +72,7 @@ func runCarveCase(
 
 	result, err := (&CPUSetTopologyPlugin{
 		cfg: bulkheadconfig.BulkheadConfiguration{
-			BulkheadPrimaryRelPath:   "kubepods",
-			EnableAdmissionLeafDefer: true,
+			BulkheadPrimaryRelPath: "kubepods",
 		},
 		cgroup: &fakeCgroupClient{
 			existing: map[string]bool{resolvedRel: true},
@@ -211,30 +215,114 @@ func TestWiderLeafTouchingReclaimFallsThrough(t *testing.T) {
 	}
 }
 
-func TestReclassifyAdmissionDeferredLeavesScopesPrimaryCleanup(t *testing.T) {
+func TestReclassifyAdmissionDeferredLeavesRequiresOwnerAuthority(t *testing.T) {
 	t.Parallel()
 
-	const rel = "kubepods/pod-a/container-a"
+	const (
+		rel           = "kubepods/pod-a/container-a"
+		podUID        = "pod-a"
+		containerName = "container-a"
+	)
+	defaultOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "pool-a"}
+	otherOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "pool-b"}
 	for _, tc := range []struct {
-		name         string
-		current      machine.CPUSet
-		target       machine.CPUSet
-		reclaim      machine.CPUSet
-		wantDeferred bool
+		name            string
+		current         machine.CPUSet
+		target          machine.CPUSet
+		reclaim         machine.CPUSet
+		ownerID         model.CPUSetPoolIdentity
+		allocationMeta  commonstate.AllocationMeta
+		withoutApplied  bool
+		crossOwner      machine.CPUSet
+		ambiguous       machine.CPUSet
+		relProofCurrent machine.CPUSet
+		historicalOwner machine.CPUSet
+		wantDeferred    bool
 	}{
 		{
-			name:         "primary internal relocation",
+			name:         "owner proven relocation",
 			current:      machine.NewCPUSet(7, 11, 55, 59),
 			target:       machine.NewCPUSet(0, 4, 48, 52),
 			reclaim:      machine.NewCPUSet(1, 2, 3, 5, 6, 10),
 			wantDeferred: true,
 		},
 		{
-			name:         "missing desired business cpu",
-			current:      machine.NewCPUSet(0, 4),
-			target:       machine.NewCPUSet(0, 4, 48, 52),
+			name:         "owner proven narrow subset",
+			current:      machine.NewCPUSet(28),
+			target:       machine.NewCPUSet(0, 4, 8, 12, 16, 20, 24, 28),
 			reclaim:      machine.NewCPUSet(1, 2, 3, 5, 6, 10),
-			wantDeferred: false,
+			wantDeferred: true,
+		},
+		{
+			name:    "dedicated owner proven narrow subset",
+			current: machine.NewCPUSet(28),
+			target:  machine.NewCPUSet(0, 4, 8, 12, 16, 20, 24, 28),
+			reclaim: machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			ownerID: model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindDedicated, PodNamespace: "ns-a", PodName: "pod-a"},
+			allocationMeta: commonstate.AllocationMeta{
+				PodNamespace: "ns-a", PodName: "pod-a",
+				OwnerPoolName: commonstate.PoolNameDedicated, QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+			},
+			wantDeferred: true,
+		},
+		{
+			name:    "isolation owner proven relocation",
+			current: machine.NewCPUSet(7, 11, 55, 59),
+			target:  machine.NewCPUSet(0, 4, 48, 52),
+			reclaim: machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			ownerID: model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindIsolation, PodNamespace: "ns-a", PodName: "pod-a"},
+			allocationMeta: commonstate.AllocationMeta{
+				PodNamespace: "ns-a", PodName: "pod-a",
+				OwnerPoolName: "isolation-a", QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+			},
+			wantDeferred: true,
+		},
+		{
+			name:    "resource package numa share owner remains exact",
+			current: machine.NewCPUSet(28),
+			target:  machine.NewCPUSet(0, 4, 8, 12, 16, 20, 24, 28),
+			reclaim: machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			ownerID: model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: resourcepackage.WrapOwnerPoolName("analytics-NUMA3", "package-a")},
+			allocationMeta: commonstate.AllocationMeta{
+				OwnerPoolName: resourcepackage.WrapOwnerPoolName("analytics-NUMA3", "package-a"),
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+			},
+			wantDeferred: true,
+		},
+		{
+			name:            "stale rel proof is rejected",
+			current:         machine.NewCPUSet(7, 11, 55, 59),
+			target:          machine.NewCPUSet(0, 4, 48, 52),
+			reclaim:         machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			relProofCurrent: machine.NewCPUSet(7, 11),
+		},
+		{
+			name:            "current outside historical owner is rejected",
+			current:         machine.NewCPUSet(7, 11, 55, 59),
+			target:          machine.NewCPUSet(0, 4, 48, 52),
+			reclaim:         machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			historicalOwner: machine.NewCPUSet(0, 4, 7, 11, 48, 52),
+		},
+		{
+			name:           "missing historical authority",
+			current:        machine.NewCPUSet(28),
+			target:         machine.NewCPUSet(0, 4, 8, 12, 16, 20, 24, 28),
+			reclaim:        machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			withoutApplied: true,
+		},
+		{
+			name:       "target conflicts with another owner",
+			current:    machine.NewCPUSet(28),
+			target:     machine.NewCPUSet(0, 4, 8, 12, 16, 20, 24, 28),
+			reclaim:    machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			crossOwner: machine.NewCPUSet(24),
+		},
+		{
+			name:      "target has ambiguous ownership",
+			current:   machine.NewCPUSet(28),
+			target:    machine.NewCPUSet(0, 4, 8, 12, 16, 20, 24, 28),
+			reclaim:   machine.NewCPUSet(1, 2, 3, 5, 6, 10),
+			ambiguous: machine.NewCPUSet(20),
 		},
 		{
 			name:         "current touches reclaim",
@@ -247,15 +335,71 @@ func TestReclassifyAdmissionDeferredLeavesScopesPrimaryCleanup(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			ownerID := tc.ownerID
+			if !ownerID.Valid() {
+				ownerID = defaultOwnerID
+			}
+			allocationMeta := tc.allocationMeta
+			allocationMeta.PodUid = podUID
+			allocationMeta.ContainerName = containerName
+			if allocationMeta.OwnerPoolName == "" {
+				allocationMeta.OwnerPoolName = ownerID.Name
+			}
+			if allocationMeta.QoSLevel == "" {
+				allocationMeta.QoSLevel = commonstate.PoolNameShare
+			}
+			state := cpustate.NewCPUPluginState(nil)
+			if err := state.SetAllocationInfo(podUID, containerName, &cpustate.AllocationInfo{
+				AllocationMeta:   allocationMeta,
+				AllocationResult: tc.target.Clone(),
+			}); err != nil {
+				t.Fatalf("seed allocation: %v", err)
+			}
+			desired := model.NewDesiredView()
+			desired.PoolOwners[ownerID] = model.DesiredPoolOwner{ExpectedCPUSet: tc.target.Clone()}
+
+			var applied *model.AppliedView
+			if !tc.withoutApplied {
+				relProofCurrent := tc.relProofCurrent
+				if relProofCurrent.IsEmpty() {
+					relProofCurrent = tc.current
+				}
+				historicalOwner := tc.historicalOwner
+				if historicalOwner.IsEmpty() {
+					historicalOwner = tc.current.Union(tc.target)
+				}
+				applied = &model.AppliedView{
+					CPUSetPartitionView: model.NewCPUSetPartitionView(),
+					Level:               model.AppliedViewLevelFull,
+					RelProofByRel: map[string]model.CgroupRelProof{
+						rel: {Device: 1, Inode: 2, CPUSet: relProofCurrent.Clone()},
+					},
+					PoolProjection: model.NewAppliedPoolProjection(),
+				}
+				applied.PoolProjection.CPUSetByIdentity[ownerID] = historicalOwner.Clone()
+				if !tc.crossOwner.IsEmpty() {
+					applied.PoolProjection.CPUSetByIdentity[otherOwnerID] = tc.crossOwner.Clone()
+				}
+				applied.PoolProjection.AmbiguousCPUs = tc.ambiguous.Clone()
+			}
+
 			result := &expectedCPUSetBuildResult{
 				ExpectedByRel:     map[string]machine.CPUSet{rel: tc.target.Clone()},
 				DeferredLeafByRel: map[string]machine.CPUSet{},
+				LifecycleProofs: containerLifecycleProofSet{OrderedProofs: []containerLifecycleProof{{
+					PodUID: podUID, ContainerName: containerName, ContainerID: "container-id",
+					RelativePath: rel, DesiredCPUSet: tc.target.Clone(), State: containerLifecycleResolved,
+				}}},
 			}
 			plugin := &CPUSetTopologyPlugin{cgroup: &fakeCgroupClient{
 				cpus: map[string]machine.CPUSet{rel: tc.current.Clone()},
 			}}
 
-			plugin.reclassifyAdmissionDeferredLeaves(context.Background(), tc.reclaim, result)
+			plugin.reclassifyAdmissionDeferredLeaves(context.Background(), bulkheadapi.HandlerContext{
+				CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{State: state},
+				DesiredView:                desired,
+				AppliedView:                applied,
+			}, tc.reclaim, result)
 
 			deferred, isDeferred := result.DeferredLeafByRel[rel]
 			if isDeferred != tc.wantDeferred {
@@ -267,7 +411,7 @@ func TestReclassifyAdmissionDeferredLeavesScopesPrimaryCleanup(t *testing.T) {
 					t.Fatalf("deferred target=%s, want %s", deferred.String(), tc.target.String())
 				}
 				if _, ok := result.ExpectedByRel[rel]; ok {
-					t.Fatalf("deferred relocation remained synchronously required: %v", result.ExpectedByRel)
+					t.Fatalf("deferred mismatch remained synchronously required: %v", result.ExpectedByRel)
 				}
 				return
 			}

@@ -34,7 +34,6 @@ import (
 	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
-	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 
 	v1 "k8s.io/api/core/v1"
@@ -121,8 +120,6 @@ type replayDriver struct {
 	listCalls  int
 	writeCount int
 	writes     []replayWrite
-
-	cgroupCalls []replayCgroupCall
 
 	// failOnWrite, when >= 0, makes the (failOnWrite+1)-th forward WriteCPUs fail.
 	failOnWrite int
@@ -268,26 +265,6 @@ func (c *replayCgroupClient) ReadCPUSet(_ context.Context, rel string) (machine.
 	return node.CPUs.Clone(), nil
 }
 
-// replayCgroupCall records a cgroup-client ApplyCPUSet call on the same in-memory
-// hierarchy; this observes the deferred-leaf physical write channel that is
-// independent of the coordinator DAG WriteCPUs channel.
-type replayCgroupCall struct {
-	Rel  string
-	CPUs machine.CPUSet
-	Err  error
-}
-
-func (c *replayCgroupClient) ApplyCPUSet(_ context.Context, rel string, data *cgcommon.CPUSetData) error {
-	c.driver.mu.Lock()
-	defer c.driver.mu.Unlock()
-	node := c.driver.nodes[rel]
-	node.CPUs = machine.MustParse(data.CPUs)
-	node.ConfiguredCPUs = machine.MustParse(data.CPUs)
-	c.driver.nodes[rel] = node
-	c.driver.cgroupCalls = append(c.driver.cgroupCalls, replayCgroupCall{Rel: rel, CPUs: node.CPUs.Clone()})
-	return nil
-}
-
 func (c *replayCgroupClient) ListChildren(_ context.Context, rel string) ([]string, error) {
 	c.driver.mu.Lock()
 	defer c.driver.mu.Unlock()
@@ -344,13 +321,20 @@ type replayStubFetcher struct {
 }
 
 func (f *replayStubFetcher) GetPodList(context.Context, func(*v1.Pod) bool) ([]*v1.Pod, error) {
-	return nil, nil
+	return replayRunningPods(), nil
 }
 
 // GetPodListFromCache satisfies CachedPodSnapshotFetcher and returns the two
 // resolved live leaves with stable running container identities; the cache-only
 // path then resolves their rel through the injected mock resolver.
 func (f *replayStubFetcher) GetPodListFromCache(_ context.Context, _ func(*v1.Pod) bool) ([]*v1.Pod, error) {
+	return replayRunningPods(), nil
+}
+
+// replayRunningPods is shared by cache-only resolution and strict validation so
+// the fixture models one stable pod generation instead of accidentally retiring
+// the leaves between the two lifecycle snapshots.
+func replayRunningPods() []*v1.Pod {
 	running := func(cid string) v1.ContainerStatus {
 		return v1.ContainerStatus{
 			Name:        "main",
@@ -360,9 +344,9 @@ func (f *replayStubFetcher) GetPodListFromCache(_ context.Context, _ func(*v1.Po
 		}
 	}
 	return []*v1.Pod{
-		{ObjectMeta: metav1.ObjectMeta{UID: "live-a-pod"}, Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{running("live-a-cid")}}},
-		{ObjectMeta: metav1.ObjectMeta{UID: "live-b-pod"}, Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{running("live-b-cid")}}},
-	}, nil
+		{ObjectMeta: metav1.ObjectMeta{UID: "live-a-pod"}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}}, Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{running("live-a-cid")}}},
+		{ObjectMeta: metav1.ObjectMeta{UID: "live-b-pod"}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}}, Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{running("live-b-cid")}}},
+	}
 }
 
 // replayCoreConf builds a core configuration with reclaim disabled (empty reclaim
@@ -374,7 +358,6 @@ func replayCoreConf() *config.Configuration {
 		cfg.BulkheadPrimaryRelPath = "primary"
 		cfg.BulkheadReclaimRelPaths = nil
 		cfg.BulkheadReclaimNumaPrefixes = nil
-		cfg.EnableAdmissionLeafDefer = false
 		cfg.TopologyConvergenceBudget.MaxRounds = 16
 		cfg.TopologyConvergenceBudget.MaxHierarchyIOOperations = 2048
 	}
@@ -423,14 +406,18 @@ func (e *replayEnv) newRound() (*recordingTopology, *Manager) {
 	return e.newRoundWithConfig(replayCoreConf())
 }
 
-func replayRoundCtx() cpusetutil.CPUSetAdjustmentHandlerCtx {
+func replayRoundCtxWithState(state cpustate.ReadonlyState) cpusetutil.CPUSetAdjustmentHandlerCtx {
 	return cpusetutil.CPUSetAdjustmentHandlerCtx{
 		DynamicConf: replayDynamicConf(),
-		State:       replayState(),
+		State:       state,
 		Topology:    replay96CPUTopology(),
 		MetaServer:  replayMetaServer(),
 		Emitter:     metrics.DummyMetrics{},
 	}
+}
+
+func replayRoundCtx() cpusetutil.CPUSetAdjustmentHandlerCtx {
+	return replayRoundCtxWithState(replayState())
 }
 
 // all96CPUs is the controlled-root target envelope once reclaim is disabled and
@@ -593,7 +580,12 @@ var replayTargetLeafB4 = machine.NewCPUSet(0, 4, 48, 52)
 // disabled), one generic named share pool "pool-a" owning the pending68 envelope,
 // two resolved live leaves relocating A4 -> B4, and four pre-drained auxiliary
 // share leaves (empty allocation result).
-func replayState() cpustate.ReadonlyState {
+type replayMutableState interface {
+	cpustate.ReadonlyState
+	SetAllocationInfo(podUID string, containerName string, allocationInfo *cpustate.AllocationInfo) error
+}
+
+func replayStateWithLeafTarget(target machine.CPUSet) replayMutableState {
 	state := cpustate.NewCPUPluginState(nil)
 
 	// Generic named shared pool "pool-a" owns the pending68 envelope.
@@ -614,7 +606,7 @@ func replayState() cpustate.ReadonlyState {
 				OwnerPoolName: "pool-a",
 				QoSLevel:      commonstate.PoolNameShare,
 			},
-			AllocationResult: replayTargetLeafB4.Clone(),
+			AllocationResult: target.Clone(),
 		})
 	}
 
@@ -633,54 +625,106 @@ func replayState() cpustate.ReadonlyState {
 	return state
 }
 
+func replayState() cpustate.ReadonlyState {
+	return replayStateWithLeafTarget(replayTargetLeafB4)
+}
+
+func setReplayLeafTarget(t *testing.T, state replayMutableState, target machine.CPUSet) {
+	t.Helper()
+	for _, podUID := range []string{"live-a-pod", "live-b-pod"} {
+		allocation := state.GetAllocationInfo(podUID, "main").Clone()
+		allocation.AllocationResult = target.Clone()
+		if err := state.SetAllocationInfo(podUID, "main", allocation); err != nil {
+			t.Fatalf("update canonical leaf target for %s: %v", podUID, err)
+		}
+	}
+}
+
 func TestSharedPoolRelocationAdmissionDefersResolvedPrimaryCleanup(t *testing.T) {
 	t.Parallel()
 	env := newReplayEnv()
-	// This admission replay starts after the controlled parent has converged. Both
-	// current and target leaf sets are therefore contained by the live parent,
-	// matching the production signature where unmet_targets is empty and only the
-	// resolved leaf relocation remains. The older full-replay fixture deliberately
-	// starts the parent on the stale reclaim envelope and is not a valid input for
-	// this parent-safe classification boundary.
 	env.driver.mu.Lock()
 	primary := env.driver.nodes["primary"]
 	primary.CPUs = all96CPUs()
 	primary.ConfiguredCPUs = all96CPUs()
 	env.driver.nodes["primary"] = primary
 	env.driver.mu.Unlock()
-	conf := replayCoreConf()
-	conf.CPUQRMPluginConfig.BulkheadConfiguration.EnableAdmissionLeafDefer = true
-	rec, m := env.newRoundWithConfig(conf)
-	in := replayRoundCtx()
-	in.Mode = cpusetutil.CPUSetAdjustmentModeAdmission
-	in.CoreConf = conf
 
-	_, err := m.Apply(context.Background(), in)
+	conf := replayCoreConf()
+	rec, m := env.newRoundWithConfig(conf)
+	state := replayStateWithLeafTarget(replayOldLeafCPUs)
+	pool := state.GetAllocationInfo("pool-a", commonstate.FakedContainerName).Clone()
+	pool.AllocationResult = all96CPUs()
+	if err := state.SetAllocationInfo("pool-a", commonstate.FakedContainerName, pool); err != nil {
+		t.Fatalf("seed canonical owner envelope: %v", err)
+	}
+
+	// Publish the historical A ownership through the production Full path. The
+	// following admission must rely on this AppliedView; no projection is forged.
+	fullA := replayRoundCtxWithState(state)
+	fullA.CoreConf = conf
+	if _, err := m.Apply(context.Background(), fullA); err != nil {
+		t.Fatalf("publish historical owner authority: %v", err)
+	}
+	if rec.level != bulkheadapi.ConvergenceLevelFull || m.appliedView == nil {
+		t.Fatalf("historical authority not published: level=%v view_nil=%v", rec.level, m.appliedView == nil)
+	}
+	for _, rel := range []string{"primary/live-a", "primary/live-b"} {
+		proof := m.appliedView.RelProofByRel[rel]
+		if proof.Device == 0 || proof.Inode == 0 || !proof.CPUSet.Equals(replayOldLeafCPUs) {
+			t.Fatalf("historical leaf proof %q=%+v, want stable identity and cpuset %s",
+				rel, proof, replayOldLeafCPUs.String())
+		}
+	}
+	_, _, writesBeforeAdmission, _, _ := env.driver.snapshot()
+
+	// Runtime desired state advances A -> B while both live leaves still enforce A.
+	// Admission may classify the owner-proven handoff but must perform zero writes.
+	setReplayLeafTarget(t, state, replayTargetLeafB4)
+	admission := replayRoundCtxWithState(state)
+	admission.Mode = cpusetutil.CPUSetAdjustmentModeAdmission
+	admission.CoreConf = conf
+	var retryReasons []cpusetutil.CPUSetAdjustmentRetryReason
+	admission.ScheduleFullRetry = func(reason cpusetutil.CPUSetAdjustmentRetryReason) {
+		retryReasons = append(retryReasons, reason)
+	}
+	if _, err := m.Apply(context.Background(), admission); err != nil {
+		t.Fatalf("owner-proven admission handoff: %v", err)
+	}
+	_, _, writesAfterAdmission, _, _ := env.driver.snapshot()
 	liveA := env.driver.leafCPUs("primary/live-a")
 	liveB := env.driver.leafCPUs("primary/live-b")
-	env.driver.mu.Lock()
-	leafWrites := append([]replayCgroupCall(nil), env.driver.cgroupCalls...)
-	env.driver.mu.Unlock()
-
-	t.Logf("admission relocation: err=%v level=%v note=%q cgroup_leaf_writes=%d liveA=%s liveB=%s published=%v",
-		err, rec.level, rec.note, len(leafWrites), liveA.String(), liveB.String(), m.appliedViewValidForPeriodical)
-	if err != nil {
-		t.Fatalf("admission relocation must not stall on a resolved primary-internal cleanup: %v", err)
-	}
 	if rec.level != bulkheadapi.ConvergenceLevelPartial {
-		t.Fatalf("admission relocation level = %v, want parent-safe Partial; note=%q", rec.level, rec.note)
+		t.Fatalf("admission handoff level=%v, want parent-safe Partial; note=%q", rec.level, rec.note)
 	}
-	if m.appliedView == nil {
-		t.Fatalf("admission relocation did not publish its parent-safe applied view")
+	if writesAfterAdmission != writesBeforeAdmission {
+		t.Fatalf("admission performed physical writes: before=%d after=%d", writesBeforeAdmission, writesAfterAdmission)
 	}
-	if m.appliedViewValidForPeriodical {
-		t.Fatalf("a parent-safe partial view must not authorize periodical side effects")
-	}
-	if len(leafWrites) != 0 {
-		t.Fatalf("admission must defer relocation leaf writes to retry, got %d", len(leafWrites))
+	if len(retryReasons) != 1 || retryReasons[0] != cpusetutil.RetryReasonDeferredLeaf {
+		t.Fatalf("admission retry reasons=%v, want exactly deferred_leaf", retryReasons)
 	}
 	if !liveA.Equals(replayOldLeafCPUs) || !liveB.Equals(replayOldLeafCPUs) {
-		t.Fatalf("admission rewrote deferred leaves early: %s/%s", liveA, liveB)
+		t.Fatalf("admission rewrote deferred leaves: %s/%s", liveA.String(), liveB.String())
+	}
+
+	// Simulate restart: the process-local AppliedView and retry queue disappear, while
+	// the canonical checkpoint target B and physical leaf state A remain. A fresh
+	// Manager Full pass must be sufficient to complete the exact handoff.
+	restartRec, restartManager := env.newRoundWithConfig(conf)
+	fullB := replayRoundCtxWithState(state)
+	fullB.CoreConf = conf
+	if _, err := restartManager.Apply(context.Background(), fullB); err != nil {
+		t.Fatalf("full handoff retry after restart: %v", err)
+	}
+	if restartRec.level != bulkheadapi.ConvergenceLevelFull || !restartManager.appliedViewValidForPeriodical {
+		t.Fatalf("full handoff after restart was not published: level=%v valid=%v",
+			restartRec.level, restartManager.appliedViewValidForPeriodical)
+	}
+	if got := env.driver.leafCPUs("primary/live-a"); !got.Equals(replayTargetLeafB4) {
+		t.Fatalf("live-a after Full=%s, want %s", got.String(), replayTargetLeafB4.String())
+	}
+	if got := env.driver.leafCPUs("primary/live-b"); !got.Equals(replayTargetLeafB4) {
+		t.Fatalf("live-b after Full=%s, want %s", got.String(), replayTargetLeafB4.String())
 	}
 }
 

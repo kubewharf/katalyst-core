@@ -96,8 +96,7 @@ func TestBuildExpectedTreatsReclaimCarvedProtectedLeafAsConverged(t *testing.T) 
 
 	result, err := (&CPUSetTopologyPlugin{
 		cfg: bulkheadconfig.BulkheadConfiguration{
-			BulkheadPrimaryRelPath:   "kubepods",
-			EnableAdmissionLeafDefer: true,
+			BulkheadPrimaryRelPath: "kubepods",
 		},
 		cgroup: &fakeCgroupClient{
 			existing: map[string]bool{resolvedRel: true},

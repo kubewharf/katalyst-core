@@ -91,7 +91,6 @@ type BulkheadConfiguration struct {
 
 	TopologyConvergenceBudget  ConvergenceBudget
 	TopologyDrainSelection     DrainSelectionPolicy
-	EnableAdmissionLeafDefer   bool
 	AdmissionMaxRequiredWrites int
 	AdmissionSafeDuration      time.Duration
 }
@@ -100,7 +99,6 @@ func NewBulkheadConfiguration() *BulkheadConfiguration {
 	return &BulkheadConfiguration{
 		TopologyConvergenceBudget:  DefaultConvergenceBudget(),
 		TopologyDrainSelection:     DefaultDrainSelectionPolicy(),
-		EnableAdmissionLeafDefer:   true,
 		AdmissionMaxRequiredWrites: 0,
 		AdmissionSafeDuration:      5 * time.Second,
 	}

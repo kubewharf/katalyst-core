@@ -824,7 +824,6 @@ func TestBuildExpectedFiltersResolvedOnlyOutcomesAgainstOneStrictFreshSpec(t *te
 		},
 	}}
 	cfg := bulkheadConfigWithPrimary("kubepods")
-	cfg.EnableAdmissionLeafDefer = true
 	p := &CPUSetTopologyPlugin{
 		cfg: cfg,
 		cgroup: &fakeCgroupClient{

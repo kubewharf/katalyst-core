@@ -35,7 +35,69 @@ import (
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
+
+func TestLeafPoolIdentityForAllocationNormalizesPoolWrappers(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		allocation *cpustate.AllocationInfo
+		want       model.CPUSetPoolIdentity
+		wantOK     bool
+	}{
+		{
+			name: "share resource package and numa suffix",
+			allocation: &cpustate.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{
+				OwnerPoolName: resourcepackage.WrapOwnerPoolName("analytics-NUMA3", "package-a"),
+				QoSLevel:      commonstate.PoolNameShare,
+			}},
+			want: model.CPUSetPoolIdentity{
+				Kind: model.CPUSetPoolKindShare,
+				Name: resourcepackage.WrapOwnerPoolName("analytics-NUMA3", "package-a"),
+			},
+			wantOK: true,
+		},
+		{
+			name: "default share",
+			allocation: &cpustate.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{
+				OwnerPoolName: commonstate.PoolNameShare,
+				QoSLevel:      commonstate.PoolNameShare,
+			}},
+			want:   model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: commonstate.PoolNameShare},
+			wantOK: true,
+		},
+		{
+			name: "dedicated keeps pod identity",
+			allocation: &cpustate.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{
+				OwnerPoolName: commonstate.PoolNameDedicated,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				PodNamespace:  "ns",
+				PodName:       "pod",
+			}},
+			want:   model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindDedicated, PodNamespace: "ns", PodName: "pod"},
+			wantOK: true,
+		},
+		{
+			name: "reclaim has no protected leaf owner",
+			allocation: &cpustate.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{
+				OwnerPoolName: commonstate.PoolNameReclaim,
+				QoSLevel:      commonstate.PoolNameReclaim,
+			}},
+			wantOK: false,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := LeafPoolIdentityForAllocation(tc.allocation)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("identity=(%+v,%v), want (%+v,%v)", got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
 
 func TestNewCPUSetPartitionViewOptionsUsesProductionConfigurationConsistently(t *testing.T) {
 	t.Parallel()

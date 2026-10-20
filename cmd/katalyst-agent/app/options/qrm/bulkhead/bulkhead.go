@@ -49,7 +49,6 @@ type BulkheadOptions struct {
 	MaxCPUsDrainRatio           float64
 	TopologyConvergenceDeadline time.Duration
 	MaxDeadlockProbeOperations  int
-	EnableAdmissionLeafDefer    bool
 	AdmissionMaxRequiredWrites  int
 	AdmissionSafeDuration       time.Duration
 }
@@ -71,7 +70,6 @@ func NewBulkheadOptions() BulkheadOptions {
 		BulkheadSystemKThreadCommSubstrs: []string{"kswapd", "kcompactd"},
 		TopologyConvergenceDeadline:      bulkheadconfig.DefaultTopologyConvergenceDeadline,
 		MaxDeadlockProbeOperations:       0,
-		EnableAdmissionLeafDefer:         true,
 		AdmissionMaxRequiredWrites:       0,
 		AdmissionSafeDuration:            5 * time.Second,
 	}
@@ -113,8 +111,6 @@ func (o *BulkheadOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.TopologyConvergenceDeadline, "The deadline for one cpu bulkhead topology convergence invocation.")
 	fs.IntVar(&o.MaxDeadlockProbeOperations, "qrm-cpu-bulkhead-deadlock-probe-operations",
 		o.MaxDeadlockProbeOperations, "The maximum projected operations used by one cpu bulkhead deadlock probe; 0 means auto-sized by topology shape.")
-	fs.BoolVar(&o.EnableAdmissionLeafDefer, "qrm-cpu-bulkhead-admission-leaf-defer",
-		o.EnableAdmissionLeafDefer, "Allow admission to return after parent-safe convergence and defer exact leaf convergence.")
 	fs.IntVar(&o.AdmissionMaxRequiredWrites, "qrm-cpu-bulkhead-admission-max-required-writes",
 		o.AdmissionMaxRequiredWrites, "Maximum required cgroup writes in one parent-safe admission; 0 disables the fixed write cap and relies on the admission duration deadline.")
 	fs.DurationVar(&o.AdmissionSafeDuration, "qrm-cpu-bulkhead-admission-safe-duration",
@@ -157,7 +153,6 @@ func (o *BulkheadOptions) ApplyTo(conf *bulkheadconfig.BulkheadConfiguration) er
 	conf.TopologyDrainSelection.MaxCPUsDrainRatio = o.MaxCPUsDrainRatio
 	conf.TopologyConvergenceBudget.DeadlineDuration = o.TopologyConvergenceDeadline
 	conf.TopologyConvergenceBudget.MaxDeadlockProbeOperations = o.MaxDeadlockProbeOperations
-	conf.EnableAdmissionLeafDefer = o.EnableAdmissionLeafDefer
 	conf.AdmissionMaxRequiredWrites = o.AdmissionMaxRequiredWrites
 	conf.AdmissionSafeDuration = o.AdmissionSafeDuration
 	if len(conf.BulkheadReclaimNumaPrefixes) > len(conf.BulkheadReclaimRelPaths) {

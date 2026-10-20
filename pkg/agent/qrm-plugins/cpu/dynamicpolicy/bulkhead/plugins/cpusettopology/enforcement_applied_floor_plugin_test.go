@@ -123,7 +123,6 @@ func newEnforcementAppliedFloorFixture(t *testing.T) *enforcementAppliedFloorFix
 	cfg.BulkheadPrimaryRelPath = "kubepods"
 	cfg.BulkheadReclaimRelPaths = []string{"reclaimed"}
 	cfg.BulkheadReclaimNumaPrefixes = []string{"reclaimed/reclaimed-"}
-	cfg.EnableAdmissionLeafDefer = true
 	cfg.AdmissionMaxRequiredWrites = 0
 
 	cg := &fakeCgroupClient{

@@ -538,26 +538,28 @@ func rebuildDesiredPoolOwners(view *model.DesiredView, podEntries cpustate.PodEn
 			continue
 		}
 		for _, allocation := range containerEntries {
-			identity, ok := poolIdentityForAllocation(allocation)
-			if !ok {
+			identity, ok := LeafPoolIdentityForAllocation(allocation)
+			if !ok || identity.Kind == model.CPUSetPoolKindShare {
+				// Share ownership is recorded once from SharePoolMap above. Per-leaf
+				// union would change the pool projection and duplicate its authority.
 				continue
-			}
-			containerName := allocation.ContainerName
-			if identity.Kind == model.CPUSetPoolKindShare {
-				containerName = ""
 			}
 			recordDesiredPoolOwner(
 				view.PoolOwners,
 				identity,
 				allocation.PodUid,
-				containerName,
+				allocation.ContainerName,
 				allocation.AllocationResult,
 			)
 		}
 	}
 }
 
-func poolIdentityForAllocation(allocation *cpustate.AllocationInfo) (model.CPUSetPoolIdentity, bool) {
+// LeafPoolIdentityForAllocation returns the canonical owner key used by
+// DesiredView.PoolOwners for a concrete container allocation. Share keys retain
+// resource-package and NUMA suffixes because SharePoolMap uses the exact pool
+// entry name; only pool type classification uses OwnerPoolNameTranslator.
+func LeafPoolIdentityForAllocation(allocation *cpustate.AllocationInfo) (model.CPUSetPoolIdentity, bool) {
 	if allocation == nil {
 		return model.CPUSetPoolIdentity{}, false
 	}
@@ -585,7 +587,11 @@ func poolIdentityForAllocation(allocation *cpustate.AllocationInfo) (model.CPUSe
 			PodName:      allocation.PodName,
 		}, true
 	}
-	return model.CPUSetPoolIdentity{}, false
+	ownerPoolName := allocation.OwnerPoolName
+	if ownerPoolName == "" {
+		ownerPoolName = commonstate.PoolNameShare
+	}
+	return model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: ownerPoolName}, true
 }
 
 func recordDesiredPoolOwner(

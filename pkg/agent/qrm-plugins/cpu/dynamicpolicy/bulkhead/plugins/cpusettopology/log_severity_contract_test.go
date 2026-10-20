@@ -132,7 +132,6 @@ func TestSuccessfulAdmissionLogSeverityContract(t *testing.T) {
 			cfg: bulkheadconfig.BulkheadConfiguration{
 				BulkheadPrimaryRelPath:     "primary",
 				BulkheadReclaimRelPaths:    []string{"reclaim"},
-				EnableAdmissionLeafDefer:   true,
 				AdmissionSafeDuration:      time.Second,
 				AdmissionMaxRequiredWrites: 8,
 			},

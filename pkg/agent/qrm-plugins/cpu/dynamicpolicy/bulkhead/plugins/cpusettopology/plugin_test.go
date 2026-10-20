@@ -156,6 +156,39 @@ func TestAccumulateConvergenceResultPropagatesPublicationState(t *testing.T) {
 	}
 }
 
+func TestScheduleFixedPointRetryByAdjustmentMode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		mode          cpusetutil.CPUSetAdjustmentMode
+		err           error
+		wantScheduled bool
+	}{
+		{name: "admission stall", mode: cpusetutil.CPUSetAdjustmentModeAdmission, err: topology.ErrNoProgress, wantScheduled: true},
+		{name: "admission wrapped stall", mode: cpusetutil.CPUSetAdjustmentModeAdmission, err: fmt.Errorf("compile: %w", topology.ErrNoProgress), wantScheduled: true},
+		{name: "admission other error", mode: cpusetutil.CPUSetAdjustmentModeAdmission, err: context.DeadlineExceeded},
+		{name: "retry stall does not self schedule", mode: cpusetutil.CPUSetAdjustmentModeRetry, err: topology.ErrNoProgress},
+		{name: "periodic stall stays dirty in caller", mode: cpusetutil.CPUSetAdjustmentModePeriodic, err: topology.ErrNoProgress},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var reasons []cpusetutil.CPUSetAdjustmentRetryReason
+			scheduleFixedPointRetry(tc.mode, tc.err, func(reason cpusetutil.CPUSetAdjustmentRetryReason) {
+				reasons = append(reasons, reason)
+			})
+			scheduled := len(reasons) == 1
+			if scheduled != tc.wantScheduled {
+				t.Fatalf("scheduled=%v, want scheduled=%v", reasons, tc.wantScheduled)
+			}
+			if tc.wantScheduled && reasons[0] != cpusetutil.RetryReasonFixedPointStall {
+				t.Fatalf("reason=%q, want %q", reasons[0], cpusetutil.RetryReasonFixedPointStall)
+			}
+		})
+	}
+}
+
 func TestHandleDeferredLeafRetryByAdjustmentMode(t *testing.T) {
 	t.Parallel()
 
@@ -1207,230 +1240,6 @@ func TestPendingProtectionScopesResolveGuaranteedPodUnderProductionPrimaryRoot(t
 	}
 }
 
-func TestDeferredLeafDrainWritesSafeLeafDespiteGlobalMismatch(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, time.August, 5, 13, 30, 0, 0, time.UTC)
-	const rel = "kubepods/pod-a/container-a"
-	cg := &fakeCgroupClient{cpus: map[string]machine.CPUSet{
-		"kubepods":                        machine.NewCPUSet(0, 1, 2, 3),
-		"custom-reclaim-root":             machine.NewCPUSet(4, 5, 6, 7),
-		"custom-reclaim-root/reclaimed-0": machine.NewCPUSet(4, 5),
-		"system":                          machine.NewCPUSet(0, 1, 2, 3, 4, 5), // unrelated global mismatch
-		"kubepods/pod-a":                  machine.NewCPUSet(0, 1, 2, 3),
-		rel:                               machine.NewCPUSet(0, 1, 2, 3),
-	}}
-	p := &CPUSetTopologyPlugin{
-		cgroup: cg,
-		now:    func() time.Time { return now },
-		deferredLeafDrains: map[string]deferredLeafDrain{
-			rel: {
-				target:       machine.NewCPUSet(0, 1),
-				firstSeen:    now,
-				lastSeen:     now,
-				protectUntil: now.Add(time.Minute),
-			},
-		},
-	}
-	view := model.NewDesiredView()
-	view.DesiredReclaimEffective = machine.NewCPUSet(4, 5)
-	dag := mustBuildDrainTestDAG(t)
-
-	budget := topology.NewAdjustmentBudget(context.Background(), topology.ConvergenceBudget{
-		MaxPlanOperations: 1,
-	})
-	if err := p.drainSafeDeferredLeaves(context.Background(), view, dag, budget); err != nil {
-		t.Fatalf("drainSafeDeferredLeaves() error = %v", err)
-	}
-
-	if got := cg.cpus[rel]; !got.Equals(machine.NewCPUSet(0, 1)) {
-		t.Fatalf("leaf cpuset = %s, want exact target 0-1", got.String())
-	}
-	if _, ok := p.deferredLeafDrains[rel]; ok {
-		t.Fatalf("safe leaf drain was not cleared after successful write")
-	}
-	if got := budget.CumulativeWrites(); got != 1 {
-		t.Fatalf("deferred leaf cumulative physical writes = %d, want 1", got)
-	}
-}
-
-func TestDeferredLeafDrainSkipsTargetOverlappingActualReclaim(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, time.August, 5, 13, 30, 0, 0, time.UTC)
-	const rel = "kubepods/pod-a/container-a"
-	cg := &fakeCgroupClient{cpus: map[string]machine.CPUSet{
-		"kubepods":                        machine.NewCPUSet(0, 1, 2, 3),
-		"kubepods/pod-a":                  machine.NewCPUSet(0, 1, 2, 3),
-		"custom-reclaim-root":             machine.NewCPUSet(1, 4, 5),
-		"custom-reclaim-root/reclaimed-0": machine.NewCPUSet(1, 4, 5),
-		rel:                               machine.NewCPUSet(0, 1, 2, 3),
-	}}
-	p := &CPUSetTopologyPlugin{
-		cgroup: cg,
-		now:    func() time.Time { return now },
-		deferredLeafDrains: map[string]deferredLeafDrain{
-			rel: {
-				target:       machine.NewCPUSet(0, 1),
-				firstSeen:    now,
-				lastSeen:     now,
-				protectUntil: now.Add(time.Minute),
-			},
-		},
-	}
-	view := model.NewDesiredView()
-	view.DesiredReclaimEffective = machine.NewCPUSet(4, 5)
-	dag := mustBuildDrainTestDAG(t)
-
-	budget := topology.NewAdjustmentBudget(context.Background(), topology.ConvergenceBudget{
-		MaxPlanOperations: 1,
-	})
-	if err := p.drainSafeDeferredLeaves(context.Background(), view, dag, budget); err != nil {
-		t.Fatalf("unsafe deferred drain should remain pending without terminal error: %v", err)
-	}
-
-	if got := cg.cpus[rel]; !got.Equals(machine.NewCPUSet(0, 1, 2, 3)) {
-		t.Fatalf("unsafe leaf cpuset was written as %s, want unchanged 0-3", got.String())
-	}
-	if _, ok := p.deferredLeafDrains[rel]; !ok {
-		t.Fatalf("unsafe leaf drain was cleared despite actual reclaim overlap")
-	}
-}
-
-func TestDeferredLeafDrainBudgetFailurePerformsZeroWrites(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 5, 13, 30, 0, 0, time.UTC)
-	const rel = "kubepods/pod-a/container-a"
-	cg := &fakeCgroupClient{cpus: map[string]machine.CPUSet{
-		"kubepods":                        machine.NewCPUSet(0, 1, 2, 3),
-		"kubepods/pod-a":                  machine.NewCPUSet(0, 1, 2, 3),
-		"custom-reclaim-root":             machine.NewCPUSet(4, 5),
-		"custom-reclaim-root/reclaimed-0": machine.NewCPUSet(4, 5),
-		rel:                               machine.NewCPUSet(0, 1, 2, 3),
-	}}
-	p := &CPUSetTopologyPlugin{
-		cgroup: cg,
-		now:    func() time.Time { return now },
-		deferredLeafDrains: map[string]deferredLeafDrain{
-			rel: {
-				target:       machine.NewCPUSet(0, 1),
-				firstSeen:    now,
-				lastSeen:     now,
-				protectUntil: now.Add(time.Minute),
-			},
-		},
-	}
-	view := model.NewDesiredView()
-	view.DesiredReclaimEffective = machine.NewCPUSet(4, 5)
-	budget := topology.NewAdjustmentBudget(context.Background(), topology.ConvergenceBudget{
-		MaxPlanOperations: 1,
-	})
-	held, err := budget.ReserveExecution(topology.ExecutionReservationCost{
-		Forward:  topology.PhysicalWriteCost{CPUSetWrites: 2},
-		Rollback: topology.PhysicalWriteCost{CPUSetWrites: 2},
-	})
-	if err != nil {
-		t.Fatalf("occupy write budget: %v", err)
-	}
-	defer held.Settle(topology.PhysicalWriteCost{}, topology.PhysicalWriteCost{})
-
-	err = p.drainSafeDeferredLeaves(context.Background(), view, mustBuildDrainTestDAG(t), budget)
-
-	if !errors.Is(err, topology.ErrAdjustmentWriteBudgetExceeded) {
-		t.Fatalf("drainSafeDeferredLeaves() error = %v, want write-budget exhaustion", err)
-	}
-	if len(cg.writeOrder) != 0 {
-		t.Fatalf("budget failure performed deferred-leaf writes: %v", cg.writeOrder)
-	}
-	if _, ok := p.deferredLeafDrains[rel]; !ok {
-		t.Fatal("budget failure cleared deferred leaf")
-	}
-}
-
-func TestDeferredLeafDrainConservativelySettlesFailedWriteAttempt(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.August, 5, 13, 30, 0, 0, time.UTC)
-	const rel = "kubepods/pod-a/container-a"
-	cg := &fakeCgroupClient{
-		requireExistingForApply: true,
-		cpus: map[string]machine.CPUSet{
-			"kubepods":                        machine.NewCPUSet(0, 1, 2, 3),
-			"kubepods/pod-a":                  machine.NewCPUSet(0, 1, 2, 3),
-			"custom-reclaim-root":             machine.NewCPUSet(4, 5),
-			"custom-reclaim-root/reclaimed-0": machine.NewCPUSet(4, 5),
-			rel:                               machine.NewCPUSet(0, 1, 2, 3),
-		},
-	}
-	p := &CPUSetTopologyPlugin{
-		cgroup: cg,
-		now:    func() time.Time { return now },
-		deferredLeafDrains: map[string]deferredLeafDrain{
-			rel: {
-				target:       machine.NewCPUSet(0, 1),
-				firstSeen:    now,
-				lastSeen:     now,
-				protectUntil: now.Add(time.Minute),
-			},
-		},
-	}
-	view := model.NewDesiredView()
-	view.DesiredReclaimEffective = machine.NewCPUSet(4, 5)
-	budget := topology.NewAdjustmentBudget(context.Background(), topology.ConvergenceBudget{
-		MaxPlanOperations: 1,
-	})
-
-	err := p.drainSafeDeferredLeaves(
-		context.Background(), view, mustBuildDrainTestDAG(t), budget)
-
-	if err == nil {
-		t.Fatal("failed deferred-leaf write was hidden")
-	}
-	if got := budget.CumulativeWrites(); got != 1 {
-		t.Fatalf("failed physical write attempts = %d, want conservative count 1", got)
-	}
-	if _, ok := p.deferredLeafDrains[rel]; !ok {
-		t.Fatal("failed deferred-leaf write cleared pending drain")
-	}
-}
-
-func mustBuildDrainTestDAG(t *testing.T) *topology.TopoDAG {
-	t.Helper()
-	dag, err := topology.BuildDAG([]topology.NodeSpec{
-		{
-			Rel:            "kubepods",
-			Role:           topology.TopoNodeRolePrimary,
-			Domain:         topology.DomainPrimary,
-			CPUs:           machine.NewCPUSet(0, 1, 2, 3),
-			ControlledRoot: true,
-			TrustAnchor:    true,
-		},
-		{
-			Rel:            "custom-reclaim-root",
-			Role:           topology.TopoNodeRoleReclaim,
-			Domain:         topology.DomainReclaim,
-			CPUs:           machine.NewCPUSet(4, 5),
-			ControlledRoot: true,
-			TrustAnchor:    true,
-		},
-		{
-			Rel:       "custom-reclaim-root/reclaimed-0",
-			ParentRel: "custom-reclaim-root",
-			Role:      topology.TopoNodeRoleReclaimNUMABucket,
-			Domain:    topology.DomainReclaim,
-			CPUs:      machine.NewCPUSet(4, 5),
-			Constraint: topology.TopologyConstraint{
-				CPUUpperBound: machine.NewCPUSet(4, 5),
-				Scope:         topology.TopologyScopeNUMANode,
-			},
-			TrustAnchor: true,
-		},
-	})
-	if err != nil {
-		t.Fatalf("BuildDAG() error = %v", err)
-	}
-	return dag
-}
-
 func (f *fakeCgroupClient) ApplyCPUSet(_ context.Context, rel string, data *cgcommon.CPUSetData) error {
 	if f.requireExistingForApply && !f.existing[rel] {
 		return fmt.Errorf("apply cpuset @ %s: %w", rel, os.ErrNotExist)
@@ -1772,7 +1581,6 @@ func TestCPUSetTopologyPluginAdmissionPublishesFrozenTraceResult(t *testing.T) {
 		cfg: bulkheadconfig.BulkheadConfiguration{
 			BulkheadPrimaryRelPath:     "primary",
 			BulkheadReclaimRelPaths:    []string{"reclaim"},
-			EnableAdmissionLeafDefer:   true,
 			AdmissionSafeDuration:      time.Second,
 			AdmissionMaxRequiredWrites: 8,
 		},
@@ -2375,7 +2183,6 @@ func TestCPUSetTopologyPluginMaterializesConfiguredReclaimSiblingWhenMissing(t *
 			EnableBulkheadReclaimSiblings:          true,
 			TopologyConvergenceBudget:              bulkheadconfig.DefaultConvergenceBudget(),
 			TopologyDrainSelection:                 bulkheadconfig.DefaultDrainSelectionPolicy(),
-			EnableAdmissionLeafDefer:               true,
 			AdmissionSafeDuration:                  5 * time.Second,
 			AdmissionMaxRequiredWrites:             0,
 			EnableBulkheadCpusetTopologyOnCgroupV2: false,
@@ -2840,7 +2647,6 @@ func TestCPUSetTopologyPluginAdmissionDeadlineStartsBeforeSiblingDiscovery(t *te
 			BulkheadPrimaryRelPath:        "primary",
 			BulkheadReclaimRelPaths:       []string{"primary/reclaim"},
 			EnableBulkheadReclaimSiblings: true,
-			EnableAdmissionLeafDefer:      true,
 			AdmissionSafeDuration:         safeDuration,
 		},
 		cgroup: cg,
@@ -2880,7 +2686,6 @@ func TestCPUSetTopologyPluginAdmissionDeadlineWinsAfterPreCoordinatorStage(t *te
 			BulkheadPrimaryRelPath:        "primary",
 			BulkheadReclaimRelPaths:       []string{"primary/reclaim"},
 			EnableBulkheadReclaimSiblings: true,
-			EnableAdmissionLeafDefer:      true,
 			AdmissionSafeDuration:         safeDuration,
 		},
 		cgroup: cg,
@@ -6254,12 +6059,13 @@ func TestCPUSetTopologyPluginChangingStaleSignaturesStillCompileAtMostFourTimes(
 			_ *topology.AdjustmentBudget,
 		) (topology.ConvergenceResult, error) {
 			attempts++
-			return topology.ConvergenceResult{
-					ReplanDisposition: topology.ReplanSafeNoPhysicalWrites,
-				}, &topology.PlanStaleError{
-					Rel:      fmt.Sprintf("root/generation-%d", attempts),
-					Resource: "changing_signature",
-				}
+			result := topology.ConvergenceResult{
+				ReplanDisposition: topology.ReplanSafeNoPhysicalWrites,
+			}
+			return result, &topology.PlanStaleError{
+				Rel:      fmt.Sprintf("root/generation-%d", attempts),
+				Resource: "changing_signature",
+			}
 		},
 	)
 

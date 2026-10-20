@@ -107,7 +107,6 @@ func newSNBShadowGateFalseFixture(t *testing.T) *snbShadowGateFalseFixture {
 	cfg.BulkheadPrimaryRelPath = "kubepods"
 	cfg.BulkheadReclaimRelPaths = []string{"reclaimed"}
 	cfg.BulkheadReclaimNumaPrefixes = []string{"reclaimed/reclaimed-"}
-	cfg.EnableAdmissionLeafDefer = true
 	cfg.AdmissionMaxRequiredWrites = 0
 
 	cg := &fakeCgroupClient{

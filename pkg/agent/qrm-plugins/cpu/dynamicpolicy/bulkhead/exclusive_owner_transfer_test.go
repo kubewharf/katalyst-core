@@ -460,89 +460,98 @@ func TestExclusiveOwnerTransferUnverifiableLeafMustNotPublishPoolOnlyFull(t *tes
 	}
 }
 
-// TestExclusiveOwnerTransferProvenFullVerifiesLeafBAndProjection drives the proven
-// legal Full round: strict fresh proofs match the frozen identities, the chain actually
-// verifies/releases both live leaves onto targetB, keeps the isolation owner on oldA, and
-// projects oldA onto the isolation owner identity while the share owner excludes oldA.
-func TestExclusiveOwnerTransferProvenFullVerifiesLeafBAndProjection(t *testing.T) {
+// TestExclusiveOwnerTransferAdmissionDefersThenRetryPublishesFull pins the
+// two-phase leaf-handoff contract. Admission never writes controlled leaves or
+// publishes a false Full view; a fresh Retry over the same physical snapshot
+// performs the verified leaf migration, keeps the isolation owner on oldA, and
+// publishes the final projection.
+func TestExclusiveOwnerTransferAdmissionDefersThenRetryPublishesFull(t *testing.T) {
 	t.Parallel()
 	driver := xoSeedExclusiveDriver()
-	rec, m := xoBuildRound(driver)
+	admissionRec, admissionManager := xoBuildRound(driver)
+	admissionManager.appliedView = exclusiveHistoricalAppliedView()
+	admissionManager.appliedViewRevision = 1
+	admissionManager.appliedViewValidForPeriodical = true
 
-	in := xoAdmissionCtx(&xoProvenFetcher{})
-	_, applyErr := m.Apply(context.Background(), in)
-	reads, lists, writes, failedAt, _ := driver.snapshot()
+	admission := xoAdmissionCtx(&xoProvenFetcher{})
+	_, admissionErr := admissionManager.Apply(context.Background(), admission)
+	_, _, admissionWrites, _, _ := driver.snapshot()
+	if admissionErr == nil {
+		t.Fatal("Admission must defer the leaf handoff instead of reporting Full")
+	}
+	if admissionRec.level == bulkheadapi.ConvergenceLevelFull {
+		t.Fatal("Admission reported Full before the controlled leaves were migrated")
+	}
+	if admissionWrites != 0 {
+		t.Fatalf("Admission performed %d physical writes, want zero", admissionWrites)
+	}
+	if admissionManager.appliedViewValidForPeriodical && admissionManager.appliedView != nil &&
+		admissionManager.appliedView.Level == model.AppliedViewLevelFull {
+		t.Fatal("Admission published a Full applied view before Retry")
+	}
+	if got := driver.leafCPUs("primary/live-a"); !got.Equals(replayOldLeafCPUs) {
+		t.Fatalf("Admission changed live-a leaf to %s, want oldA %s", got.String(), replayOldLeafCPUs.String())
+	}
+	if got := driver.leafCPUs("primary/live-b"); !got.Equals(replayOldLeafCPUs) {
+		t.Fatalf("Admission changed live-b leaf to %s, want oldA %s", got.String(), replayOldLeafCPUs.String())
+	}
+
+	// Retry is a fresh plugin/manager attempt over the verified physical snapshot,
+	// while retaining the manager-owned applied authority from before Admission.
+	retryRec, retryManager := xoBuildRound(driver)
+	retryManager.appliedView = exclusiveHistoricalAppliedView()
+	retryManager.appliedViewRevision = 1
+	retryManager.appliedViewValidForPeriodical = true
+	retry := xoAdmissionCtx(&xoProvenFetcher{})
+	retry.Mode = cpusetutil.CPUSetAdjustmentModeRetry
+	_, retryErr := retryManager.Apply(context.Background(), retry)
+	_, _, totalWrites, failedAt, _ := driver.snapshot()
 
 	liveA := driver.leafCPUs("primary/live-a")
 	liveB := driver.leafCPUs("primary/live-b")
 	iso := driver.leafCPUs(xoIsoRel)
 	primary := driver.primaryCPUs()
 
-	t.Logf("proven: applyErr=%v level=%v note=%q reads=%d list=%d writes=%d failedAt=%d published=%t",
-		applyErr, rec.level, rec.note, reads, lists, writes, failedAt, m.appliedViewValidForPeriodical)
-	t.Logf("proven physical: primary=%s liveA=%s liveB=%s iso=%s", primary.String(), liveA.String(), liveB.String(), iso.String())
-	if m.appliedView != nil {
-		t.Logf("proven appliedView: level=%v isolation=%s nonReclaim=%s reclaim=%s projection=%v uncovered=%s ambiguous=%s",
-			m.appliedView.Level, m.appliedView.Isolation.String(), m.appliedView.NonReclaimPool.String(),
-			m.appliedView.ReclaimEffective.String(), m.appliedView.PoolProjection.CPUSetByIdentity,
-			m.appliedView.PoolProjection.UncoveredCPUs.String(), m.appliedView.PoolProjection.AmbiguousCPUs.String())
-	}
+	t.Logf("retry: err=%v level=%v note=%q totalWrites=%d failedAt=%d published=%t", retryErr, retryRec.level, retryRec.note, totalWrites, failedAt, retryManager.appliedViewValidForPeriodical)
+	t.Logf("retry physical: primary=%s liveA=%s liveB=%s iso=%s", primary.String(), liveA.String(), liveB.String(), iso.String())
 
-	if applyErr != nil {
-		t.Fatalf("proven legal Full Apply error = %v, want nil", applyErr)
+	if retryErr != nil {
+		t.Fatalf("Retry legal Full Apply error = %v, want nil", retryErr)
 	}
-	if rec.level != bulkheadapi.ConvergenceLevelFull {
-		t.Fatalf("proven round level = %v, want Full", rec.level)
+	if retryRec.level != bulkheadapi.ConvergenceLevelFull {
+		t.Fatalf("Retry round level = %v, want Full", retryRec.level)
 	}
-	if !m.appliedViewValidForPeriodical || m.appliedView == nil {
-		t.Fatalf("proven round did not publish a Full applied view")
+	if !retryManager.appliedViewValidForPeriodical || retryManager.appliedView == nil {
+		t.Fatal("Retry did not publish a Full applied view")
 	}
-	// The chain must have performed real driver writes rather than reporting Full from
-	// pool coverage alone.
-	if writes == 0 {
-		t.Fatalf("proven Full performed zero physical writes; leafB not actually enforced")
+	if totalWrites == 0 {
+		t.Fatal("Retry performed zero physical writes; leaf handoff was not enforced")
 	}
-	// Both relocated leaves must actually land on targetB (real driver write + proof),
-	// releasing oldA from the live leaves.
 	if !liveA.Equals(replayTargetLeafB4) {
 		t.Fatalf("live-a leaf = %s, want targetB %s", liveA.String(), replayTargetLeafB4.String())
 	}
 	if !liveB.Equals(replayTargetLeafB4) {
 		t.Fatalf("live-b leaf = %s, want targetB %s", liveB.String(), replayTargetLeafB4.String())
 	}
-	// oldA is released from the relocated leaves: none of it remains on live-a/live-b.
 	if leftover := liveA.Union(liveB).Intersection(replayOldLeafCPUs); !leftover.IsEmpty() {
 		t.Fatalf("oldA not released from relocated leaves; leftover=%s on liveA=%s liveB=%s",
 			leftover.String(), liveA.String(), liveB.String())
 	}
-	// The exclusive isolation owner stays on oldA; it is not released by the relocation.
 	if !iso.Equals(replayOldLeafCPUs) {
 		t.Fatalf("isolation owner leaf = %s, must stay oldA %s", iso.String(), replayOldLeafCPUs.String())
 	}
-	// Projection true mapping: oldA projects onto the isolation owner identity exactly,
-	// and no share owner claims oldA.
-	isoProjected, ok := projectionCPUsFor(m.appliedView, xoIsoIdentity)
+	isoProjected, ok := projectionCPUsFor(retryManager.appliedView, xoIsoIdentity)
 	if !ok {
-		t.Fatalf("proven projection missing isolation owner %v; projection=%v",
-			xoIsoIdentity, m.appliedView.PoolProjection.CPUSetByIdentity)
+		t.Fatalf("Retry projection missing isolation owner %v; projection=%v",
+			xoIsoIdentity, retryManager.appliedView.PoolProjection.CPUSetByIdentity)
 	}
 	if !isoProjected.Equals(replayOldLeafCPUs) {
 		t.Fatalf("isolation projection = %s, want oldA %s", isoProjected.String(), replayOldLeafCPUs.String())
 	}
-	for identity, cpus := range m.appliedView.PoolProjection.CPUSetByIdentity {
-		if identity.Kind == model.CPUSetPoolKindShare &&
-			!cpus.Intersection(replayOldLeafCPUs).IsEmpty() {
-			t.Fatalf("share owner %v projected exclusive oldA; overlap=%s",
-				identity, cpus.Intersection(replayOldLeafCPUs).String())
-		}
-	}
-	// oldA remains on the isolated/non-reclaim side and never enters reclaim.
-	if !replayOldLeafCPUs.IsSubsetOf(m.appliedView.Isolation) &&
-		!replayOldLeafCPUs.IsSubsetOf(m.appliedView.NonReclaimPool) {
+	xoAssertShareExcludesOldA(t, "retry", retryManager.appliedView)
+	if !replayOldLeafCPUs.IsSubsetOf(retryManager.appliedView.Isolation) &&
+		!replayOldLeafCPUs.IsSubsetOf(retryManager.appliedView.NonReclaimPool) {
 		t.Fatalf("oldA %s not protected in isolation/non-reclaim; isolation=%s nonReclaim=%s",
-			replayOldLeafCPUs.String(), m.appliedView.Isolation.String(), m.appliedView.NonReclaimPool.String())
-	}
-	if overlap := m.appliedView.ReclaimEffective.Intersection(replayOldLeafCPUs); !overlap.IsEmpty() {
-		t.Fatalf("oldA %s must not enter proven reclaim; overlap=%s", replayOldLeafCPUs.String(), overlap.String())
+			replayOldLeafCPUs.String(), retryManager.appliedView.Isolation.String(), retryManager.appliedView.NonReclaimPool.String())
 	}
 }

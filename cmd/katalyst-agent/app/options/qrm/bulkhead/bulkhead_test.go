@@ -166,16 +166,13 @@ func TestBulkheadOptionsExposeAdmissionBudget(t *testing.T) {
 	options.AddFlags(fss)
 	fs := fss.FlagSet("cpu_resource_plugin")
 
-	require.NotNil(t, fs.Lookup("qrm-cpu-bulkhead-admission-leaf-defer"))
 	require.NotNil(t, fs.Lookup("qrm-cpu-bulkhead-admission-max-required-writes"))
 	require.NotNil(t, fs.Lookup("qrm-cpu-bulkhead-admission-safe-duration"))
-	require.NoError(t, fs.Set("qrm-cpu-bulkhead-admission-leaf-defer", "false"))
 	require.NoError(t, fs.Set("qrm-cpu-bulkhead-admission-max-required-writes", "64"))
 	require.NoError(t, fs.Set("qrm-cpu-bulkhead-admission-safe-duration", "750ms"))
 
 	conf := bulkheadconfig.NewBulkheadConfiguration()
 	require.NoError(t, options.ApplyTo(conf))
-	require.False(t, conf.EnableAdmissionLeafDefer)
 	require.Equal(t, 64, conf.AdmissionMaxRequiredWrites)
 	require.Equal(t, 750*time.Millisecond, conf.AdmissionSafeDuration)
 }
