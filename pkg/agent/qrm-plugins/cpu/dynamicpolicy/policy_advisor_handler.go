@@ -2779,14 +2779,12 @@ func (p *DynamicPolicy) applyAdvisorNonPoolContainerEntries(
 // re-picks by request quantity. Any configuration in which no complete physical
 // core survives is rejected fail-closed instead of silently shrinking to a
 // partial core.
-//
-// Shared-NUMA-binding (SNB) ramp-up allocations are skipped unconditionally here:
-// the bulkhead partition view already protects their exact CPUs from the final
-// reclaim pool (see BuildCPUSetPartitionView / ApplyTransientProtectedNonReclaim),
-// so the final reclaim pool excludes their cpusets. A residual overlap for an SNB
-// allocation is therefore a partition bug and is surfaced upstream as a typed
-// failure by validateRampUpReclaimMutualExclusion rather than being papered over
-// here.
+// Restoration applies to both plain shared and shared-NUMA-binding (SNB)
+// ramp-up allocations. The partition view normally protects an SNB's exact
+// CPUs, but a same-commit reclaim override can change the final reclaim set
+// after that protection view was built. Re-materializing from the SNB's own
+// remainder keeps its original NUMA scope while closing that revision window;
+// the terminal mutual-exclusion validator remains authoritative.
 func (p *DynamicPolicy) rematerializeRampUpSharedAgainstFinalReclaim(
 	newEntries state.PodEntries,
 ) error {
@@ -2844,12 +2842,6 @@ func (p *DynamicPolicy) rematerializeRampUpSharedAgainstReclaim(
 			if ai == nil || !ai.RampUp || !ai.CheckShared() || ai.CheckReclaimed() {
 				continue
 			}
-			// SNB ramp-up allocations are protected by the bulkhead partition view and
-			// are rematerialized nowhere here; a residual overlap fails upstream.
-			if ai.CheckSharedNUMABinding() {
-				continue
-			}
-
 			overlap := ai.AllocationResult.Intersection(excludeReclaim)
 			if overlap.IsEmpty() {
 				// zero-churn: already mutually exclusive with the final and the

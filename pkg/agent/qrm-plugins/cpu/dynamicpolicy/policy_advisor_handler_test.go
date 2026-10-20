@@ -2888,9 +2888,8 @@ func TestValidateAdvisorPartitionBeforeCommitRampUpSharedOverlapMatrix(t *testin
 
 // TestRematerializeRampUpSharedAgainstFinalReclaim unit-tests the canonical
 // rematerialization primitive directly: zero-churn skip, whole-core
-// re-selection, idempotence, both fail-closed errors, and the unconditional SNB
-// skip (SNB ramp-up is owned by the bulkhead partition view and is never
-// rematerialized here).
+// re-selection, idempotence, both fail-closed errors, and SNB re-selection
+// within the original single-NUMA allocation scope.
 func TestRematerializeRampUpSharedAgainstFinalReclaim(t *testing.T) {
 	t.Parallel()
 
@@ -3038,23 +3037,19 @@ func TestRematerializeRampUpSharedAgainstFinalReclaim(t *testing.T) {
 		require.True(t, policy.latestAppliedReclaimCPUSet().IsEmpty())
 	})
 
-	t.Run("SNB ramp-up is skipped unconditionally", func(t *testing.T) {
+	t.Run("SNB ramp-up already disjoint is unchanged", func(t *testing.T) {
 		t.Parallel()
 		entries := state.PodEntries{
-			"ramp-up-pod": {"main": rampUpEntry(machine.NewCPUSet(2, 6), true)},
+			"ramp-up-pod": {"main": rampUpEntry(machine.NewCPUSet(3, 7), true)},
 			commonstate.PoolNameReclaim: {
 				commonstate.FakedContainerName: reclaimEntry(machine.NewCPUSet(2, 6)),
 			},
 		}
-		// SNB ramp-up is owned by the bulkhead partition view; the rematerialization
-		// never touches it, even when its cpuset overlaps the final reclaim pool. A
-		// residual overlap is surfaced as a typed failure upstream by
-		// validateRampUpReclaimMutualExclusion, not papered over here.
 		require.NoError(t, policy.rematerializeRampUpSharedAgainstFinalReclaim(entries))
-		require.True(t, entries["ramp-up-pod"]["main"].AllocationResult.Equals(machine.NewCPUSet(2, 6)))
+		require.True(t, entries["ramp-up-pod"]["main"].AllocationResult.Equals(machine.NewCPUSet(3, 7)))
 	})
 
-	t.Run("SNB ramp-up overlapping reclaim is left untouched for upstream validation", func(t *testing.T) {
+	t.Run("SNB ramp-up is rematerialized within its NUMA after final reclaim changes", func(t *testing.T) {
 		t.Parallel()
 		entries := state.PodEntries{
 			"ramp-up-pod": {"main": rampUpEntry(machine.NewCPUSet(2, 3, 6, 7), true)},
@@ -3062,13 +3057,13 @@ func TestRematerializeRampUpSharedAgainstFinalReclaim(t *testing.T) {
 				commonstate.FakedContainerName: reclaimEntry(machine.NewCPUSet(2, 6)),
 			},
 		}
-		// No advised/preserved distinction any more: SNB ramp-up is skipped on every
-		// path, so the overlapping allocation stays as-is and the residual overlap
-		// becomes the upstream typed invariant.
 		require.NoError(t, policy.rematerializeRampUpSharedAgainstFinalReclaim(entries))
 		got := entries["ramp-up-pod"]["main"]
-		require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(2, 3, 6, 7)),
-			"SNB ramp-up must not be rematerialized here, got %s", got.AllocationResult.String())
+		require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(3, 7)),
+			"SNB ramp-up should keep the surviving whole core in its original NUMA, got %s", got.AllocationResult.String())
+		require.True(t, got.AllocationResult.Intersection(machine.NewCPUSet(2, 6)).IsEmpty())
+		require.Equal(t, machine.NewCPUSet(3, 7), got.TopologyAwareAssignments[1])
+		require.Empty(t, got.TopologyAwareAssignments[0])
 	})
 
 	t.Run("empty final reclaim is a no-op", func(t *testing.T) {
@@ -3171,14 +3166,12 @@ func TestDynamicPolicyApplyBlocksReusesRampUpAllocationWhenRampUpCPUsEmptyWithou
 		got.AllocationResult.String())
 }
 
-// TestDynamicPolicyApplyBlocksResidualSNBRampUpOverlapFailsClosed covers the
+// TestDynamicPolicyApplyBlocksSNBRampUpOverlapRematerializes covers the
 // unadvised SNB ramp-up branch: with AO=true no adjustment commit override is
-// built, so the raw advisor reclaim stays in place and overlaps the SNB
-// allocation. The rematerialization now skips SNB ramp-up unconditionally (it is
-// owned by the bulkhead partition view), so a residual overlap is no longer
-// papered over here and instead fails closed as a typed pre-commit partition
-// invariant.
-func TestDynamicPolicyApplyBlocksResidualSNBRampUpOverlapFailsClosed(t *testing.T) {
+// built, so the raw advisor reclaim overlaps the original SNB allocation. The
+// same final candidate must rematerialize the SNB within its original NUMA before
+// the terminal pre-commit mutual-exclusion check.
+func TestDynamicPolicyApplyBlocksSNBRampUpOverlapRematerializes(t *testing.T) {
 	t.Parallel()
 
 	policy, topology := newRampUpOverlapTestPolicy(t, true)
@@ -3214,19 +3207,20 @@ func TestDynamicPolicyApplyBlocksResidualSNBRampUpOverlapFailsClosed(t *testing.
 		},
 	}, false)
 
-	// AO=true && DD=false: no commit override is built, the advisor reclaim
-	// {2,6} overlaps the preserved SNB allocation {2,3,6,7}. Rematerialization
-	// skips SNB, so the residual overlap fails the pre-commit partition invariant.
+	// AO=true && DD=false: no commit override is built, so the advisor reclaim
+	// {2,6} overlaps the original SNB allocation {2,3,6,7}. The final candidate
+	// must keep only the surviving whole core {3,7} in NUMA1.
 	resp, blockCPUSet := rampUpOverlapTestResponse(true)
 
-	err = prepareAndCommitAdvisorBlocks(policy, blockCPUSet, resp, true)
-	require.ErrorContains(t, err, "ramp-up shared allocation overlaps the final reclaim pool")
+	require.NoError(t, prepareAndCommitAdvisorBlocks(policy, blockCPUSet, resp, true))
 
 	got := policy.state.GetAllocationInfo("snb-ramp-up-pod", "main")
 	require.NotNil(t, got)
-	// The SNB allocation was never rewritten by the skipped rematerialization.
-	require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(2, 3, 6, 7)),
-		"SNB ramp-up allocation must not be rematerialized, got %s", got.AllocationResult.String())
+	require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(3, 7)),
+		"SNB ramp-up allocation should be rematerialized within NUMA1, got %s", got.AllocationResult.String())
+	require.True(t, got.AllocationResult.Intersection(machine.NewCPUSet(2, 6)).IsEmpty())
+	require.Equal(t, machine.NewCPUSet(3, 7), got.TopologyAwareAssignments[1])
+	require.Empty(t, got.TopologyAwareAssignments[0])
 }
 
 // TestDynamicPolicyApplyBlocksRampUpRematerializationWithDefaultSharePool

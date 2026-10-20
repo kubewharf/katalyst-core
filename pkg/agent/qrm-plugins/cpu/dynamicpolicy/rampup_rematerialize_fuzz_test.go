@@ -79,21 +79,20 @@ func rematRampUpAllocation(topology *machine.CPUTopology, allocation machine.CPU
 // contract of rematerializeRampUpSharedAgainstFinalReclaim against randomly
 // generated ramp-up fleets and random final reclaim pools:
 //
-//   - Shared-NUMA-binding (SNB) ramp-up allocations are NEVER rewritten, no
-//     matter how badly they overlap the final reclaim pool: the bulkhead
-//     partition view owns their CPUs, and a residual overlap is a partition bug
-//     surfaced upstream, never papered over here.
-//   - Plain (non-SNB) shared ramp-up allocations, when the call succeeds, end
-//     up disjoint from the final reclaim pool, confined to their own original
-//     remainder (never widening into reclaim CPUs), and whole-core.
+//   - Plain and shared-NUMA-binding (SNB) ramp-up allocations, when the call
+//     succeeds, end up disjoint from the final reclaim pool, confined to their
+//     own original remainder (never widening into reclaim CPUs), and whole-core
+//     whenever rematerialization actually selects a replacement. SNB inputs are
+//     generated within one NUMA, so the subset invariant also proves the result
+//     never crosses its original NUMA scope.
 //   - The reclaim pool entry itself, steady (non-ramp-up) containers, and
 //     reclaimed-cores containers are never touched.
 //
-// Fail-closed configurations (a plain ramp-up fully covered by reclaim, or one
-// left without a complete physical core) surface as a non-nil error; on that
-// branch the plain allocations may be partially rewritten in iteration order,
-// so only the always-holds invariants (SNB/decoy/reclaim untouched) are
-// asserted.
+// Fail-closed configurations (a ramp-up allocation fully covered by reclaim, or
+// one left without a complete physical core) surface as a non-nil error; on that
+// branch allocations may be partially rewritten in iteration order, so only the
+// always-holds invariants (current/original allocation stay synchronized, decoys
+// and reclaim untouched) are asserted.
 func FuzzRampUpRematerializeInvariants(f *testing.F) {
 	f.Add(int64(1))
 	f.Add(int64(7))
@@ -107,39 +106,46 @@ func FuzzRampUpRematerializeInvariants(f *testing.F) {
 		require.NoError(t, err)
 
 		rng := rand.New(rand.NewSource(seed))
-		nCPU := topology.NumCPUs
 
-		// pickSubset returns a random non-empty subset of 0..nCPU-1.
-		pickSubset := func() machine.CPUSet {
+		// pickSubsetFrom returns a random non-empty subset of candidates.
+		pickSubsetFrom := func(candidates machine.CPUSet) machine.CPUSet {
 			set := machine.NewCPUSet()
-			for cpu := 0; cpu < nCPU; cpu++ {
+			for _, cpu := range candidates.ToSliceInt() {
 				if rng.Intn(2) == 0 {
 					set.Add(cpu)
 				}
 			}
 			if set.IsEmpty() {
-				set.Add(rng.Intn(nCPU))
+				cpus := candidates.ToSliceInt()
+				set.Add(cpus[rng.Intn(len(cpus))])
 			}
 			return set
 		}
+		pickSubset := func() machine.CPUSet {
+			return pickSubsetFrom(topology.CPUDetails.CPUs())
+		}
 
 		type track struct {
-			snb  bool
 			orig machine.CPUSet
 		}
 		entries := state.PodEntries{}
 		tracked := map[string]track{}
 
-		// A random fleet of 1..4 ramp-up shared containers, half SNB.
+		// A random fleet of 1..4 ramp-up shared containers, half SNB. Real SNB
+		// allocations are single-NUMA, so generate them from one NUMA's CPU set.
 		nPods := 1 + rng.Intn(4)
 		for i := 0; i < nPods; i++ {
-			cpus := pickSubset()
 			snb := rng.Intn(2) == 0
+			cpus := pickSubset()
+			if snb {
+				numaID := rng.Intn(topology.NumNUMANodes)
+				cpus = pickSubsetFrom(topology.CPUDetails.CPUsInNUMANodes(numaID))
+			}
 			ai := rematRampUpAllocation(topology, cpus, snb)
 			pod := string(rune('a'+i)) + "-ramp"
 			ai.PodUid = pod
 			entries[pod] = state.ContainerEntries{"main": ai}
-			tracked[pod] = track{snb: snb, orig: cpus.Clone()}
+			tracked[pod] = track{orig: cpus.Clone()}
 		}
 
 		// Decoy containers that must never be rewritten:
@@ -148,14 +154,14 @@ func FuzzRampUpRematerializeInvariants(f *testing.F) {
 		steady.RampUp = false
 		steady.PodUid = "steady"
 		entries["steady"] = state.ContainerEntries{"main": steady}
-		tracked["steady"] = track{snb: false, orig: steady.AllocationResult.Clone()}
+		tracked["steady"] = track{orig: steady.AllocationResult.Clone()}
 
 		//  - a reclaimed-cores ramp-up container (skipped via CheckReclaimed()).
 		reclaimed := rematRampUpAllocation(topology, pickSubset(), false)
 		reclaimed.QoSLevel = apiconsts.PodAnnotationQoSLevelReclaimedCores
 		reclaimed.PodUid = "reclaimed"
 		entries["reclaimed"] = state.ContainerEntries{"main": reclaimed}
-		tracked["reclaimed"] = track{snb: false, orig: reclaimed.AllocationResult.Clone()}
+		tracked["reclaimed"] = track{orig: reclaimed.AllocationResult.Clone()}
 
 		// Random final reclaim pool. Allow it to be empty (no-op path) as well.
 		reclaimResult := pickSubset()
@@ -179,41 +185,35 @@ func FuzzRampUpRematerializeInvariants(f *testing.F) {
 		for pod, tr := range tracked {
 			ai := entries[pod]["main"]
 			require.NotNil(t, ai)
-			if tr.snb {
-				// SNB ramp-up is unconditionally skipped: identical even on error.
-				require.True(t, ai.AllocationResult.Equals(tr.orig),
-					"seed=%d: SNB ramp-up %s rewritten: before=%s after=%s", seed, pod, tr.orig, ai.AllocationResult)
-				require.True(t, ai.OriginalAllocationResult.Equals(tr.orig),
-					"seed=%d: SNB ramp-up %s OriginalAllocationResult rewritten", seed, pod)
-				continue
-			}
+			require.True(t, ai.OriginalAllocationResult.Equals(ai.AllocationResult),
+				"seed=%d: %s current/original allocation diverged: current=%s original=%s",
+				seed, pod, ai.AllocationResult, ai.OriginalAllocationResult)
 			if pod == "steady" || pod == "reclaimed" {
 				// Non-ramp-up / reclaimed decoys are always skipped.
 				require.True(t, ai.AllocationResult.Equals(tr.orig),
 					"seed=%d: decoy %s mutated: before=%s after=%s", seed, pod, tr.orig, ai.AllocationResult)
 				continue
 			}
-			// Plain ramp-up: only constrain when the call succeeded; on a
-			// fail-closed error earlier plain entries may already have been
-			// rewritten and later ones left untouched, so nothing deterministic
-			// can be said.
+			// Ramp-up shared/SNB: only constrain when the call succeeded; on a
+			// fail-closed error earlier entries may already have been rewritten
+			// and later ones left untouched, so nothing deterministic can be said.
 			if err == nil {
 				overlap := ai.AllocationResult.Intersection(reclaimResult)
 				require.True(t, overlap.IsEmpty(),
-					"seed=%d: plain ramp-up %s still overlaps reclaim: alloc=%s reclaim=%s overlap=%s",
+					"seed=%d: ramp-up %s still overlaps reclaim: alloc=%s reclaim=%s overlap=%s",
 					seed, pod, ai.AllocationResult, reclaimResult, overlap)
-				// Never widen beyond (original - reclaim).
+				// Never widen beyond (original - reclaim). For SNB this also
+				// proves the result stays inside its original single-NUMA scope.
 				require.True(t, ai.AllocationResult.IsSubsetOf(tr.orig.Difference(reclaimResult)),
-					"seed=%d: plain ramp-up %s widened: after=%s not subset of orig-minus-reclaim(%s - %s)",
+					"seed=%d: ramp-up %s widened: after=%s not subset of orig-minus-reclaim(%s - %s)",
 					seed, pod, ai.AllocationResult, tr.orig, reclaimResult)
 				// Whole-core alignment only applies to entries the rematerialization
-				// actually re-selected (those that originally overlapped reclaim). A
-				// plain ramp-up that was already disjoint takes the zero-churn path and
-				// keeps its arbitrary original cpuset, which need not be whole-core.
+				// actually re-selected. An already-disjoint allocation takes the
+				// zero-churn path and may retain an arbitrary original cpuset.
 				if origOverlap := tr.orig.Intersection(reclaimResult); !origOverlap.IsEmpty() &&
 					!ai.AllocationResult.IsEmpty() {
 					require.True(t, isWholeCore(topology, ai.AllocationResult),
-						"seed=%d: rematerialized plain ramp-up %s result %s is not whole-core",
+						"seed=%d: rematerialized ramp-up %s result %s is not whole-core",
 						seed, pod, ai.AllocationResult)
 				}
 			}

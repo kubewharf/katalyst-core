@@ -769,9 +769,10 @@ func TestAllocateSharedNumaBindingCPUsMarksColdStartRampUp(t *testing.T) {
 // CommitOverride sync remains a defense-in-depth safety net for already-committed
 // SNBs but has nothing to trim here.
 //
-// With allow-overlap on (protection disabled) the selector leaves the reclaim
-// floor in the domain, so the residual overlap remains a typed fail-closed
-// precommit error rather than being silently shrunk.
+// With allow-overlap on (selection-time protection disabled) the selector may
+// leave reclaim CPUs in the initial allocation. A partial overlap is repaired
+// from that allocation's own NUMA-local remainder before precommit; complete
+// coverage still fails closed because rematerialization never widens the scope.
 func TestSharedNUMABindingRampUpSelectionExcludesReclaimFloor(t *testing.T) {
 	t.Parallel()
 
@@ -845,14 +846,14 @@ func TestSharedNUMABindingRampUpSelectionExcludesReclaimFloor(t *testing.T) {
 			"reclaim floor must survive intact at selection time: want %s, got %s", plannedReclaim, reclaim.AllocationResult)
 	})
 
-	t.Run("protection disabled fails closed on residual overlap", func(t *testing.T) {
+	t.Run("protection disabled still fails closed when final reclaim fully covers SNB", func(t *testing.T) {
 		t.Parallel()
 		policy := createPolicy(t, true)
 
 		err := policy.adjustAllocationEntriesWithRampUpFloor(
 			policy.state.GetPodEntries(), policy.state.GetMachineState(),
 			false, machine.NewCPUSet(1), false)
-		require.ErrorContains(t, err, "ramp-up shared allocation overlaps the final reclaim pool")
+		require.ErrorContains(t, err, "ramp-up shared allocation is completely covered by the final reclaim pool")
 	})
 }
 
@@ -1100,14 +1101,19 @@ func TestSNBRampUpFloorExclusionMatrix(t *testing.T) {
 		require.True(t, got.AllocationResult.IsSubsetOf(p.machine.machineInfo.CPUTopology.CPUDetails.CPUsInNUMANodes(0)))
 	})
 
-	t.Run("overlap permitted still fails closed under hard partition", func(t *testing.T) {
+	t.Run("overlap-permitted selection is rematerialized under hard partition", func(t *testing.T) {
 		t.Parallel()
 		p := newPolicy(t, true, true)
-		// With the hard partition on, shared/reclaim overlap is not actually permitted:
-		// the selector leaves the reclaim floor in the domain and the precommit
-		// residual-overlap validator rejects the commit instead.
-		err := placeSNB(t, p, "snb-ovl", 0, machine.NewCPUSet(4, 68))
-		require.Error(t, err, "overlap cannot be allowed while the ramp-up hard partition is on")
+		// Selection-time protection is disabled in overlap mode, but the hard
+		// partition still requires terminal mutual exclusion. The final candidate
+		// therefore keeps a whole-core subset of the original NUMA allocation.
+		require.NoError(t, placeSNB(t, p, "snb-ovl", 0, machine.NewCPUSet(4, 68)))
+		got := p.state.GetAllocationInfo("snb-ovl", "main")
+		require.NotNil(t, got)
+		numa0 := p.machine.machineInfo.CPUTopology.CPUDetails.CPUsInNUMANodes(0)
+		require.True(t, got.AllocationResult.IsSubsetOf(numa0))
+		require.True(t, got.AllocationResult.Intersection(machine.NewCPUSet(4, 68)).IsEmpty())
+		require.True(t, isWholeCore(p.machine.machineInfo.CPUTopology, got.AllocationResult))
 	})
 
 	t.Run("non-zero reclaim without floor still admits", func(t *testing.T) {
@@ -8737,12 +8743,11 @@ func TestApplyPoolsAndIsolatedInfoSteadySharedUnaffectedByHardPartition(t *testi
 	require.False(t, got.RampUp, "steady pod must not have RampUp flag")
 }
 
-// TestApplyPoolsAndIsolatedInfoSNBRampUpResidualOverlapFailsClosed covers the
-// SNB (SharedNUMABinding) ramp-up branch on the pool-adjustment path: SNB
-// ramp-up is skipped by the rematerialization (it is owned by the bulkhead
-// partition view), so a residual overlap with the final reclaim pool fails the
-// pre-commit partition invariant as a typed error instead of being rematerialized.
-func TestApplyPoolsAndIsolatedInfoSNBRampUpResidualOverlapFailsClosed(t *testing.T) {
+// TestApplyPoolsAndIsolatedInfoSNBRampUpOverlapRematerializes covers the SNB
+// (SharedNUMABinding) ramp-up branch on the pool-adjustment path. The final
+// reclaim candidate changes after the partition protection view was built, so
+// the SNB is rematerialized from its own NUMA-local remainder before precommit.
+func TestApplyPoolsAndIsolatedInfoSNBRampUpOverlapRematerializes(t *testing.T) {
 	t.Parallel()
 
 	p := newPoolAdjustmentRampUpTestPolicy(t, true, true)
@@ -8795,13 +8800,15 @@ func TestApplyPoolsAndIsolatedInfoSNBRampUpResidualOverlapFailsClosed(t *testing
 		p.state.GetRevision(),
 		p.config.dynamicConfig.GetDynamicConfiguration(),
 	)
-	require.ErrorContains(t, err, "ramp-up shared allocation overlaps the final reclaim pool")
+	require.NoError(t, err)
 
 	got := p.state.GetAllocationInfo("snb-ramp-up-pod", "main")
 	require.NotNil(t, got)
-	// The SNB allocation was never rewritten by the skipped rematerialization.
-	require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(2, 3, 6, 7)),
-		"SNB ramp-up allocation must not be rematerialized: %s", got.AllocationResult.String())
+	require.True(t, got.AllocationResult.Equals(machine.NewCPUSet(3, 7)),
+		"SNB ramp-up allocation should keep the surviving NUMA1 whole core: %s", got.AllocationResult.String())
+	require.True(t, got.AllocationResult.Intersection(machine.NewCPUSet(2, 6)).IsEmpty())
+	require.Equal(t, machine.NewCPUSet(3, 7), got.TopologyAwareAssignments[1])
+	require.Empty(t, got.TopologyAwareAssignments[0])
 }
 
 // TestApplyPoolsAndIsolatedInfoReservesFloorWhenSNBRampUpSelected covers
@@ -9028,6 +9035,7 @@ func TestApplyPoolsAndIsolatedInfoKeepsZeroCPUDefaultShareUnowned(t *testing.T) 
 	}
 
 	t.Run("authoritative zero request without ownership stays empty", func(t *testing.T) {
+		t.Parallel()
 		p, err := run(t, newAllocation())
 		require.NoError(t, err)
 		got := p.state.GetAllocationInfo("zero-cpu-pod", "main")
@@ -9062,6 +9070,7 @@ func TestApplyPoolsAndIsolatedInfoKeepsZeroCPUDefaultShareUnowned(t *testing.T) 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name+" remains fail closed", func(t *testing.T) {
+			t.Parallel()
 			a := newAllocation()
 			tt.mutate(a)
 			_, err := run(t, a)
