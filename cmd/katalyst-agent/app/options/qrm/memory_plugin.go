@@ -47,6 +47,7 @@ type MemoryOptions struct {
 
 	SockMemOptions
 	LogCacheOptions
+	NumaMemCompactOptions
 	ResctrlOptions
 }
 
@@ -73,6 +74,13 @@ type LogCacheOptions struct {
 	PathList []string
 	// Keywords for recognizing log files
 	FileFilters []string
+}
+
+type NumaMemCompactOptions struct {
+	// CheckInterval is the heartbeat and task scheduling period of the numacompact handler.
+	// The idle-NUMA gate switch (EnableNumaMemCompact) is dynamic (AdminQoSConfiguration),
+	// so it is not a static option here.
+	CheckInterval time.Duration
 }
 
 type ResctrlOptions struct {
@@ -119,6 +127,9 @@ func NewMemoryOptions() *MemoryOptions {
 			MaxInterval:            time.Second * 60 * 60 * 2,
 			PathList:               []string{},
 			FileFilters:            []string{".*\\.log.*"},
+		},
+		NumaMemCompactOptions: NumaMemCompactOptions{
+			CheckInterval: qrmconfig.DefaultNumaMemCompactCheckInterval,
 		},
 		ResctrlOptions: ResctrlOptions{
 			EnableResctrlHint:                     false,
@@ -183,6 +194,9 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringSliceVar(&o.FileFilters, "qrm-memory-logcache-file-filters",
 		o.FileFilters, "string list to filter log files, default to *log*")
 
+	fs.DurationVar(&o.CheckInterval, "qrm-memory-numa-compact-check-interval",
+		o.CheckInterval, "the heartbeat and task scheduling period of the numacompact handler; values below 10s use the 10s default")
+
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
 	fs.BoolVar(&o.EnableResctrlGroupLifecycleManagement, "enable-resctrl-group-lifecycle-management",
@@ -226,6 +240,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.MaxInterval = o.MaxInterval
 	conf.PathList = o.PathList
 	conf.FileFilters = o.FileFilters
+	conf.NumaMemCompactCheckInterval = qrmconfig.ClampNumaMemCompactCheckInterval(o.CheckInterval)
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.EnableResctrlGroupLifecycleManagement = o.EnableResctrlGroupLifecycleManagement
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup

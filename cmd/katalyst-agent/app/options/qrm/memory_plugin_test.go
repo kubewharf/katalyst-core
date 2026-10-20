@@ -18,12 +18,52 @@ package qrm
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
+
+func TestNewMemoryOptionsDefaultsNumaMemCompact(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	o := NewMemoryOptions()
+
+	as.Equal(10*time.Second, qrmconfig.DefaultNumaMemCompactCheckInterval)
+	as.Equal(10*time.Second, qrmconfig.MinNumaMemCompactCheckInterval)
+	as.Equal(qrmconfig.DefaultNumaMemCompactCheckInterval, o.CheckInterval)
+}
+
+func TestMemoryOptionsClampNumaMemCompactCheckInterval(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{name: "negative", interval: -time.Second, want: 10 * time.Second},
+		{name: "zero", interval: 0, want: 10 * time.Second},
+		{name: "below minimum", interval: time.Second, want: 10 * time.Second},
+		{name: "minimum", interval: 10 * time.Second, want: 10 * time.Second},
+		{name: "above minimum", interval: 30 * time.Second, want: 30 * time.Second},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			o := NewMemoryOptions()
+			o.CheckInterval = tc.interval
+			conf := qrmconfig.NewMemoryQRMPluginConfig()
+
+			require.NoError(t, o.ApplyTo(conf))
+			require.Equal(t, tc.want, conf.NumaMemCompactCheckInterval)
+		})
+	}
+}
 
 func TestNewMemoryOptions_Defaults_LogCache(t *testing.T) {
 	t.Parallel()

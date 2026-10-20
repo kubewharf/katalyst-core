@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/fragmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/hostwatermark"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/numacompact"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
@@ -54,6 +55,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -164,6 +166,10 @@ type DynamicPolicy struct {
 	enableEvictingLogCache  bool
 	logCacheEvictionManager logcache.Manager
 
+	// numaMemCompactCheckInterval is the configurable scanning period of the numacompact
+	// NumaMemCompact handler.
+	numaMemCompactCheckInterval time.Duration
+
 	enableReclaimNUMABinding                      bool
 	enableSNBHighNumaPreference                   bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
@@ -239,6 +245,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableOOMPriority:           conf.EnableOOMPriority,
 		oomPriorityMapPinnedPath:    conf.OOMPriorityPinnedMapAbsPath,
 		enableEvictingLogCache:      conf.EnableEvictingLogCache,
+		numaMemCompactCheckInterval: conf.NumaMemCompactCheckInterval,
 		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
 		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter, stateImpl),
@@ -452,13 +459,25 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}
 
-	// The handlers for SetMemCompact, SetMemTHP, SetHostWatermark are always registered, whether they are enabled or not
-	// is determined by dynamically configured enable flags EnableFragMem or EnableHostWatermark.
+	// The handlers for SetMemCompact, NumaMemCompact, SetMemTHP, SetHostWatermark are always registered,
+	// whether they are enabled or not is determined by dynamically configured enable flags (EnableFragMem,
+	// EnableNumaMemCompact or EnableHostWatermark).
 	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetMemCompact,
 		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
 		fragmem.SetMemCompact, 1800*time.Second, healthCheckTolerationTimes)
 	if err != nil {
 		general.Infof("setFragMem failed, err=%v", err)
+	}
+
+	// NumaMemCompact proactively compacts memory on idle NUMA nodes. It is a standalone feature,
+	// independent of fragmem, and both may take effect simultaneously. Its scanning period is
+	// configurable via the static flag; the dynamic EnableNumaMemCompact switch gates the work.
+	numaMemCompactPeriod := qrmconfig.ClampNumaMemCompactCheckInterval(p.numaMemCompactCheckInterval)
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.NumaMemCompact,
+		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		numacompact.NumaMemCompact, numaMemCompactPeriod, healthCheckTolerationTimes)
+	if err != nil {
+		general.Infof("setNumaMemCompact failed, err=%v", err)
 	}
 
 	// THP related handler, runs more frequently.

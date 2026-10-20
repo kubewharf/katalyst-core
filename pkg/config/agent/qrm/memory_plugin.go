@@ -57,8 +57,35 @@ type MemoryQRMPluginConfig struct {
 	SockMemQRMPluginConfig
 	// LogCacheQRMPluginConfig: the configuration for logcache evicting
 	LogCacheQRMPluginConfig
+	// NumaMemCompactConfig: the configuration for proactively compacting memory on idle NUMA nodes
+	NumaMemCompactConfig
 	// ResctrlConfig: the configuration for resctrl FS related hints
 	ResctrlConfig
+}
+
+// NumaMemCompactConfig holds the static configuration for the numacompact idle-NUMA compaction
+// handler. The idle-NUMA gate switch (EnableNumaMemCompact) is dynamic (see
+// NumaMemCompactConfiguration / AdminQoSConfiguration) so it can be targeted per machine-type;
+// only the handler period is configured statically.
+type NumaMemCompactConfig struct {
+	// NumaMemCompactCheckInterval is how often the handler updates its heartbeat and starts a scan
+	// if no task is running. Values below MinNumaMemCompactCheckInterval use the default period.
+	NumaMemCompactCheckInterval time.Duration
+}
+
+const (
+	// DefaultNumaMemCompactCheckInterval is the default handler heartbeat and scheduling period.
+	DefaultNumaMemCompactCheckInterval = 10 * time.Second
+	// MinNumaMemCompactCheckInterval prevents an excessively frequent handler loop.
+	MinNumaMemCompactCheckInterval = 10 * time.Second
+)
+
+// ClampNumaMemCompactCheckInterval returns the default for values below the supported minimum.
+func ClampNumaMemCompactCheckInterval(interval time.Duration) time.Duration {
+	if interval < MinNumaMemCompactCheckInterval {
+		return DefaultNumaMemCompactCheckInterval
+	}
+	return interval
 }
 
 type SockMemQRMPluginConfig struct {

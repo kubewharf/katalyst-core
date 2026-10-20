@@ -30,6 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/compaction"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -529,5 +530,5 @@ func TestSetDelayTimes(t *testing.T) {
 
 func TestSetHostCompact(t *testing.T) {
 	t.Parallel()
-	setHostMemCompact(25535)
+	compaction.CompactMemoryNodeFn(25535)
 }

@@ -26,18 +26,21 @@ import (
 type MemoryPluginOptions struct {
 	*FragMemOptions
 	*HostWatermarkOptions
+	*NumaMemCompactOptions
 }
 
 func NewMemoryPluginOptions() *MemoryPluginOptions {
 	return &MemoryPluginOptions{
-		FragMemOptions:       NewFragMemOptions(),
-		HostWatermarkOptions: NewHostWatermarkOptions(),
+		FragMemOptions:        NewFragMemOptions(),
+		HostWatermarkOptions:  NewHostWatermarkOptions(),
+		NumaMemCompactOptions: NewNumaMemCompactOptions(),
 	}
 }
 
 func (o *MemoryPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.FragMemOptions.AddFlags(fss)
 	o.HostWatermarkOptions.AddFlags(fss)
+	o.NumaMemCompactOptions.AddFlags(fss)
 }
 
 func (o *MemoryPluginOptions) ApplyTo(c *dynamicqrm.MemoryPluginConfiguration) error {
@@ -45,5 +48,6 @@ func (o *MemoryPluginOptions) ApplyTo(c *dynamicqrm.MemoryPluginConfiguration) e
 
 	errList = append(errList, o.FragMemOptions.ApplyTo(c.FragMemConfiguration))
 	errList = append(errList, o.HostWatermarkOptions.ApplyTo(c.HostWatermarkConfiguration))
+	errList = append(errList, o.NumaMemCompactOptions.ApplyTo(c.NumaMemCompactConfiguration))
 	return errors.NewAggregate(errList)
 }

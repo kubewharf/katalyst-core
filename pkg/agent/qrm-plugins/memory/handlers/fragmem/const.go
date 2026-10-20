@@ -19,7 +19,6 @@ package fragmem
 const (
 	// Constants for fragmem related kernel features
 	hostCompactProactivenessFile = "/proc/sys/vm/compaction_proactiveness"
-	hostMemNodePath              = "/sys/devices/system/node/node"
 
 	fragScoreMin      = 60.0
 	fragScoreMax      = 95.0
@@ -27,8 +26,6 @@ const (
 	delayCompactTimes = 10
 	sleepCompactTime  = 10
 	minHostLoad       = 100
-
-	commandKcompactd = "kcompactd"
 )
 
 const (
