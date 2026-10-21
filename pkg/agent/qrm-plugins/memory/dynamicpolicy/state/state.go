@@ -318,6 +318,19 @@ func (ns *NUMANodeState) HasSharedOrDedicatedNUMABindingPods() bool {
 	return false
 }
 
+// HasSharedOrDedicatedPods returns true if any AllocationInfo in this NUMANodeState belongs to an
+// online business pod, i.e. a pod with shared_cores or dedicated_cores QoS level. Reclaimed_cores
+// (offline/colocated) and system_cores (system components) pods are not treated as online business.
+func (ns *NUMANodeState) HasSharedOrDedicatedPods() bool {
+	if ns == nil {
+		return false
+	}
+
+	return ns.ExistMatchedAllocationInfo(func(ai *AllocationInfo) bool {
+		return ai != nil && (ai.CheckShared() || ai.CheckDedicated())
+	})
+}
+
 // HasDedicatedNUMABindingAndNUMAExclusivePods returns true if any AllocationInfo in this NUMANodeState is for dedicated with numa-binding and
 // numa-exclusive
 func (ns *NUMANodeState) HasDedicatedNUMABindingAndNUMAExclusivePods() bool {

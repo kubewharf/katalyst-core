@@ -21,16 +21,19 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 type MemoryPluginConfiguration struct {
 	*FragMemConfiguration
 	*HostWatermarkConfiguration
+	*NumaMemCompactConfiguration
 }
 
 func NewMemoryPluginConfiguration() *MemoryPluginConfiguration {
 	return &MemoryPluginConfiguration{
-		FragMemConfiguration:       NewFragMemConfiguration(),
-		HostWatermarkConfiguration: NewHostWatermarkConfiguration(),
+		FragMemConfiguration:        NewFragMemConfiguration(),
+		HostWatermarkConfiguration:  NewHostWatermarkConfiguration(),
+		NumaMemCompactConfiguration: NewNumaMemCompactConfiguration(),
 	}
 }
 
 func (c *MemoryPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.FragMemConfiguration.ApplyConfiguration(conf)
 	c.HostWatermarkConfiguration.ApplyConfiguration(conf)
+	c.NumaMemCompactConfiguration.ApplyConfiguration(conf)
 }

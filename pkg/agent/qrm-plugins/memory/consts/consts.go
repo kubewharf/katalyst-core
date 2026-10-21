@@ -36,5 +36,6 @@ const (
 	DropCache                     = MemoryPluginDynamicPolicyName + "_drop_cache"
 	EvictLogCache                 = MemoryPluginDynamicPolicyName + "_evict_log_cache"
 	SetMemCompact                 = MemoryPluginDynamicPolicyName + "_mem_compact"
+	NumaMemCompact                = MemoryPluginDynamicPolicyName + "_numa_mem_compact"
 	SetMemTHP                     = MemoryPluginDynamicPolicyName + "_mem_thp"
 )
