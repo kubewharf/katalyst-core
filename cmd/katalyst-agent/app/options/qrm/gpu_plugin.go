@@ -17,6 +17,8 @@ limitations under the License.
 package qrm
 
 import (
+	"strings"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -47,6 +49,8 @@ type GPUOptions struct {
 	VirtualGPUDisableEnvsInjectionAnnotationKey string
 	VirtualGPUTimesliceEnvValue                 int
 	VirtualGPUComputePolicyEnvValue             int
+	EnableHybridAccompanyResourceAllocation     bool
+	AccompanyResourceSharedAnnotationKey        string
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
 }
@@ -120,6 +124,13 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.VirtualGPUTimesliceEnvValue, "The environment variable value for Virtual GPU timeslice")
 	fs.IntVar(&o.VirtualGPUComputePolicyEnvValue, "virtual-gpu-compute-policy-env-value",
 		o.VirtualGPUComputePolicyEnvValue, "The environment variable value for Virtual GPU compute policy")
+	fs.BoolVar(&o.EnableHybridAccompanyResourceAllocation, "enable-hybrid-accompany-resource-allocation",
+		o.EnableHybridAccompanyResourceAllocation,
+		"enable ceiling-rounded resource allocation and annotation-controlled sharing; "+
+			"restrict allocation to the resolved target device for each accompany-resource device")
+	fs.StringVar(&o.AccompanyResourceSharedAnnotationKey, "accompany-resource-shared-annotation-key",
+		o.AccompanyResourceSharedAnnotationKey,
+		"optional pod annotation key that requests shared device allocation; an empty key keeps allocations exclusive")
 	o.GPUStrategyOptions.AddFlags(fss)
 }
 
@@ -153,6 +164,9 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.VirtualGPUComputePolicyEnvValue = o.VirtualGPUComputePolicyEnvValue
 	conf.GPUSelectionResultAnnotationKey = o.GPUSelectionResultAnnotationKey
 	conf.VirtualGPUDisableEnvsInjectionAnnotationKey = o.VirtualGPUDisableEnvsInjectionAnnotationKey
+	annotationKey := strings.TrimSpace(o.AccompanyResourceSharedAnnotationKey)
+	conf.EnableHybridAccompanyResourceAllocation = o.EnableHybridAccompanyResourceAllocation
+	conf.AccompanyResourceSharedAnnotationKey = annotationKey
 	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
 		return err
 	}
