@@ -184,6 +184,17 @@ func TestRDMADevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 
 	// Compare device contents; ignore dynamic UpdateTime field
 	assert.Equal(t, expectedDeviceTopology.Devices, deviceTopology.Devices)
+
+	// An empty update clears the previous device topology.
+	resp, err = devicePlugin.UpdateAllocatableAssociatedDevices(context.Background(), &pluginapi.UpdateAllocatableAssociatedDevicesRequest{
+		DeviceName: "test-rdma",
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+
+	deviceTopology, err = gpuDevicePlugin.DeviceTopologyRegistry.GetDeviceTopology(basePlugin.Conf.RDMADeviceNames[0])
+	assert.NoError(t, err)
+	assert.Empty(t, deviceTopology.Devices)
 }
 
 func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
@@ -202,6 +213,9 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 		machineState                    state.AllocationResourcesMap
 		expectedErr                     bool
 		expectedResp                    *pluginapi.AssociatedDeviceAllocationResponse
+		requestAnnotations              map[string]string
+		keptAnnotationKeys              []string
+		expectedAnnotations             map[string]string
 		// isRandomAllocation is true if there is more than one possible allocation
 		isRandomAllocation   bool
 		expectedNumAllocated int
@@ -276,6 +290,12 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 				AllocationResult: &pluginapi.AssociatedDeviceAllocation{
 					AllocatedDevices: []string{"test-rdma-2", "test-rdma-3"},
 				},
+			},
+			requestAnnotations: map[string]string{"example.com/rdma-shared": "true", "example.com/ignored": "value"},
+			keptAnnotationKeys: []string{"example.com/rdma-shared"},
+			expectedAnnotations: map[string]string{
+				"example.com/rdma-shared":         "true",
+				"katalyst.kubewharf.io/qos_level": "shared_cores",
 			},
 		},
 		{
@@ -465,6 +485,7 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
+			basePlugin.PodAnnotationKeptKeys = append(basePlugin.PodAnnotationKeptKeys, tt.keptAnnotationKeys...)
 			devicePlugin := NewRDMADevicePlugin(basePlugin)
 
 			if tt.allocationInfo != nil {
@@ -499,6 +520,7 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			resourceReq := &pluginapi.ResourceRequest{
 				PodUid:        tt.podUID,
 				ContainerName: tt.containerName,
+				Annotations:   tt.requestAnnotations,
 			}
 
 			resp, err := devicePlugin.AllocateAssociatedDevice(context.Background(), resourceReq, tt.deviceReq, tt.accompanyResourceName)
@@ -516,6 +538,9 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 				allocationInfo := basePlugin.GetState().GetAllocationInfo(gpuconsts.RDMADeviceType, tt.podUID, tt.containerName)
 				assert.NotNil(t, allocationInfo)
 				assert.Equal(t, float64(len(resp.AllocationResult.AllocatedDevices)), allocationInfo.AllocatedAllocation.Quantity)
+				if tt.expectedAnnotations != nil {
+					assert.Equal(t, tt.expectedAnnotations, allocationInfo.Annotations)
+				}
 			}
 		})
 	}

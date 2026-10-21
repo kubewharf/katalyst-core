@@ -22,15 +22,28 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 )
 
-// IsBindingContextValid checks if the context given for binding is valid
-func IsBindingContextValid(ctx *allocate.AllocationContext, sortedDevices []string) (bool, string) {
+// IsBindingContextValid checks if the context given for binding is valid.
+func IsBindingContextValid(
+	ctx *allocate.AllocationContext,
+	sortedDevices []string,
+	skipDeviceAvailabilityCheck bool,
+) (bool, string) {
+	if ctx == nil {
+		return false, "allocation context is nil"
+	}
+	if ctx.DeviceReq == nil {
+		return false, "device request is nil"
+	}
+	if ctx.ResourceReq == nil {
+		return false, "resource request is nil"
+	}
 	if ctx.DeviceTopologyRegistry == nil {
 		return false, "GPU topology registry is nil"
 	}
 
 	// Determine how many devices to allocate
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)
-	if devicesToAllocate > len(sortedDevices) {
+	if !skipDeviceAvailabilityCheck && devicesToAllocate > len(sortedDevices) {
 		return false, fmt.Sprintf("not enough devices: need %d, have %d", devicesToAllocate, len(sortedDevices))
 	}
 
