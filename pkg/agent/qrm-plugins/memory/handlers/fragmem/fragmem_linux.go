@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/compaction"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
@@ -34,7 +35,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
 var (
@@ -97,15 +97,13 @@ func memCompacWithBestEffort(fragScoreAsync int, metaServer *metaserver.MetaServ
 			continue
 		}
 
-		// Step 2, check if kcompactd is in D state
-		if process.IsCommandInDState(commandKcompactd) {
-			general.Infof("kcompactd is in D state")
-			return
+		// Step 2 & 3, compact this NUMA node unless its own kcompactd is busy (R/D state). If the
+		// node was skipped because kcompactd is busy, move on to the next node; otherwise emit the
+		// fragmem compaction metric.
+		if !compaction.TryCompactNUMANode(numaID) {
+			continue
 		}
-
-		// Step 3, do memory compaction in node level
 		_ = emitter.StoreInt64(metricNameMemoryCompaction, 1, metrics.MetricTypeNameRaw)
-		setHostMemCompact(numaID)
 		time.Sleep(sleepCompactTime * time.Second)
 
 		// Step 4, if memory compaction is not effective, extend the check interval

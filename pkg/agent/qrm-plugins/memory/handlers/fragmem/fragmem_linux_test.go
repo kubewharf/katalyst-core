@@ -624,8 +624,3 @@ func TestSetDelayTimes(t *testing.T) {
 	SetDelayTimes(-5)
 	assert.Equal(t, -5, GetDelayTimes(), "Expected delayTimes to be -5")
 }
-
-func TestSetHostCompact(t *testing.T) {
-	t.Parallel()
-	setHostMemCompact(25535)
-}

@@ -20,7 +20,6 @@ limitations under the License.
 package fragmem
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -49,9 +48,4 @@ func checkCompactionProactivenessDisabled(filePath string) bool {
 
 	// Return false if value is greater than 0
 	return value <= 0
-}
-
-func setHostMemCompact(node int) {
-	targetFile := hostMemNodePath + strconv.Itoa(node) + "/compact"
-	_ = os.WriteFile(targetFile, []byte(fmt.Sprintf("%d", 1)), 0o644)
 }
