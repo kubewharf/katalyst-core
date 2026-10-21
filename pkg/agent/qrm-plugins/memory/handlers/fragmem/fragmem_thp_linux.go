@@ -27,6 +27,7 @@ import (
 
 	k8serrors "k8s.io/apimachinery/pkg/util/errors"
 
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -40,12 +41,6 @@ import (
 )
 
 const (
-	thpModeAdvise  = "advise"
-	thpModeDeny    = "deny"
-	thpModeMadvise = "madvise"
-	thpModeAlways  = "always"
-	thpModeNever   = "never"
-
 	defaultHighOrderThreshold = 85.0
 
 	// hysteresisRatio adds hysteresis between disable/enable thresholds to avoid frequent toggling.
@@ -97,24 +92,23 @@ func SetMemTHP(conf *coreconfig.Configuration,
 		general.Infof("SetMemTHP skipped: dynamic fragmem configuration not found")
 		return
 	}
+
 	if !fragMemConf.EnableFragMem {
 		general.Infof("SetMemTHP skipped: EnableFragMem disabled")
 		return
 	}
 	general.Infof("SetMemTHP: EnableFragMem enabled")
 
-	// Validation of the mode is done in setTHPModeAtPath, which is the only place before we write to the sysfs.
-	// THPDefaultConfig accepts any write-valid mode, including advise and deny.
-	mode := normalizeTHPMode(fragMemConf.THPDefaultConfig)
+	mode := fragMemConf.THPDefaultConfig
 	// If THPDefaultConfig is empty, skip THP tuning entirely.
 	if mode == "" {
 		general.Infof("SetMemTHP skipped: THPDefaultConfig is empty")
 		return
 	}
 	// If THPDefaultConfig is "never", fast-path to disable THP directly.
-	if mode == thpModeNever {
+	if mode == apiconfig.THPModeNever {
 		general.Infof("SetMemTHP: THPDefaultConfig=never, disable THP directly")
-		if err := setTHPMode(thpModeNever, thpModeDeny); err != nil {
+		if err := setTHPMode(apiconfig.THPModeNever, apiconfig.THPShmModeDeny); err != nil {
 			errList = append(errList, err)
 		}
 		return
@@ -171,17 +165,17 @@ func doMemTHP(conf *dynamicqrm.FragMemConfiguration, metaServer *metaserver.Meta
 	switch decision {
 	case thpDecisionDisable:
 		general.Infof("THP disable triggered: maxHighOrderScore=%.1f numa=%d threshold=%.1f", maxScore, maxNumaID, threshold)
-		return setTHPMode(thpModeNever, thpModeDeny)
+		return setTHPMode(apiconfig.THPModeNever, apiconfig.THPShmModeDeny)
 	case thpDecisionEnable:
 		// Be conservative: only try to recover when we have valid scores for all NUMA nodes.
 		// If metrics are missing on any NUMA node, keep current THP mode unchanged.
 		if validNUMACnt > 0 && missingScore == 0 {
-			mode := normalizeTHPMode(conf.THPDefaultConfig)
+			mode := conf.THPDefaultConfig
 			if mode == "" {
-				mode = thpModeMadvise
+				mode = apiconfig.THPModeMadvise
 			}
-			general.Infof("THP enable triggered: maxHighOrderScore=%.1f enableThreshold=%.1f threshold=%.1f recoverTo=%s shmemRecoverTo=%s", maxScore, enableThreshold, threshold, mode, thpModeAdvise)
-			return setTHPMode(mode, thpModeAdvise)
+			general.Infof("THP enable triggered: maxHighOrderScore=%.1f enableThreshold=%.1f threshold=%.1f recoverTo=%s shmemRecoverTo=%s", maxScore, enableThreshold, threshold, mode, apiconfig.THPShmModeAdvise)
+			return setTHPMode(mode, apiconfig.THPShmModeAdvise)
 		}
 		general.Infof("THP enable skipped due to missing metrics: maxHighOrderScore=%.1f enableThreshold=%.1f threshold=%.1f missingScore=%d", maxScore, enableThreshold, threshold, missingScore)
 		return nil
@@ -221,7 +215,7 @@ func decideTHPDecision(maxScore, threshold float64) thpDecision {
 	return thpDecisionNone
 }
 
-func setTHPMode(enabledMode, shmemMode string) error {
+func setTHPMode(enabledMode apiconfig.THPMode, shmemMode apiconfig.THPShmMode) error {
 	var errList []error
 
 	if err := setTHPModeAtPath(thpEnabledPath, enabledMode); err != nil {
@@ -234,7 +228,7 @@ func setTHPMode(enabledMode, shmemMode string) error {
 	return k8serrors.NewAggregate(errList)
 }
 
-func setTHPModeAtPathIfExists(path, mode string) error {
+func setTHPModeAtPathIfExists[T ~string](path string, mode T) error {
 	err := setTHPModeAtPath(path, mode)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		general.Infof("THP path %s not found, skip applying mode %q", path, mode)
@@ -243,12 +237,14 @@ func setTHPModeAtPathIfExists(path, mode string) error {
 	return err
 }
 
-func setTHPModeAtPath(path, mode string) (retErr error) {
+func setTHPModeAtPath[T ~string](path string, mode T) (retErr error) {
 	normalizedMode := normalizeTHPMode(mode)
+	normalizedModeStr := string(normalizedMode)
 	switch normalizedMode {
-	case thpModeAdvise, thpModeDeny, thpModeMadvise, thpModeAlways, thpModeNever:
+	case apiconfig.THPMode(apiconfig.THPShmModeAdvise), apiconfig.THPMode(apiconfig.THPShmModeDeny),
+		apiconfig.THPModeMadvise, apiconfig.THPModeAlways, apiconfig.THPModeNever:
 	default:
-		return fmt.Errorf("invalid THP mode %q, expected one of %q/%q/%q/%q/%q", normalizedMode, thpModeAdvise, thpModeDeny, thpModeMadvise, thpModeAlways, thpModeNever)
+		return fmt.Errorf("invalid THP mode %q, expected one of %q/%q/%q/%q/%q", normalizedMode, apiconfig.THPShmModeAdvise, apiconfig.THPShmModeDeny, apiconfig.THPModeMadvise, apiconfig.THPModeAlways, apiconfig.THPModeNever)
 	}
 
 	content, err := procfsm.ReadFileNoStat(path)
@@ -261,12 +257,12 @@ func setTHPModeAtPath(path, mode string) (retErr error) {
 	// Avoid redundant writes:
 	// - Typical sysfs format: "always [madvise] never"
 	// - Our unit tests may use plain "madvise"/"never" content.
-	if current == normalizedMode || strings.Contains(contentStr, fmt.Sprintf("[%s]", normalizedMode)) {
+	if current == normalizedModeStr || strings.Contains(contentStr, fmt.Sprintf("[%s]", normalizedModeStr)) {
 		general.Infof("THP already in %s, skip writing %q to %s", normalizedMode, normalizedMode, path)
 		return nil
 	}
 
-	if shouldPreserveMinFreeKbytes(path, normalizedMode) {
+	if shouldPreserveMinFreeKbytes(path, normalizedModeStr) {
 		restoreMinFreeKbytes, err := saveMinFreeKbytes()
 		if err != nil {
 			return err
@@ -282,13 +278,13 @@ func setTHPModeAtPath(path, mode string) (retErr error) {
 		}()
 	}
 
-	if err := applyTHPModeAtPath(path, normalizedMode); err != nil {
+	if err := applyTHPModeAtPath(path, normalizedModeStr); err != nil {
 		return fmt.Errorf("set THP mode failed, write %q to %s: %w", normalizedMode, path, err)
 	}
 
 	// Best-effort verify; sysfs content may vary, so only log on unexpected.
 	newContent, rerr := procfsm.ReadFileNoStat(path)
-	if rerr == nil && len(newContent) > 0 && !strings.Contains(string(newContent), normalizedMode) {
+	if rerr == nil && len(newContent) > 0 && !strings.Contains(string(newContent), normalizedModeStr) {
 		return fmt.Errorf("set THP mode verification failed: wrote=%q path=%s content=%q", normalizedMode, path, strings.TrimSpace(string(newContent)))
 	}
 
@@ -297,7 +293,7 @@ func setTHPModeAtPath(path, mode string) (retErr error) {
 }
 
 func shouldPreserveMinFreeKbytes(path, mode string) bool {
-	return path == thpEnabledPath && mode == thpModeMadvise
+	return path == thpEnabledPath && mode == string(normalizeTHPMode(apiconfig.THPModeMadvise))
 }
 
 func saveMinFreeKbytes() (func() error, error) {
@@ -308,17 +304,17 @@ func saveMinFreeKbytes() (func() error, error) {
 
 	saved := append([]byte(nil), content...)
 	savedDisplay := strings.TrimSpace(string(saved))
-	general.Infof("saved vm.min_free_kbytes=%q before setting THP to %s", savedDisplay, thpModeMadvise)
+	general.Infof("saved vm.min_free_kbytes=%q before setting THP to %s", savedDisplay, apiconfig.THPModeMadvise)
 
 	return func() error {
 		if err := os.WriteFile(minFreeKbytesPath, saved, 0o644); err != nil {
 			return fmt.Errorf("restore vm.min_free_kbytes %s to %q failed: %w", minFreeKbytesPath, savedDisplay, err)
 		}
-		general.Infof("restored vm.min_free_kbytes=%q after setting THP to %s", savedDisplay, thpModeMadvise)
+		general.Infof("restored vm.min_free_kbytes=%q after setting THP to %s", savedDisplay, apiconfig.THPModeMadvise)
 		return nil
 	}, nil
 }
 
-func normalizeTHPMode(mode string) string {
-	return strings.TrimSpace(strings.ToLower(mode))
+func normalizeTHPMode[T ~string](mode T) apiconfig.THPMode {
+	return apiconfig.THPMode(strings.TrimSpace(strings.ToLower(string(mode))))
 }

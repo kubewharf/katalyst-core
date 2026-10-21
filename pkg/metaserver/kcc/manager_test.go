@@ -490,7 +490,7 @@ func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T)
 	conf := generateTestConfiguration(t, nodeName, dir)
 	conf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = false
 	conf.GetDynamicConfiguration().FragMemConfiguration.MemFragScoreAsync = 80
-	conf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = "madvise"
+	conf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = v1alpha1.THPModeMadvise
 	conf.GetDynamicConfiguration().FragMemConfiguration.THPHighOrderScoreThreshold = 85
 
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
@@ -514,7 +514,7 @@ func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T)
 	require.NotNil(t, got)
 	require.True(t, got.EnableFragMem)
 	require.Equal(t, 80, got.MemFragScoreAsync)
-	require.Equal(t, "madvise", got.THPDefaultConfig)
+	require.Equal(t, v1alpha1.THPModeMadvise, got.THPDefaultConfig)
 	require.Equal(t, 85, got.THPHighOrderScoreThreshold)
 }
 
