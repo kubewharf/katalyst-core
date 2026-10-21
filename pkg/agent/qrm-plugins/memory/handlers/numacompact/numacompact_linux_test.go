@@ -210,8 +210,9 @@ func withRecordingCompactFn(t *testing.T) *[]int {
 	t.Helper()
 	oldFn := compaction.CompactMemoryNodeFn
 	var compacted []int
-	compaction.CompactMemoryNodeFn = func(numaID int) {
+	compaction.CompactMemoryNodeFn = func(numaID int) error {
 		compacted = append(compacted, numaID)
+		return nil
 	}
 
 	procFSRoot := withFakeProcFS(t)
@@ -566,11 +567,12 @@ func TestNumaMemCompactKeepsCooldownWhenBaselineRefreshFails(t *testing.T) {
 
 	oldFn := compaction.CompactMemoryNodeFn
 	var compacted []int
-	compaction.CompactMemoryNodeFn = func(numaID int) {
+	compaction.CompactMemoryNodeFn = func(numaID int) error {
 		compacted = append(compacted, numaID)
 		if len(compacted) == 2 {
 			_ = os.Remove(compaction.UnusableIndexFilePath)
 		}
+		return nil
 	}
 	t.Cleanup(func() { compaction.CompactMemoryNodeFn = oldFn })
 
@@ -646,9 +648,10 @@ func TestNumaMemCompactEmitsCompactionDiffMetrics(t *testing.T) {
 	writeFakeBuddyInfo(t, procFSRoot, map[int][2]uint64{0: preCompactTHPOrderPlusBlocks})
 
 	oldFn := compaction.CompactMemoryNodeFn
-	compaction.CompactMemoryNodeFn = func(numaID int) {
+	compaction.CompactMemoryNodeFn = func(numaID int) error {
 		writeFakeUnusableIndex(t, readinessPath, numaID, postCompactUnusableIndex)
 		writeFakeBuddyInfo(t, procFSRoot, map[int][2]uint64{numaID: postCompactTHPOrderPlusBlocks})
+		return nil
 	}
 	t.Cleanup(func() { compaction.CompactMemoryNodeFn = oldFn })
 
@@ -828,10 +831,11 @@ func withBlockedCompactFn(t *testing.T) (<-chan int, func(), *[]int) {
 	released := make(chan struct{})
 	var once sync.Once
 	release := func() { once.Do(func() { close(released) }) }
-	compaction.CompactMemoryNodeFn = func(numaID int) {
-		record(numaID)
+	compaction.CompactMemoryNodeFn = func(numaID int) error {
+		err := record(numaID)
 		started <- numaID
 		<-released
+		return err
 	}
 	t.Cleanup(func() {
 		release()
@@ -980,11 +984,98 @@ func TestNumaMemCompactDisableWhileTaskRunning(t *testing.T) {
 	assert.True(t, isNumaCompacted(1))
 }
 
-func TestSetHostMemCompact(t *testing.T) {
+// TestNumaMemCompactWriteFailure verifies failed writes leave idle and periodic attempts due,
+// preserve any previous baseline, and emit success metrics only after a successful retry.
+func TestNumaMemCompactWriteFailure(t *testing.T) {
 	t.Parallel()
-	serializeNumaCompactTest(t)
 
-	compaction.CompactMemoryNodeFn(25535)
+	tests := []struct {
+		name           string
+		enablePeriodic bool
+		hasBaseline    bool
+	}{
+		{name: "initial edge"},
+		{name: "initial periodic", enablePeriodic: true},
+		{name: "periodic maintenance", enablePeriodic: true, hasBaseline: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			serializeNumaCompactTest(t)
+
+			resetNumaCompactState()
+			t.Cleanup(resetNumaCompactState)
+			compacted := withRecordingCompactFn(t)
+			record := compaction.CompactMemoryNodeFn
+			attempts := 0
+			compaction.CompactMemoryNodeFn = func(numaID int) error {
+				attempts++
+				if attempts <= 2 {
+					return os.ErrPermission
+				}
+				return record(numaID)
+			}
+
+			now := time.Unix(1_000_000, 0)
+			oldNow := nowFn
+			nowFn = func() time.Time { return now }
+			t.Cleanup(func() { nowFn = oldNow })
+			const interval = 30 * time.Minute
+			if tt.hasBaseline {
+				setNumaCompactState(0, 30)
+			}
+			baseline, _ := getNumaLastCompactState(0)
+			now = now.Add(interval)
+
+			readinessPath := withFakeUnusableIndexPath(t)
+			writeFakeUnusableIndex(t, readinessPath, 0, 40)
+			setReadonlyStateWithPods(map[int]string{
+				0: "",
+				1: apiconsts.PodAnnotationQoSLevelSharedCores,
+			})
+			metaServer, err := makeMetaServer()
+			require.NoError(t, err)
+			conf, dynamicConf := makeNumaMemCompactCoreConf(true)
+			compactConf := dynamicConf.GetDynamicConfiguration().NumaMemCompactConfiguration
+			compactConf.EnablePeriodicNumaMemCompact = tt.enablePeriodic
+			compactConf.NumaMemCompactInterval = interval
+			emitter := newRecordingEmitter()
+			t.Cleanup(func() { waitNumaMemCompactTask(t) })
+
+			for i := 1; i <= 2; i++ {
+				NumaMemCompact(conf, nil, dynamicConf, emitter, metaServer)
+				waitNumaMemCompactTask(t)
+				assert.Equal(t, i, attempts, "failed writes must remain eligible on the next scan")
+				assert.Empty(t, *compacted)
+				current, found := getNumaLastCompactState(0)
+				assert.Equal(t, tt.hasBaseline, found)
+				assert.Equal(t, baseline, current, "failed writes must not advance time or baseline")
+				assert.NotContains(t, emitter.values, metricNameMemoryCompact)
+				assert.NotContains(t, emitter.values, metricNameMemoryCompactCost)
+				assert.NotContains(t, emitter.values, metricNameNumaMemCompactTHPOrderPlusFreeSizeDiffBytes)
+				assert.NotContains(t, emitter.floatValues, metricNameNumaMemCompactTHPUnusableIndexDiff)
+				assert.NotContains(t, emitter.values, metricNameNumaMemCompactTaskDurationSeconds)
+				now = now.Add(10 * time.Second)
+			}
+
+			NumaMemCompact(conf, nil, dynamicConf, emitter, metaServer)
+			waitNumaMemCompactTask(t)
+			assert.Equal(t, 3, attempts)
+			assert.Equal(t, []int{0}, *compacted)
+			current, found := getNumaLastCompactState(0)
+			require.True(t, found)
+			assert.Equal(t, now, current.compactAt)
+			assert.InDelta(t, 40, current.postCompactTHPUnusableIndex, 0.001)
+			assert.Equal(t, int64(1), emitter.intValue(metricNameMemoryCompact))
+			assert.Equal(t, "completed", emitter.intTag(metricNameNumaMemCompactTaskDurationSeconds, "status"))
+
+			// A successful retry restores normal edge/cooldown gating.
+			NumaMemCompact(conf, nil, dynamicConf, emitter, metaServer)
+			waitNumaMemCompactTask(t)
+			assert.Equal(t, 3, attempts)
+		})
+	}
 }
 
 // recordingEmitter records the last numeric value and tags stored per key, and counts how many

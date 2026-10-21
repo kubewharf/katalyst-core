@@ -37,16 +37,16 @@ import (
 )
 
 const (
-	// hostMemNodePath is the sysfs prefix for per-NUMA node knobs; "<node>/compact" triggers
-	// node-level memory compaction.
-	hostMemNodePath = "/sys/devices/system/node/node"
-
 	// commandKcompactd is the comm prefix of the per-NUMA kcompactd kernel threads
 	// ("kcompactd<numaID>", e.g. kcompactd0).
 	commandKcompactd = "kcompactd"
 )
 
 var (
+	// hostMemNodePath is the sysfs prefix for per-NUMA node knobs; "<node>/compact" triggers
+	// node-level memory compaction. It is a variable so tests can use a fake sysfs tree.
+	hostMemNodePath = "/sys/devices/system/node/node"
+
 	// ProcFSRoot is the procfs mount point. It is a variable so tests can point it at a fake tree.
 	ProcFSRoot = "/proc"
 
@@ -69,8 +69,8 @@ var (
 	numaKcompactdPid   = make(map[int]int)
 	numaKcompactdPidMu sync.RWMutex
 
-	// CompactMemoryNodeFn triggers node-level memory compaction. It is a variable so that tests can
-	// observe which NUMA nodes get compacted without touching sysfs.
+	// CompactMemoryNodeFn triggers node-level memory compaction and returns any sysfs write error.
+	// It is a variable so that tests can observe compaction attempts without touching sysfs.
 	CompactMemoryNodeFn = setHostMemCompact
 
 	// numaCompacting tracks which NUMA nodes currently have a compaction in progress, so that a
@@ -101,10 +101,10 @@ func releaseNumaCompacting(numaID int) {
 	delete(numaCompacting, numaID)
 }
 
-// setHostMemCompact triggers node-level memory compaction for the given NUMA node via sysfs.
-func setHostMemCompact(node int) {
+// setHostMemCompact triggers node-level memory compaction via sysfs and returns any write error.
+func setHostMemCompact(node int) error {
 	targetFile := hostMemNodePath + strconv.Itoa(node) + "/compact"
-	_ = os.WriteFile(targetFile, []byte(fmt.Sprintf("%d", 1)), 0o644)
+	return os.WriteFile(targetFile, []byte("1"), 0o644)
 }
 
 func calculateTHPOrder(basePageSize int, thpSize uint64) (int, error) {
@@ -336,10 +336,10 @@ func IsNumaKcompactdBusy(numaID int) bool {
 
 // TryCompactNUMANode triggers node-level memory compaction for numaID unless that node's own
 // kcompactd thread is currently busy (R/D state), in which case the node is skipped. It returns
-// true if compaction was performed and false if the node was skipped (kcompactd busy, or another
-// caller is already compacting this node). Emitting a metric is left to the caller so each plugin
-// can use its own metric name and tags. The per-NUMA kcompactd pids are discovered lazily on first
-// use (and retried until found), so callers do not have to prime them before the scan loop.
+// true if the sysfs write succeeded and false if it failed or the node was skipped (kcompactd busy,
+// or another caller is already compacting this node). Emitting a metric is left to the caller so
+// each plugin can use its own metric name and tags. The per-NUMA kcompactd pids are discovered
+// lazily on first use (and retried until found), so callers do not have to prime them before the scan loop.
 func TryCompactNUMANode(numaID int) bool {
 	// Guard against concurrent compaction of the same node (e.g. two plugins sharing this helper):
 	// if another caller is already compacting numaID, skip rather than duplicate the work.
@@ -358,7 +358,10 @@ func TryCompactNUMANode(numaID int) bool {
 		return false
 	}
 
-	CompactMemoryNodeFn(numaID)
+	if err := CompactMemoryNodeFn(numaID); err != nil {
+		general.Errorf("compact NUMA %d failed: %v", numaID, err)
+		return false
+	}
 	return true
 }
 

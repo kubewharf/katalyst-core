@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var compactionTestMu sync.Mutex
@@ -255,9 +256,27 @@ func TestReadPidState(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestSetHostMemCompact verifies the sysfs payload and propagates errors using a fake node tree.
 func TestSetHostMemCompact(t *testing.T) {
 	t.Parallel()
-	setHostMemCompact(25535)
+	serializeCompactionTest(t)
+
+	oldPath := hostMemNodePath
+	hostMemNodePath = filepath.Join(t.TempDir(), "node")
+	t.Cleanup(func() { hostMemNodePath = oldPath })
+
+	nodePath := hostMemNodePath + "0"
+	require.NoError(t, os.Mkdir(nodePath, 0o755))
+	require.NoError(t, setHostMemCompact(0))
+	content, err := os.ReadFile(filepath.Join(nodePath, "compact"))
+	require.NoError(t, err)
+	assert.Equal(t, "1", string(content))
+
+	// Missing nodes and an unwritable target must return the underlying filesystem error.
+	assert.ErrorIs(t, setHostMemCompact(1), os.ErrNotExist)
+	require.NoError(t, os.Remove(filepath.Join(nodePath, "compact")))
+	require.NoError(t, os.Mkdir(filepath.Join(nodePath, "compact"), 0o755))
+	assert.Error(t, setHostMemCompact(0))
 }
 
 func TestTryCompactNUMANode(t *testing.T) {
@@ -273,7 +292,10 @@ func TestTryCompactNUMANode(t *testing.T) {
 
 	var compacted []int
 	oldFn := CompactMemoryNodeFn
-	CompactMemoryNodeFn = func(numaID int) { compacted = append(compacted, numaID) }
+	CompactMemoryNodeFn = func(numaID int) error {
+		compacted = append(compacted, numaID)
+		return nil
+	}
 	t.Cleanup(func() { CompactMemoryNodeFn = oldFn })
 
 	// NUMA 0 not busy -> compacted, returns true.
@@ -282,6 +304,31 @@ func TestTryCompactNUMANode(t *testing.T) {
 	assert.False(t, TryCompactNUMANode(1))
 
 	assert.Equal(t, []int{0}, compacted)
+}
+
+// TestTryCompactNUMANodeWriteFailure verifies failed writes return false and release the node
+// so a subsequent attempt can succeed.
+func TestTryCompactNUMANodeWriteFailure(t *testing.T) {
+	t.Parallel()
+	serializeCompactionTest(t)
+
+	root := withFakeProcFS(t)
+	writeFakeProc(t, root, 100, "kcompactd0", "S (sleeping)")
+
+	oldFn := CompactMemoryNodeFn
+	t.Cleanup(func() { CompactMemoryNodeFn = oldFn })
+	calls := 0
+	CompactMemoryNodeFn = func(int) error {
+		calls++
+		if calls == 1 {
+			return os.ErrPermission
+		}
+		return nil
+	}
+
+	assert.False(t, TryCompactNUMANode(0))
+	assert.True(t, TryCompactNUMANode(0), "a failed write must release the per-NUMA guard")
+	assert.Equal(t, 2, calls)
 }
 
 // TestTryCompactNUMANodeConcurrentSameNode verifies that while one call is compacting a NUMA
@@ -303,13 +350,14 @@ func TestTryCompactNUMANodeConcurrentSameNode(t *testing.T) {
 	release := make(chan struct{})
 	var calls int
 	oldFn := CompactMemoryNodeFn
-	CompactMemoryNodeFn = func(numaID int) {
+	CompactMemoryNodeFn = func(numaID int) error {
 		calls++
 		if calls == 1 {
 			// Only the first (blocking) compaction signals and waits; later calls return at once.
 			close(started)
 			<-release
 		}
+		return nil
 	}
 	t.Cleanup(func() { CompactMemoryNodeFn = oldFn })
 
