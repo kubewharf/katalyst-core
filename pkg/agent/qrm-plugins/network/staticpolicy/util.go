@@ -48,6 +48,8 @@ const (
 	LastOne   NICSelectionPoligy = "last"
 
 	LowPriorityGroupNameSuffix = "low_priority"
+
+	PodNICNameEnv = "KATALYST_SELECTED_NIC_NAME"
 )
 
 type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
@@ -262,6 +264,9 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 						Hints: []*pluginapi.TopologyHint{
 							req.Hint,
 						},
+					},
+					Envs: map[string]string{
+						PodNICNameEnv: allocationInfo.IfName,
 					},
 				},
 			},
