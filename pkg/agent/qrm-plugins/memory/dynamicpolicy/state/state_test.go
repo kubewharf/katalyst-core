@@ -58,6 +58,60 @@ func TestGetWriteOnlyState(t *testing.T) {
 	}
 }
 
+func TestSetReservedMemory(t *testing.T) {
+	t.Parallel()
+
+	initialReservedMemory := map[v1.ResourceName]map[int]uint64{
+		v1.ResourceMemory: {
+			0: 1,
+		},
+	}
+	newReservedMemory := func() map[v1.ResourceName]map[int]uint64 {
+		return map[v1.ResourceName]map[int]uint64{
+			v1.ResourceMemory: {
+				0: 2,
+			},
+			v1.ResourceHugePagesPrefix + "2Mi": {
+				0: 3,
+			},
+		}
+	}
+
+	t.Run("memory state clones reads and writes", func(t *testing.T) {
+		t.Parallel()
+
+		stateImpl := &memoryPluginState{
+			reservedMemory: initialReservedMemory,
+		}
+		nextReservedMemory := newReservedMemory()
+		stateImpl.SetReservedMemory(nextReservedMemory)
+
+		nextReservedMemory[v1.ResourceMemory][0] = 4
+		assert.Equal(t, uint64(2), stateImpl.GetReservedMemory()[v1.ResourceMemory][0])
+
+		got := stateImpl.GetReservedMemory()
+		got[v1.ResourceMemory][0] = 5
+		assert.Equal(t, uint64(2), stateImpl.GetReservedMemory()[v1.ResourceMemory][0])
+	})
+
+	t.Run("checkpoint state updates restore input and cache", func(t *testing.T) {
+		t.Parallel()
+
+		cache := &memoryPluginState{
+			reservedMemory: initialReservedMemory,
+		}
+		stateImpl := &stateCheckpoint{
+			cache:          cache,
+			reservedMemory: initialReservedMemory,
+		}
+		nextReservedMemory := newReservedMemory()
+		stateImpl.SetReservedMemory(nextReservedMemory)
+
+		assert.Equal(t, nextReservedMemory, stateImpl.GetReservedMemory())
+		assert.Equal(t, nextReservedMemory, stateImpl.reservedMemory)
+	})
+}
+
 func TestNewMemoryPluginCheckpoint(t *testing.T) {
 	t.Parallel()
 

@@ -66,6 +66,7 @@ import (
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
@@ -78,6 +79,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -85,6 +87,500 @@ const (
 )
 
 var policyTestMutex = advisorTestMutex
+
+type errorKubeletConfigFetcher struct {
+	err error
+}
+
+func (f *errorKubeletConfigFetcher) GetKubeletConfig(context.Context) (*native.KubeletConfiguration, error) {
+	return nil, f.err
+}
+
+func TestDynamicPolicySyncReservedCPUs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("updates reserved CPU state", func(t *testing.T) {
+		t.Parallel()
+
+		policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+		setFakeKubeletReservedSystemCPUs(t, policy.metaServer, "4,6")
+
+		policy.syncReservedCPUs(nil, nil, nil, nil, nil)
+
+		assert.True(t, policy.state.GetReservedCPUs().Equals(machine.NewCPUSet(4, 6)))
+		reserveInfo := policy.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
+		require.NotNil(t, reserveInfo)
+		assert.True(t, reserveInfo.AllocationResult.Equals(machine.NewCPUSet(4, 6)))
+	})
+
+	t.Run("preserves reserved CPU state when kubelet config fetch fails", func(t *testing.T) {
+		t.Parallel()
+
+		policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+		policy.metaServer.KubeletConfigFetcher = &errorKubeletConfigFetcher{err: fmt.Errorf("fetch kubelet config")}
+
+		policy.syncReservedCPUs(nil, nil, nil, nil, nil)
+
+		assert.True(t, policy.state.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+		reserveInfo := policy.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
+		require.NotNil(t, reserveInfo)
+		assert.True(t, reserveInfo.AllocationResult.Equals(machine.NewCPUSet(0, 2)))
+	})
+}
+
+func TestDynamicPolicySyncReservedCPUsNoop(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	setFakeKubeletReservedSystemCPUs(t, policy.metaServer, "0,2")
+
+	err := policy.syncReservedCPUsOnce()
+
+	assert.NoError(t, err)
+	assert.True(t, policy.state.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+	reserveInfo := policy.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
+	require.NotNil(t, reserveInfo)
+	assert.True(t, reserveInfo.AllocationResult.Equals(machine.NewCPUSet(0, 2)))
+}
+
+func TestDynamicPolicySyncReservedCPUsNoopForSameReservedCPUQuantity(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	setFakeKubeletReservedCPUQuantity(t, policy.metaServer, "2")
+	trackingState := &trackingCPUState{State: policy.state}
+	policy.state = trackingState
+	previousReservedCPUList := policy.conf.ReservedCPUList
+	previousReservedCPUCores := policy.conf.ReservedCPUCores
+
+	err := policy.syncReservedCPUsOnce()
+
+	require.NoError(t, err)
+	assert.True(t, policy.state.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+	assert.Equal(t, previousReservedCPUList, policy.conf.ReservedCPUList)
+	assert.Equal(t, previousReservedCPUCores, policy.conf.ReservedCPUCores)
+	assert.Zero(t, trackingState.storeStateCalls)
+}
+
+func TestDynamicPolicySyncReservedCPUsUpdatesReservedCPUsAndReservePool(t *testing.T) {
+	t.Parallel()
+
+	nextReservedCPUs := machine.NewCPUSet(4, 6)
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	setFakeKubeletReservedSystemCPUs(t, policy.metaServer, "4,6")
+
+	err := policy.syncReservedCPUsOnce()
+
+	assert.NoError(t, err)
+	assert.True(t, policy.state.GetReservedCPUs().Equals(machine.NewCPUSet(4, 6)))
+	reserveInfo := policy.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
+	require.NotNil(t, reserveInfo)
+	assert.True(t, reserveInfo.AllocationResult.Equals(nextReservedCPUs))
+	availableCPUs := policy.state.GetMachineState().GetAvailableCPUSet(policy.state.GetReservedCPUs())
+	assert.True(t, availableCPUs.Intersection(nextReservedCPUs).IsEmpty())
+}
+
+func TestDynamicPolicySyncReservedCPUsRestoresStateAfterReservePoolUpdateFails(t *testing.T) {
+	t.Parallel()
+
+	currentReservedCPUs := machine.NewCPUSet(0, 2)
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, currentReservedCPUs)
+	currentReservedCPUList := policy.conf.ReservedCPUList
+	currentReservedCPUCores := policy.conf.ReservedCPUCores
+	nextReservedCPUs := machine.NewCPUSet(4, 6)
+	policy.state = &failingReservedCPUState{
+		State:            policy.state,
+		machineInfo:      policy.machineInfo,
+		originalTopology: policy.machineInfo.CPUTopology,
+		failOn:           nextReservedCPUs,
+	}
+	setFakeKubeletReservedSystemCPUs(t, policy.metaServer, nextReservedCPUs.String())
+
+	err := policy.syncReservedCPUsOnce()
+
+	require.Error(t, err)
+	assert.True(t, policy.state.GetReservedCPUs().Equals(currentReservedCPUs))
+	assert.Equal(t, currentReservedCPUList, policy.conf.ReservedCPUList)
+	assert.Equal(t, currentReservedCPUCores, policy.conf.ReservedCPUCores)
+}
+
+func TestDynamicPolicySyncReservedCPUsPreservesExistingSharedCoreCPUSetWhenShrinking(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet())
+	require.NoError(t, policy.initReclaimPool())
+	initialReclaimPool := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	require.NotNil(t, initialReclaimPool)
+	setFakeKubeletReservedCPUQuantity(t, policy.metaServer, "2")
+
+	allCPUs := policy.machineInfo.CPUDetails.CPUs()
+	assignments, err := machine.GetNumaAwareAssignments(policy.machineInfo.CPUTopology, allCPUs)
+	require.NoError(t, err)
+
+	policy.state.SetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+		AllocationResult:                 allCPUs.Clone(),
+		OriginalAllocationResult:         allCPUs.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+	}, false)
+	policy.state.SetAllocationInfo("pod-uid", "main", &state.AllocationInfo{
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(&pluginapi.ResourceRequest{
+			PodUid:        "pod-uid",
+			PodNamespace:  "default",
+			PodName:       "shared-pod",
+			ContainerName: "main",
+			ContainerType: pluginapi.ContainerType_MAIN,
+		}, commonstate.PoolNameShare, consts.PodAnnotationQoSLevelSharedCores),
+		AllocationResult:                 allCPUs.Clone(),
+		OriginalAllocationResult:         allCPUs.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+		RequestQuantity:                  1,
+	}, false)
+
+	err = policy.syncReservedCPUsOnce()
+
+	require.NoError(t, err)
+	reservedCPUs := policy.state.GetReservedCPUs()
+	assert.Equal(t, 2, reservedCPUs.Size())
+
+	allocationInfo := policy.state.GetAllocationInfo("pod-uid", "main")
+	require.NotNil(t, allocationInfo)
+	assert.False(t, allocationInfo.AllocationResult.IsEmpty())
+	assert.True(t, allocationInfo.AllocationResult.Equals(allCPUs))
+
+	sharePool := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+	require.NotNil(t, sharePool)
+	assert.True(t, sharePool.AllocationResult.Equals(allCPUs))
+
+	reclaimPool := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	require.NotNil(t, reclaimPool)
+	assert.True(t, reclaimPool.AllocationResult.Equals(initialReclaimPool.AllocationResult))
+}
+
+func TestDynamicPolicySyncReservedCPUsPreservesExistingSharedCoreCPUSetWhenExpanding(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	setFakeKubeletReservedCPUQuantity(t, policy.metaServer, "4")
+
+	sharedCPUs := policy.machineInfo.CPUDetails.CPUs().Difference(machine.NewCPUSet(0, 2))
+	assignments, err := machine.GetNumaAwareAssignments(policy.machineInfo.CPUTopology, sharedCPUs)
+	require.NoError(t, err)
+	policy.state.SetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+		AllocationResult:                 sharedCPUs.Clone(),
+		OriginalAllocationResult:         sharedCPUs.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+	}, false)
+	policy.state.SetAllocationInfo("pod-uid", "main", &state.AllocationInfo{
+		AllocationMeta: commonstate.AllocationMeta{
+			PodUid:        "pod-uid",
+			ContainerName: "main",
+			QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+			OwnerPoolName: commonstate.PoolNameShare,
+		},
+		AllocationResult:                 sharedCPUs.Clone(),
+		OriginalAllocationResult:         sharedCPUs.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+		RequestQuantity:                  1,
+	}, false)
+
+	err = policy.syncReservedCPUsOnce()
+
+	require.NoError(t, err)
+	reservedCPUs := policy.state.GetReservedCPUs()
+	assert.Equal(t, 4, reservedCPUs.Size())
+
+	allocationInfo := policy.state.GetAllocationInfo("pod-uid", "main")
+	require.NotNil(t, allocationInfo)
+	assert.True(t, allocationInfo.AllocationResult.Equals(sharedCPUs))
+
+	sharePool := policy.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
+	require.NotNil(t, sharePool)
+	assert.True(t, sharePool.AllocationResult.Equals(sharedCPUs))
+}
+
+func TestDynamicPolicySyncReservedCPUsPreservesFullyAllocatedDedicatedCPUs(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet())
+	setFakeKubeletReservedSystemCPUs(t, policy.metaServer, "0,1")
+
+	allCPUs := policy.machineInfo.CPUDetails.CPUs()
+	assignments, err := machine.GetNumaAwareAssignments(policy.machineInfo.CPUTopology, allCPUs)
+	require.NoError(t, err)
+	policy.state.SetAllocationInfo("dedicated-pod", "main", &state.AllocationInfo{
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(&pluginapi.ResourceRequest{
+			PodUid:        "dedicated-pod",
+			PodNamespace:  "default",
+			PodName:       "dedicated-pod",
+			ContainerName: "main",
+			ContainerType: pluginapi.ContainerType_MAIN,
+		}, commonstate.EmptyOwnerPoolName, consts.PodAnnotationQoSLevelDedicatedCores),
+		AllocationResult:                 allCPUs.Clone(),
+		OriginalAllocationResult:         allCPUs.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+		RequestQuantity:                  float64(allCPUs.Size()),
+	}, false)
+
+	err = policy.syncReservedCPUsOnce()
+
+	require.NoError(t, err)
+	assert.True(t, policy.state.GetReservedCPUs().Equals(machine.NewCPUSet(0, 1)))
+	dedicatedAllocation := policy.state.GetAllocationInfo("dedicated-pod", "main")
+	require.NotNil(t, dedicatedAllocation)
+	assert.True(t, dedicatedAllocation.AllocationResult.Equals(allCPUs))
+}
+
+func TestDynamicPolicySyncReservedCPUsSelectionIsDeterministicForSameCandidates(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	setFakeKubeletReservedCPUQuantity(t, policy.metaServer, "3")
+	candidateCPUs := policy.machineInfo.CPUDetails.CPUs().Clone().Difference(machine.NewCPUSet(4))
+
+	got1, err := cpuutil.GetCoresReservedForSystem(policy.conf, policy.metaServer, policy.machineInfo, candidateCPUs)
+	require.NoError(t, err)
+	got2, err := cpuutil.GetCoresReservedForSystem(policy.conf, policy.metaServer, policy.machineInfo, candidateCPUs)
+	require.NoError(t, err)
+
+	assert.True(t, got1.Equals(got2))
+	assert.True(t, got1.Equals(machine.NewCPUSet(0, 2, 5)))
+}
+
+func TestDynamicPolicyApplyReservedCPUsLockedUpdatesReservePoolBeforeAdjustingEntries(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	trackingState := &trackingCPUState{State: policy.state}
+	policy.state = trackingState
+
+	nextReservedCPUs := machine.NewCPUSet(4, 6)
+	policy.Lock()
+	err := policy.applyReservedCPUs(nextReservedCPUs)
+	policy.Unlock()
+
+	require.NoError(t, err)
+	assert.True(t, policy.state.GetReservedCPUs().Equals(nextReservedCPUs))
+	reservePool := policy.state.GetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName)
+	require.NotNil(t, reservePool)
+	assert.True(t, reservePool.AllocationResult.Equals(nextReservedCPUs))
+	assert.True(t, reservePool.OriginalAllocationResult.Equals(nextReservedCPUs))
+	assert.Zero(t, trackingState.storeStateCalls)
+	assert.Equal(t, 1, trackingState.persistedSetAllocationInfoCalls)
+	assert.Zero(t, trackingState.persistedSetMachineStateCalls)
+}
+
+func TestDynamicPolicyApplyReservedCPUsLockedExcludesSystemPoolFromReclaimPool(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	systemCPUs := machine.NewCPUSet(10, 12)
+	setTestPoolAllocation(t, policy.machineInfo.CPUTopology, policy.state, commonstate.GetSystemPoolName("test"), systemCPUs)
+	setTestPoolAllocation(t, policy.machineInfo.CPUTopology, policy.state, commonstate.PoolNameReclaim, machine.NewCPUSet(4, 6))
+
+	nextReservedCPUs := machine.NewCPUSet(0, 2, 4, 6)
+	policy.Lock()
+	err := policy.applyReservedCPUs(nextReservedCPUs)
+	policy.Unlock()
+
+	require.NoError(t, err)
+	reclaimPool := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	require.NotNil(t, reclaimPool)
+	assert.True(t, reclaimPool.AllocationResult.Intersection(systemCPUs).IsEmpty())
+}
+
+func TestDynamicPolicyApplyReservedCPUsLockedPreservesReclaimedPodEntries(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	oldReclaimCPUs := machine.NewCPUSet(4, 6)
+	setTestPoolAllocation(t, policy.machineInfo.CPUTopology, policy.state, commonstate.PoolNameReclaim, oldReclaimCPUs)
+	setTestReclaimedAllocation(t, policy.machineInfo.CPUTopology, policy.state, "reclaimed-pod", "main", oldReclaimCPUs)
+
+	nextReservedCPUs := machine.NewCPUSet(0, 2, 4, 6)
+	policy.Lock()
+	err := policy.applyReservedCPUs(nextReservedCPUs)
+	policy.Unlock()
+
+	require.NoError(t, err)
+	reclaimPool := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	require.NotNil(t, reclaimPool)
+	reclaimedPod := policy.state.GetAllocationInfo("reclaimed-pod", "main")
+	require.NotNil(t, reclaimedPod)
+	assert.True(t, reclaimedPod.AllocationResult.Equals(oldReclaimCPUs))
+	assert.True(t, reclaimPool.AllocationResult.Equals(oldReclaimCPUs))
+}
+
+func TestDynamicPolicyApplyReservedCPUsLockedPreservesReclaimedNUMABindingPodEntries(t *testing.T) {
+	t.Parallel()
+
+	policy := makeTestDynamicPolicyWithReservedCPUs(t, machine.NewCPUSet(0, 2))
+	oldReclaimCPUs := machine.NewCPUSet(4, 6, 8, 10)
+	setTestPoolAllocation(t, policy.machineInfo.CPUTopology, policy.state, commonstate.PoolNameReclaim, oldReclaimCPUs)
+	setTestReclaimedNUMABindingAllocation(t, policy.machineInfo.CPUTopology, policy.state, "reclaimed-rnb-pod", "main", machine.NewCPUSet(4), 2)
+
+	nextReservedCPUs := machine.NewCPUSet(0, 2, 4, 6)
+	policy.Lock()
+	err := policy.applyReservedCPUs(nextReservedCPUs)
+	policy.Unlock()
+
+	require.NoError(t, err)
+	reclaimPool := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	require.NotNil(t, reclaimPool)
+	reclaimedPod := policy.state.GetAllocationInfo("reclaimed-rnb-pod", "main")
+	require.NotNil(t, reclaimedPod)
+	assert.True(t, reclaimedPod.AllocationResult.Equals(machine.NewCPUSet(4)))
+	assert.True(t, reclaimedPod.OriginalAllocationResult.Equals(machine.NewCPUSet(4)))
+}
+
+func makeTestDynamicPolicyWithReservedCPUs(t *testing.T, reservedCPUs machine.CPUSet) *DynamicPolicy {
+	t.Helper()
+
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	policy, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+
+	policy.state.SetReservedCPUs(reservedCPUs)
+	policy.conf.ReservedCPUList = reservedCPUs.String()
+	policy.conf.UseKubeletReservedConfig = true
+	policy.metaServer.KatalystMachineInfo = policy.machineInfo
+	policy.metaServer.CPUDetails = policy.machineInfo.CPUDetails
+
+	require.NoError(t, policy.initReservePool())
+	require.NoError(t, policy.initReclaimPool())
+	return policy
+}
+
+func setFakeKubeletReservedSystemCPUs(t *testing.T, metaServer *metaserver.MetaServer, reservedCPUList string) {
+	t.Helper()
+	metaServer.KubeletConfigFetcher = kubeletconfig.NewFakeKubeletConfigFetcher(native.KubeletConfiguration{
+		ReservedSystemCPUs: reservedCPUList,
+	})
+}
+
+func setFakeKubeletReservedCPUQuantity(t *testing.T, metaServer *metaserver.MetaServer, reservedCPUQuantity string) {
+	t.Helper()
+	metaServer.KubeletConfigFetcher = kubeletconfig.NewFakeKubeletConfigFetcher(native.KubeletConfiguration{
+		SystemReserved: map[string]string{
+			string(v1.ResourceCPU): reservedCPUQuantity,
+		},
+	})
+}
+
+func setTestPoolAllocation(t *testing.T, topology *machine.CPUTopology, stateImpl state.State, poolName string, cpus machine.CPUSet) {
+	t.Helper()
+	assignments, err := machine.GetNumaAwareAssignments(topology, cpus)
+	require.NoError(t, err)
+
+	stateImpl.SetAllocationInfo(poolName, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(poolName),
+		AllocationResult:                 cpus.Clone(),
+		OriginalAllocationResult:         cpus.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+	}, false)
+}
+
+func setTestReclaimedAllocation(t *testing.T, topology *machine.CPUTopology, stateImpl state.State, podUID, containerName string, cpus machine.CPUSet) {
+	t.Helper()
+	assignments, err := machine.GetNumaAwareAssignments(topology, cpus)
+	require.NoError(t, err)
+
+	stateImpl.SetAllocationInfo(podUID, containerName, &state.AllocationInfo{
+		AllocationMeta: commonstate.AllocationMeta{
+			PodUid:        podUID,
+			ContainerName: containerName,
+			QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+			OwnerPoolName: commonstate.PoolNameReclaim,
+			Annotations:   map[string]string{},
+		},
+		AllocationResult:                 cpus.Clone(),
+		OriginalAllocationResult:         cpus.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+		RequestQuantity:                  1,
+	}, false)
+}
+
+func setTestReclaimedNUMABindingAllocation(t *testing.T, topology *machine.CPUTopology, stateImpl state.State, podUID, containerName string, cpus machine.CPUSet, numaID int) {
+	t.Helper()
+	assignments, err := machine.GetNumaAwareAssignments(topology, cpus)
+	require.NoError(t, err)
+
+	stateImpl.SetAllocationInfo(podUID, containerName, &state.AllocationInfo{
+		AllocationMeta: commonstate.AllocationMeta{
+			PodUid:        podUID,
+			ContainerName: containerName,
+			QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+			OwnerPoolName: commonstate.PoolNameReclaim,
+			Annotations: map[string]string{
+				consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				cpuconsts.CPUStateAnnotationKeyNUMAHint:          machine.NewCPUSet(numaID).String(),
+			},
+		},
+		AllocationResult:                 cpus.Clone(),
+		OriginalAllocationResult:         cpus.Clone(),
+		TopologyAwareAssignments:         assignments,
+		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(assignments),
+		RequestQuantity:                  1,
+	}, false)
+}
+
+type trackingCPUState struct {
+	state.State
+
+	storeStateCalls                 int
+	persistedSetAllocationInfoCalls int
+	persistedSetMachineStateCalls   int
+}
+
+func (s *trackingCPUState) StoreState() error {
+	s.storeStateCalls++
+	return s.State.StoreState()
+}
+
+func (s *trackingCPUState) SetAllocationInfo(
+	podUID string,
+	containerName string,
+	allocationInfo *state.AllocationInfo,
+	persist bool,
+) {
+	if persist {
+		s.persistedSetAllocationInfoCalls++
+	}
+	s.State.SetAllocationInfo(podUID, containerName, allocationInfo, persist)
+}
+
+func (s *trackingCPUState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool) {
+	if persist {
+		s.persistedSetMachineStateCalls++
+	}
+	s.State.SetMachineState(numaNodeMap, persist)
+}
+
+type failingReservedCPUState struct {
+	state.State
+	machineInfo      *machine.KatalystMachineInfo
+	originalTopology *machine.CPUTopology
+	failOn           machine.CPUSet
+}
+
+func (s *failingReservedCPUState) SetReservedCPUs(reservedCPUs machine.CPUSet) {
+	s.State.SetReservedCPUs(reservedCPUs)
+	if reservedCPUs.Equals(s.failOn) {
+		s.machineInfo.CPUTopology = nil
+		return
+	}
+	s.machineInfo.CPUTopology = s.originalTopology
+}
 
 type cpuTestCase struct {
 	cpuNum      int
@@ -164,7 +660,6 @@ func getTestDynamicPolicyWithoutInitialization(
 		advisorValidator:          validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
 		featureGateManager:        featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
 		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
-		reservedCPUs:              reservedCPUs,
 		enableReclaimNUMABinding:  true,
 		emitter:                   metrics.DummyMetrics{},
 		podDebugAnnoKeys:          []string{podDebugAnnoKey},
@@ -174,6 +669,7 @@ func getTestDynamicPolicyWithoutInitialization(
 
 		topologyAllocationAnnotationKey: coreconsts.QRMPodAnnotationTopologyAllocationKey,
 	}
+	policyImplement.state.SetReservedCPUs(reservedCPUs)
 
 	// Important: We must register the topologyAllocationHook and set the annotation keys
 	// to ensure that the test environment correctly generates NUMA topology annotations
@@ -5779,7 +6275,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 10,
-		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.reservedCPUs).Difference(reclaim.AllocationResult).String(),
+		AllocationResult:  cpuTopology.CPUDetails.CPUs().Difference(dynamicPolicy.state.GetReservedCPUs()).Difference(reclaim.AllocationResult).String(),
 		TopologyAssignments: map[uint64]uint64{
 			0: 3,
 			1: 3,
