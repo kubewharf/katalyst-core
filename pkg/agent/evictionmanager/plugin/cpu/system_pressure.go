@@ -414,7 +414,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(
 		return &v1alpha1.GetTopEvictionPodsResponse{}, nil
 	}
 
-	candidatePods := request.ActivePods
+	candidatePods := native.NewPodSourceList(request.ActivePods)
 	if dynamicConfig.CheckCPUManager {
 		cpuManagerOn, err := s.checkKubeletCPUManager()
 		if err != nil {
@@ -423,7 +423,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(
 			return nil, err
 		}
 		if cpuManagerOn {
-			candidatePods = native.FilterPods(request.GetActivePods(), func(pod *v1.Pod) (bool, error) {
+			candidatePods = candidatePods.Filter(func(pod *v1.Pod) (bool, error) {
 				if pod == nil {
 					return false, fmt.Errorf("FilterPods got nil pod")
 				}
@@ -435,17 +435,11 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(
 		}
 	}
 
-	var (
-		topN     = general.MinUInt64(request.TopN, uint64(len(candidatePods)))
-		topNPods = make([]*v1.Pod, 0)
-	)
 	s.lastEvictionTime = now
 
-	general.NewMultiSorter(s.getEvictionCmpFunc(dynamicConfig)...).Sort(native.NewPodSourceImpList(candidatePods))
-
-	for i := 0; uint64(i) < topN; i++ {
-		topNPods = append(topNPods, candidatePods[i])
-	}
+	topNPods := candidatePods.
+		Sort(s.getEvictionCmpFunc(dynamicConfig)...).
+		TopN(request.TopN)
 
 	resp := &v1alpha1.GetTopEvictionPodsResponse{
 		TargetPods: topNPods,
@@ -457,7 +451,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(
 	}
 
 	general.Infof("cpu system eviction get top (len=%d) pods: %v, candidate pods (len=%d): %v, over metric name: %s",
-		len(topNPods), native.GetNamespacedNameListFromSlice(topNPods), len(candidatePods), native.GetNamespacedNameListFromSlice(candidatePods), s.overMetricName)
+		len(topNPods), native.GetNamespacedNameListFromSlice(topNPods), candidatePods.Len(), native.GetNamespacedNameListFromSlice(candidatePods.Pods()), s.overMetricName)
 
 	s.overMetricName = ""
 	return resp, nil
@@ -524,6 +518,8 @@ func (s *SystemPressureEvictionPlugin) getEvictionCmpFunc(dynamicConfig *evictio
 				return s.cmpKatalystQoS(p1, p2)
 			case evictionconfig.FakeMetricPriority:
 				return general.ReverseCmpFunc(native.PodPriorityCmpFunc)(p1, p2)
+			case evictionconfig.FakeMetricSaleMode:
+				return native.NewPodSaleModeCmpFunc(s.podSaleModeAnnotationKey())(p1, p2)
 			default:
 				if labelKey, ok := s.splitKeyFromFakeLabelMetric(currentMetric); ok {
 					return s.cmpSpecifiedLabels(dynamicConfig, p1, p2, labelKey)
@@ -535,6 +531,14 @@ func (s *SystemPressureEvictionPlugin) getEvictionCmpFunc(dynamicConfig *evictio
 	}
 
 	return cmpFuncs
+}
+
+func (s *SystemPressureEvictionPlugin) podSaleModeAnnotationKey() string {
+	if s.conf == nil || s.conf.GenericConfiguration == nil {
+		return ""
+	}
+
+	return s.conf.GenericConfiguration.GetPodSaleModeAnnotationKey()
 }
 
 func (s *SystemPressureEvictionPlugin) cmpMetric(metricName string, p1, p2 *v1.Pod) int {
@@ -591,7 +595,8 @@ func (s *SystemPressureEvictionPlugin) mergeCollectMetrics(dynamicConfig *evicti
 	for _, metricName := range dynamicConfig.EvictionRankingMetrics {
 		switch metricName {
 		case evictionconfig.FakeMetricPriority,
-			evictionconfig.FakeMetricQoSLevel:
+			evictionconfig.FakeMetricQoSLevel,
+			evictionconfig.FakeMetricSaleMode:
 			// skip all built-in fake metrics
 			continue
 		default:

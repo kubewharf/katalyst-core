@@ -22,10 +22,11 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 const (
 	FakeMetricQoSLevel = "qos.pod"
 	FakeMetricPriority = "priority.pod"
+	FakeMetricSaleMode = "sale_mode.pod"
 )
 
 // DefaultEvictionRankingMetrics is the default ranking metrics for eviction
-var DefaultEvictionRankingMetrics = []string{FakeMetricQoSLevel, FakeMetricPriority}
+var DefaultEvictionRankingMetrics = []string{FakeMetricQoSLevel, FakeMetricPriority, FakeMetricSaleMode}
 
 type EvictionConfiguration struct {
 	// Dryrun plugins is the list of plugins to dryrun

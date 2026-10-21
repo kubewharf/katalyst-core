@@ -510,6 +510,10 @@ func TestCPUSystemPressureEvictionPlugin_collectMetrics_PodAggregated(t *testing
 
 // makeRankPod is a helper to construct a pod for ranking tests.
 func makeRankPod(name string, qosLevel string, priority *int32) *v1.Pod {
+	return makeRankPodWithSaleMode(name, qosLevel, priority, "")
+}
+
+func makeRankPodWithSaleMode(name string, qosLevel string, priority *int32, saleMode string) *v1.Pod {
 	p := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -519,10 +523,15 @@ func makeRankPod(name string, qosLevel string, priority *int32) *v1.Pod {
 			Priority: priority,
 		},
 	}
+	annotations := map[string]string{}
 	if qosLevel != "" {
-		p.Annotations = map[string]string{
-			apiconsts.PodAnnotationQoSLevelKey: qosLevel,
-		}
+		annotations[apiconsts.PodAnnotationQoSLevelKey] = qosLevel
+	}
+	if saleMode != "" {
+		annotations[apiconsts.PodAnnotationSaleModeKey] = saleMode
+	}
+	if len(annotations) > 0 {
+		p.Annotations = annotations
 	}
 	return p
 }
@@ -593,7 +602,20 @@ func TestCPUSystemPressureEvictionPlugin_GetTopEvictionPods_RankByQoSAndPriority
 			expectedFirst: "shared-low",
 		},
 		{
-			name:           "tie on QoS+Priority: fall back to overMetricName appended at the end",
+			name:           "default ranking: same QoS and priority, spot sale mode evicted first",
+			rankingMetrics: evictionconfig.DefaultEvictionRankingMetrics,
+			overMetricName: consts.MetricLoad1MinContainer,
+			pods: []*v1.Pod{
+				makeRankPodWithSaleMode("reserved", apiconsts.PodAnnotationQoSLevelSharedCores, &prioHigh, apiconsts.PodSaleModeReserved),
+				makeRankPodWithSaleMode("spot", apiconsts.PodAnnotationQoSLevelSharedCores, &prioHigh, apiconsts.PodSaleModeSpot),
+			},
+			topN: 1,
+			// even though reserved has higher metric value, spot wins by sale mode
+			metricVals:    map[string]float64{"reserved": 100, "spot": 1},
+			expectedFirst: "spot",
+		},
+		{
+			name:           "tie on QoS+Priority+SaleMode: fall back to overMetricName appended at the end",
 			rankingMetrics: evictionconfig.DefaultEvictionRankingMetrics,
 			overMetricName: consts.MetricLoad1MinContainer,
 			pods: []*v1.Pod{
