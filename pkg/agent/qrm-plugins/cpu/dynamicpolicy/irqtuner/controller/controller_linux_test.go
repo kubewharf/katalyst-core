@@ -25,12 +25,239 @@ import (
 	"testing"
 
 	. "github.com/bytedance/mockey"
+	"github.com/klauspost/cpuid/v2"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+type recordingMetricsEmitter struct {
+	metrics.DummyMetrics
+	records []metricRecord
+}
+
+type metricRecord struct {
+	key  string
+	val  int64
+	tags []metrics.MetricTag
+}
+
+func (e *recordingMetricsEmitter) StoreInt64(key string, val int64, _ metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	e.records = append(e.records, metricRecord{key: key, val: val, tags: tags})
+	return nil
+}
+
+func TestValidateIrqTuningPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		policy  config.IrqTuningPolicy
+		wantErr bool
+	}{
+		{
+			name:    "auto",
+			policy:  config.IrqTuningAuto,
+			wantErr: true,
+		},
+		{
+			name:    "exclusive",
+			policy:  config.IrqTuningIrqCoresExclusive,
+			wantErr: true,
+		},
+		{
+			name:    "balance",
+			policy:  config.IrqTuningBalanceFair,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateIrqTuningPolicy(tt.policy)
+			if tt.wantErr {
+				assert.EqualError(t, err, fmt.Sprintf("irq tuning policy %s is unsupported", tt.policy))
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNewIrqTuningControllerRejectsUnsupportedPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy v1alpha1.TuningPolicy
+	}{
+		{name: "auto", policy: v1alpha1.TuningPolicyAuto},
+		{name: "exclusive", policy: v1alpha1.TuningPolicyExclusive},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			agentConf := agent.NewAgentConfiguration()
+			agentConf.GetDynamicConfiguration().IRQTuningConfiguration.TuningPolicy = tt.policy
+			emitter := &recordingMetricsEmitter{}
+
+			controller, err := NewIrqTuningController(agentConf, nil, emitter, nil)
+
+			assert.Nil(t, controller)
+			assert.EqualError(t, err, fmt.Sprintf("irq tuning policy %s is unsupported", tt.policy))
+			assert.Len(t, emitter.records, 1)
+			assert.Equal(t, irqtuner.NewIrqTuningControllerFailed, emitter.records[0].tags[0].Val)
+		})
+	}
+}
+
+func TestSyncDynamicConfigRejectsUnsupportedPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		dynamicPolicy   v1alpha1.TuningPolicy
+		requestedPolicy config.IrqTuningPolicy
+	}{
+		{
+			name:            "auto",
+			dynamicPolicy:   v1alpha1.TuningPolicyAuto,
+			requestedPolicy: config.IrqTuningAuto,
+		},
+		{
+			name:            "exclusive",
+			dynamicPolicy:   v1alpha1.TuningPolicyExclusive,
+			requestedPolicy: config.IrqTuningIrqCoresExclusive,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			agentConf := agent.NewAgentConfiguration()
+			agentConf.GetDynamicConfiguration().IRQTuningConfiguration.EnableTuner = true
+			agentConf.GetDynamicConfiguration().IRQTuningConfiguration.TuningPolicy = tt.dynamicPolicy
+			emitter := &recordingMetricsEmitter{}
+			oldConf := config.NewConfiguration()
+
+			controller := &IrqTuningController{
+				agentConf: agentConf,
+				conf:      oldConf,
+				emitter:   emitter,
+			}
+
+			controller.syncDynamicConfig()
+
+			assert.Same(t, oldConf, controller.conf)
+			assert.False(t, controller.conf.EnableIrqTuning)
+			assert.Equal(t, config.IrqTuningBalanceFair, controller.conf.IrqTuningPolicy)
+			assert.Len(t, emitter.records, 1)
+			assert.Equal(t, irqtuner.UnsupportedIrqTuningPolicy, emitter.records[0].tags[0].Val)
+			assert.Equal(t, string(tt.requestedPolicy), emitter.records[0].tags[1].Val)
+		})
+	}
+}
+
+func TestSyncDynamicConfigInitializesDefaultConfigForUnsupportedPolicy(t *testing.T) {
+	t.Parallel()
+
+	agentConf := agent.NewAgentConfiguration()
+	agentConf.GetDynamicConfiguration().IRQTuningConfiguration.EnableTuner = true
+	agentConf.GetDynamicConfiguration().IRQTuningConfiguration.TuningPolicy = v1alpha1.TuningPolicyAuto
+	emitter := &recordingMetricsEmitter{}
+	controller := &IrqTuningController{
+		agentConf: agentConf,
+		emitter:   emitter,
+	}
+
+	controller.syncDynamicConfig()
+
+	assert.NotNil(t, controller.conf)
+	assert.False(t, controller.conf.EnableIrqTuning)
+	assert.Equal(t, config.IrqTuningBalanceFair, controller.conf.IrqTuningPolicy)
+	assert.Len(t, emitter.records, 1)
+	assert.Equal(t, irqtuner.UnsupportedIrqTuningPolicy, emitter.records[0].tags[0].Val)
+	assert.Equal(t, string(config.IrqTuningAuto), emitter.records[0].tags[1].Val)
+}
+
+func TestUseCCDBalance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		vendor   cpuid.Vendor
+		expected bool
+	}{
+		{
+			name:     "AMD uses CCD",
+			vendor:   cpuid.AMD,
+			expected: true,
+		},
+		{
+			name:     "Intel uses NUMA",
+			vendor:   cpuid.Intel,
+			expected: false,
+		},
+		{
+			name:     "arm64 unknown vendor uses NUMA",
+			vendor:   cpuid.VendorUnknown,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, useCCDBalance(tt.vendor))
+		})
+	}
+}
+
+func TestIrqTuningControllerStringWithNUMA(t *testing.T) {
+	t.Parallel()
+
+	controller := &IrqTuningController{
+		CPUInfo: &machine.CPUInfo{
+			CPUVendor: cpuid.Intel,
+			Sockets: map[int]*machine.CPUSocket{
+				2: {
+					NumaIDs: []int{3},
+					CPUs:    []int64{4, 5},
+					Numas: map[int]*machine.LLCDomain{
+						3: {
+							PhyCores: []machine.PhyCore{
+								{CPUs: []int64{4}},
+								{CPUs: []int64{5}},
+							},
+						},
+					},
+				},
+			},
+			CPU2Socket: map[int64]int{4: 2, 5: 2},
+			CPUOnline:  map[int64]bool{4: true, 5: true},
+		},
+	}
+
+	output := controller.String()
+
+	assert.Contains(t, output, "Sockets[2]:")
+	assert.Contains(t, output, "Numas:")
+	assert.Contains(t, output, "Numas[3]:")
+	assert.Contains(t, output, "CPUs: [4]")
+	assert.Contains(t, output, "CPUs: [5]")
+}
 
 func Test_controller_linux(t *testing.T) {
 	t.Parallel()
@@ -112,6 +339,7 @@ func Test_controller_linux(t *testing.T) {
 
 	PatchConvey("Test_classifyNicsByThroughputFirstTime", t, func() {
 		ic := &IrqTuningController{
+			emitter: metrics.DummyMetrics{},
 			conf: &config.IrqTuningConfig{
 				NormalThroughputNics: []config.NicInfo{
 					{
@@ -149,9 +377,6 @@ func Test_controller_linux(t *testing.T) {
 				},
 			}
 
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
-
 			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
 
 			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
@@ -183,9 +408,6 @@ func Test_controller_linux(t *testing.T) {
 					},
 				},
 			}
-
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
 
 			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
 
@@ -270,6 +492,7 @@ func Test_controller_linux(t *testing.T) {
 
 	PatchConvey("Test_periodicTuning", t, func() {
 		ic := &IrqTuningController{
+			emitter: metrics.DummyMetrics{},
 			conf: &config.IrqTuningConfig{
 				NormalThroughputNics: []config.NicInfo{
 					{
@@ -295,8 +518,6 @@ func Test_controller_linux(t *testing.T) {
 
 		PatchConvey("Scenario 1: failed to syncNics", func() {
 			Mock((*IrqTuningController).syncNics).Return(nil, false, fmt.Errorf("sync nic failed")).Build()
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
 
 			ic.periodicTuning(nil)
 
@@ -318,8 +539,6 @@ func Test_controller_linux(t *testing.T) {
 
 			Mock((*IrqTuningController).syncNics).Return(nil, false, nil).Build()
 			Mock((*IrqTuningController).updateNicIrqTuningManagers).Return(fmt.Errorf("updateNicIrqTuningManagers failed")).Build()
-			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
-			}).Build()
 
 			ic.periodicTuning(oldConf)
 
