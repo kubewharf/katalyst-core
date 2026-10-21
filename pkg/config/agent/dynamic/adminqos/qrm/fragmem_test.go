@@ -56,6 +56,6 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 
 	as.True(conf.EnableFragMem)
 	as.Equal(70, conf.MemFragScoreAsync)
-	as.Equal("always", conf.THPDefaultConfig)
+	as.Equal(apiconfig.THPModeAlways, conf.THPDefaultConfig)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
 }

@@ -17,8 +17,11 @@ limitations under the License.
 package qrm
 
 import (
+	"strings"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 )
 
@@ -53,7 +56,7 @@ func (o *FragMemOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *FragMemOptions) ApplyTo(c *dynamicqrm.FragMemConfiguration) error {
 	c.EnableFragMem = o.EnableFragMem
 	c.MemFragScoreAsync = o.MemFragScoreAsync
-	c.THPDefaultConfig = o.THPDefaultConfig
+	c.THPDefaultConfig = apiconfig.THPMode(strings.TrimSpace(strings.ToLower(o.THPDefaultConfig)))
 	c.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
 	return nil
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -47,7 +48,7 @@ import (
 
 var setMemTHPTestMu sync.Mutex
 
-func makeTHPConf(defaultConfig string, threshold int) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
+func makeTHPConf(defaultConfig apiconfig.THPMode, threshold int) (*coreconfig.Configuration, *dynamicconfig.DynamicAgentConfiguration) {
 	dynamicConf := dynamicconfig.NewDynamicAgentConfiguration()
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.EnableFragMem = true
 	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = defaultConfig
@@ -126,7 +127,7 @@ func TestSetMemTHP(t *testing.T) {
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig empty: skip THP tuning entirely.
-	conf, dynamicConf = makeTHPConf("", 85)
+	conf, dynamicConf = makeTHPConf(apiconfig.THPMode(""), 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	// THPDefaultConfig=never: fast-path to disable THP directly.
@@ -143,7 +144,7 @@ func TestSetMemTHP(t *testing.T) {
 	thpEnabledPath = f
 	thpShmemEnabledPath = shmemFile
 
-	conf, dynamicConf = makeTHPConf("never", 85)
+	conf, dynamicConf = makeTHPConf(apiconfig.THPModeNever, 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
 	b, rerr := os.ReadFile(f)
@@ -173,7 +174,7 @@ func TestSetMemTHP_HotUpdateEnableFragMem(t *testing.T) {
 	thpEnabledPath = thpFile
 
 	conf, dynamicConf := makeFragMemCoreConf(false, 0)
-	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = "never"
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = apiconfig.THPModeNever
 
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
 
@@ -183,7 +184,7 @@ func TestSetMemTHP_HotUpdateEnableFragMem(t *testing.T) {
 
 	updatedConf := dynamicconfig.NewConfiguration()
 	updatedConf.FragMemConfiguration.EnableFragMem = true
-	updatedConf.FragMemConfiguration.THPDefaultConfig = "never"
+	updatedConf.FragMemConfiguration.THPDefaultConfig = apiconfig.THPModeNever
 	dynamicConf.SetDynamicConfiguration(updatedConf)
 
 	SetMemTHP(conf, nil, dynamicConf, nil, nil)
@@ -210,7 +211,7 @@ func TestSetMemTHPNilEmitter(t *testing.T) {
 	defer setMemTHPTestMu.Unlock()
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
-	conf, dynamicConf := makeTHPConf("madvise", 85)
+	conf, dynamicConf := makeTHPConf(apiconfig.THPModeMadvise, 85)
 	SetMemTHP(conf, nil, dynamicConf, nil, &metaserver.MetaServer{})
 }
 
@@ -221,7 +222,7 @@ func TestSetMemTHPNilMetaServer(t *testing.T) {
 	defer setMemTHPTestMu.Unlock()
 
 	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
-	conf, dynamicConf := makeTHPConf("madvise", 85)
+	conf, dynamicConf := makeTHPConf(apiconfig.THPModeMadvise, 85)
 	SetMemTHP(conf, nil, dynamicConf, metrics.DummyMetrics{}, nil)
 }
 
@@ -252,7 +253,7 @@ func TestDoMemTHPDisable(t *testing.T) {
 	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 90, Time: &now})
 	mf.SetNumaMetric(1, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 
-	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 85}
+	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 85}
 	err = doMemTHP(conf, metaServer, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
@@ -291,7 +292,7 @@ func TestDoMemTHPEnable(t *testing.T) {
 	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 	mf.SetNumaMetric(1, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 
-	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 85}
+	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 85}
 	err = doMemTHP(conf, metaServer, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
@@ -330,7 +331,7 @@ func TestDoMemTHPEnableSkippedDueToMissingOrders(t *testing.T) {
 	// Only set metric for NUMA 0. NUMA 1 is missing, so enable should be skipped.
 	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
 
-	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 85}
+	conf := &dynamicqrm.FragMemConfiguration{EnableFragMem: true, THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 85}
 	err = doMemTHP(conf, metaServer, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
@@ -346,9 +347,9 @@ func TestGetHighOrderThreshold(t *testing.T) {
 	t.Parallel()
 
 	assert.InDelta(t, 85.0, getHighOrderThreshold(nil), 1e-6)
-	assert.InDelta(t, 85.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 0}), 1e-6)
-	assert.InDelta(t, 100.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 150}), 1e-6)
-	assert.InDelta(t, 1.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: "madvise", THPHighOrderScoreThreshold: 1}), 1e-6)
+	assert.InDelta(t, 85.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 0}), 1e-6)
+	assert.InDelta(t, 100.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 150}), 1e-6)
+	assert.InDelta(t, 1.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 1}), 1e-6)
 }
 
 func TestDisableTHPAtPath(t *testing.T) {
