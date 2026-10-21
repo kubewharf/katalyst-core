@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	dynamicqrm "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 )
 
@@ -53,6 +54,6 @@ func TestFragMemOptionsDefaultsAndFlags(t *testing.T) {
 	as.NoError(options.ApplyTo(conf))
 	as.True(conf.EnableFragMem)
 	as.Equal(70, conf.MemFragScoreAsync)
-	as.Equal("always", conf.THPDefaultConfig)
+	as.Equal(apiconfig.THPModeAlways, conf.THPDefaultConfig)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
 }

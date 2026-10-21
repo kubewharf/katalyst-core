@@ -31,6 +31,51 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+func TestGetNUMANodeCPUListFiles(t *testing.T) {
+	mockey.PatchConvey("missing node sysfs returns an error", t, func() {
+		mockey.Mock(os.ReadDir).Return(nil, os.ErrNotExist).Build()
+
+		files, err := getNUMANodeCPUListFiles()
+
+		So(files, ShouldBeNil)
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "failed to ReadDir")
+	})
+
+	mockey.PatchConvey("zero NUMA nodes returns an error", t, func() {
+		mockey.Mock(os.ReadDir).Return([]os.DirEntry{}, nil).Build()
+
+		files, err := getNUMANodeCPUListFiles()
+
+		So(files, ShouldBeNil)
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "no NUMA nodes found")
+	})
+}
+
+func TestNormalizePackageID(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 0, normalizePackageID(-1))
+	assert.Equal(t, 2, normalizePackageID(2))
+}
+
+func TestNormalizeCPUArchitecture(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"x86_64":  cpuArchAMD64,
+		"aarch64": cpuArchARM64,
+		"armv7l":  cpuArchARM,
+		"i686":    cpuArch386,
+		"riscv64": "riscv64",
+	}
+
+	for machine, expected := range tests {
+		assert.Equal(t, expected, normalizeCPUArchitecture(machine))
+	}
+}
+
 func TestGetCoreNumReservedForReclaim(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -164,10 +209,10 @@ func Test_getSocketCPUList(t *testing.T) {
 			})
 		}).Build()
 
-		mockey.PatchConvey("Scenario 1: When the CPU manufacturer is Intel", func() {
+		mockey.PatchConvey("Scenario 1: Flat NUMA topology", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
-				IntelNumas: map[int]*LLCDomain{
+				Numas: map[int]*LLCDomain{
 					0: {
 						PhyCores: []PhyCore{
 							{CPUs: []int64{3, 1}}, // intentionally use out of order data
@@ -186,7 +231,7 @@ func Test_getSocketCPUList(t *testing.T) {
 			expectedCPUList := []int64{0, 1, 2, 3, 8, 9, 10, 11}
 
 			// Act: call the function to be tested
-			cpuList := getSocketCPUList(socket, cpuid.Intel)
+			cpuList := getSocketCPUList(socket)
 
 			So(cpuList, ShouldResemble, expectedCPUList)
 		})
@@ -194,8 +239,8 @@ func Test_getSocketCPUList(t *testing.T) {
 		mockey.PatchConvey("Scenario 2: When the CPU manufacturer is AMD", func() {
 			// Arrange: Construct the topology of an AMD CPU
 			socket := &CPUSocket{
-				NumaIDs:    []int{0},
-				IntelNumas: nil,
+				NumaIDs: []int{0},
+				Numas:   nil,
 				AMDNumas: map[int]*AMDNuma{
 					0: {
 						CCDs: []*LLCDomain{
@@ -218,14 +263,14 @@ func Test_getSocketCPUList(t *testing.T) {
 			expectedCPUList := []int64{4, 5, 6, 7, 12, 13, 14, 15}
 
 			// Act: call the function to be tested
-			cpuList := getSocketCPUList(socket, cpuid.AMD)
+			cpuList := getSocketCPUList(socket)
 			So(cpuList, ShouldResemble, expectedCPUList)
 		})
 
-		mockey.PatchConvey("Scenario 3: When the CPU manufacturer is unknown", func() {
+		mockey.PatchConvey("Scenario 3: Flat NUMA topology does not depend on CPU vendor", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0},
-				IntelNumas: map[int]*LLCDomain{
+				Numas: map[int]*LLCDomain{
 					0: {
 						PhyCores: []PhyCore{
 							{CPUs: []int64{0, 1}},
@@ -234,19 +279,36 @@ func Test_getSocketCPUList(t *testing.T) {
 				},
 			}
 
-			cpuList := getSocketCPUList(socket, cpuid.VendorUnknown)
-			So(cpuList, ShouldBeEmpty)
+			cpuList := getSocketCPUList(socket)
+			So(cpuList, ShouldResemble, []int64{0, 1})
 		})
 
 		mockey.PatchConvey("Scenario 4: When there is no NUMA node in the Socket", func() {
 			socket := &CPUSocket{
-				NumaIDs:    []int{},
-				IntelNumas: map[int]*LLCDomain{},
-				AMDNumas:   map[int]*AMDNuma{},
+				NumaIDs:  []int{},
+				Numas:    map[int]*LLCDomain{},
+				AMDNumas: map[int]*AMDNuma{},
 			}
 
-			cpuList := getSocketCPUList(socket, cpuid.Intel)
+			cpuList := getSocketCPUList(socket)
 			So(cpuList, ShouldBeEmpty)
+		})
+
+		mockey.PatchConvey("Scenario 5: NUMA topology is independent of vendor", func() {
+			socket := &CPUSocket{
+				NumaIDs: []int{0},
+				Numas: map[int]*LLCDomain{
+					0: {
+						PhyCores: []PhyCore{
+							{CPUs: []int64{1}},
+							{CPUs: []int64{0}},
+						},
+					},
+				},
+			}
+
+			cpuList := getSocketCPUList(socket)
+			So(cpuList, ShouldResemble, []int64{0, 1})
 		})
 	})
 }
@@ -351,12 +413,12 @@ func Test_getAMDSocketPhysicalCores(t *testing.T) {
 	})
 }
 
-func Test_getIntelSocketPhysicalCores(t *testing.T) {
-	mockey.PatchConvey("Test_getIntelSocketPhysicalCores", t, func() {
+func Test_getNumaSocketPhysicalCores(t *testing.T) {
+	mockey.PatchConvey("Test_getNumaSocketPhysicalCores", t, func() {
 		mockey.PatchConvey("Normal scenario: When the socket contains multiple valid NUMA nodes", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
-				IntelNumas: map[int]*LLCDomain{
+				Numas: map[int]*LLCDomain{
 					0: {
 						PhyCores: []PhyCore{
 							{CPUs: []int64{0, 1}},
@@ -377,7 +439,7 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 			}
 
 			// Act: call the function to be tested
-			result := getIntelSocketPhysicalCores(socket)
+			result := getNumaSocketPhysicalCores(socket)
 
 			So(result, ShouldNotBeNil)
 			So(result, ShouldResemble, expectedCores)
@@ -386,7 +448,7 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 		mockey.PatchConvey("Boundary Scenario: When NumaIDs are empty", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{},
-				IntelNumas: map[int]*LLCDomain{
+				Numas: map[int]*LLCDomain{
 					0: {
 						PhyCores: []PhyCore{{CPUs: []int64{0, 1}}},
 					},
@@ -394,7 +456,7 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 			}
 
 			// Act: call the function to be tested
-			result := getIntelSocketPhysicalCores(socket)
+			result := getNumaSocketPhysicalCores(socket)
 
 			So(result, ShouldBeEmpty)
 		})
@@ -402,7 +464,7 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 		mockey.PatchConvey("Boundary scenario: When the PhyCores of a NUMA node is empty", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
-				IntelNumas: map[int]*LLCDomain{
+				Numas: map[int]*LLCDomain{
 					0: {
 						PhyCores: []PhyCore{
 							{CPUs: []int64{0, 1}},
@@ -418,35 +480,33 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 			}
 
 			// Act: call the function to be tested
-			result := getIntelSocketPhysicalCores(socket)
+			result := getNumaSocketPhysicalCores(socket)
 
 			So(result, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Exception scenario: panic should occur when IntelNumas maps to nil", func() {
+		mockey.PatchConvey("Boundary scenario: nil Numas returns an empty result", func() {
 			socket := &CPUSocket{
-				NumaIDs:    []int{0},
-				IntelNumas: nil, // IntelNumas map为nil
+				NumaIDs: []int{0},
+				Numas:   nil,
 			}
 
-			So(func() {
-				getIntelSocketPhysicalCores(socket)
-			}, ShouldPanic)
+			result := getNumaSocketPhysicalCores(socket)
+			So(result, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Exception scenario: panic should occur when NumaID does not exist in IntelNumas", func() {
+		mockey.PatchConvey("Boundary scenario: missing NumaID is skipped", func() {
 			socket := &CPUSocket{
 				NumaIDs: []int{0, 1},
-				IntelNumas: map[int]*LLCDomain{
+				Numas: map[int]*LLCDomain{
 					0: {
 						PhyCores: []PhyCore{{CPUs: []int64{0, 1}}},
 					},
 				},
 			}
 
-			So(func() {
-				getIntelSocketPhysicalCores(socket)
-			}, ShouldPanic)
+			result := getNumaSocketPhysicalCores(socket)
+			So(result, ShouldResemble, []PhyCore{{CPUs: []int64{0, 1}}})
 		})
 	})
 }
@@ -548,14 +608,14 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 			So(cores, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Scenario 4: When the CPU is Intel, getIntelSocketPhysicalCores should be called and its result should be returned.", func() {
+		mockey.PatchConvey("Scenario 4: NUMA physical cores are returned for Intel", func() {
 			// Arrange: prepare test data and mock
 			intelCPUInfo := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 				Sockets: map[int]*CPUSocket{
 					0: {
 						NumaIDs: []int{0},
-						IntelNumas: map[int]*LLCDomain{
+						Numas: map[int]*LLCDomain{
 							0: {
 								PhyCores: []PhyCore{
 									{CPUs: []int64{0, 1}}, // Physical core 0, including logical core 0 and 1
@@ -566,13 +626,39 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 				},
 			}
 			expectedCores := []PhyCore{{CPUs: []int64{0, 1}}}
-			mockey.Mock(getIntelSocketPhysicalCores).Return(expectedCores).Build()
+			mockey.Mock(getNumaSocketPhysicalCores).Return(expectedCores).Build()
 
 			cores := intelCPUInfo.GetSocketPhysicalCores(0)
 			So(cores, ShouldResemble, expectedCores)
 		})
 
-		mockey.PatchConvey("Scenario 5: When the CPU is another manufacturer, nil should be returned", func() {
+		mockey.PatchConvey("Scenario 5: NUMA topology does not depend on CPU vendor", func() {
+			numaCPUInfo := &CPUInfo{
+				CPUVendor: cpuid.Intel,
+				Sockets: map[int]*CPUSocket{
+					0: {
+						NumaIDs: []int{0},
+						Numas: map[int]*LLCDomain{
+							0: {
+								PhyCores: []PhyCore{
+									{CPUs: []int64{0}},
+									{CPUs: []int64{1}},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			cores := numaCPUInfo.GetSocketPhysicalCores(0)
+
+			So(cores, ShouldResemble, []PhyCore{
+				{CPUs: []int64{0}},
+				{CPUs: []int64{1}},
+			})
+		})
+
+		mockey.PatchConvey("Scenario 6: When the CPU is another manufacturer without generic topology, nil should be returned", func() {
 			otherCPUInfo := &CPUInfo{
 				CPUVendor: cpuid.VendorUnknown,
 				Sockets: map[int]*CPUSocket{
@@ -600,7 +686,7 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 				Sockets: map[int]*CPUSocket{
 					0: {
 						NumaIDs: []int{0},
-						IntelNumas: map[int]*LLCDomain{
+						Numas: map[int]*LLCDomain{
 							0: {
 								PhyCores: []PhyCore{
 									{CPUs: []int64{1, 5}}, // CPU core1
@@ -611,7 +697,7 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 					},
 					1: {
 						NumaIDs: []int{1},
-						IntelNumas: map[int]*LLCDomain{
+						Numas: map[int]*LLCDomain{
 							1: {
 								PhyCores: []PhyCore{
 									{CPUs: []int64{2, 6}},
@@ -677,7 +763,7 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 				Sockets: map[int]*CPUSocket{
 					0: {
 						NumaIDs: []int{0},
-						IntelNumas: map[int]*LLCDomain{
+						Numas: map[int]*LLCDomain{
 							0: {
 								PhyCores: []PhyCore{
 									{CPUs: []int64{0, 4}},
@@ -712,13 +798,36 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 			So(cpuList, ShouldBeEmpty)
 		})
 
-		mockey.PatchConvey("Scenario 5: The node exists but does not have a CPU core", func() {
+		mockey.PatchConvey("Scenario 5: NUMA CPU list does not depend on CPU vendor", func() {
 			c := &CPUInfo{
 				CPUVendor: cpuid.Intel,
 				Sockets: map[int]*CPUSocket{
 					0: {
 						NumaIDs: []int{0},
-						IntelNumas: map[int]*LLCDomain{
+						Numas: map[int]*LLCDomain{
+							0: {
+								PhyCores: []PhyCore{
+									{CPUs: []int64{1}},
+									{CPUs: []int64{0}},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			cpuList := c.GetNodeCPUList(0)
+
+			So(cpuList, ShouldResemble, []int64{0, 1})
+		})
+
+		mockey.PatchConvey("Scenario 6: The node exists but does not have a CPU core", func() {
+			c := &CPUInfo{
+				CPUVendor: cpuid.Intel,
+				Sockets: map[int]*CPUSocket{
+					0: {
+						NumaIDs: []int{0},
+						Numas: map[int]*LLCDomain{
 							0: {
 								PhyCores: []PhyCore{},
 							},

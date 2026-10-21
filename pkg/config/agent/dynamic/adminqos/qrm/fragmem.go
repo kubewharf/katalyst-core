@@ -16,12 +16,18 @@ limitations under the License.
 
 package qrm
 
-import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+import (
+	"strings"
+
+	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+)
 
 type FragMemConfiguration struct {
 	EnableFragMem              bool
 	MemFragScoreAsync          int
-	THPDefaultConfig           string
+	THPDefaultConfig           apiconfig.THPMode
 	THPHighOrderScoreThreshold int
 }
 
@@ -42,7 +48,7 @@ func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 			c.MemFragScoreAsync = int(*config.MemFragScoreAsync)
 		}
 		if config.THPDefaultConfig != nil {
-			c.THPDefaultConfig = *config.THPDefaultConfig
+			c.THPDefaultConfig = apiconfig.THPMode(strings.TrimSpace(strings.ToLower(*config.THPDefaultConfig)))
 		}
 		if config.THPHighOrderScoreThreshold != nil {
 			c.THPHighOrderScoreThreshold = int(*config.THPHighOrderScoreThreshold)
