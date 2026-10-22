@@ -85,6 +85,8 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 		nil,
 		nil,
 		reconciler,
+		false, // disableCapping (capper=nil, but not disabled by config)
+		true,  // disableEviction (noop evictor, treated as disabled)
 	)
 
 	p, err := newPluginWithAdvisor(expectedName,
@@ -101,6 +103,7 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 			},
 		},
 		stubAdvisor,
+		dummyEmitterPool.GetDefaultMetricsEmitter(),
 	)
 	if err != nil {
 		t.Errorf("unexpected error: %#v", err)
@@ -161,18 +164,22 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 				nil,
 				strategy,
 			)
+			stubAdvisor := advisor.NewAdvisor(false,
+				"bar",
+				evictor.NewNoopPodEvictor(),
+				dummyEmitter,
+				tt.fields.nodeFetcher,
+				reader.NewDummyPowerReader(),
+				capper.NewNoopCapper(),
+				reconciler,
+				false, // disableCapping
+				true,  // disableEviction
+			)
 			p := powerAwarePlugin{
-				name:   tt.fields.name,
-				dryRun: tt.fields.dryRun,
-				advisor: advisor.NewAdvisor(false,
-					"bar",
-					evictor.NewNoopPodEvictor(),
-					dummyEmitter,
-					tt.fields.nodeFetcher,
-					reader.NewDummyPowerReader(),
-					capper.NewNoopCapper(),
-					reconciler,
-				),
+				name:          tt.fields.name,
+				dryRun:        tt.fields.dryRun,
+				advisor:       stubAdvisor,
+				healthMonitor: newHealthMonitor(stubAdvisor, dummyEmitter),
 			}
 			if err := p.Init(); (err != nil) != tt.wantErr {
 				t.Errorf("Init() error = %v, wantErr %v", err, tt.wantErr)
@@ -221,9 +228,10 @@ func Test_powerAwarePlugin_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := powerAwarePlugin{
-				name:    tt.fields.name,
-				dryRun:  tt.fields.dryRun,
-				advisor: tt.fields.advisor,
+				name:          tt.fields.name,
+				dryRun:        tt.fields.dryRun,
+				advisor:       tt.fields.advisor,
+				healthMonitor: newHealthMonitor(tt.fields.advisor, nil),
 			}
 			p.Run(tt.args.ctx)
 			if !testAdvisor.called {
@@ -240,44 +248,18 @@ func TestNewPowerAwarePlugin(t *testing.T) {
 			NodeFetcher: &stubNodeFetcher{},
 		},
 	}
-	type args struct {
-		pluginName string
-		conf       *config.Configuration
-		metaServer *metaserver.MetaServer
+	conf := &config.Configuration{
+		GenericConfiguration: generic.NewGenericConfiguration(),
+		AgentConfiguration:   agentconf.NewAgentConfiguration(),
 	}
-	tests := []struct {
-		name    string
-		args    args
-		wantNil bool
-		wantErr bool
-	}{
-		{
-			name: "happy path",
-			args: args{
-				pluginName: "test",
-				conf: &config.Configuration{
-					GenericConfiguration: generic.NewGenericConfiguration(),
-					AgentConfiguration:   agentconf.NewAgentConfiguration(),
-				},
-				metaServer: stubMetaServer,
-			},
-			wantErr: false,
-		},
+	conf.DisablePowerCapping = true
+	conf.DisablePowerPressureEvict = true
+
+	got, err := NewPowerAwarePlugin("test", conf, nil, &metricspool.DummyMetricsEmitterPool{}, stubMetaServer, nil)
+	if err != nil {
+		t.Errorf("NewPowerAwarePlugin() error = %v, wantErr false", err)
 	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := NewPowerAwarePlugin(tt.args.pluginName,
-				tt.args.conf, nil, &metricspool.DummyMetricsEmitterPool{},
-				tt.args.metaServer, nil)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewPowerAwarePlugin() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if (got == nil) != tt.wantNil {
-				t.Errorf("NewPowerAwarePlugin() got unexpected value %v", got)
-			}
-		})
+	if got == nil {
+		t.Errorf("NewPowerAwarePlugin() returned nil")
 	}
 }

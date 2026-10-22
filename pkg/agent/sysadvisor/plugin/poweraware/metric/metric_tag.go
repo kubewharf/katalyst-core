@@ -25,6 +25,7 @@ const (
 	metricPowerCappingTarget           = "node_power_cap_target"
 	metricPowerCappingCurrent          = "node_power_cap_current"
 	metricPowerError                   = "node_power_error"
+	metricPowerAdvisorHealth           = "node_power_advisor_health"
 	metricGetAdviceCalled              = "node_power_get_advice"
 
 	tagPowerAlert         = "alert"
@@ -33,4 +34,15 @@ const (
 	tagPowerActionMode    = "mode"
 	tagPowerCappingOpCode = "op"
 	tagErrorCause         = "cause"
+
+	TagHealthRunning   = "running"
+	TagHealthSpecRead  = "spec_read"
+	TagHealthPowerRead = "power_read"
+	TagHealthReconcile = "reconcile"
+	TagHealthCapping   = "capping"
+	TagHealthEviction  = "eviction"
+
+	StatusOK  = "ok"
+	StatusNOK = "nok"
+	StatusNA  = "na"
 )
