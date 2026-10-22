@@ -1509,7 +1509,7 @@ func Test_getGVENicQueue2Irq(t *testing.T) {
 	PatchConvey("Test getGVENicQueue2Irq", t, func() {
 		PatchConvey("Scenario 1: NIC total irqs count of less than 2 * queueNum", func() {
 			nicInfo.QueueNum = 4
-			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo, nil)
 
 			So(rxQueue2Irq, ShouldBeNil)
 			So(txQueue2Irq, ShouldBeNil)
@@ -1519,17 +1519,15 @@ func Test_getGVENicQueue2Irq(t *testing.T) {
 			So(err.Error(), ShouldEqual, expectedErrMsg)
 		})
 
-		PatchConvey("Scenario 2: Failed to read the interrupts file", func() {
+		PatchConvey("Scenario 2: Empty interrupts info", func() {
 			nicInfo.QueueNum = 3
-			mockErr := errors.New("read file error")
-			Mock(os.ReadFile).Return(nil, mockErr).Build()
 
-			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo, nil)
 
 			So(rxQueue2Irq, ShouldBeNil)
 			So(txQueue2Irq, ShouldBeNil)
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldEqual, fmt.Sprintf("failed to ReadFile(%s), err %s", InterruptsFile, mockErr))
+			So(err.Error(), ShouldContainSubstring, "total count (0) of tx/rx irqs")
 		})
 
 		PatchConvey("Scenario 3: GVE NIC queue and IRQ mapping are successfully obtained", func() {
@@ -1549,7 +1547,9 @@ func Test_getGVENicQueue2Irq(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo, interruptsInfo)
 
 			So(err, ShouldBeNil)
 			So(rxQueue2Irq, ShouldNotBeNil)
@@ -1573,7 +1573,9 @@ func Test_getGVENicQueue2Irq(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo, interruptsInfo)
 
 			So(rxQueue2Irq, ShouldBeNil)
 			So(txQueue2Irq, ShouldBeNil)
@@ -1606,7 +1608,9 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-", interruptsInfo)
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1624,7 +1628,9 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{nicInfo.Name}, "-")
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{nicInfo.Name}, "-", interruptsInfo)
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1632,15 +1638,11 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			So(result, ShouldResemble, expectedMap)
 		})
 
-		PatchConvey("Scenario 3: Failed to read the interrupts file", func() {
-			mockErr := errors.New("read file error")
-			Mock(os.ReadFile).Return(nil, mockErr).Build()
+		PatchConvey("Scenario 3: Empty interrupts info", func() {
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-", nil)
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
-
-			So(result, ShouldBeNil)
-			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldEqual, fmt.Sprintf("failed to ReadFile(%s), err %s", InterruptsFile, mockErr))
+			So(result, ShouldBeEmpty)
+			So(err, ShouldBeNil)
 		})
 
 		PatchConvey("Scenario 4: The resolved queue number is greater than or equal to the total number of queues", func() {
@@ -1652,7 +1654,9 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-", interruptsInfo)
 
 			So(result, ShouldBeNil)
 			So(err, ShouldNotBeNil)
@@ -1667,7 +1671,9 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			bad:         30         40   IO-APIC-fasteoi   eth0-tx-1
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-", interruptsInfo)
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1683,7 +1689,9 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			 29:         30         40   IO-APIC-fasteoi   eth0-tx-0
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-", interruptsInfo)
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1704,7 +1712,9 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfoWithIrqs, []string{"eth0"}, "-")
+			interruptsInfo, err := GetNicInterruptsInfo()
+			So(err, ShouldBeNil)
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfoWithIrqs, []string{"eth0"}, "-", interruptsInfo)
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1729,11 +1739,11 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			PatchConvey("Successfully get GVE NIC rx/tx queue2irq mapping", func() {
 				mockTxQueue2Irq := map[int]int{0: 100, 1: 101}
 				mockRxQueue2Irq := map[int]int{0: 102, 1: 103}
-				Mock(getGVENicQueue2Irq).To(func(_ *NicBasicInfo) (map[int]int, map[int]int, error) {
+				Mock(getGVENicQueue2Irq).To(func(_ *NicBasicInfo, _ []NicInterruptInfo) (map[int]int, map[int]int, error) {
 					return mockRxQueue2Irq, mockTxQueue2Irq, nil
 				}).Build()
 
-				rxQueue2Irq, txQueue2Irq, err := GetNicQueue2Irq(nicInfo)
+				rxQueue2Irq, txQueue2Irq, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldBeNil)
 				So(rxQueue2Irq, ShouldResemble, mockRxQueue2Irq)
@@ -1755,7 +1765,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			PatchConvey("Successfully get input and output queues", func() {
 				mockInputQueue := map[int]int{0: 100, 1: 101}
 				mockOutputQueue := map[int]int{0: 200, 1: 201}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return mockInputQueue, nil
 					}
@@ -1765,7 +1775,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 					return nil, fmt.Errorf("unexpected filter: %+v", queueFilters)
 				}).Build()
 
-				q2i, txq2i, err := GetNicQueue2Irq(nicInfo)
+				q2i, txq2i, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldBeNil)
 				So(q2i, ShouldResemble, mockInputQueue)
@@ -1774,14 +1784,14 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("Gets input queue returns an error", func() {
 				mockErr := errors.New("input queue error")
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return nil, mockErr
 					}
 					return nil, nil
 				}).Build()
 
-				_, _, err := GetNicQueue2Irq(nicInfo)
+				_, _, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldContainSubstring, mockErr.Error())
@@ -1790,7 +1800,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			PatchConvey("Error is returned when getting the output queue", func() {
 				mockInputQueue := map[int]int{0: 100, 1: 101}
 				mockErr := errors.New("output queue error")
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return mockInputQueue, nil
 					}
@@ -1800,21 +1810,21 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 					return nil, nil
 				}).Build()
 
-				_, _, err := GetNicQueue2Irq(nicInfo)
+				_, _, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldContainSubstring, mockErr.Error())
 			})
 
 			PatchConvey("No matching input queue found (returns empty map)", func() {
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return make(map[int]int), nil
 					}
 					return nil, nil
 				}).Build()
 
-				_, _, err := GetNicQueue2Irq(nicInfo)
+				_, _, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldContainSubstring, "failed to find matched input queue")
@@ -1835,14 +1845,14 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("Successfully matched by the NIC name", func() {
 				mockQueue := map[int]int{0: 10, 1: 11}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "eth_bond0" {
 						return mockQueue, nil
 					}
 					return make(map[int]int), nil
 				}).Build()
 
-				q2i, txq2i, err := GetNicQueue2Irq(nicInfo)
+				q2i, txq2i, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldBeNil)
 				So(q2i, ShouldResemble, mockQueue)
@@ -1851,7 +1861,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("Successfully matched via PCI address", func() {
 				mockQueue := map[int]int{0: 20, 1: 21}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "eth_bond0" {
 						return make(map[int]int), nil
 					}
@@ -1861,7 +1871,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 					return make(map[int]int), nil
 				}).Build()
 
-				q2i, txq2i, err := GetNicQueue2Irq(nicInfo)
+				q2i, txq2i, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldBeNil)
 				So(q2i, ShouldResemble, mockQueue)
@@ -1870,7 +1880,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("The split NIC name is successfully matched", func() {
 				mockQueue := map[int]int{0: 30, 1: 31}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string, _ []NicInterruptInfo) (map[int]int, error) {
 					if len(queueFilters) == 1 && queueFilters[0] == "eth_bond0" {
 						return make(map[int]int), nil
 					}
@@ -1883,7 +1893,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 					return make(map[int]int), nil
 				}).Build()
 
-				q2i, txq2i, err := GetNicQueue2Irq(nicInfo)
+				q2i, txq2i, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldBeNil)
 				So(q2i, ShouldResemble, mockQueue)
@@ -1893,7 +1903,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			PatchConvey("None of the filters matched", func() {
 				Mock(GetNicQueue2IrqWithQueueFilter).Return(make(map[int]int), nil).Build()
 
-				_, _, err := GetNicQueue2Irq(nicInfo)
+				_, _, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldContainSubstring, "failed to find matched queue")
@@ -1903,7 +1913,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 				mockErr := errors.New("filter error")
 				Mock(GetNicQueue2IrqWithQueueFilter).Return(nil, mockErr).Build()
 
-				_, _, err := GetNicQueue2Irq(nicInfo)
+				_, _, err := GetNicQueue2Irq(nicInfo, nil)
 
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldContainSubstring, mockErr.Error())
@@ -2946,6 +2956,7 @@ func Test_ListActiveUplinkNicsFromNetNS(t *testing.T) {
 func Test_ListActiveUplinkNics(t *testing.T) {
 	PatchConvey("Test ListActiveUplinkNics", t, func() {
 		const mockNetNSDir = "/var/run/netns"
+		Mock(GetNicInterruptsInfo).Return([]NicInterruptInfo{}, nil).Build()
 
 		PatchConvey("Scenario 1: Successfully obtain the information of active NICs in all network namespaces", func() {
 			mockNetNSList := []NetNSInfo{
