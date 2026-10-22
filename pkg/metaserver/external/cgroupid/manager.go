@@ -19,12 +19,15 @@ package cgroupid
 import (
 	"context"
 	"fmt"
+
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
 // CgroupIDManager maintains the mapping of pod to cgroup id.
 type CgroupIDManager interface {
 	Run(ctx context.Context)
 
+	SetPodFetcher(podFetcher pod.PodFetcher)
 	GetCgroupIDForContainer(podUID, containerID string) (uint64, error)
 	ListCgroupIDsForPod(podUID string) ([]uint64, error)
 }
@@ -34,6 +37,9 @@ type CgroupIDManagerStub struct {
 }
 
 func (c *CgroupIDManagerStub) Run(_ context.Context) {
+}
+
+func (c *CgroupIDManagerStub) SetPodFetcher(_ pod.PodFetcher) {
 }
 
 func (c *CgroupIDManagerStub) GetCgroupIDForContainer(podUID, containerID string) (uint64, error) {
