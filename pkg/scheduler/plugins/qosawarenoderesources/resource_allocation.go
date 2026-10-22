@@ -19,8 +19,8 @@ package qosawarenoderesources
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/framework"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 

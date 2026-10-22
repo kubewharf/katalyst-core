@@ -97,7 +97,7 @@ func LoadSPDs(cpm checkpointmanager.CheckpointManager, skipCorruptionError bool)
 		err := cpm.GetCheckpoint(key, checkpoint)
 		if err != nil {
 			klog.Errorf("Failed to retrieve checkpoint for spd %q, error: %v", key, err)
-			if !errors.Is(err, cpmerrors.ErrCorruptCheckpoint) {
+			if !errors.Is(err, cpmerrors.CorruptCheckpointError{}) {
 				continue
 			} else {
 				if !skipCorruptionError {

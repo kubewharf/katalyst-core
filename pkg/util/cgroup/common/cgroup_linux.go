@@ -32,8 +32,8 @@ import (
 	"time"
 
 	"github.com/google/cadvisor/container/libcontainer"
+	ocicgroups "github.com/opencontainers/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
-	"github.com/opencontainers/runc/libcontainer/configs"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
@@ -208,12 +208,12 @@ func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
 	return nil
 }
 
-func toConfigsResources(resources *CgroupResources) *configs.Resources {
+func toConfigsResources(resources *CgroupResources) *ocicgroups.Resources {
 	if resources == nil {
 		return nil
 	}
 
-	return &configs.Resources{
+	return &ocicgroups.Resources{
 		CpuQuota:        resources.CpuQuota,
 		CpuPeriod:       resources.CpuPeriod,
 		SkipDevices:     resources.SkipDevices,

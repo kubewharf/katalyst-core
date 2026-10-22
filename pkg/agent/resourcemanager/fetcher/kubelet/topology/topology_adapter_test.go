@@ -93,6 +93,10 @@ func (f *fakePodResourcesListerClient) GetAllocatableResources(_ context.Context
 	return f.AllocatableResourcesResponse, nil
 }
 
+func (f *fakePodResourcesListerClient) Get(_ context.Context, _ *podresv1.GetPodResourcesRequest, _ ...grpc.CallOption) (*podresv1.GetPodResourcesResponse, error) {
+	return nil, nil
+}
+
 func generateTestPod(namespace, name, uid string, qosLevel string, isBindNumaQoS bool,
 	resourceRequirements map[string]v1.ResourceRequirements,
 ) *v1.Pod {

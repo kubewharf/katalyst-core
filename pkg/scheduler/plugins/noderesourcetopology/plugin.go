@@ -17,6 +17,7 @@ limitations under the License.
 package noderesourcetopology
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -26,9 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	quotav1 "k8s.io/apiserver/pkg/quota/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apisconfig "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
@@ -46,7 +48,7 @@ const (
 var nativeAlignedResources = sets.NewString()
 
 type (
-	filterFn  func(*v1.Pod, []*v1alpha1.TopologyZone, *framework.NodeInfo) *framework.Status
+	filterFn  func(*v1.Pod, []*v1alpha1.TopologyZone, framework.NodeInfo) *framework.Status
 	scoringFn func(*v1.Pod, []*v1alpha1.TopologyZone) (int64, *framework.Status)
 )
 
@@ -67,14 +69,14 @@ type TopologyMatch struct {
 	resourceToWeightMap resourceToWeightMap
 	alignedResources    sets.String
 	resourcePolicy      consts.ResourcePluginPolicyName
-	sharedLister        framework.SharedLister
+	sharedLister        schedulerframework.SharedLister
 }
 
 var (
-	_ framework.FilterPlugin      = &TopologyMatch{}
-	_ framework.ScorePlugin       = &TopologyMatch{}
-	_ framework.ReservePlugin     = &TopologyMatch{}
-	_ framework.EnqueueExtensions = &TopologyMatch{}
+	_ schedulerframework.FilterPlugin      = &TopologyMatch{}
+	_ schedulerframework.ScorePlugin       = &TopologyMatch{}
+	_ schedulerframework.ReservePlugin     = &TopologyMatch{}
+	_ schedulerframework.EnqueueExtensions = &TopologyMatch{}
 )
 
 // Name returns name of the plugin.
@@ -82,7 +84,7 @@ func (tm *TopologyMatch) Name() string {
 	return TopologyMatchName
 }
 
-func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
+func New(_ context.Context, args runtime.Object, h schedulerframework.Handle) (schedulerframework.Plugin, error) {
 	klog.Info("Creating new TopologyMatch plugin")
 	klog.Infof("args: %+v", args)
 	tcfg, ok := args.(*apisconfig.NodeResourceTopologyArgs)
@@ -124,15 +126,15 @@ func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 // NOTE: if in-place-update (KEP 1287) gets implemented, then PodUpdate event
 // should be registered for this plugin since a Pod update may free up resources
 // that make other Pods schedulable.
-func (tm *TopologyMatch) EventsToRegister() []framework.ClusterEvent {
+func (tm *TopologyMatch) EventsToRegister(_ context.Context) ([]framework.ClusterEventWithHint, error) {
 	// To register a custom event, follow the naming convention at:
 	// https://git.k8s.io/kubernetes/pkg/scheduler/eventhandlers.go#L403-L410
 	cnrGVK := fmt.Sprintf("customnoderesources.v1alpha1.%v", v1alpha1.GroupName)
-	return []framework.ClusterEvent{
-		{Resource: framework.Pod, ActionType: framework.Delete},
-		{Resource: framework.Node, ActionType: framework.Add | framework.UpdateNodeAllocatable},
-		{Resource: framework.GVK(cnrGVK), ActionType: framework.Add | framework.Update},
-	}
+	return []framework.ClusterEventWithHint{
+		{Event: framework.ClusterEvent{Resource: framework.Pod, ActionType: framework.Delete}},
+		{Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add | framework.UpdateNodeAllocatable}},
+		{Event: framework.ClusterEvent{Resource: framework.EventResource(cnrGVK), ActionType: framework.Add | framework.Update}},
+	}, nil
 }
 
 func (tm *TopologyMatch) topologyMatchSupport(pod *v1.Pod) bool {
@@ -154,11 +156,12 @@ func (tm *TopologyMatch) topologyMatchSupport(pod *v1.Pod) bool {
 	return false
 }
 
-func (tm *TopologyMatch) dedicatedPodsFilter(nodeInfo *framework.NodeInfo) func(consumer string) bool {
+func (tm *TopologyMatch) dedicatedPodsFilter(nodeInfo framework.NodeInfo) func(consumer string) bool {
 	dedicatedPods := make(map[string]struct{})
-	for _, podInfo := range nodeInfo.Pods {
-		if util.IsDedicatedPod(podInfo.Pod) {
-			key := native.GenerateNamespaceNameKey(podInfo.Pod.Namespace, podInfo.Pod.Name)
+	for _, podInfo := range nodeInfo.GetPods() {
+		pod := podInfo.GetPod()
+		if util.IsDedicatedPod(pod) {
+			key := native.GenerateNamespaceNameKey(pod.Namespace, pod.Name)
 			dedicatedPods[key] = struct{}{}
 		}
 	}

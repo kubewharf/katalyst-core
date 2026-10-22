@@ -17,65 +17,79 @@ limitations under the License.
 package metrics
 
 import (
-	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
-func newMetricsEmitter() (MetricEmitter, error) {
-	return NewOpenTelemetryPrometheusMetricsEmitter(generic.NewMetricsConfiguration(), "/metrics", http.DefaultServeMux)
-}
-
 func TestMetrics(t *testing.T) {
 	t.Parallel()
 
-	emitt, err := newMetricsEmitter()
+	mux := http.NewServeMux()
+	emitter, err := NewOpenTelemetryPrometheusMetricsEmitter(
+		generic.NewMetricsConfiguration(),
+		PrometheusMetricPathNameCustomMetric,
+		mux,
+	)
 	if err != nil {
-		t.Errorf("new open telemetry Prometheus Metrics Emitter error:%v", err)
+		t.Fatalf("new open telemetry Prometheus Metrics Emitter error: %v", err)
 	}
 
-	w := emitt.WithTags("test")
-	err = w.StoreInt64("int", 1, MetricTypeNameRaw)
-	if err != nil {
-		t.Errorf("store int error:%v", err)
+	emitter = emitter.WithTags("test", MetricTag{Key: "source", Val: "unit-test"})
+	for _, tc := range []struct {
+		key      string
+		value    int64
+		emitType MetricTypeName
+	}{
+		{key: "raw_value", value: 1, emitType: MetricTypeNameRaw},
+		{key: "raw_value", value: 2, emitType: MetricTypeNameRaw},
+		{key: "count_value", value: 2, emitType: MetricTypeNameCount},
+		{key: "count_value", value: 3, emitType: MetricTypeNameCount},
+		{key: "up_down_value", value: 5, emitType: MetricTypeNameUpDownCount},
+		{key: "up_down_value", value: -2, emitType: MetricTypeNameUpDownCount},
+	} {
+		if err := emitter.StoreInt64(tc.key, tc.value, tc.emitType); err != nil {
+			t.Fatalf("store %s: %v", tc.key, err)
+		}
+	}
+	for _, tc := range []struct {
+		key      string
+		value    float64
+		emitType MetricTypeName
+	}{
+		{key: "raw_float_value", value: 1.5, emitType: MetricTypeNameRaw},
+		{key: "raw_float_value", value: 2.5, emitType: MetricTypeNameRaw},
+		{key: "count_float_value", value: 1.25, emitType: MetricTypeNameCount},
+		{key: "count_float_value", value: 2.25, emitType: MetricTypeNameCount},
+		{key: "up_down_float_value", value: 4.5, emitType: MetricTypeNameUpDownCount},
+		{key: "up_down_float_value", value: -1.25, emitType: MetricTypeNameUpDownCount},
+	} {
+		if err := emitter.StoreFloat64(tc.key, tc.value, tc.emitType); err != nil {
+			t.Fatalf("store %s: %v", tc.key, err)
+		}
 	}
 
-	err = w.StoreFloat64("float", 2.0, MetricTypeNameRaw)
-	if err != nil {
-		t.Errorf("store float error:%v", err)
+	req := httptest.NewRequest(http.MethodGet, string(PrometheusMetricPathNameCustomMetric), nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected scrape status: %d", recorder.Code)
 	}
 
-	go wait.Until(func() {
-		_ = w.StoreFloat64("float_count_every_1s", 1.0, MetricTypeNameCount)
-		_ = w.StoreInt64("int_count_every_1s", 1, MetricTypeNameCount)
-		_ = w.StoreFloat64("float_up_down_count_every_1s", 1.0, MetricTypeNameUpDownCount)
-		_ = w.StoreInt64("int_up_down_count_every_1s", 1, MetricTypeNameUpDownCount)
-	}, 1*time.Second, context.TODO().Done())
-
-	go func() {
-		klog.Fatal(http.ListenAndServe(":8080", http.DefaultServeMux))
-	}()
-}
-
-func TestClock(t *testing.T) {
-	t.Parallel()
-
-	last := time.Now()
-	c := prometheusClock{last: last}
-	_ = c.Ticker(time.Millisecond * 3)
-
-	select {
-	case <-c.t.C():
-		c.Now()
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`raw_value{emmit_unit="test",source="unit-test"} 2`,
+		`count_value{emmit_unit="test",source="unit-test"} 5`,
+		`up_down_value{emmit_unit="test",source="unit-test"} 3`,
+		`raw_float_value{emmit_unit="test",source="unit-test"} 2.5`,
+		`count_float_value{emmit_unit="test",source="unit-test"} 3.5`,
+		`up_down_float_value{emmit_unit="test",source="unit-test"} 3.25`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("scrape output does not contain %q:\n%s", expected, body)
+		}
 	}
-
-	assert.Equal(t, true, c.Now().Sub(last) > time.Millisecond*3)
-	c.Stop()
 }

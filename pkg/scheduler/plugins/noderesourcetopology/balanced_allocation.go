@@ -21,7 +21,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 func balancedAllocationScoreStrategy(requested, allocatable v1.ResourceList, resourceToWeightMap resourceToWeightMap, alignedResource sets.String) int64 {
@@ -46,7 +46,7 @@ func balancedAllocationScoreStrategy(requested, allocatable v1.ResourceList, res
 	// Since the variance is between positive fractions, it will be positive fraction. 1-variance lets the
 	// score to be higher for node which has least variance and multiplying it with `MaxNodeScore` provides the scaling
 	// factor needed.
-	return int64((1 - variance) * float64(framework.MaxNodeScore))
+	return int64((1 - variance) * float64(schedulerframework.MaxNodeScore))
 }
 
 func fractionOfCapacity(requested, capacity resource.Quantity) float64 {

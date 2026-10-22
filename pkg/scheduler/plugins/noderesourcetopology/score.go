@@ -25,9 +25,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -58,22 +59,14 @@ func (rw resourceToWeightMap) weight(r v1.ResourceName) int64 {
 	return w
 }
 
-func (tm *TopologyMatch) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+func (tm *TopologyMatch) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	if !tm.topologyMatchSupport(pod) {
 		klog.V(5).Infof("pod %v not support topology match", pod.Name)
-		return framework.MaxNodeScore, nil
+		return schedulerframework.MaxNodeScore, nil
 	}
 
-	var (
-		nodeInfo          *framework.NodeInfo
-		err               error
-		nodeResourceCache *cache.ResourceTopology
-	)
-	nodeInfo, err = tm.sharedLister.NodeInfos().Get(nodeName)
-	if err != nil {
-		klog.Errorf("get node %v from snapshot fail: %v", nodeName, err)
-		return 0, framework.AsStatus(err)
-	}
+	nodeName := nodeInfo.Node().Name
+	var nodeResourceCache *cache.ResourceTopology
 	if consts.ResourcePluginPolicyNameDynamic == tm.resourcePolicy {
 		// only dedicated pods will participate in the calculation
 		nodeResourceCache = cache.GetCache().GetNodeResourceTopology(nodeName, tm.dedicatedPodsFilter(nodeInfo))
@@ -94,7 +87,7 @@ func (tm *TopologyMatch) Score(ctx context.Context, state *framework.CycleState,
 	return handler(pod, nodeResourceCache.TopologyZone)
 }
 
-func (tm *TopologyMatch) ScoreExtensions() framework.ScoreExtensions {
+func (tm *TopologyMatch) ScoreExtensions() schedulerframework.ScoreExtensions {
 	return nil
 }
 

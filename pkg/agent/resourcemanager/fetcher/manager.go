@@ -190,7 +190,7 @@ func (m *ReporterPluginManager) ValidatePlugin(pluginName string, endpoint strin
 }
 
 // RegisterPlugin is to handle plugin register event
-func (m *ReporterPluginManager) RegisterPlugin(pluginName, endpoint string, _ []string) error {
+func (m *ReporterPluginManager) RegisterPlugin(pluginName, endpoint string, _ []string, _ *time.Duration) error {
 	klog.Infof("[reporter manager] registering Plugin %s at Endpoint %s", pluginName, endpoint)
 
 	var cache *v1alpha1.GetReportContentResponse
@@ -212,7 +212,7 @@ func (m *ReporterPluginManager) RegisterPlugin(pluginName, endpoint string, _ []
 }
 
 // DeRegisterPlugin is to handler plugin de-register event
-func (m *ReporterPluginManager) DeRegisterPlugin(pluginName string) {
+func (m *ReporterPluginManager) DeRegisterPlugin(pluginName, _ string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
