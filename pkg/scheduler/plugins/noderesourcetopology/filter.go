@@ -24,12 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/framework"
 	v1alpha12 "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	bm "k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -44,7 +44,7 @@ const (
 	maxNUMAId             = 64
 )
 
-func (tm *TopologyMatch) Filter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) Filter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	if nodeInfo.Node() == nil {
 		return framework.NewStatus(framework.Error, "node not found")
 	}
@@ -96,11 +96,11 @@ func (tm *TopologyMatch) filterHandler(pod *v1.Pod, nodeResourceTopology *cache.
 		if util.IsDedicatedPod(pod) && util.IsNumaBinding(pod) && !util.IsExclusive(pod) {
 			switch nodeResourceTopology.TopologyPolicy {
 			case v1alpha1.TopologyPolicySingleNUMANodeContainerLevel:
-				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info *framework.NodeInfo) *framework.Status {
+				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info framework.NodeInfo) *framework.Status {
 					return tm.dedicatedCoresWithNUMABindingSingleNUMANodeContainerLevelHandler(pod, zones, info)
 				}
 			case v1alpha1.TopologyPolicyNumericContainerLevel:
-				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info *framework.NodeInfo) *framework.Status {
+				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info framework.NodeInfo) *framework.Status {
 					return tm.dedicatedCoresWithNUMABindingNumericContainerLevelHandler(pod, zones, info)
 				}
 			default:
@@ -113,11 +113,11 @@ func (tm *TopologyMatch) filterHandler(pod *v1.Pod, nodeResourceTopology *cache.
 		if util.IsDedicatedPod(pod) && util.IsNumaBinding(pod) && util.IsExclusive(pod) {
 			switch nodeResourceTopology.TopologyPolicy {
 			case v1alpha1.TopologyPolicySingleNUMANodeContainerLevel:
-				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info *framework.NodeInfo) *framework.Status {
+				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info framework.NodeInfo) *framework.Status {
 					return tm.dedicatedCoresWithNUMAExclusiveSingleNUMANodeContainerLevelHandler(pod, zones, info)
 				}
 			case v1alpha1.TopologyPolicyNumericContainerLevel:
-				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info *framework.NodeInfo) *framework.Status {
+				return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info framework.NodeInfo) *framework.Status {
 					return tm.dedicatedCoresWithNUMAExclusiveNumericContainerLevelHandler(pod, zones, info)
 				}
 			default:
@@ -129,7 +129,7 @@ func (tm *TopologyMatch) filterHandler(pod *v1.Pod, nodeResourceTopology *cache.
 	return nil
 }
 
-func singleNUMAContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo, policy consts.ResourcePluginPolicyName, alignedResource sets.String) *framework.Status {
+func singleNUMAContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo, policy consts.ResourcePluginPolicyName, alignedResource sets.String) *framework.Status {
 	NUMANodes := TopologyZonesToNUMANodeList(zones)
 
 	// init containers are skipped both in native and dynamic policy
@@ -159,7 +159,7 @@ func singleNUMAContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone
 	return nil
 }
 
-func resourcesAvailableInAnyNUMANodes(numaNodes NUMANodeList, resources v1.ResourceList, alignedResource sets.String, nodeInfo *framework.NodeInfo) (int, bool) {
+func resourcesAvailableInAnyNUMANodes(numaNodes NUMANodeList, resources v1.ResourceList, alignedResource sets.String, nodeInfo framework.NodeInfo) (int, bool) {
 	numaID := maxAllowableNUMANodes
 	bitmask := bm.NewEmptyBitMask()
 	bitmask.Fill()

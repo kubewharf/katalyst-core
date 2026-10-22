@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"sync"
 	"time"
@@ -30,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -804,7 +804,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 						"podName", allocationInfo.PodName,
 						"containerName", allocationInfo.ContainerName,
 						"resourceName", resourceName)
-					return nil, fmt.Errorf(errMsg)
+					return nil, fmt.Errorf("%s", errMsg)
 				}
 
 				if p.resctrlHinter != nil {
@@ -1064,8 +1064,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				ContainerName:   req.ContainerName,
 				ContainerType:   req.ContainerType,
 				ContainerIndex:  req.ContainerIndex,
-				Labels:          maputil.CopySS(req.Labels),
-				Annotations:     maputil.CopySS(req.Annotations),
+				Labels:          maps.Clone(req.Labels),
+				Annotations:     maps.Clone(req.Annotations),
 				QosLevel:        qosLevel,
 				RequestQuantity: uint64(resourceReqInt[v1.ResourceMemory]),
 			})

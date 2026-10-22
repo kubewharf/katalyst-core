@@ -17,13 +17,14 @@ limitations under the License.
 package nodeovercommitment
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNew(t *testing.T) {
-	n, err := New(nil, nil)
+	n, err := New(context.Background(), nil, nil)
 	assert.NoError(t, err)
 
 	assert.Equal(t, Name, n.Name())

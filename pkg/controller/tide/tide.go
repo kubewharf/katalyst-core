@@ -32,7 +32,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/autoscaler/cluster-autoscaler/simulator"
+	"k8s.io/autoscaler/cluster-autoscaler/simulator/clustersnapshot"
+	"k8s.io/autoscaler/cluster-autoscaler/simulator/clustersnapshot/predicate"
+	"k8s.io/autoscaler/cluster-autoscaler/simulator/clustersnapshot/store"
+	autoscalerframework "k8s.io/autoscaler/cluster-autoscaler/simulator/framework"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -40,6 +43,7 @@ import (
 	podv1 "k8s.io/kubernetes/pkg/api/v1/pod"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	nodeutil "sigs.k8s.io/descheduler/pkg/descheduler/node"
+	deschedulerutils "sigs.k8s.io/descheduler/pkg/utils"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/tide/v1alpha1"
 	listers "github.com/kubewharf/katalyst-api/pkg/client/listers/tide/v1alpha1"
@@ -77,7 +81,7 @@ type Tide struct {
 
 	client *client.GenericClientSet
 
-	checker simulator.PredicateChecker
+	frameworkHandle *autoscalerframework.Handle
 
 	nodeListerSynced cache.InformerSynced
 	nodeLister       corelisters.NodeLister
@@ -104,11 +108,11 @@ func NewTide(ctx context.Context,
 		syncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(),
 			tideControllerName),
 	}
-	checker, err := simulator.NewSchedulerBasedPredicateChecker(controlCtx.Client.KubeClient, ctx.Done())
+	frameworkHandle, err := autoscalerframework.NewHandle(controlCtx.KubeInformerFactory, nil, false)
 	if err != nil {
 		return nil, err
 	}
-	tide.checker = checker
+	tide.frameworkHandle = frameworkHandle
 
 	controlCtx.KubeInformerFactory.Core().V1().Nodes().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    tide.addNodeEventHandle,
@@ -486,8 +490,8 @@ func classifyNodes(nodes []*corev1.Node, tideNodePool NodePoolWrapper) (
 	return
 }
 
-func (t *Tide) GetNodePoolInfo(nodes []*corev1.Node, onlinePodChecker OnlinePodChecker) (simulator.ClusterSnapshot, []*corev1.Pod, error) {
-	clusterSnapshot := simulator.NewBasicClusterSnapshot()
+func (t *Tide) GetNodePoolInfo(nodes []*corev1.Node, onlinePodChecker OnlinePodChecker) (clustersnapshot.ClusterSnapshot, []*corev1.Pod, error) {
+	clusterSnapshot := predicate.NewPredicateSnapshot(store.NewBasicSnapshotStore(), t.frameworkHandle, false)
 	pods, err := t.podLister.List(labels.Everything())
 	if err != nil {
 		return nil, nil, err
@@ -495,7 +499,7 @@ func (t *Tide) GetNodePoolInfo(nodes []*corev1.Node, onlinePodChecker OnlinePodC
 	var pendingPods []*corev1.Pod
 	knownNodes := map[string]bool{}
 	for i := range nodes {
-		if err := clusterSnapshot.AddNode(nodes[i].DeepCopy()); err != nil {
+		if err := clusterSnapshot.AddNodeInfo(autoscalerframework.NewNodeInfo(nodes[i].DeepCopy(), nil)); err != nil {
 			return nil, nil, err
 		}
 		knownNodes[nodes[i].Name] = true
@@ -503,7 +507,7 @@ func (t *Tide) GetNodePoolInfo(nodes []*corev1.Node, onlinePodChecker OnlinePodC
 
 	for i, pod := range pods {
 		if knownNodes[pod.Spec.NodeName] {
-			if err := clusterSnapshot.AddPod(pods[i].DeepCopy(), pod.Spec.NodeName); err != nil {
+			if err := clusterSnapshot.ForceAddPod(pods[i].DeepCopy(), pod.Spec.NodeName); err != nil {
 				return nil, nil, err
 			}
 		} else if checkPendingOnlinePod(pods[i], onlinePodChecker) {
@@ -511,6 +515,23 @@ func (t *Tide) GetNodePoolInfo(nodes []*corev1.Node, onlinePodChecker OnlinePodC
 		}
 	}
 	return clusterSnapshot, pendingPods, nil
+}
+
+func fitsAnyNode(snapshot clustersnapshot.ClusterSnapshot, pod *corev1.Pod) (string, error) {
+	nodeInfos, err := snapshot.ListNodeInfos()
+	if err != nil {
+		return "", err
+	}
+	for _, nodeInfo := range nodeInfos {
+		node := nodeInfo.Node()
+		if node.Spec.Unschedulable {
+			continue
+		}
+		if err := snapshot.CheckPredicates(pod, node.Name); err == nil {
+			return node.Name, nil
+		}
+	}
+	return "", fmt.Errorf("cannot put pod %s on any node", pod.Name)
 }
 
 func checkPendingOnlinePod(pod *corev1.Pod, onlinePodChecker OnlinePodChecker) bool {
@@ -547,7 +568,7 @@ func (t *Tide) RunOnce(ctx context.Context, onlinePodChecker OnlinePodChecker, t
 			return nil
 		}
 		for _, pod := range pendingPods {
-			_, err := t.checker.FitsAnyNode(clusterSnapshot, pod)
+			_, err := fitsAnyNode(clusterSnapshot, pod)
 			if err == nil {
 				logger.Info("pod can fit node", "pod", types.NamespacedName{
 					Namespace: pod.Namespace,
@@ -557,23 +578,23 @@ func (t *Tide) RunOnce(ctx context.Context, onlinePodChecker OnlinePodChecker, t
 			}
 			for j := range offlineNodesInfos {
 				offlineNodesInfo := offlineNodesInfos[j]
-				nodeInfo, err := clusterSnapshot.NodeInfos().Get(offlineNodesInfo.node.Name)
+				nodeInfo, err := clusterSnapshot.GetNodeInfo(offlineNodesInfo.node.Name)
 				if err != nil {
 					return err
 				}
-				clusterSnapshot.RemoveNode(offlineNodesInfo.node.Name)
+				clusterSnapshot.RemoveNodeInfo(offlineNodesInfo.node.Name)
 				node := t.changeNodeToOnline(nodeInfo.Node(), tideNodePool)
-				clusterSnapshot.AddNode(node)
-				_, err = t.checker.FitsAnyNode(clusterSnapshot, pod)
+				clusterSnapshot.AddNodeInfo(autoscalerframework.NewNodeInfo(node, nil))
+				_, err = fitsAnyNode(clusterSnapshot, pod)
 				if err != nil {
 					logger.Info("pod not fit offline node after release offline node, skip", "pod", types.NamespacedName{
 						Namespace: pod.Namespace,
 						Name:      pod.Name,
 					})
 					// rollback node to offline
-					clusterSnapshot.RemoveNode(offlineNodesInfo.node.Name)
+					clusterSnapshot.RemoveNodeInfo(offlineNodesInfo.node.Name)
 					node := t.changeNodeToOffline(nodeInfo.Node(), tideNodePool)
-					clusterSnapshot.AddNode(node)
+					clusterSnapshot.AddNodeInfo(autoscalerframework.NewNodeInfo(node, nil))
 					continue
 				}
 				if _, err := t.client.KubeClient.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{}); err != nil {
@@ -603,21 +624,21 @@ func (t *Tide) RunOnce(ctx context.Context, onlinePodChecker OnlinePodChecker, t
 	}
 	onlineNodesInfo := onlineNodesInfos[0]
 	podsInNode := onlineNodesInfo.allPods
-	nodeInfo, err := clusterSnapshot.NodeInfos().Get(onlineNodesInfo.node.Name)
+	nodeInfo, err := clusterSnapshot.GetNodeInfo(onlineNodesInfo.node.Name)
 	if err != nil {
 		return err
 	}
-	clusterSnapshot.RemoveNode(onlineNodesInfo.node.Name)
+	clusterSnapshot.RemoveNodeInfo(onlineNodesInfo.node.Name)
 	for _, pod := range podsInNode {
 		if onlinePodChecker(pod) {
 			pod.Spec.NodeName = ""
-			nodeName, err := t.checker.FitsAnyNode(clusterSnapshot, pod)
+			nodeName, err := fitsAnyNode(clusterSnapshot, pod)
 			if err != nil {
 				logger.Info("can not release online node to offline", "node", onlineNodesInfo.node.Name)
 				return nil
 			}
 			pod.Spec.NodeName = nodeName
-			clusterSnapshot.AddPod(pod, nodeName)
+			clusterSnapshot.ForceAddPod(pod, nodeName)
 		}
 	}
 	node := t.changeNodeToOffline(nodeInfo.Node(), tideNodePool)
@@ -673,26 +694,44 @@ func (t *Tide) changeNodeToOffline(node *corev1.Node, pool NodePoolWrapper) *cor
 }
 
 func getNodeUsageWithSelector(
-	nodes simulator.ClusterSnapshot,
+	nodes clustersnapshot.ClusterSnapshot,
 	resourceNames []corev1.ResourceName,
 	selector labels.Selector,
 ) ([]NodeUsage, error) {
+	utilizationResourceNames := []corev1.ResourceName{
+		corev1.ResourceCPU,
+		corev1.ResourceMemory,
+		corev1.ResourcePods,
+	}
+	for _, name := range resourceNames {
+		if !nodeutil.IsBasicResource(name) {
+			utilizationResourceNames = append(utilizationResourceNames, name)
+		}
+	}
+
 	var nodeUsageList []NodeUsage
-	nodeInfos, err := nodes.NodeInfos().List()
+	nodeInfos, err := nodes.ListNodeInfos()
 	if err != nil {
 		return nil, err
 	}
 	for _, node := range nodeInfos {
 		var pods []*corev1.Pod
-		for i := range node.Pods {
-			pods = append(pods, node.Pods[i].Pod)
+		for _, pod := range node.Pods() {
+			pods = append(pods, pod.Pod)
 		}
 		if !selector.Matches(labels.Set(node.Node().GetLabels())) {
 			continue
 		}
+		usage, err := nodeutil.NodeUtilization(pods, utilizationResourceNames, func(pod *corev1.Pod) (corev1.ResourceList, error) {
+			requests, _ := deschedulerutils.PodRequestsAndLimits(pod)
+			return requests, nil
+		})
+		if err != nil {
+			return nil, err
+		}
 		nodeUsageList = append(nodeUsageList, NodeUsage{
 			node:    node.Node(),
-			usage:   nodeutil.NodeUtilization(pods, resourceNames),
+			usage:   usage,
 			allPods: pods,
 		})
 	}

@@ -20,7 +20,7 @@ import (
 	"math"
 
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/helper"
 )
 
@@ -64,7 +64,7 @@ func requestedToCapacityRatioScorer(weightMap resourceToWeightMap, shape []kubes
 			// MaxCustomPriorityScore may diverge from the max score used in the scheduler and defined by MaxNodeScore,
 			// therefore we need to scale the score returned by requested to capacity ratio to the score range
 			// used by the scheduler.
-			Score: int64(point.Score) * (framework.MaxNodeScore / kubeschedulerconfig.MaxCustomPriorityScore),
+			Score: int64(point.Score) * (schedulerframework.MaxNodeScore / kubeschedulerconfig.MaxCustomPriorityScore),
 		})
 	}
 

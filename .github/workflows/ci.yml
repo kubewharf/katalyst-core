@@ -50,11 +50,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: golangci/golangci-lint-action@v3
+      - uses: golangci/golangci-lint-action@v8
         with:
-          args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
-          version: v1.52.2
+          args: --verbose --config .golangci.yml
+          version: v2.4.0
           skip-cache: true
+          only-new-issues: true
 
   build:
     name: Build
@@ -79,7 +80,7 @@ jobs:
       - name: Check parallel
         run: |
           echo "refer to https://github.com/kunwardeep/paralleltest for detailed info" &&
-          GO111MODULE=on go install github.com/kunwardeep/paralleltest@v1.0.10 &&
+          GO111MODULE=on go install github.com/kunwardeep/paralleltest@v1.0.16 &&
           paralleltest `go list ./... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend|pkg/util/machine|pkg/agent/qrm-plugins/sriov/policy"`
 
   unit-test:
