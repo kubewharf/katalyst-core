@@ -560,42 +560,55 @@ func GetNicTxQueuesXpsConf(nic *NicBasicInfo) (map[int]string, error) {
 	return txQueuesXpsConf, nil
 }
 
-func getGVENicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+// NicInterruptInfo contains the fields needed to match an interrupt to a NIC queue.
+type NicInterruptInfo struct {
+	Irq      int
+	QueueStr string
+}
+
+// GetNicInterruptsInfo reads /proc/interrupts once and preserves interrupt order.
+// CPU counters and non-numeric interrupt entries are not needed for queue matching.
+func GetNicInterruptsInfo() ([]NicInterruptInfo, error) {
+	b, err := os.ReadFile(InterruptsFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ReadFile(%s), err %w", InterruptsFile, err)
+	}
+
+	var interruptsInfo []NicInterruptInfo
+	for _, line := range strings.Split(string(b), "\n") {
+		cols := strings.Fields(line)
+		if len(cols) < 2 || !strings.HasSuffix(cols[0], ":") {
+			continue
+		}
+
+		irq, err := strconv.Atoi(strings.TrimSuffix(cols[0], ":"))
+		if err != nil || irq < 0 {
+			continue
+		}
+
+		interruptsInfo = append(interruptsInfo, NicInterruptInfo{
+			Irq: irq,
+			// Avoid retaining the CPU counters through a substring of the file.
+			QueueStr: strings.Clone(cols[len(cols)-1]),
+		})
+	}
+	return interruptsInfo, nil
+}
+
+func getGVENicQueue2Irq(nicInfo *NicBasicInfo, interruptsInfo []NicInterruptInfo) (map[int]int, map[int]int, error) {
 	if len(nicInfo.Irqs) < nicInfo.QueueNum*2 {
 		return nil, nil, fmt.Errorf("%s total irqs count(%d) of all irqs %+v less than 2 * queueNum(%d)",
 			nicInfo, len(nicInfo.Irqs), nicInfo.Irqs, nicInfo.QueueNum)
 	}
 	nicAllIrqs := sets.NewInt(nicInfo.Irqs...)
-
-	b, err := os.ReadFile(InterruptsFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to ReadFile(%s), err %s", InterruptsFile, err)
-	}
-
-	lines := strings.Split(string(b), "\n")
 	queue2Irq := make(map[int]int)
 
-	for _, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-
-		cols := strings.Fields(line)
-		if len(cols) == 0 {
-			continue
-		}
-
-		irq, err := strconv.Atoi(strings.TrimSuffix(cols[0], ":"))
-		if err != nil {
-			klog.Warningf("failed to parse irq number, err %s", err)
-			continue
-		}
-
+	for _, info := range interruptsInfo {
+		irq, queueStr := info.Irq, info.QueueStr
 		if !nicAllIrqs.Has(irq) {
 			continue
 		}
 
-		queueStr := cols[len(cols)-1]
 		if !strings.Contains(queueStr, gveNicQueueFilter) {
 			continue
 		}
@@ -654,7 +667,7 @@ func isUnsupportedNicQueue2Irq(nic *NicBasicInfo) bool {
 // GetNicQueue2IrqWithQueueFilter get the queue to irq map with queue filter
 // the "same" queue may match multiple irqs, e.g., nics with the same name from different netns and sriov vfs
 // queueFilters can not be empty.
-func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string, queueDelimeter string) (map[int]int, error) {
+func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string, queueDelimeter string, interruptsInfo []NicInterruptInfo) (map[int]int, error) {
 	nicAllIrqs := make(map[int]interface{})
 	for _, irq := range nicInfo.Irqs {
 		nicAllIrqs[irq] = nil
@@ -668,25 +681,10 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string
 		}
 	}
 
-	b, err := os.ReadFile(InterruptsFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to ReadFile(%s), err %s", InterruptsFile, err)
-	}
-
-	lines := strings.Split(string(b), "\n")
 	queue2Irq := make(map[int]int)
 
-	for _, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-
-		cols := strings.Fields(line)
-		if len(cols) == 0 {
-			continue
-		}
-
-		queueStr := cols[len(cols)-1]
+	for _, info := range interruptsInfo {
+		irq, queueStr := info.Irq, info.QueueStr
 
 		containsAllFilters := true
 		for _, filter := range queueFilters {
@@ -696,12 +694,6 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string
 			}
 		}
 		if !containsAllFilters {
-			continue
-		}
-
-		irq, err := strconv.Atoi(strings.TrimSuffix(cols[0], ":"))
-		if err != nil {
-			klog.Warningf("failed to parse irq number, err %s", err)
 			continue
 		}
 
@@ -793,17 +785,17 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string
 	return queue2Irq, nil
 }
 
-// GetNicQueue2Irq get nic queue naming in /proc/interrrupts
-func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+// GetNicQueue2Irq matches NIC queues against a snapshot from GetNicInterruptsInfo.
+func GetNicQueue2Irq(nicInfo *NicBasicInfo, interruptsInfo []NicInterruptInfo) (map[int]int, map[int]int, error) {
 	if strings.HasPrefix(nicInfo.Driver, NicDriverGVE) {
-		return getGVENicQueue2Irq(nicInfo)
+		return getGVENicQueue2Irq(nicInfo, interruptsInfo)
 	}
 
 	if nicInfo.IsVirtioNetDev {
 		queueFilter := fmt.Sprintf("%s-input", nicInfo.VirtioNetName)
 		queueDelimeter := "."
 
-		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter, interruptsInfo)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
@@ -813,7 +805,7 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 		}
 
 		queueFilter = fmt.Sprintf("%s-output", nicInfo.VirtioNetName)
-		txQueue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
+		txQueue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter, interruptsInfo)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
@@ -829,7 +821,7 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 	queueFilter := nicInfo.Name
 	queueDelimeter := "-"
 
-	queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
+	queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter, interruptsInfo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 	}
@@ -844,7 +836,7 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 		queueFilters := []string{nicInfo.PCIAddr, "comp"}
 		queueDelimeter = "@"
 
-		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilters, queueDelimeter)
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilters, queueDelimeter, interruptsInfo)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %+v), err %v", queueFilters, queueDelimeter, err)
 		}
@@ -860,7 +852,7 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 		queueFilter = cols[0]
 		queueDelimeter = "-"
 
-		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter, interruptsInfo)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
@@ -1555,6 +1547,11 @@ func ListActiveUplinkNics(netNSDir string, ignoredNetNSNamePrefixes []string) ([
 		return nil, fmt.Errorf("failed to ListNetNS, err %v", err)
 	}
 
+	interruptsInfo, err := GetNicInterruptsInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to GetNicInterruptsInfo, err %w", err)
+	}
+
 	var nics []*NicBasicInfo
 	for _, ns := range netnsList {
 		isIgnoredNetNS := false
@@ -1577,14 +1574,12 @@ func ListActiveUplinkNics(netNSDir string, ignoredNetNSNamePrefixes []string) ([
 		}
 
 		for _, n := range netnsNics {
-			queue2Irq, txQueue2Irq, err := GetNicQueue2Irq(n)
+			queue2Irq, txQueue2Irq, err := GetNicQueue2Irq(n, interruptsInfo)
 			if err != nil {
-				if err != ErrUnsupportedNicIrq2Queue {
-					return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
+				if err == ErrUnsupportedNicIrq2Queue {
+					continue
 				}
-
-				queue2Irq = make(map[int]int)
-				txQueue2Irq = make(map[int]int)
+				return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
 			}
 
 			irq2Queue := make(map[int]int)
