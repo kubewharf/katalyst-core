@@ -470,8 +470,8 @@ type IrqTuningController struct {
 	IrqAffForbiddenContainers []*ContainerInfoWrapper
 	IrqAffForbiddenCores      []int64
 
-	NicSyncInterval   int // interval of sync nic interval, periodic sync for active nics change, like nic number changed, nic queue number changed
-	LastNicSyncTime   time.Time
+	NicSyncInterval   int                    // interval of sync nic interval, periodic sync for active nics change, like nic number changed, nic queue number changed
+	LastNicSyncTime   time.Time              // completion time of the last sync attempt, including failures
 	LowThroughputNics []*NicIrqTuningManager // sorted by nic ifindex
 	Nics              []*NicIrqTuningManager // sorted by nic ifindex
 	*IndicatorsStats
@@ -2291,6 +2291,12 @@ func (ic *IrqTuningController) classifyNicsByThroughputFirstTime(nics []*machine
 func (ic *IrqTuningController) syncNics() ([]*machine.NicBasicInfo, bool, error) {
 	general.Infof("%s sync nics", IrqTuningLogPrefix)
 
+	// Failed discovery can already have read /proc/interrupts for other NICs.
+	// Rate limit all sync attempts, including failures during initialization.
+	defer func() {
+		ic.LastNicSyncTime = time.Now()
+	}()
+
 	nics, err := listHostActiveUplinkNics(ic.agentConf.MachineInfoConfiguration.NetNSDirAbsPath)
 	if err != nil {
 		if err != machine.ErrUnsupportedNicIrq2Queue {
@@ -2298,7 +2304,6 @@ func (ic *IrqTuningController) syncNics() ([]*machine.NicBasicInfo, bool, error)
 		}
 		return nil, false, err
 	}
-	ic.LastNicSyncTime = time.Now()
 
 	oldNics := ic.getAllNics()
 
@@ -5921,13 +5926,18 @@ func (ic *IrqTuningController) periodicTuning(oldConf *config.IrqTuningConfig) {
 	var nics []*machine.NicBasicInfo
 	nicsChanged := false
 
-	if (len(ic.Nics) == 0 && len(ic.LowThroughputNics) == 0) || time.Since(ic.LastNicSyncTime).Seconds() >= float64(ic.NicSyncInterval) {
+	if ic.LastNicSyncTime.IsZero() || time.Since(ic.LastNicSyncTime) >= time.Duration(ic.NicSyncInterval)*time.Second {
 		var err error
 		nics, nicsChanged, err = ic.syncNics()
 		if err != nil {
 			general.Errorf("%s failed to syncNics, err %v", IrqTuningLogPrefix, err)
 			return
 		}
+	}
+
+	// Wait for the next sync attempt if NIC discovery has not succeeded yet.
+	if !nicsChanged && len(ic.Nics) == 0 && len(ic.LowThroughputNics) == 0 {
+		return
 	}
 
 	staticNormalThroughputNicsChanged := false
