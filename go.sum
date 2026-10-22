@@ -48,8 +48,8 @@ github.com/Djarvur/go-err113 v0.0.0-20200511133814-5174e21577d5/go.mod h1:4UJr5H
 github.com/HdrHistogram/hdrhistogram-go v1.0.0/go.mod h1:YzE1EgsuAz8q9lfGdlxBZo2Ma655+PfKp2mlzcAqIFw=
 github.com/JeffAshton/win_pdh v0.0.0-20161109143554-76bb4ee9f0ab h1:UKkYhof1njT1/xq4SEg5z+VpTgjmNeHwPGRQl7takDI=
 github.com/JeffAshton/win_pdh v0.0.0-20161109143554-76bb4ee9f0ab/go.mod h1:3VYc5hodBMJ5+l/7J4xAyMeuM2PNuepvHlGs8yilUCA=
-github.com/JustinChengLZ/katalyst-api v0.0.0-20261022071010-4d684f62c575 h1:ZSNZmPLkcWoJUxO8cSrroKI8lS/0+QyIggdtJrVBBD8=
-github.com/JustinChengLZ/katalyst-api v0.0.0-20261022071010-4d684f62c575/go.mod h1:2uU4Omcg6Tq36mdxiTGs0c2G0fcZ8B6PRZjL7McLCuo=
+github.com/JustinChengLZ/katalyst-api v0.0.0-20261022073038-58f6b654f523 h1:WQksnoID5P2tPhR8CpFkGGR5Nr55fR3KwZ5yvi+V3Sw=
+github.com/JustinChengLZ/katalyst-api v0.0.0-20261022073038-58f6b654f523/go.mod h1:2uU4Omcg6Tq36mdxiTGs0c2G0fcZ8B6PRZjL7McLCuo=
 github.com/JustinChengLZ/kubelet v0.0.0-20261013095906-02354c0973eb h1:bfbDmVXp+VUS8IJWa8+vHT9R2MR0UTaLVKVrBXbEoSM=
 github.com/JustinChengLZ/kubelet v0.0.0-20261013095906-02354c0973eb/go.mod h1:UrDAyBmjqfVnzdOvGe2EdxBNgf97ELFwPdecRDzFN+g=
 github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible/go.mod h1:r7JcOSlj0wfOMncg0iLm8Leh48TZaKVeNIfJntJ2wa0=
