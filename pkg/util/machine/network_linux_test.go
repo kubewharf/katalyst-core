@@ -2815,6 +2815,78 @@ func Test_ListActiveUplinkNicsFromNetNS(t *testing.T) {
 			So(nics[0].Irqs, ShouldResemble, []int{10, 11})
 		})
 
+		PatchConvey("Scenario: Ignore adalink NICs by driver before querying NIC details", func() {
+			Mock(netnsEnter).Return(mockNsc, nil).Build()
+			Mock(ListInterfacesWithIPAddr).Return([]string{"eth1", "eth0"}, nil).Build()
+			mockEntries := []os.DirEntry{
+				&mockDirEntry{entryName: "eth1"},
+				&mockDirEntry{entryName: "eth0"},
+			}
+			Mock(os.ReadDir).To(func(string) ([]os.DirEntry, error) {
+				return mockEntries, nil
+			}).Build()
+			Mock(IsPCIDevice).Return(true).Build()
+			Mock(IsNetDevLinkUp).Return(true).Build()
+			ifIndexQueries := Mock(GetIfIndex).Return(1, nil).Build()
+			pciAddrQueries := Mock(GetNicPCIAddr).Return("0000:01:00.0", nil).Build()
+			Mock(getNicDriver).To(func(nicSysPath string) (string, error) {
+				if filepath.Base(nicSysPath) == "eth1" {
+					return "accel_asic", nil
+				}
+				return NicDriverMLX, nil
+			}).Build()
+			Mock(GetNicNumaNode).Return(0, nil).Build()
+			Mock(IsVirtioNetDevice).Return(false).Build()
+			irqQueries := Mock(GetNicIrqs).Return([]int{10, 11}, nil).Build()
+			var queriedNics []string
+			var normalNicErr error
+			Mock(GetNicQueuesCount).To(func(nicName string) (int, error) {
+				queriedNics = append(queriedNics, nicName)
+				if nicName == "eth1" {
+					return 0, errors.New("adalink queue count is unsupported")
+				}
+				return 2, normalNicErr
+			}).Build()
+
+			PatchConvey("Mixed NICs retain the normal NIC without querying adalink", func() {
+				nics, err := ListActiveUplinkNicsFromNetNS(netnsInfo)
+
+				So(err, ShouldBeNil)
+				So(len(nics), ShouldEqual, 1)
+				So(nics[0].Name, ShouldEqual, "eth0")
+				So(nics[0].Driver, ShouldEqual, NicDriverMLX)
+				So(nics[0].QueueNum, ShouldEqual, 2)
+				So(ifIndexQueries.Times(), ShouldEqual, 1)
+				So(pciAddrQueries.Times(), ShouldEqual, 1)
+				So(queriedNics, ShouldResemble, []string{"eth0"})
+				So(irqQueries.Times(), ShouldEqual, 1)
+			})
+
+			PatchConvey("Only adalink NICs return an empty list without errors", func() {
+				mockEntries = mockEntries[:1]
+
+				nics, err := ListActiveUplinkNicsFromNetNS(netnsInfo)
+
+				So(err, ShouldBeNil)
+				So(nics, ShouldBeEmpty)
+				So(ifIndexQueries.Times(), ShouldEqual, 0)
+				So(pciAddrQueries.Times(), ShouldEqual, 0)
+				So(queriedNics, ShouldBeEmpty)
+				So(irqQueries.Times(), ShouldEqual, 0)
+			})
+
+			PatchConvey("Queue count errors for normal NICs still fail discovery", func() {
+				normalNicErr = errors.New("normal NIC queue count failed")
+
+				nics, err := ListActiveUplinkNicsFromNetNS(netnsInfo)
+
+				So(nics, ShouldBeNil)
+				So(err, ShouldNotBeNil)
+				So(err.Error(), ShouldContainSubstring, normalNicErr.Error())
+				So(queriedNics, ShouldResemble, []string{"eth0"})
+			})
+		})
+
 		PatchConvey("Scenario: Successfully obtain the information of the active slave NIC of a bonding NIC", func() {
 			// --- Arrange ---
 			Mock(netnsEnter).Return(mockNsc, nil).Build()
@@ -2921,6 +2993,7 @@ func Test_ListActiveUplinkNicsFromNetNS(t *testing.T) {
 			Mock(IsPCIDevice).Return(true).Build()
 			Mock(IsNetDevLinkUp).Return(true).Build()
 			Mock(IsBondingNetDevice).Return(false).Build()
+			Mock(getNicDriver).Return(NicDriverMLX, nil).Build()
 			Mock(GetIfIndex).Return(1, nil).Build()
 			Mock(GetNicPCIAddr).Return("", expectedErr).Build()
 
