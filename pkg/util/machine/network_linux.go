@@ -94,6 +94,12 @@ var unsupportedQueue2IrqDrivers = []string{
 	"xsc",
 }
 
+var ignoredNicsDriver = sets.NewString(
+	// Adalink NICs carry only low-bandwidth topology probes and heartbeats.
+	// They do not need IRQ affinity tuning and do not support GetNicQueuesCount.
+	"accel_asic",
+)
+
 const (
 	gveNicQueueFilter    = "gve-ntfy-blk"
 	gveNicQueueDelimeter = "@"
@@ -1427,6 +1433,14 @@ func ListActiveUplinkNicsFromNetNS(netnsInfo NetNSInfo) ([]*NicBasicInfo, error)
 	for _, n := range activeUplinkNics {
 		nicSysPath := filepath.Join(netSysDir, n)
 
+		driver, err := getNicDriver(nicSysPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to getNicDriver(%s), err %v", nicSysPath, err)
+		}
+		if ignoredNicsDriver.Has(driver) {
+			continue
+		}
+
 		ifIndex, err := GetIfIndex(n, nicSysPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to GetIfIndex(%s), err %v", n, err)
@@ -1435,11 +1449,6 @@ func ListActiveUplinkNicsFromNetNS(netnsInfo NetNSInfo) ([]*NicBasicInfo, error)
 		pciAddr, err := GetNicPCIAddr(nicSysPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to GetNicPCIAddr(%s), err %v", nicSysPath, err)
-		}
-
-		driver, err := getNicDriver(nicSysPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to getNicDriver(%s), err %v", nicSysPath, err)
 		}
 
 		numaNode, err := GetNicNumaNode(nicSysPath)
