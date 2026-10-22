@@ -127,7 +127,7 @@ func (r *StateReconciler) Reconcile(_ *config.Configuration,
 }
 
 func (r *StateReconciler) getRuntimePodPCIDevice() (map[string]types.PCIDevice, sets.String, error) {
-	sandboxes, err := r.runtimeClient.ListPodSandbox(nil)
+	sandboxes, err := r.runtimeClient.ListPodSandbox(context.Background(), nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to list pod sandboxes: %w", err)
 	}

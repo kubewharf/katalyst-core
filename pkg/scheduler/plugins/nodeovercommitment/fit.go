@@ -25,7 +25,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
@@ -33,7 +34,7 @@ import (
 )
 
 type preFilterState struct {
-	framework.Resource
+	schedulerframework.Resource
 	GuaranteedCPUs int
 }
 
@@ -41,16 +42,16 @@ func (s *preFilterState) Clone() framework.StateData {
 	return s
 }
 
-func (n *NodeOvercommitment) PreFilter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod) (*framework.PreFilterResult, *framework.Status) {
+func (n *NodeOvercommitment) PreFilter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, _ []framework.NodeInfo) (*schedulerframework.PreFilterResult, *framework.Status) {
 	cycleState.Write(preFilterStateKey, computePodResourceRequest(pod))
 	return nil, nil
 }
 
-func (n *NodeOvercommitment) PreFilterExtensions() framework.PreFilterExtensions {
+func (n *NodeOvercommitment) PreFilterExtensions() schedulerframework.PreFilterExtensions {
 	return nil
 }
 
-func getPreFilterState(cycleState *framework.CycleState) (*preFilterState, error) {
+func getPreFilterState(cycleState framework.CycleState) (*preFilterState, error) {
 	c, err := cycleState.Read(preFilterStateKey)
 	if err != nil {
 		return nil, fmt.Errorf("error reading %q from cycleState: %w", preFilterStateKey, err)
@@ -63,7 +64,7 @@ func getPreFilterState(cycleState *framework.CycleState) (*preFilterState, error
 	return s, nil
 }
 
-func (n *NodeOvercommitment) Filter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+func (n *NodeOvercommitment) Filter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	if nodeInfo.Node() == nil {
 		return framework.NewStatus(framework.Error, "node not found")
 	}
@@ -108,7 +109,7 @@ func (n *NodeOvercommitment) Filter(ctx context.Context, cycleState *framework.C
 		}
 
 		guaranteedCPUs := resource.NewQuantity(int64(nodeCache.GetGuaranteedCPUs()), resource.DecimalSI)
-		nonGuaranteedRequestCPU := nodeInfo.Requested.MilliCPU - guaranteedCPUs.MilliValue()
+		nonGuaranteedRequestCPU := nodeInfo.GetRequested().GetMilliCPU() - guaranteedCPUs.MilliValue()
 
 		nodeCPUOriginAllocatable.Sub(*guaranteedCPUs)
 		*nodeCPUOriginAllocatable = native.MultiplyResourceQuantity(v1.ResourceCPU, *nodeCPUOriginAllocatable, CPUOvercommitRatio)
@@ -130,7 +131,7 @@ func (n *NodeOvercommitment) Filter(ctx context.Context, cycleState *framework.C
 	return nil
 }
 
-func (n *NodeOvercommitment) nodeOvercommitRatio(nodeInfo *framework.NodeInfo) (CPUOvercommitRatio, memoryOvercommitRatio float64, err error) {
+func (n *NodeOvercommitment) nodeOvercommitRatio(nodeInfo framework.NodeInfo) (CPUOvercommitRatio, memoryOvercommitRatio float64, err error) {
 	CPUOvercommitRatio, memoryOvercommitRatio = 1.0, 1.0
 
 	if nodeInfo.Node() == nil || nodeInfo.Node().GetAnnotations() == nil {
@@ -178,7 +179,7 @@ func computePodResourceRequest(pod *v1.Pod) *preFilterState {
 	return result
 }
 
-func (n *NodeOvercommitment) nodeCPUAllocatable(nodeInfo *framework.NodeInfo) (*resource.Quantity, error) {
+func (n *NodeOvercommitment) nodeCPUAllocatable(nodeInfo framework.NodeInfo) (*resource.Quantity, error) {
 	node := nodeInfo.Node()
 	if node == nil {
 		return nil, fmt.Errorf("nil nodeInfo")

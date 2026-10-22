@@ -42,7 +42,6 @@ func TestGetReportContent(t *testing.T) {
 
 	fakeKubeletConfig := native.KubeletConfiguration{
 		FeatureGates: map[string]bool{
-			string(features.CPUManager):    true,
 			string(features.MemoryManager): false,
 		},
 		CPUManagerPolicy: string(cpumanager.PolicyStatic),

@@ -32,9 +32,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
 	cri "k8s.io/cri-api/pkg/apis"
+	remote "k8s.io/cri-client/pkg"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/container"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -292,7 +292,7 @@ type ContainerKiller struct {
 }
 
 func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
-	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
+	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RuntimeEndpoint, 2*time.Minute, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -306,14 +306,14 @@ func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, reco
 
 func (c *ContainerKiller) Name() string { return consts.KillerNameContainerKiller }
 
-func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
+func (c *ContainerKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
 	if pod == nil {
 		return fmt.Errorf("pod is nil")
 	}
 
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		containerID := container.ParseContainerID(containerStatus.ContainerID)
-		err := c.containerManager.StopContainer(containerID.ID, gracePeriodSeconds)
+		err := c.containerManager.StopContainer(ctx, containerID.ID, gracePeriodSeconds)
 		if err != nil {
 			c.recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonContainerStopped, consts.EventActionContainerStopping,
 				"Failed to kill container %v; reason: %s", containerStatus.Name, reason)

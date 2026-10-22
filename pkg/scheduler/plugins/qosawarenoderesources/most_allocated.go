@@ -17,7 +17,7 @@ limitations under the License.
 package qosawarenoderesources
 
 import (
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 // mostResourceScorer favors nodes with most requested resources.
@@ -57,5 +57,5 @@ func mostRequestedScore(requested, capacity int64) int64 {
 		requested = capacity
 	}
 
-	return (requested * framework.MaxNodeScore) / capacity
+	return (requested * schedulerframework.MaxNodeScore) / capacity
 }

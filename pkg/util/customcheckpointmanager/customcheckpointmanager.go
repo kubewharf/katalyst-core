@@ -92,7 +92,7 @@ func (cm *customCheckpointManager) GetCheckpoint(checkpointKey string, checkpoin
 		if stdErrors.Is(err, errors.ErrCheckpointNotFound) {
 			// We cannot find checkpoint, so it is possible that previous checkpoint was stored in either disk or memory
 			return cm.tryMigrateState(checkpoint)
-		} else if stdErrors.Is(err, errors.ErrCorruptCheckpoint) {
+		} else if stdErrors.Is(err, errors.CorruptCheckpointError{}) {
 			if !cm.skipStateCorruption {
 				return err
 			}
@@ -173,7 +173,7 @@ func (cm *customCheckpointManager) tryMigrateState(checkpoint checkpointmanager.
 			// Old checkpoint file is not found, so we just store state in new checkpoint
 			general.Infof("[%s] checkpoint %v doesn't exist, create it", cm.pluginName, cm.checkpointName)
 			return cm.storeState()
-		} else if stdErrors.Is(err, errors.ErrCorruptCheckpoint) {
+		} else if stdErrors.Is(err, errors.CorruptCheckpointError{}) {
 			if !cm.skipStateCorruption {
 				return err
 			}

@@ -107,7 +107,7 @@ func NewGenericContext(base *katalystbase.GenericContext, conf *katalystconfig.C
 
 func (c *GenericContext) Run(ctx context.Context) {
 	go c.GenericContext.Run(ctx)
-	go c.PluginManager.Run(config.NewSourcesReady(func(_ sets.String) bool { return true }), ctx.Done())
+	go c.PluginManager.Run(config.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
 	go c.MetaServer.Run(ctx)
 	<-ctx.Done()
 }

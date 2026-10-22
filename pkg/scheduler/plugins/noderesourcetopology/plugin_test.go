@@ -17,6 +17,7 @@ limitations under the License.
 package noderesourcetopology
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -24,13 +25,13 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	config2 "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
 )
 
-func MakeTestTm(args *config2.NodeResourceTopologyArgs, h framework.Handle) (framework.Plugin, error) {
-	return New(args, h)
+func MakeTestTm(args *config2.NodeResourceTopologyArgs, h schedulerframework.Handle) (schedulerframework.Plugin, error) {
+	return New(context.Background(), args, h)
 }
 
 func MakeTestArgs(scoringType config.ScoringStrategyType, alignedResource []string, resourcePolicy consts.ResourcePluginPolicyName) *config2.NodeResourceTopologyArgs {

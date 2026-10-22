@@ -20,7 +20,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 func leastAllocatedScoreStrategy(requested, allocatable v1.ResourceList, resourceToWeightMap resourceToWeightMap, alignedResource sets.String) int64 {
@@ -55,5 +55,5 @@ func leastAllocatedScore(requested, capacity resource.Quantity) int64 {
 	}
 	numaValue := capacity.Value()
 	requestedValue := requested.Value()
-	return (numaValue - requestedValue) * framework.MaxNodeScore / capacity.Value()
+	return (numaValue - requestedValue) * schedulerframework.MaxNodeScore / capacity.Value()
 }

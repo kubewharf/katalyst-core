@@ -807,7 +807,7 @@ func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, workload *
 	workqueue.ParallelizeUntil(sc.ctx, 16, len(podList), setPodAnnotations)
 	if len(errList) > 0 {
 		err := utilerrors.NewAggregate(errList)
-		klog.Errorf(err.Error())
+		klog.Error(err)
 		return err
 	}
 
@@ -855,7 +855,7 @@ func (sc *SPDController) cleanPodListSPDAnnotation(podList []*core.Pod) error {
 	workqueue.ParallelizeUntil(sc.ctx, 16, len(podList), setPodAnnotations)
 	if len(errList) > 0 {
 		err := utilerrors.NewAggregate(errList)
-		klog.Errorf(err.Error())
+		klog.Error(err)
 		return err
 	}
 

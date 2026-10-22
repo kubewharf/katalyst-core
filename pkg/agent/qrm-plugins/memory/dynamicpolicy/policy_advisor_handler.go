@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path"
@@ -34,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -131,8 +131,8 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, 
 				ContainerName:   allocationInfo.ContainerName,
 				ContainerType:   pluginapi.ContainerType(containerType),
 				ContainerIndex:  allocationInfo.ContainerIndex,
-				Labels:          maputil.CopySS(allocationInfo.Labels),
-				Annotations:     maputil.CopySS(allocationInfo.Annotations),
+				Labels:          maps.Clone(allocationInfo.Labels),
+				Annotations:     maps.Clone(allocationInfo.Annotations),
 				QosLevel:        allocationInfo.QoSLevel,
 				RequestQuantity: allocationInfo.AggregatedQuantity,
 			}
@@ -562,8 +562,8 @@ func (p *DynamicPolicy) pushMemoryAdvisor() error {
 				ContainerName:  allocationInfo.ContainerName,
 				ContainerType:  pluginapi.ContainerType(containerType),
 				ContainerIndex: allocationInfo.ContainerIndex,
-				Labels:         maputil.CopySS(allocationInfo.Labels),
-				Annotations:    maputil.CopySS(allocationInfo.Annotations),
+				Labels:         maps.Clone(allocationInfo.Labels),
+				Annotations:    maps.Clone(allocationInfo.Annotations),
 				QosLevel:       allocationInfo.QoSLevel,
 			})
 			if err != nil {
@@ -707,8 +707,8 @@ func (p *DynamicPolicy) ListContainers(context.Context, *advisorsvc.Empty) (*adv
 				ContainerName:  allocationInfo.ContainerName,
 				ContainerType:  pluginapi.ContainerType(containerType),
 				ContainerIndex: allocationInfo.ContainerIndex,
-				Labels:         maputil.CopySS(allocationInfo.Labels),
-				Annotations:    maputil.CopySS(allocationInfo.Annotations),
+				Labels:         maps.Clone(allocationInfo.Labels),
+				Annotations:    maps.Clone(allocationInfo.Annotations),
 				QosLevel:       allocationInfo.QoSLevel,
 			})
 		}
