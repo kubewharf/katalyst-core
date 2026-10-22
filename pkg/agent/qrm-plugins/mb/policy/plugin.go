@@ -157,8 +157,13 @@ func (m *MBPlugin) Start() (err error) {
 			m.conf.MaxCCDMB,
 			m.conf.CCDCapGroups,
 			m.advisor,
+			m.conf.CapRecoveryMode,
 		)
-		general.Infof("[mbm] P-Controller advisor enabled with groups=%v, Kp=%.2f", m.conf.CCDCapGroups, m.conf.CCDCapKp)
+		general.Infof("[mbm] P-Controller advisor enabled with groups=%v, Kp=%.2f, recovery mode=%s",
+			m.conf.CCDCapGroups,
+			m.conf.CCDCapKp,
+			m.conf.CapRecoveryMode,
+		)
 	}
 
 	go func() {
