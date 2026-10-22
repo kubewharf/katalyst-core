@@ -2,7 +2,7 @@
 // +build linux
 
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -157,8 +157,12 @@ func TestListActiveUplinkNicsSharesInterruptsInfo(t *testing.T) {
 		}).Build()
 
 		expectedRx := []map[int]int{
-			{0: 28, 1: 29}, {0: 30}, {0: 200}, {0: 102},
-			{0: 300, 1: 301}, {0: 400},
+			{0: 28, 1: 29},
+			{0: 30},
+			{0: 200},
+			{0: 102},
+			{0: 300, 1: 301},
+			{0: 400},
 		}
 		expectedTx := []map[int]int{
 			{}, {}, {0: 201}, {0: 100}, {}, {},
