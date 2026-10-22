@@ -282,7 +282,7 @@ func setupReporterManager(t *testing.T, ctx context.Context, content []*v1alpha1
 
 	pluginManager.AddHandler(m.GetHandlerType(), plugincache.PluginHandler(m))
 
-	go pluginManager.Run(config.NewSourcesReady(func(_ sets.String) bool { return true }), ctx.Done())
+	go pluginManager.Run(config.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
 
 	return m, updateChan
 }

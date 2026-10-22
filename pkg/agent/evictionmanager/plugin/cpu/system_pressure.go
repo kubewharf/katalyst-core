@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 
 	"github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -419,7 +418,7 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(
 		cpuManagerOn, err := s.checkKubeletCPUManager()
 		if err != nil {
 			err = fmt.Errorf("checkKubeletCPUManager fail: %v", err)
-			general.Errorf(err.Error())
+			general.Errorf("%s", err.Error())
 			return nil, err
 		}
 		if cpuManagerOn {
@@ -649,11 +648,9 @@ func (s *SystemPressureEvictionPlugin) checkKubeletCPUManager() (bool, error) {
 		return false, err
 	}
 
-	featureGates := kubeletConfig.FeatureGates
-	on, ok := featureGates[string(features.CPUManager)]
 	cpuManagerPolicy := kubeletConfig.CPUManagerPolicy
 
-	if (ok && !on) || (cpuManagerPolicy == string(cpumanager.PolicyNone)) {
+	if cpuManagerPolicy == "" || cpuManagerPolicy == string(cpumanager.PolicyNone) {
 		return false, nil
 	}
 

@@ -25,8 +25,8 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes/fake"
+	remote "k8s.io/cri-client/pkg"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	. "github.com/bytedance/mockey"
 

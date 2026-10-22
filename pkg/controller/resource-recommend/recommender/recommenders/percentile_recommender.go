@@ -71,14 +71,14 @@ func (r *PercentileRecommender) Recommend(recommendation *recommendationtype.Rec
 			case v1.ResourceCPU:
 				cpuQuantity, err := r.getCpuTargetPercentileEstimationWithUsageBuffer(&taskKey, float64(containerConfig.ResourceBufferPercent)/100)
 				if err != nil {
-					return errortypes.RecommendationNotReadyError(err.Error())
+					return errortypes.RecommendationNotReadyError("%s", err.Error())
 				}
 				klog.InfoS("got recommended cpu for container", "recommendedCPU", cpuQuantity.String(), "container", container.ContainerName)
 				requests.Target[v1.ResourceCPU] = *cpuQuantity
 			case v1.ResourceMemory:
 				memQuantity, err := r.getMemTargetPercentileEstimationWithUsageBuffer(&taskKey, float64(containerConfig.ResourceBufferPercent)/100)
 				if err != nil {
-					return errortypes.RecommendationNotReadyError(err.Error())
+					return errortypes.RecommendationNotReadyError("%s", err.Error())
 				}
 				requests.Target[v1.ResourceMemory] = *memQuantity
 			}

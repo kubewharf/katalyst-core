@@ -33,6 +33,9 @@ import (
 )
 
 type Stub struct {
+	pluginapi.UnimplementedResourcePluginServer
+	watcherapi.UnimplementedRegistrationServer
+
 	socket                string
 	resourceName          string
 	preStartContainerFlag bool

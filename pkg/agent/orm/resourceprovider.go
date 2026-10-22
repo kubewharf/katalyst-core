@@ -18,6 +18,7 @@ package orm
 
 import (
 	"fmt"
+	"maps"
 
 	//nolint
 	"github.com/golang/protobuf/proto"
@@ -26,7 +27,6 @@ import (
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	resourcepluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -241,7 +241,7 @@ func transformTopologyAwareQuantity(pluginAPITopologyAwareQuantityList []*resour
 				Name:          topologyAwareQuantity.Name,
 				Type:          topologyAwareQuantity.Type,
 				TopologyLevel: transformTopologyLevel(topologyAwareQuantity.TopologyLevel),
-				Annotations:   maputil.CopySS(topologyAwareQuantity.Annotations),
+				Annotations:   maps.Clone(topologyAwareQuantity.Annotations),
 			})
 		}
 	}

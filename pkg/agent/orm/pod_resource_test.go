@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -79,7 +80,6 @@ func TestPodResources(t *testing.T) {
 
 func TestCheckpointMarshal(t *testing.T) {
 	t.Parallel()
-	/* ----  use allocationInfo.Marshal  ----- */
 	podResources := newPodResourcesChk()
 	podResources.resources = map[string]ContainerResources{
 		"testPodUid": map[string]ResourceAllocation{
@@ -99,8 +99,7 @@ func TestCheckpointMarshal(t *testing.T) {
 	for podUID, containerResources := range podResources.resources {
 		for conName, resourcesAllocation := range containerResources {
 			for resourceName, allocationInfo := range resourcesAllocation {
-				// use allocationInfo.Marshal()
-				allocRespBytes, err := allocationInfo.Marshal()
+				allocRespBytes, err := proto.Marshal(allocationInfo)
 				if err != nil {
 					klog.Errorf("Can't marshal allocationInfo for %v %v %v: %v", podUID, conName, resourceName, err)
 					continue
