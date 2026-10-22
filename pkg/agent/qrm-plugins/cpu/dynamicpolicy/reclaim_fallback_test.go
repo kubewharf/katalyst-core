@@ -74,19 +74,27 @@ func TestSelectBoundedReclaimFallbackPrefersCommittedPrior(t *testing.T) {
 	assert.Equal(t, "8-11", got.String(), "prefer committed prior over re-seeding default")
 }
 
+// TestSelectBoundedReclaimFallbackWantZeroReturnsEmpty pins the layering contract:
+// the helper itself never fabricates a reclaim floor. want<=0 means "no explicit
+// sizing requirement", so it returns empty with a nil error and the CALLER decides
+// emptiness - upstream deriveDefaultReclaimPreference floors a zero configured
+// target to one whole core, and the terminal validator rejects a non-empty-required
+// empty result. This test guards against re-introducing a blanket whole-core
+// recovery inside the helper, which would bypass the RNB fail-closed provenance
+// check in reviseReclaimPool.
 func TestSelectBoundedReclaimFallbackWantZeroReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	topo := mustTopology180(t)
-	// want<=0 means no explicit requirement: return empty. The caller owns the
-	// empty-vs-seed policy; the helper never materializes an unfiltered prior/default.
+
 	got, err := selectBoundedReclaimFallback(topo, machine.MustParse("0-39"), machine.NewCPUSet(), machine.MustParse("0-3"), 0, reclaimFallbackMode{})
 	assert.NoError(t, err)
-	assert.True(t, got.IsEmpty(), "want=0 must return empty, got %s", got)
+	assert.True(t, got.IsEmpty(), "want=0 must return empty and let the caller own emptiness, got %s", got)
 
-	// Even with a non-empty committed prior, want=0 returns empty.
-	got, err = selectBoundedReclaimFallback(topo, machine.MustParse("0-39"), machine.MustParse("4-7"), machine.MustParse("0-3"), 0, reclaimFallbackMode{})
+	// Even with a non-empty committed prior, the helper must not unfiltered-restore
+	// it on a zero requirement.
+	got, err = selectBoundedReclaimFallback(topo, machine.MustParse("0-39"), machine.MustParse("4-5"), machine.MustParse("0-3"), 0, reclaimFallbackMode{})
 	assert.NoError(t, err)
-	assert.True(t, got.IsEmpty(), "want=0 must not unfiltered-restore prior, got %s", got)
+	assert.True(t, got.IsEmpty(), "want=0 must not materialize the committed prior, got %s", got)
 }
 
 func TestSelectBoundedReclaimFallbackEmptyEligibleReturnsRequiredError(t *testing.T) {

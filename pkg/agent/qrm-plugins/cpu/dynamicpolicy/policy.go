@@ -2282,6 +2282,14 @@ func deriveDefaultReclaimPreference(
 	allAvailableCPUs := cpuDetails.CPUs().Difference(reservedCPUs)
 	numaIDs := cpuDetails.NUMANodes().ToSliceInt()
 	cpusPerCore := cpuTopology.CPUsPerCore()
+	// A configured reclaim target of 0 disables expansion sizing, not the
+	// existence of the reclaim partition: a hybrid-mode node always owns at least
+	// one complete physical core so the derived seed is non-empty. This keeps the
+	// non-empty reclaim state contract satisfied at derivation time without the
+	// selectBoundedReclaimFallback helper ever fabricating a floor on its own.
+	if configuredReclaimSize <= 0 {
+		configuredReclaimSize = cpusPerCore
+	}
 	capacityByNUMA := make(map[int]int, len(numaIDs))
 	for _, numaID := range numaIDs {
 		candidates := allAvailableCPUs.Intersection(cpuDetails.CPUsInNUMANodes(numaID))
