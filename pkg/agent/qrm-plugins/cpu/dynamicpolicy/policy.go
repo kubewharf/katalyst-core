@@ -2280,49 +2280,23 @@ func deriveDefaultReclaimPreference(
 ) (machine.CPUSet, int, map[int]machine.CPUSet, error) {
 	// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 	allAvailableCPUs := cpuDetails.CPUs().Difference(reservedCPUs)
-	numaIDs := cpuDetails.NUMANodes().ToSliceInt()
-	cpusPerCore := cpuTopology.CPUsPerCore()
-	// A configured reclaim target of 0 disables expansion sizing, not the
-	// existence of the reclaim partition: a hybrid-mode node always owns at least
-	// one complete physical core so the derived seed is non-empty. This keeps the
-	// non-empty reclaim state contract satisfied at derivation time without the
-	// selectBoundedReclaimFallback helper ever fabricating a floor on its own.
-	if configuredReclaimSize <= 0 {
-		configuredReclaimSize = cpusPerCore
-	}
-	capacityByNUMA := make(map[int]int, len(numaIDs))
-	for _, numaID := range numaIDs {
-		candidates := allAvailableCPUs.Intersection(cpuDetails.CPUsInNUMANodes(numaID))
-		capacityByNUMA[numaID] = takeCoreAlignedCPUSet(
-			cpuTopology, candidates, machine.NewCPUSet(), candidates.Size(),
-		).Size()
-	}
-	reclaimTargets, err := machine.DistributeConfiguredHardReclaimFloor(
-		capacityByNUMA, nil, configuredReclaimSize, cpusPerCore)
+	// Select the reclaim seed as a set of COMPLETE physical cores sized to the
+	// configured request, using each core's ACTUAL sibling count. This replaces the
+	// previous global-cpusPerCore floor + uniform-size distributor, which on a
+	// non-uniform/sparse SMT node either cropped a sub-core pick to 0 or rejected a
+	// leftover single-thread core as capacity-insufficient. configured<=0 seeds one
+	// whole core; a sub-core positive request takes the smallest available core;
+	// otherwise cores are round-robin balanced across ascending NUMAs up to the
+	// request. A configured value of 0/negative disables expansion sizing, not the
+	// existence of the reclaim partition.
+	defaultReservedReclaimedCPUSet, err := allocateCompleteCores(
+		cpuTopology, allAvailableCPUs, machine.NewCPUSet(), configuredReclaimSize)
 	if err != nil {
-		return machine.NewCPUSet(), 0, nil, fmt.Errorf("distribute core-aligned reserved reclaim cpus: %w", err)
+		return machine.NewCPUSet(), 0, nil, fmt.Errorf("select complete-core reclaim seed (request %d): %w",
+			configuredReclaimSize, err)
 	}
-	availableNUMAIDs := make([]int, 0, len(numaIDs))
-	for _, numaID := range numaIDs {
-		if reclaimTargets[numaID] > 0 {
-			availableNUMAIDs = append(availableNUMAIDs, numaID)
-		}
-	}
-	defaultReservedReclaimedCPUSet := machine.NewCPUSet()
-	for _, numaID := range availableNUMAIDs {
-		target := reclaimTargets[numaID]
-		numaCPUs := cpuDetails.CPUsInNUMANodes(numaID)
-		selected := takeCoreAlignedCPUSet(
-			cpuTopology,
-			allAvailableCPUs.Intersection(numaCPUs),
-			numaCPUs,
-			target,
-		)
-		if selected.Size() != target {
-			return machine.NewCPUSet(), 0, nil, fmt.Errorf("select core-aligned reserved reclaim cpus in NUMA %d: got %d, want %d",
-				numaID, selected.Size(), target)
-		}
-		defaultReservedReclaimedCPUSet = defaultReservedReclaimedCPUSet.Union(selected)
+	if defaultReservedReclaimedCPUSet.IsEmpty() {
+		return machine.NewCPUSet(), 0, nil, fmt.Errorf("no complete core available to seed reclaim pool")
 	}
 	defaultReservedTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(cpuTopology, defaultReservedReclaimedCPUSet)
 	if err != nil {

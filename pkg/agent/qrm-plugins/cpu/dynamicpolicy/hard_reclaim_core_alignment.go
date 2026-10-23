@@ -228,6 +228,173 @@ func coreAlignedCandidatesWithIndex(
 	return completeCores
 }
 
+// allocateCompleteCores selects a set of complete physical cores from eligible
+// whose total logical-CPU count meets requested, using each core's ACTUAL sibling
+// size — never a machine-wide cpus-per-core average.
+//
+// Objective (lexicographic, deterministic):
+//  1. Hard constraint: only eligible complete cores (coreAlignedCandidates).
+//  2. Primary: minimise the selected total that is still >= requested (minimum
+//     overshoot). This is a 0/1 subset choice over complete cores; it is solved with
+//     a bounded reachability DP, not by round-robin, so a request of 3 over
+//     cores [2,3] picks the size-3 core (total 3) rather than 2+3=5.
+//  3. Tie (same minimal total): prefer cores with more siblings in prefer, then
+//     spread the pick across ascending NUMAs (round-robin), then ascending core key.
+//
+// Complexity: the optimal total T* satisfies requested <= T* < requested+maxCoreSize
+// (removing any core from a minimal-feasible subset that overshot by >= maxCoreSize
+// would still be feasible, a contradiction), so the DP window W = requested+maxSize
+// is bounded. The reachability DP and the suffix-reachability reconstruction are both
+// O(n*W); this runs once per derive, never on a hot path.
+//
+// If the sum of every eligible complete core is below requested it returns an empty
+// set alongside errReclaimFallbackCapacityInsufficient so the caller fails closed
+// instead of silently under-seeding.
+func allocateCompleteCores(
+	topology *machine.CPUTopology,
+	eligible machine.CPUSet,
+	prefer machine.CPUSet,
+	requested int,
+) (machine.CPUSet, error) {
+	result := machine.NewCPUSet()
+	if topology == nil || eligible.IsEmpty() {
+		return result, errReclaimFallbackCapacityInsufficient
+	}
+	cores := coreAlignedCandidates(topology, eligible, prefer)
+	if len(cores) == 0 {
+		return result, errReclaimFallbackCapacityInsufficient
+	}
+
+	// Existence-only: one whole core, no balancing needed.
+	if requested <= 0 {
+		return cores[0].cpus.Clone(), nil
+	}
+
+	totalCapacity := 0
+	maxSize := 0
+	for _, c := range cores {
+		totalCapacity += c.cpus.Size()
+		if c.cpus.Size() > maxSize {
+			maxSize = c.cpus.Size()
+		}
+	}
+	if totalCapacity < requested {
+		return result, errReclaimFallbackCapacityInsufficient
+	}
+
+	// Bounded 0/1 reachability DP over complete-core sizes. reachable[s] is true
+	// iff some subset sums to exactly s. We only need sums up to requested+maxSize
+	// because the optimal total T* is provably inside that window.
+	limit := requested + maxSize
+	reachable := make([]bool, limit+1)
+	reachable[0] = true
+	for _, c := range cores {
+		sz := c.cpus.Size()
+		for s := limit; s >= sz; s-- {
+			if reachable[s-sz] {
+				reachable[s] = true
+			}
+		}
+	}
+
+	target := -1
+	for s := requested; s <= limit; s++ {
+		if reachable[s] {
+			target = s
+			break
+		}
+	}
+	if target < 0 {
+		// totalCapacity >= requested guarantees a feasible subset (all cores); this
+		// is defensive and should be unreachable, but fail closed rather than guess.
+		return result, errReclaimFallbackCapacityInsufficient
+	}
+
+	// Deterministic pick order: higher preference tier first, and within a tier
+	// round-robin across ascending NUMAs to spread the seed.
+	order := completeCoresPickOrder(cores)
+
+	// suffix[i][s] is reachable using order[i:] (the not-yet-decided cores).
+	// Reconstruct greedily: take a core only if the remaining sum is still reachable
+	// without it, which guarantees we land exactly on target.
+	suffix := make([][]bool, len(order)+1)
+	suffix[len(order)] = make([]bool, target+1)
+	suffix[len(order)][0] = true
+	for i := len(order) - 1; i >= 0; i-- {
+		suffix[i] = append([]bool(nil), suffix[i+1]...)
+		sz := order[i].cpus.Size()
+		for s := target; s >= sz; s-- {
+			if suffix[i+1][s-sz] {
+				suffix[i][s] = true
+			}
+		}
+	}
+
+	selected := machine.NewCPUSet()
+	remaining := target
+	for i := range order {
+		sz := order[i].cpus.Size()
+		if sz <= remaining && suffix[i+1][remaining-sz] {
+			selected = selected.Union(order[i].cpus)
+			remaining -= sz
+		}
+	}
+	if remaining != 0 {
+		// Should be impossible given target is reachable; fail closed.
+		return machine.NewCPUSet(), errReclaimFallbackCapacityInsufficient
+	}
+	return selected, nil
+}
+
+// completeCoresPickOrder flattens already-preference-sorted cores into a
+// deterministic reconstruction order: preference tier (preferredHit desc) first —
+// every core of a higher tier precedes any core of a lower tier — and within each
+// tier round-robin across ascending NUMAs so equal-total picks are spread rather
+// than stacked on a single NUMA.
+func completeCoresPickOrder(cores []coreAlignedCandidate) []coreAlignedCandidate {
+	// cores arrive sorted preferredHit desc then key asc; split into contiguous tiers.
+	tiers := make([][]coreAlignedCandidate, 0)
+	for _, c := range cores {
+		n := len(tiers)
+		if n == 0 || tiers[n-1][0].preferredHit != c.preferredHit {
+			tiers = append(tiers, []coreAlignedCandidate{c})
+		} else {
+			tiers[n-1] = append(tiers[n-1], c)
+		}
+	}
+
+	order := make([]coreAlignedCandidate, 0, len(cores))
+	for _, tier := range tiers {
+		byNuma := make(map[int][]coreAlignedCandidate)
+		numaSet := map[int]struct{}{}
+		for _, c := range tier {
+			byNuma[c.key.numaID] = append(byNuma[c.key.numaID], c)
+			numaSet[c.key.numaID] = struct{}{}
+		}
+		numaIDs := make([]int, 0, len(numaSet))
+		for id := range numaSet {
+			numaIDs = append(numaIDs, id)
+		}
+		sort.Ints(numaIDs)
+
+		for {
+			progressed := false
+			for _, id := range numaIDs {
+				if len(byNuma[id]) == 0 {
+					continue
+				}
+				order = append(order, byNuma[id][0])
+				byNuma[id] = byNuma[id][1:]
+				progressed = true
+			}
+			if !progressed {
+				break
+			}
+		}
+	}
+	return order
+}
+
 func physicalCoreCPUs(topology *machine.CPUTopology) map[physicalCoreKey]machine.CPUSet {
 	return newPhysicalCoreIndex(topology).byKey
 }
