@@ -3708,8 +3708,17 @@ func (p *DynamicPolicy) reviseReclaimPool(
 	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
 		eligible := p.machine.machineInfo.CPUDetails.CPUs().
 			Difference(p.config.reservedCPUs).
-			Difference(pooledUnionDedicatedCPUSet).
 			Difference(notAllocatablePoolsCPUs)
+		// Ordinary dedicated is carved out of eligible ONLY when dedicated/reclaim
+		// overlap is disabled. In overlap mode the committed reclaim identity
+		// legitimately lives inside ordinary dedicated; intersecting it against a
+		// dedicated-excluding eligible would collapse a non-empty committed pool to
+		// empty and fail precommit with "no candidate". poolIsReclaimProhibited below
+		// independently re-applies the dedicated restriction whenever
+		// disableDedicatedOverlap is set, so disjoint behavior is unchanged.
+		if mode.disableDedicatedOverlap {
+			eligible = eligible.Difference(pooledUnionDedicatedCPUSet)
+		}
 		// Subtract the candidate ownership the current mode forbids reclaim to borrow:
 		//  - dedicated pool/non-isolated dedicated whenever disableDedicatedOverlap is set,
 		//    independently of strict/allowSharedOverlap;
