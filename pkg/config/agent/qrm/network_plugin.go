@@ -44,6 +44,15 @@ type NetworkQRMPluginConfig struct {
 	EnableNICAllocationReactor bool
 	// NICHealthCheckers is the list of enabled NIC health checkers
 	NICHealthCheckers []string
+	// NICSelectionPolicy is the policy to pick one NIC from the filtered candidates.
+	// supported values: random, first, last, balance.
+	//   - random: pick a NIC randomly (default).
+	//   - first/last: pick the first/last candidate, which acts as a kind of bin-packing.
+	//   - balance: pick the NIC with the least number of already allocated pods.
+	NICSelectionPolicy string
+	// NICNameEnv is the name of the container env used to pass the selected NIC name to the container.
+	// leave it empty to disable passing the NIC name via env.
+	NICNameEnv string
 }
 
 type NetClassConfig struct {
