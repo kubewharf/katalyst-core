@@ -18,12 +18,15 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/stretchr/testify/require"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -1938,5 +1941,183 @@ func TestSharedProjectionTypedErrorZeroPublish(t *testing.T) {
 	}
 	if !base.DesiredNonReclaimPool.Equals(before) {
 		t.Fatalf("business base mutated by failed projection")
+	}
+}
+
+// TestReclaimViewOverlapGateMatrix is the table-driven positive/negative matrix for the
+// ordinary-dedicated/reclaim overlap gate. Set contract (per the architecture ruling):
+//
+//	ordinary-overlap (allowSharedOverlap=false, disableDedicatedOverlap=false):
+//	    R_eff = R_raw - X - Isolation - Reserve   (ordinary D is NOT subtracted)
+//	disjoint (disableDedicatedOverlap=true):
+//	    R_eff = R_raw - D - X - Isolation - Reserve
+//	shared-overlap (allowSharedOverlap=true, independent switch):
+//	    R_eff = R_raw
+//
+// NonReclaimPool always keeps ordinary dedicated in its structural bookkeeping set.
+func TestReclaimViewOverlapGateMatrix(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.CPUTopology{CPUDetails: machine.CPUDetails{
+		0: {NUMANodeID: 0}, 1: {NUMANodeID: 0}, 2: {NUMANodeID: 0}, 3: {NUMANodeID: 0},
+		4: {NUMANodeID: 0}, 5: {NUMANodeID: 0}, 6: {NUMANodeID: 0}, 7: {NUMANodeID: 0},
+	}}
+
+	cases := []struct {
+		name             string
+		allowShared      bool
+		disableDedicated bool
+		reserve          string
+		share            string
+		isolation        string
+		dedicated        string
+		reclaimRaw       string
+		wantEffective    string
+		wantNonReclaim   string
+	}{
+		{
+			name:             "shared-overlap keeps reclaim raw and keeps dedicated in non-reclaim",
+			allowShared:      true,
+			disableDedicated: false,
+			reserve:          "0",
+			share:            "1",
+			isolation:        "4",
+			dedicated:        "5",
+			reclaimRaw:       "2-3",
+			wantEffective:    "2-3",
+			wantNonReclaim:   "1,4-5",
+		},
+		{
+			name:             "ordinary-overlap does NOT carve ordinary dedicated out of reclaim",
+			allowShared:      false,
+			disableDedicated: false,
+			reserve:          "0",
+			share:            "1",
+			isolation:        "4",
+			dedicated:        "2,5",
+			reclaimRaw:       "2-3",
+			wantEffective:    "2-3",
+			wantNonReclaim:   "1,4-7",
+		},
+		{
+			name:             "ordinary-overlap whole-machine dedicated preserves committed reclaim",
+			allowShared:      false,
+			disableDedicated: false,
+			reserve:          "",
+			share:            "",
+			isolation:        "",
+			dedicated:        "0-7",
+			reclaimRaw:       "2-3",
+			wantEffective:    "2-3",
+			wantNonReclaim:   "0-1,4-7",
+		},
+		{
+			name:             "disjoint carves ordinary dedicated out of reclaim",
+			allowShared:      false,
+			disableDedicated: true,
+			reserve:          "0",
+			share:            "1",
+			isolation:        "4",
+			dedicated:        "2,5",
+			reclaimRaw:       "2-3",
+			wantEffective:    "3",
+			wantNonReclaim:   "1-2,4-7",
+		},
+		{
+			name:             "disjoint whole-machine dedicated collapses reclaim",
+			allowShared:      false,
+			disableDedicated: true,
+			reserve:          "",
+			share:            "",
+			isolation:        "",
+			dedicated:        "0-7",
+			reclaimRaw:       "2-3",
+			wantEffective:    "",
+			wantNonReclaim:   "0-7",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := cpustate.NewCPUPluginState(nil)
+			require.NoError(t, state.SetAllowSharedCoresOverlapReclaimedCores(tc.allowShared))
+			require.NoError(t, state.SetDisableDedicatedCoresOverlapReclaimedCores(tc.disableDedicated))
+
+			set := func(pool string, cpus string) {
+				if cpus == "" {
+					return
+				}
+				state.SetAllocationInfo(pool, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+					AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(pool),
+					AllocationResult: machine.MustParse(cpus),
+				})
+			}
+			set(commonstate.PoolNameReserve, tc.reserve)
+			set(commonstate.PoolNameShare, tc.share)
+			set("isolation-0", tc.isolation)
+			state.SetAllocationInfo("pod-dedicated", "main", &cpustate.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "pod-dedicated",
+					ContainerName: "main",
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				AllocationResult: machine.MustParse(tc.dedicated),
+			})
+			state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult: machine.MustParse(tc.reclaimRaw),
+			})
+
+			view, _ := BuildCPUSetPartitionView(state, topology, CPUSetPartitionViewOptions{})
+			assertCPUSet(t, "reclaim raw", view.ReclaimRaw, tc.reclaimRaw)
+			assertCPUSet(t, "dedicated", view.Dedicated, tc.dedicated)
+			assertCPUSet(t, "reclaim effective", view.ReclaimEffective, tc.wantEffective)
+			assertCPUSet(t, "non reclaim", view.NonReclaimPool, tc.wantNonReclaim)
+		})
+	}
+}
+
+func TestReclaimViewKeepsNUMAExclusiveDedicatedDisjointInOrdinaryOverlapMode(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.CPUTopology{CPUDetails: machine.CPUDetails{
+		0: {NUMANodeID: 0}, 1: {NUMANodeID: 0}, 2: {NUMANodeID: 0}, 3: {NUMANodeID: 0},
+		4: {NUMANodeID: 1}, 5: {NUMANodeID: 1}, 6: {NUMANodeID: 1}, 7: {NUMANodeID: 1},
+	}}
+	for _, allowSharedOverlap := range []bool{false, true} {
+		allowSharedOverlap := allowSharedOverlap
+		t.Run(fmt.Sprintf("allow-shared-overlap=%t", allowSharedOverlap), func(t *testing.T) {
+			t.Parallel()
+			state := cpustate.NewCPUPluginState(nil)
+			require.NoError(t, state.SetAllowSharedCoresOverlapReclaimedCores(allowSharedOverlap))
+			require.NoError(t, state.SetDisableDedicatedCoresOverlapReclaimedCores(false))
+			state.SetAllocationInfo("exclusive-pod", "main", &cpustate.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "exclusive-pod",
+					ContainerName: "main",
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding:   apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
+				},
+				AllocationResult: machine.NewCPUSet(2, 5),
+			})
+			state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult: machine.NewCPUSet(2, 3),
+			})
+
+			view, _ := BuildCPUSetPartitionView(state, topology, CPUSetPartitionViewOptions{})
+			assertCPUSet(t, "dedicated", view.Dedicated, "2,5")
+			assertCPUSet(t, "reclaim effective", view.ReclaimEffective, "3")
+			if allowSharedOverlap {
+				assertCPUSet(t, "non reclaim", view.NonReclaimPool, "2,5")
+			} else {
+				assertCPUSet(t, "non reclaim", view.NonReclaimPool, "0-2,4-7")
+			}
+		})
 	}
 }

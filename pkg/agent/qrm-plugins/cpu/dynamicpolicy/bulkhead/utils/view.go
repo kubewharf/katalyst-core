@@ -292,6 +292,7 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 	}
 
 	allowOverlap := state.GetAllowSharedCoresOverlapReclaimedCores()
+	dedicatedOverlapDisabled := state.GetDisableDedicatedCoresOverlapReclaimedCores()
 	podEntries := state.GetPodEntries()
 	poolTypeOf := func(poolName string) string {
 		return commonstate.GetPoolType(commonstate.OwnerPoolNameTranslator.Translate(poolName))
@@ -311,6 +312,7 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 	}
 	sharedRampUp := machine.NewCPUSet()
 	sharedRampUpByPool := map[string]machine.CPUSet{}
+	exclusiveDedicated := machine.NewCPUSet()
 	// activeSNBProtected collects the exact CPUs held by already-active (committed)
 	// shared-NUMA-binding ramp-up containers. SysAdvisor's reclaim budget is computed
 	// without node topology awareness, so it can claim CPUs that such a container has
@@ -411,8 +413,12 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 			continue
 		}
 		for _, allocation := range containerEntries {
-			if allocation != nil && allocation.CheckDedicated() {
-				view.Dedicated = view.Dedicated.Union(allocation.AllocationResult)
+			if allocation == nil || !allocation.CheckDedicated() {
+				continue
+			}
+			view.Dedicated = view.Dedicated.Union(allocation.AllocationResult)
+			if allocation.CheckDedicatedNUMABindingNUMAExclusive() {
+				exclusiveDedicated = exclusiveDedicated.Union(allocation.AllocationResult)
 			}
 		}
 	}
@@ -447,9 +453,19 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 	// DesiredReclaimEffective equal the raw reclaim budget; the physical
 	// NonReclaimPool/ReclaimEffective are transient-trimmed to reclaim them away via
 	// ApplyTransientProtectedNonReclaim below.
+	// NonReclaimPool is the structural non-reclaim bookkeeping set (share ∪ dedicated ∪
+	// isolation); ordinary dedicated always stays in it. Whether ordinary dedicated
+	// actually shrinks the effective reclaim set is gated below by the dedicated/reclaim
+	// overlap switch. NUMA-exclusive dedicated remains a hard ownership conflict in every
+	// mode and is never exempted from the reclaim shrink set.
 	view.NonReclaimPool = view.SharePool.Difference(activeSNBProtected).Union(view.Dedicated).Union(view.Isolation)
 	if allowOverlap {
-		view.ReclaimEffective = view.ReclaimRaw.Clone()
+		// Shared/reclaim overlap exempts only the shared domain. NUMA-exclusive
+		// dedicated, isolation and reserve remain hard ownership conflicts.
+		view.ReclaimEffective = view.ReclaimRaw.
+			Difference(exclusiveDedicated).
+			Difference(view.Isolation).
+			Difference(view.Reserve)
 	} else {
 		// ReclaimRaw is the affinity budget produced by SysAdvisor after applying
 		// reclaimed-cpu-max-ratio. QRM must never widen it when deriving the
@@ -457,11 +473,21 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 		// the non-reclaim domain instead. The effective reclaim set is therefore
 		// derived in three steps, each of which can only shrink it:
 		//   1. start from all machine CPUs minus the non-reclaim pool and reserve
-		//      (the CPUs structurally available to reclaim);
+		//      (the CPUs structurally available to reclaim); ordinary dedicated is
+		//      carved out of this shrink set ONLY when dedicated/reclaim overlap is
+		//      disabled, so overlap mode keeps ordinary dedicated inside the reclaim budget;
+		//      NUMA-exclusive dedicated is always a hard conflict and is never exempted;
 		//   2. intersect with ReclaimRaw so we never exceed SysAdvisor's budget;
 		//   3. recompute NonReclaimPool as the complement so the two domains stay
 		//      mutually exclusive and jointly cover every non-reserved CPU.
-		view.ReclaimEffective = topology.CPUDetails.CPUs().Difference(view.NonReclaimPool).Difference(view.Reserve)
+		reclaimShrunk := view.NonReclaimPool
+		if !dedicatedOverlapDisabled {
+			// Only ordinary dedicated allocations may overlap reclaim. NUMA-exclusive
+			// dedicated allocations remain in the shrink set as hard ownership conflicts.
+			ordinaryDedicated := view.Dedicated.Difference(exclusiveDedicated)
+			reclaimShrunk = reclaimShrunk.Difference(ordinaryDedicated)
+		}
+		view.ReclaimEffective = topology.CPUDetails.CPUs().Difference(reclaimShrunk).Difference(view.Reserve)
 		view.ReclaimEffective = view.ReclaimEffective.Intersection(view.ReclaimRaw)
 		if !view.ReclaimRaw.IsEmpty() && view.ReclaimEffective.IsEmpty() {
 			general.Warningf(

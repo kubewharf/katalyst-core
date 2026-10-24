@@ -3147,12 +3147,25 @@ func (p *DynamicPolicy) syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicCo
 	dynamicConf *dynamicconfig.Configuration,
 	defaultShareEligible ...machine.CPUSet,
 ) error {
-	if override == nil || (override.ReclaimEffective.IsEmpty() && override.Source == "") {
+	if override == nil {
 		return nil
 	}
 	reclaimEntry, ok := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
 	if !ok || reclaimEntry == nil {
 		return nil
+	}
+	// Trust boundary (defense-in-depth): an ACTIVE override that wants to collapse a
+	// committed reclaim pool to empty must be rejected, fail-closed. Set formula:
+	// |R|>0 ⇒ R_eff≠∅. The ownership projection in BuildCPUSetPartitionView prevents
+	// legal ordinary-dedicated overlap from producing a spurious empty R_eff; this
+	// guard is the backstop so no override path can silently empty a committed pool.
+	// A passive override (Source=="") stays a no-op; a non-empty R_eff is applied.
+	if override.ReclaimEffective.IsEmpty() {
+		if override.Source == "" {
+			return nil
+		}
+		return fmt.Errorf("bulkhead adjustment override wants empty reclaim pool while a committed reclaim entry exists (source=%s)",
+			override.Source)
 	}
 	assignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, override.ReclaimEffective)
 	if err != nil {

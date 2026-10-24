@@ -412,14 +412,17 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesHandlesDirectContainerOverla
 		},
 	}
 
-	// A pending non-overlap transaction may contain stale reclaim raw CPUs that
-	// overlap newly allocated non-reclaim containers. The commit override must
-	// use the same pending partition view to make reclaim consistent before
-	// pre-commit validation runs.
+	// In ordinary-overlap mode (allowSharedOverlap=false, disableDedicated=false) the
+	// committed reclaim identity legitimately overlaps ordinary dedicated CPUs, so the
+	// pending partition view must NOT carve ordinary dedicated out of the effective
+	// reclaim set: R_eff = R_raw - X - Isolation - Reserve (D is not subtracted). The
+	// override therefore preserves the full reclaim raw {0,1,2,3} even though ordinary
+	// dedicated {0,1} sits inside it. Carving D out only happens in disjoint mode
+	// (disableDedicated=true), which is exercised by the whole-core test below.
 	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, false)
 	require.NoError(t, err)
 	require.Equal(t, "advisor_pending_entries", override.Source)
-	require.True(t, override.ReclaimEffective.Equals(machine.NewCPUSet(2, 3)))
+	require.True(t, override.ReclaimEffective.Equals(machine.NewCPUSet(0, 1, 2, 3)))
 }
 
 func TestBuildAdjustmentCommitOverrideFromPodEntriesPreservesWholeCores(t *testing.T) {
@@ -458,7 +461,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesPreservesWholeCores(t *testi
 			"partial core must be removed from reclaim, got %s", override.ReclaimEffective)
 	})
 
-	t.Run("commits an empty reclaim override", func(t *testing.T) {
+	t.Run("rejects an active empty reclaim override fail-closed", func(t *testing.T) {
 		t.Parallel()
 		newEntries := state.PodEntries{
 			commonstate.PoolNameReclaim: {
@@ -481,12 +484,23 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesPreservesWholeCores(t *testi
 			},
 		}
 
+		// Migration: disjoint mode (disableDedicated=true) cores-align reclaim on whole
+		// siblings. Here reclaim raw {0,48} shares core 0 with dedicated {0}, so the
+		// orphan sibling {48} is dropped and R_eff collapses to empty. Previously the
+		// override was silently committed and the committed reclaim pool was emptied.
+		// The trust boundary now fails closed: an ACTIVE override (source set from
+		// advisor pending entries) that wants to empty an existing reclaim entry is
+		// rejected, the reclaim pool is NOT republished, and revision is not advanced.
 		override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, true)
 		require.NoError(t, err)
 		require.NotNil(t, override)
 		require.Empty(t, override.ReclaimEffective.ToSliceInt())
-		require.NoError(t, p.syncReclaimPoolWithAdjustmentCommitOverride(newEntries, override))
-		require.Empty(t, reclaimPoolCPUSet(newEntries).ToSliceInt())
+		require.Equal(t, "advisor_pending_entries", override.Source)
+		err = p.syncReclaimPoolWithAdjustmentCommitOverride(newEntries, override)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "empty reclaim pool")
+		// fail-closed: the reclaim entry keeps its previous (non-empty) result.
+		require.Equal(t, machine.NewCPUSet(0, 48).String(), reclaimPoolCPUSet(newEntries).String())
 	})
 }
 

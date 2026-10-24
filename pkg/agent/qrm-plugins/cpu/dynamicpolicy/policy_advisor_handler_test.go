@@ -4450,8 +4450,12 @@ func TestDynamicPolicyApplyBlocksOverridesReclaimDedicatedOverlapBeforeCommit(t 
 
 	reclaimPool := policy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	require.NotNil(t, reclaimPool)
-	require.True(t, reclaimPool.AllocationResult.Equals(machine.NewCPUSet(0)),
-		"applyBlocks must commit the pending non-overlap reclaim effective set")
+	// Migration: in ordinary-overlap mode (disableDedicatedOverlap=false) ordinary dedicated
+	// is NOT carved out of the committed reclaim set (R_eff = R_raw - X - Isolation - Reserve).
+	// The pending reclaim raw {0,2} therefore survives even though ordinary dedicated {2}
+	// sits inside it; carving D out only happens in disjoint mode (disableDedicated=true).
+	require.True(t, reclaimPool.AllocationResult.Equals(machine.NewCPUSet(0, 2)),
+		"applyBlocks must commit the pending reclaim effective set, keeping ordinary-dedicated overlap in overlap mode")
 	require.False(t, policy.state.GetAllowSharedCoresOverlapReclaimedCores(),
 		"applyBlocks must commit the pending overlap mode with pod and machine state")
 
