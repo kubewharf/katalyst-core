@@ -18,7 +18,6 @@ package orm
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -35,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/metamanager"
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/topology"
+	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -125,7 +125,7 @@ func TestManagerImpl_RunPodSandbox(t *testing.T) {
 	m.checkpointManager = checkpointManager
 	podUID1 := "testPodUID1"
 	err = m.RunPodSandbox(context.TODO(), &api.PodSandbox{Uid: podUID1})
-	assert.Error(t, err, fmt.Errorf("failed to find pod by uid testPod1"))
+	assert.ErrorIs(t, err, metapod.ErrPodNotFound)
 }
 
 func TestManagerImpl_CreateContainer(t *testing.T) {

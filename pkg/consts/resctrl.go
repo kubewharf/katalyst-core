@@ -22,8 +22,12 @@ const (
 	ResctrlGroupRoot      = "/"
 	ResctrlGroupDedicated = "dedicated"
 	ResctrlGroupSystem    = "system"
-	ResctrlGroupShare     = "share"
-	ResctrlGroupReclaim   = "reclaim"
+	// ResctrlGroupShare is the logical name of the default shared-core pool.
+	ResctrlGroupShare = "share"
+	// ResctrlGroupDefaultShare is its fixed physical CLOS. Keep it distinct from
+	// "share-50", which denotes an explicitly configured subgroup for a non-default pool.
+	ResctrlGroupDefaultShare = "shared-50"
+	ResctrlGroupReclaim      = "reclaim"
 
 	// subgroup related
 	ResctrlSubgroupSeparator            = "-"

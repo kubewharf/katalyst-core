@@ -1,0 +1,23 @@
+# Failed B1 test commands and errors
+
+1. Test: TestP0B1TwoRoundIdempotent8CPU
+   Topology: 8 CPU, 1 socket, 2 NUMA (NUMA0=0-3, NUMA1=4-7)
+   C={0,1} D={2,3,6,7}
+
+2. Response v1 (single NUMA 0 block, Result=4):
+   Error: numaQuantity: 6 exceeds NUMA capacity: 4 in NUMA: 0
+   Note: D.Size()=4 but error said 6 — likely because block generator
+   adds reclaim C to the quantity calculation.
+
+3. Response v2 (split NUMA 0 Result=2, NUMA 1 Result=2):
+   Error: prepare applyBlocks failed: block dedicated-0 not found,
+          entry: dedicated-pod, subEntry: main
+   Note: block generator produces empty blockCPUSet because all CPUs
+   are pre-allocated in state. No new blocks are created.
+
+4. 180CPU variant (TestP0B1TwoRoundIdempotent180CPU):
+   Error: block dedicated not found, entry: dedicated-pod, subEntry: main
+   Note: Same root cause — empty blockCPUSet.
+
+5. Debug finding: blockCPUSet = map[] (empty) when state is pre-populated.
+   The block generator only creates blocks for unallocated CPUs.

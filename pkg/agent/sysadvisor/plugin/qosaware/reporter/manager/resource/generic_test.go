@@ -18,6 +18,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -191,4 +192,298 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 	capacity, err := m.GetCapacity()
 	require.NoError(t, err)
 	require.Equal(t, int64(100000), capacity.MilliValue())
+}
+
+func TestGenericHeadroomManager_ApportionFailurePreservesState(t *testing.T) {
+	t.Parallel()
+
+	manager, metaCache := newAtomicUpdateTestManager(t, func(
+		target resource.Quantity, current map[int]resource.Quantity,
+	) (resource.Quantity, map[int]resource.Quantity, error) {
+		return target, current, nil
+	})
+	manager.sync(context.Background())
+
+	previousTotal := manager.lastReportResult.DeepCopy()
+	previousNUMA := copyQuantities(manager.lastNUMAReportResult)
+	previousCache, ok := metaCache.GetHeadroomEntries(string(v1.ResourceCPU))
+	require.True(t, ok)
+
+	manager.numaResultApportioner = func(
+		resource.Quantity, map[int]resource.Quantity,
+	) (resource.Quantity, map[int]resource.Quantity, error) {
+		return resource.Quantity{}, nil, errors.New("apportion failure")
+	}
+	manager.sync(context.Background())
+
+	require.Equal(t, previousTotal.String(), manager.lastReportResult.String())
+	require.Equal(t, quantityStrings(previousNUMA), quantityStrings(manager.lastNUMAReportResult))
+	currentCache, ok := metaCache.GetHeadroomEntries(string(v1.ResourceCPU))
+	require.True(t, ok)
+	require.Equal(t, previousCache, currentCache)
+}
+
+func TestGenericHeadroomManager_InvalidApportionmentPreservesState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		effective   string
+		allocations map[int]resource.Quantity
+	}{
+		{
+			name:      "negative effective",
+			effective: "-1",
+			allocations: map[int]resource.Quantity{
+				0: resource.MustParse("0"),
+				1: resource.MustParse("0"),
+			},
+		},
+		{
+			name:      "negative allocation",
+			effective: "10",
+			allocations: map[int]resource.Quantity{
+				0: resource.MustParse("-1"),
+				1: resource.MustParse("11"),
+			},
+		},
+		{
+			name:      "effective exceeds requested",
+			effective: "11",
+			allocations: map[int]resource.Quantity{
+				0: resource.MustParse("6"),
+				1: resource.MustParse("5"),
+			},
+		},
+		{
+			name:      "allocation exceeds numa limit",
+			effective: "10",
+			allocations: map[int]resource.Quantity{
+				0: resource.MustParse("7"),
+				1: resource.MustParse("3"),
+			},
+		},
+		{
+			name:      "missing numa key",
+			effective: "6",
+			allocations: map[int]resource.Quantity{
+				0: resource.MustParse("6"),
+			},
+		},
+		{
+			name:      "allocation sum mismatches effective",
+			effective: "10",
+			allocations: map[int]resource.Quantity{
+				0: resource.MustParse("6"),
+				1: resource.MustParse("3"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager, metaCache := newAtomicUpdateTestManager(t, func(
+				target resource.Quantity, current map[int]resource.Quantity,
+			) (resource.Quantity, map[int]resource.Quantity, error) {
+				return target, current, nil
+			})
+			manager.sync(context.Background())
+
+			previousTotal := manager.lastReportResult.DeepCopy()
+			previousNUMA := copyQuantities(manager.lastNUMAReportResult)
+			previousCache, ok := metaCache.GetHeadroomEntries(string(v1.ResourceCPU))
+			require.True(t, ok)
+
+			manager.numaResultApportioner = func(
+				resource.Quantity, map[int]resource.Quantity,
+			) (resource.Quantity, map[int]resource.Quantity, error) {
+				return resource.MustParse(tt.effective), tt.allocations, nil
+			}
+			manager.sync(context.Background())
+
+			require.Equal(t, previousTotal.String(), manager.lastReportResult.String())
+			require.Equal(t, quantityStrings(previousNUMA), quantityStrings(manager.lastNUMAReportResult))
+			currentCache, ok := metaCache.GetHeadroomEntries(string(v1.ResourceCPU))
+			require.True(t, ok)
+			require.Equal(t, previousCache, currentCache)
+		})
+	}
+}
+
+func TestGenericHeadroomManager_ApportionerCannotMutateValidationBaseline(t *testing.T) {
+	t.Parallel()
+
+	manager, metaCache := newAtomicUpdateTestManager(t, func(
+		target resource.Quantity, current map[int]resource.Quantity,
+	) (resource.Quantity, map[int]resource.Quantity, error) {
+		return target, current, nil
+	})
+	manager.sync(context.Background())
+
+	previousTotal := manager.lastReportResult.DeepCopy()
+	previousNUMA := copyQuantities(manager.lastNUMAReportResult)
+	previousCache, ok := metaCache.GetHeadroomEntries(string(v1.ResourceCPU))
+	require.True(t, ok)
+
+	manager.numaResultApportioner = func(
+		target resource.Quantity, current map[int]resource.Quantity,
+	) (resource.Quantity, map[int]resource.Quantity, error) {
+		delete(current, 1)
+		current[0] = target.DeepCopy()
+		current[2] = resource.Quantity{}
+		return target, current, nil
+	}
+	manager.sync(context.Background())
+
+	require.Equal(t, previousTotal.String(), manager.lastReportResult.String())
+	require.Equal(t, quantityStrings(previousNUMA), quantityStrings(manager.lastNUMAReportResult))
+	currentCache, ok := metaCache.GetHeadroomEntries(string(v1.ResourceCPU))
+	require.True(t, ok)
+	require.Equal(t, previousCache, currentCache)
+}
+
+func TestGenericHeadroomManager_QuantityIsolation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("strategy output cannot mutate committed state", func(t *testing.T) {
+		t.Parallel()
+
+		var retained map[int]resource.Quantity
+		manager, _ := newAtomicUpdateTestManager(t, func(
+			target resource.Quantity, current map[int]resource.Quantity,
+		) (resource.Quantity, map[int]resource.Quantity, error) {
+			retained = current
+			return target, current, nil
+		})
+		manager.sync(context.Background())
+
+		quantity := retained[0]
+		quantity.Set(1)
+		retained[0] = resource.MustParse("2")
+
+		require.Equal(t, map[int]string{0: "6", 1: "4"}, quantityStrings(manager.lastNUMAReportResult))
+	})
+
+	t.Run("getter results cannot mutate committed state", func(t *testing.T) {
+		t.Parallel()
+
+		total := resource.MustParse("123456789012345678901234567890")
+		numa := resource.MustParse("223456789012345678901234567890")
+		manager := &GenericHeadroomManager{
+			resourceName: v1.ResourceCPU,
+			reportResultTransformer: func(quantity resource.Quantity) resource.Quantity {
+				return quantity
+			},
+			lastReportResult:     &total,
+			lastNUMAReportResult: map[int]resource.Quantity{0: numa},
+		}
+
+		returnedTotal, err := manager.GetAllocatable()
+		require.NoError(t, err)
+		returnedNUMA, err := manager.GetNumaAllocatable()
+		require.NoError(t, err)
+
+		returnedTotal.Add(resource.MustParse("123456789012345678901234567890"))
+		quantity := returnedNUMA[0]
+		quantity.Add(resource.MustParse("123456789012345678901234567890"))
+		returnedNUMA[0] = quantity
+
+		currentTotal, err := manager.GetAllocatable()
+		require.NoError(t, err)
+		currentNUMA, err := manager.GetNumaAllocatable()
+		require.NoError(t, err)
+		require.Zero(t, currentTotal.Cmp(resource.MustParse("123456789012345678901234567890")))
+		currentNUMA0 := currentNUMA[0]
+		require.Zero(t, currentNUMA0.Cmp(resource.MustParse("223456789012345678901234567890")))
+	})
+}
+
+func TestGenericHeadroomManager_DefaultMemoryNUMARatioIsUnchanged(t *testing.T) {
+	t.Parallel()
+
+	advisor := &staticResourceAdvisor{subAdvisor: &staticSubResourceAdvisor{
+		total: resource.MustParse("7"),
+		numa: map[int]resource.Quantity{
+			0: resource.MustParse("4"),
+			1: resource.MustParse("3"),
+		},
+	}}
+	manager := NewGenericHeadroomManager(
+		v1.ResourceMemory,
+		false,
+		false,
+		time.Second,
+		advisor,
+		metrics.DummyMetrics{},
+		GenericSlidingWindowOptions{
+			SlidingWindowTime: time.Second,
+			MinStep:           resource.MustParse("0"),
+			MaxStep:           resource.MustParse("1000"),
+		},
+		func() GenericReclaimOptions {
+			return GenericReclaimOptions{
+				EnableReclaim:                 true,
+				ReservedResourceForReport:     resource.MustParse("2"),
+				MinReclaimedResourceForReport: resource.MustParse("0"),
+			}
+		},
+		generateTestMetaServer(t),
+		newTestMetaCache(t),
+	)
+
+	manager.sync(context.Background())
+
+	require.NotNil(t, manager.lastReportResult)
+	require.Equal(t, int64(5), manager.lastReportResult.Value())
+	require.Equal(t, map[int]string{0: "2", 1: "2"}, quantityStrings(manager.lastNUMAReportResult))
+}
+
+func newAtomicUpdateTestManager(t *testing.T, apportioner NUMAResultApportioner) (
+	*GenericHeadroomManager, *metacache.MetaCacheImp,
+) {
+	t.Helper()
+
+	advisor := &staticResourceAdvisor{subAdvisor: &staticSubResourceAdvisor{
+		total: resource.MustParse("10"),
+		numa: map[int]resource.Quantity{
+			0: resource.MustParse("6"),
+			1: resource.MustParse("4"),
+		},
+	}}
+	metaCache := newTestMetaCache(t)
+	manager := NewGenericHeadroomManager(
+		v1.ResourceCPU,
+		true,
+		false,
+		time.Second,
+		advisor,
+		metrics.DummyMetrics{},
+		GenericSlidingWindowOptions{
+			SlidingWindowTime: time.Second,
+			MinStep:           resource.MustParse("0"),
+			MaxStep:           resource.MustParse("1000"),
+		},
+		func() GenericReclaimOptions {
+			return GenericReclaimOptions{
+				EnableReclaim:                 true,
+				ReservedResourceForReport:     resource.MustParse("0"),
+				MinReclaimedResourceForReport: resource.MustParse("0"),
+			}
+		},
+		generateTestMetaServer(t),
+		metaCache,
+		WithNUMAResultApportioner(apportioner),
+	)
+	return manager, metaCache
+}
+
+func quantityStrings(input map[int]resource.Quantity) map[int]string {
+	output := make(map[int]string, len(input))
+	for numaID, quantity := range input {
+		output[numaID] = quantity.String()
+	}
+	return output
 }

@@ -65,6 +65,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
 
@@ -173,6 +174,7 @@ type DynamicPolicy struct {
 	enableReclaimNUMABinding                      bool
 	enableSNBHighNumaPreference                   bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
+	enableReclaimedResourceAllocatableReporting   bool
 
 	numaAllocationReactor                         reactor.AllocationReactor
 	numaBindResultResourceAllocationAnnotationKey string
@@ -180,6 +182,18 @@ type DynamicPolicy struct {
 	allocationHooks                               []AllocationHook
 
 	extraResourceNames []string
+
+	reclaimConsumersForKCNR []string
+
+	// cgroupOps bundles cgroup filesystem calls used by advisor handlers.
+	// It is wired to the real cgroupmgr functions in NewDynamicPolicy and may
+	// be replaced by tests via SetCgroupOpsForTest.
+	cgroupOps *cgroupOps
+
+	// addAsyncWorkFn enqueues a dying-memcg-reclaim async work. It defaults to
+	// p.defaultAsyncLimitedWorkers.AddWork; tests override it to capture the work
+	// without spawning real goroutines.
+	addAsyncWorkFn func(work *asyncworker.Work, policy asyncworker.DuplicateWorkPolicy) error
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -235,6 +249,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podLabelKeptKeys:            conf.PodLabelKeptKeys,
 		asyncWorkers:                asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
 		defaultAsyncLimitedWorkers:  asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
+		cgroupOps:                   newCgroupOps(),
 		enableSettingMemoryMigrate:  conf.EnableSettingMemoryMigrate,
 		enableSettingSockMem:        conf.EnableSettingSockMem,
 		enableMemoryAdvisor:         conf.EnableMemoryAdvisor,
@@ -248,11 +263,18 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		numaMemCompactCheckInterval: conf.NumaMemCompactCheckInterval,
 		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
-		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter, stateImpl),
+		enableReclaimedResourceAllocatableReporting: conf.EnableReclaimedResourceAllocatableReporting,
+		resctrlHinter: newResctrlHinter(
+			conf.ResctrlConfig,
+			conf.DynamicAgentConfiguration,
+			wrappedEmitter,
+			stateImpl,
+		),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 		topologyAllocationAnnotationKey:               conf.TopologyAllocationAnnotationKey,
 		extraResourceNames:                            conf.ExtraMemoryResources,
+		reclaimConsumersForKCNR:                       conf.ReclaimConsumersForKCNR,
 	}
 
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
@@ -934,9 +956,62 @@ func (p *DynamicPolicy) GetTopologyAwareAllocatableResources(context.Context,
 		}
 	}
 
+	p.addReclaimedMemoryAllocatable(allocatableResources, numaNodes, p.reclaimConsumersForKCNR)
+
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
 		AllocatableResources: allocatableResources,
 	}, nil
+}
+
+// addReclaimedMemoryAllocatable inserts a ReclaimedResourceMemory entry
+// into allocatableResources when ReclaimConsumersForKCNR is configured.
+// The reported value is (headroom * summed_percentage / 100) where
+// summed_percentage is the sum of GetReclaimedPercentage across every
+// configured consumer name, capped at 100 (unknown names contribute 0
+// and are logged by GetReclaimedPercentage).
+func (p *DynamicPolicy) addReclaimedMemoryAllocatable(
+	allocatableResources map[string]*pluginapi.AllocatableTopologyAwareResource,
+	numaNodes []int,
+	consumerNames []string,
+) {
+	if !p.enableReclaimedResourceAllocatableReporting {
+		return
+	}
+
+	if len(consumerNames) == 0 {
+		return
+	}
+
+	numaHeadroom := p.state.GetNUMAHeadroom()
+	numaHeadroomValues := make(map[int]float64, len(numaHeadroom))
+	for numaNode, headroom := range numaHeadroom {
+		numaHeadroomValues[numaNode] = float64(headroom)
+	}
+	reclaimedNUMAHeadroom := reclaim.GetReclaimedNUMAHeadroom(
+		numaHeadroomValues, p.dynamicConf.GetDynamicConfiguration(), consumerNames...)
+
+	topologyAwareList := make([]*pluginapi.TopologyAwareQuantity, 0, len(numaNodes))
+	for _, numaNode := range numaNodes {
+		topologyAwareList = append(topologyAwareList, &pluginapi.TopologyAwareQuantity{
+			ResourceValue: reclaimedNUMAHeadroom[numaNode],
+			Node:          uint64(numaNode),
+		})
+	}
+
+	var totalReclaimedHeadroom float64
+	for _, v := range reclaimedNUMAHeadroom {
+		totalReclaimedHeadroom += v
+	}
+	aggregated := totalReclaimedHeadroom
+
+	allocatableResources[string(apiconsts.ReclaimedResourceMemory)] = &pluginapi.AllocatableTopologyAwareResource{
+		IsNodeResource:                       false,
+		IsScalarResource:                     true,
+		AggregatedAllocatableQuantity:        aggregated,
+		TopologyAwareAllocatableQuantityList: topologyAwareList,
+		AggregatedCapacityQuantity:           aggregated,
+		TopologyAwareCapacityQuantityList:    topologyAwareList,
+	}
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager

@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -34,7 +35,7 @@ import (
 // Advisor data elements are shared ONLY by assemblers as pointer to avoid rebuild in advisor,
 // and NOT supposed to be used by other components.
 type HeadroomAssembler interface {
-	GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error)
+	GetHeadroom(dynamicConf *dynamic.Configuration) (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConf interface{}, regionMap *map[string]region.QoSRegion,

@@ -123,6 +123,9 @@ func (o *Options) ApplyTo(c *config.Configuration) error {
 	errList = append(errList, o.sysadvisorPluginsOptions.ApplyTo(c.SysAdvisorPluginsConfiguration))
 	errList = append(errList, o.genericQRMPluginOptions.ApplyTo(c.GenericQRMPluginConfiguration))
 	errList = append(errList, o.qrmPluginsOptions.ApplyTo(c.QRMPluginsConfiguration))
+	if c.QRMPluginsConfiguration != nil && c.QRMPluginsConfiguration.ResctrlConfig != nil && c.GetDynamicConfiguration() != nil {
+		c.GetDynamicConfiguration().RDTConfig.DisableRDT = c.QRMPluginsConfiguration.ResctrlConfig.DisableRDT
+	}
 	errList = append(errList, o.ormOptions.ApplyTo(c.GenericORMConfiguration))
 
 	return errors.NewAggregate(errList)

@@ -25,8 +25,9 @@ import (
 // Adapter is to get topology zone status, the src of that can be pod resource api
 // or kubelet checkpoint.
 type Adapter interface {
-	// GetTopologyZones return newest topology zone status
-	GetTopologyZones(ctx context.Context) ([]*nodev1alpha1.TopologyZone, error)
+	// GetTopologyZonesAndResources returns the newest topology zone tree and
+	// the node-level aggregated resources.
+	GetTopologyZonesAndResources(ctx context.Context) ([]*nodev1alpha1.TopologyZone, *nodev1alpha1.Resources, error)
 
 	// GetTopologyPolicy return newest topology policy status
 	GetTopologyPolicy(ctx context.Context) (nodev1alpha1.TopologyPolicy, error)
@@ -40,9 +41,9 @@ type DummyAdapter struct{}
 
 var _ Adapter = DummyAdapter{}
 
-// GetTopologyZones is to get dummy topology zone status
-func (d DummyAdapter) GetTopologyZones(_ context.Context) ([]*nodev1alpha1.TopologyZone, error) {
-	return []*nodev1alpha1.TopologyZone{}, nil
+// GetTopologyZonesAndResources is to get dummy topology zone status and resources
+func (d DummyAdapter) GetTopologyZonesAndResources(_ context.Context) ([]*nodev1alpha1.TopologyZone, *nodev1alpha1.Resources, error) {
+	return []*nodev1alpha1.TopologyZone{}, &nodev1alpha1.Resources{}, nil
 }
 
 // GetTopologyPolicy is to get dummy topology policy status

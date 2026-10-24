@@ -32,15 +32,19 @@ import (
 
 type CPUProvisionOptions struct {
 	AllowSharedCoresOverlapReclaimedCores       bool
+	DisableDedicatedCoresOverlapReclaimedCores  bool
 	RegionIndicatorTargetOptions                map[string]string
 	IndicatorTargetGetters                      map[string]string
 	IndicatorTargetDefaultGetter                string
 	IndicatorTargetMetricThresholdExpandFactors map[string]string
+	ReclaimedCPUMaxRatio                        float64
+	FillDefaultSharePoolWithNonReclaimCPUs      bool
 }
 
 func NewCPUProvisionOptions() *CPUProvisionOptions {
 	return &CPUProvisionOptions{
 		AllowSharedCoresOverlapReclaimedCores:       false,
+		DisableDedicatedCoresOverlapReclaimedCores:  false,
 		RegionIndicatorTargetOptions:                map[string]string{},
 		IndicatorTargetGetters:                      map[string]string{},
 		IndicatorTargetDefaultGetter:                string(consts.IndicatorTargetGetterSPDMin),
@@ -51,7 +55,12 @@ func NewCPUProvisionOptions() *CPUProvisionOptions {
 // ApplyTo fills up config with options
 func (o *CPUProvisionOptions) ApplyTo(c *advisor.CPUProvisionConfiguration) error {
 	var errList []error
-	c.AllowSharedCoresOverlapReclaimedCores = o.AllowSharedCoresOverlapReclaimedCores
+	c.ReclaimedCPUMaxRatio = o.ReclaimedCPUMaxRatio
+	c.FillDefaultSharePoolWithNonReclaimCPUs = o.FillDefaultSharePoolWithNonReclaimCPUs
+	c.SetRequestedOverlapPolicy(
+		o.AllowSharedCoresOverlapReclaimedCores,
+		o.DisableDedicatedCoresOverlapReclaimedCores,
+	)
 
 	for regionType, targets := range o.RegionIndicatorTargetOptions {
 		regionIndicatorTarget := make([]v1alpha1.IndicatorTargetConfiguration, 0)
@@ -98,6 +107,8 @@ func (o *CPUProvisionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("cpu-provision")
 	fs.BoolVar(&o.AllowSharedCoresOverlapReclaimedCores, "allow-shared-cores-overlap-reclaimed-cores", o.AllowSharedCoresOverlapReclaimedCores,
 		"set true to allow shared_cores overlap reclaimed_cores")
+	fs.BoolVar(&o.DisableDedicatedCoresOverlapReclaimedCores, "disable-dedicated-cores-overlap-reclaimed-cores", o.DisableDedicatedCoresOverlapReclaimedCores,
+		"set true to prevent dedicated_cores overlap reclaimed_cores")
 	fs.StringToStringVar(&o.RegionIndicatorTargetOptions, "region-indicator-targets", o.RegionIndicatorTargetOptions,
 		"indicators targets for each region, in format like cpu_sched_wait=400/cpu_iowait_ratio=0.8")
 	fs.StringToStringVar(&o.IndicatorTargetGetters, "indicator-target-getters", o.IndicatorTargetGetters,
@@ -106,4 +117,8 @@ func (o *CPUProvisionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"default indicator target getter func like spd-avg")
 	fs.StringToStringVar(&o.IndicatorTargetMetricThresholdExpandFactors, "indicator-target-metric-threshold-expand-factors", o.IndicatorTargetMetricThresholdExpandFactors,
 		"indicator target expand factor, in format like cpu_usage_ratio=1.1,cpi=1.2")
+	fs.Float64Var(&o.ReclaimedCPUMaxRatio, "reclaimed-cpu-max-ratio", o.ReclaimedCPUMaxRatio,
+		"the maximum ratio of whole-machine/NUMA CPUs that can be assigned to reclaimed_cores, 0 means no limit")
+	fs.BoolVar(&o.FillDefaultSharePoolWithNonReclaimCPUs, "fill-default-share-pool-with-non-reclaim-cpus", o.FillDefaultSharePoolWithNonReclaimCPUs,
+		"make the default share pool consume all residual non-reclaim cpus")
 }
