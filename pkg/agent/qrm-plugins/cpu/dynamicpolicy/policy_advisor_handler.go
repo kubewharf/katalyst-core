@@ -3155,13 +3155,15 @@ func (p *DynamicPolicy) syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicCo
 		return nil
 	}
 	// Trust boundary (defense-in-depth): an ACTIVE override that wants to collapse a
-	// committed reclaim pool to empty must be rejected, fail-closed. Set formula:
-	// |R|>0 ⇒ R_eff≠∅. The ownership projection in BuildCPUSetPartitionView prevents
-	// legal ordinary-dedicated overlap from producing a spurious empty R_eff; this
-	// guard is the backstop so no override path can silently empty a committed pool.
-	// A passive override (Source=="") stays a no-op; a non-empty R_eff is applied.
+	// reclaim pool to empty must be rejected, fail-closed, but only when a non-empty
+	// reclaim would actually be torn down. Set formula: |R_pending|>0 ⇒ R_eff≠∅. The
+	// ownership projection in BuildCPUSetPartitionView prevents legal ordinary-dedicated
+	// overlap from producing a spurious empty R_eff; this guard is the backstop so no
+	// override path can silently empty a non-empty committed pool. A passive override
+	// (Source=="") stays a no-op; a non-empty R_eff is applied; an active empty override
+	// against an already-empty pending reclaim is a legitimate no-op (fresh start).
 	if override.ReclaimEffective.IsEmpty() {
-		if override.Source == "" {
+		if override.Source == "" || reclaimEntry.AllocationResult.IsEmpty() {
 			return nil
 		}
 		return fmt.Errorf("bulkhead adjustment override wants empty reclaim pool while a committed reclaim entry exists (source=%s)",

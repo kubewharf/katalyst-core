@@ -2038,7 +2038,9 @@ func TestReclaimViewOverlapGateMatrix(t *testing.T) {
 	}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			state := cpustate.NewCPUPluginState(nil)
 			require.NoError(t, state.SetAllowSharedCoresOverlapReclaimedCores(tc.allowShared))
 			require.NoError(t, state.SetDisableDedicatedCoresOverlapReclaimedCores(tc.disableDedicated))
@@ -2120,4 +2122,38 @@ func TestReclaimViewKeepsNUMAExclusiveDedicatedDisjointInOrdinaryOverlapMode(t *
 			}
 		})
 	}
+}
+
+// F2: allowOverlap=true (shared/reclaim overlap) must still trim R_eff against
+// Isolation and Reserve even though ordinary dedicated and share are exempt.
+// R_raw={2,3,4,5} overlaps Isolation={4}; Reserve={0} is outside R_raw.
+// Expect R_eff={2,3,5} (Isolation CPU4 trimmed, CPU5 survives).
+func TestReclaimViewAllowSharedOverlapTrimsIsolationAndReserve(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.CPUTopology{CPUDetails: machine.CPUDetails{
+		0: {NUMANodeID: 0}, 1: {NUMANodeID: 0}, 2: {NUMANodeID: 0}, 3: {NUMANodeID: 0},
+		4: {NUMANodeID: 0}, 5: {NUMANodeID: 0}, 6: {NUMANodeID: 0}, 7: {NUMANodeID: 0},
+	}}
+	state := cpustate.NewCPUPluginState(nil)
+	require.NoError(t, state.SetAllowSharedCoresOverlapReclaimedCores(true))
+	require.NoError(t, state.SetDisableDedicatedCoresOverlapReclaimedCores(false))
+
+	set := func(pool string, cpus string) {
+		state.SetAllocationInfo(pool, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+			AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(pool),
+			AllocationResult: machine.MustParse(cpus),
+		})
+	}
+	set(commonstate.PoolNameReserve, "0")
+	set(commonstate.PoolNameShare, "1")
+	set("isolation-0", "4")
+	state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+		AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+		AllocationResult: machine.MustParse("2-5"),
+	})
+
+	view, _ := BuildCPUSetPartitionView(state, topology, CPUSetPartitionViewOptions{})
+	assertCPUSet(t, "reclaim effective", view.ReclaimEffective, "2-3,5")
+	assertCPUSet(t, "non reclaim", view.NonReclaimPool, "1,4")
 }

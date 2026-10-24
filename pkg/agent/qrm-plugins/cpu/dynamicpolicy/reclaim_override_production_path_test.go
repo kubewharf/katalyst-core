@@ -1,4 +1,20 @@
 /*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+/*
 Production-path regressions for reclaim override projection and commit.
 Path: applyBlocksWithDynamicConfig -> reviseReclaimPool ->
 
@@ -19,9 +35,12 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -202,4 +221,98 @@ func TestOverrideEmptyWithSourceRejectedFailClosed(t *testing.T) {
 	require.Error(t, err)
 	got := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult
 	require.True(t, got.Equals(C), "committed reclaim must survive a rejected empty override, got %s", got)
+}
+
+// F1: an active empty override against an already-empty pending reclaim is a
+// legitimate no-op (fresh start). It must NOT error and must NOT publish anything.
+func TestOverrideEmptyWithSourceAgainstEmptyReclaimIsNoOp(t *testing.T) {
+	t.Parallel()
+	p := newReclaimOverrideTestPolicy(t, 8, 1, 1)
+	dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+	dyn.EnableReclaim = false
+
+	newEntries := state.PodEntries{
+		commonstate.PoolNameReclaim: reclaimOverrideTestEntry(machine.NewCPUSet()),
+	}
+	override := &cpusetutil.CPUSetAdjustmentCommitOverride{
+		ReclaimEffective: machine.NewCPUSet(),
+		Source:           "advisor_pending_entries",
+	}
+	require.NoError(t, p.syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicConfig(newEntries, override, dyn),
+		"active empty override against already-empty reclaim must be a no-op, not an error")
+	got := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult
+	require.True(t, got.IsEmpty(), "reclaim must stay empty on a fresh-start no-op, got %s", got)
+}
+
+// F4: NUMA-exclusive dedicated X completely covers R_raw, so the view projects
+// R_eff=empty. The active override then hits the fail-closed trust boundary:
+// error, no publish, revision does not advance.
+func TestOverrideEmptyFromExclusiveDedicatedCoveringReclaimFailClosed(t *testing.T) {
+	t.Parallel()
+	p := newReclaimOverrideTestPolicy(t, 8, 1, 1)
+	dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+	dyn.EnableReclaim = false
+
+	// Dedicated {0,1,2,3} is NUMA-exclusive and covers R_raw={0,1}.
+	entries := state.PodEntries{
+		"exclusive-pod": {
+			"main": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:        "exclusive-pod",
+					ContainerName: "main",
+					OwnerPoolName: commonstate.PoolNameDedicated,
+					QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding:   apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
+				},
+				AllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+			},
+		},
+		commonstate.PoolNameReclaim: reclaimOverrideTestEntry(machine.NewCPUSet(0, 1)),
+	}
+	p.state.SetPodEntries(entries, false)
+
+	revBefore := p.state.GetRevision()
+	override := &cpusetutil.CPUSetAdjustmentCommitOverride{
+		ReclaimEffective: machine.NewCPUSet(),
+		Source:           "advisor_pending_entries",
+	}
+	err := p.syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicConfig(entries, override, dyn)
+	require.Error(t, err, "exclusive-dedicated covering all reclaim must fail closed")
+	require.Contains(t, err.Error(), "empty reclaim pool")
+	require.Equal(t, revBefore, p.state.GetRevision(), "revision must not advance on fail-closed")
+	published := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName).AllocationResult
+	require.True(t, published.Equals(machine.NewCPUSet(0, 1)), "committed reclaim must survive, got %s", published)
+}
+
+// F3: after a successful overlap-mode commit, the reclaim pool C must survive a
+// real restart via checkpoint reload.
+func TestOverlapCommitReclaimSurvivesCheckpointRestart(t *testing.T) {
+	t.Parallel()
+	p := newReclaimOverrideTestPolicy(t, 8, 1, 1)
+	dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+	dyn.EnableReclaim = false
+
+	all := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
+	C := machine.NewCPUSet(0, 1)
+	seedReclaimOverrideTestState(t, p, all, C)
+
+	pending, err := p.applyBlocksWithDynamicConfig(
+		reclaimOverrideTestBlocks(all, C), reclaimOverrideTestResponse(false, all, C), false, false, dyn)
+	require.NoError(t, err)
+	require.NoError(t, p.commitPendingAdvisorState(pending))
+
+	published := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName).AllocationResult
+	require.True(t, published.Equals(C), "pre-restart reclaim must equal C=%s, got %s", C, published)
+
+	// Restart: reload checkpoint from the same state directory.
+	restarted, err := state.NewCheckpointState(
+		&statedirectory.StateDirectoryConfiguration{StateFileDirectory: p.advisorPostCommitCheckpointDir},
+		cpuPluginStateFileName, cpuconsts.CPUResourcePluginPolicyNameDynamic,
+		p.machine.machineInfo.CPUTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	got := restarted.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName).AllocationResult
+	require.True(t, got.Equals(C), "post-restart reclaim must survive as C=%s, got %s", C, got)
 }
