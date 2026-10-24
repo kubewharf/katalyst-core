@@ -234,7 +234,7 @@ func coreAlignedCandidatesWithIndex(
 //
 // Objective (lexicographic, deterministic):
 //  1. Hard constraint: only eligible complete cores (coreAlignedCandidates).
-//  2. Primary: minimise the selected total that is still >= requested (minimum
+//  2. Primary: minimize the selected total that is still >= requested (minimum
 //     overshoot). This is a 0/1 subset choice over complete cores; it is solved with
 //     a bounded reachability DP, not by round-robin, so a request of 3 over
 //     cores [2,3] picks the size-3 core (total 3) rather than 2+3=5.
