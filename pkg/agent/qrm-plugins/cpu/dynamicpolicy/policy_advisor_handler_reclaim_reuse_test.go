@@ -463,6 +463,8 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesPreservesWholeCores(t *testi
 
 	t.Run("rejects an active empty reclaim override fail-closed", func(t *testing.T) {
 		t.Parallel()
+		dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+		dyn.EnableReclaim = true // fail-closed guard active only when reclaim enabled
 		newEntries := state.PodEntries{
 			commonstate.PoolNameReclaim: {
 				commonstate.FakedContainerName: &state.AllocationInfo{

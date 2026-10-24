@@ -2305,6 +2305,10 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 
 	stateRevision := p.state.GetRevision()
 	curEntries := p.state.GetPodEntries()
+	committedReclaimC := machine.NewCPUSet()
+	if committed := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName); committed != nil {
+		committedReclaimC = committed.AllocationResult.Clone()
+	}
 	newEntries := make(state.PodEntries)
 	var dedicatedCPUSet, pooledUnionDedicatedCPUSet machine.CPUSet
 	defaultSharePlan := defaultShareMaterializationPlan{}
@@ -2449,8 +2453,17 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 	if err != nil {
 		return nil, fmt.Errorf("build adjustment commit override from pod entries failed with error: %w", err)
 	}
+	// Freeze: when reclaim is disabled, the committed C (captured at round start)
+	// is authoritative. If the view projection collapsed ReclaimEffective to empty
+	// but a committed reclaim exists, restore C directly on the override object.
+	if dynamicConf != nil && !dynamicConf.EnableReclaim &&
+		commitOverride != nil && commitOverride.ReclaimEffective.IsEmpty() &&
+		!committedReclaimC.IsEmpty() {
+		commitOverride.ReclaimEffective = committedReclaimC.Clone()
+	}
 	if err := p.syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicConfig(
-		newEntries, commitOverride, dynamicConf, defaultSharePlan.eligibleCPUSet,
+		newEntries, commitOverride, dynamicConf,
+		defaultSharePlan.eligibleCPUSet,
 	); err != nil {
 		return nil, fmt.Errorf("sync reclaim pool with adjustment commit override failed with error: %w", err)
 	}
@@ -3154,14 +3167,7 @@ func (p *DynamicPolicy) syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicCo
 	if !ok || reclaimEntry == nil {
 		return nil
 	}
-	// Trust boundary (defense-in-depth): an ACTIVE override that wants to collapse a
-	// reclaim pool to empty must be rejected, fail-closed, but only when a non-empty
-	// reclaim would actually be torn down. Set formula: |R_pending|>0 ⇒ R_eff≠∅. The
-	// ownership projection in BuildCPUSetPartitionView prevents legal ordinary-dedicated
-	// overlap from producing a spurious empty R_eff; this guard is the backstop so no
-	// override path can silently empty a non-empty committed pool. A passive override
-	// (Source=="") stays a no-op; a non-empty R_eff is applied; an active empty override
-	// against an already-empty pending reclaim is a legitimate no-op (fresh start).
+	// Trust boundary: active empty override against non-empty pending reclaim = fail-closed.
 	if override.ReclaimEffective.IsEmpty() {
 		if override.Source == "" || reclaimEntry.AllocationResult.IsEmpty() {
 			return nil
