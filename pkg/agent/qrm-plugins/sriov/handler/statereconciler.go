@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
-	cri "k8s.io/cri-api/pkg/apis"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -45,20 +44,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+type podSandboxLister interface {
+	ListPodSandbox(context.Context, *runtimeapi.PodSandboxFilter) ([]*runtimeapi.PodSandbox, error)
+}
+
 type StateReconciler struct {
 	state                      state.State
 	netnsDirAbsPath            string
 	pciAnnotation              string
 	resourceName               string
 	kubeClient                 kubernetes.Interface
-	runtimeClient              cri.RuntimeService
+	runtimeClient              podSandboxLister
 	residualHitMap             map[string]int64
 	qosConfig                  *generic.QoSConfiguration
 	mainContainerAnnotationKey string
 }
 
 func NewStateReconciler(state state.State, conf *config.Configuration, resourceName string,
-	kubeClient kubernetes.Interface, runtimeClient cri.RuntimeService,
+	kubeClient kubernetes.Interface, runtimeClient podSandboxLister,
 ) *StateReconciler {
 	return &StateReconciler{
 		state:                      state,
