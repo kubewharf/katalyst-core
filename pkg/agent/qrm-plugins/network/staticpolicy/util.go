@@ -43,9 +43,10 @@ const (
 	FirstNIC         ReservationPolicy = "first"
 	EvenDistribution ReservationPolicy = "even"
 
-	RandomOne NICSelectionPoligy = "random"
-	FirstOne  NICSelectionPoligy = "first"
-	LastOne   NICSelectionPoligy = "last"
+	RandomOne  NICSelectionPoligy = "random"
+	FirstOne   NICSelectionPoligy = "first"
+	LastOne    NICSelectionPoligy = "last"
+	BalanceOne NICSelectionPoligy = "balance"
 
 	LowPriorityGroupNameSuffix = "low_priority"
 )
@@ -212,28 +213,24 @@ func getRandomNICs(nics []machine.InterfaceInfo) machine.InterfaceInfo {
 	return nics[r.Intn(len(nics))]
 }
 
-func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machine.InterfaceInfo {
-	if len(nics) == 0 {
-		general.Errorf("no NIC to select")
-		return machine.InterfaceInfo{}
+// getBalanceNICs picks the NIC with the least number of already allocated pods.
+// ties are broken by the order of candidates so that the result is deterministic.
+func getBalanceNICs(nics []machine.InterfaceInfo, nicPodCount map[string]int) machine.InterfaceInfo {
+	selected := nics[0]
+	minCount := nicPodCount[selected.Name]
+	for i := 1; i < len(nics); i++ {
+		count := nicPodCount[nics[i].Name]
+		if count < minCount {
+			minCount = count
+			selected = nics[i]
+		}
 	}
-
-	switch policy {
-	case RandomOne:
-		return getRandomNICs(nics)
-	case FirstOne:
-		// since we only pass filtered nics, always picking the first or the last one actually indicates a kind of binpacking
-		return nics[0]
-	case LastOne:
-		return nics[len(nics)-1]
-	}
-
-	// use LastOne as default
-	return nics[len(nics)-1]
+	return selected
 }
 
-// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, resourceAllocationAnnotations ...map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+// packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest.
+// envs are propagated to the container through the resource plugin allocation result.
+func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, envs map[string]string, resourceAllocationAnnotations ...map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
@@ -257,6 +254,7 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 					IsScalarResource:  true, // to avoid re-allocating
 					AllocatedQuantity: float64(allocationInfo.Egress),
 					AllocationResult:  allocationInfo.NumaNodes.String(),
+					Envs:              envs,
 					Annotations:       general.MergeAnnotations(resourceAllocationAnnotations...),
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
