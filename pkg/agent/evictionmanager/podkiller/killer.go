@@ -31,14 +31,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
-	cri "k8s.io/cri-api/pkg/apis"
-	remote "k8s.io/cri-client/pkg"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/container"
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 )
 
 const (
@@ -285,14 +284,18 @@ func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter m
 
 // ContainerKiller implements Killer interface it actually does not evict pod but
 // stop containers in given pod directly.
+type containerStopper interface {
+	StopContainer(context.Context, string, int64) error
+}
+
 type ContainerKiller struct {
-	containerManager cri.ContainerManager
+	containerManager containerStopper
 	recorder         events.EventRecorder
 	emitter          metrics.MetricEmitter
 }
 
 func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
-	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RuntimeEndpoint, 2*time.Minute, nil, nil)
+	remoteRuntimeService, err := criclient.NewRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}

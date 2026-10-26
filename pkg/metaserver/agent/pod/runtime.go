@@ -22,13 +22,12 @@ import (
 	"time"
 
 	kubetypes "k8s.io/apimachinery/pkg/types"
-	cri "k8s.io/cri-api/pkg/apis"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
-	remote "k8s.io/cri-client/pkg"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 )
 
 const (
@@ -68,13 +67,13 @@ type RuntimePodFetcher interface {
 }
 
 type runtimePodFetcherImpl struct {
-	runtimeService cri.RuntimeService
+	runtimeService criclient.RuntimeService
 }
 
 func NewRuntimePodFetcher(baseConf *global.BaseConfiguration) (RuntimePodFetcher, error) {
-	runtimeService, err := remote.NewRemoteRuntimeService(baseConf.RuntimeEndpoint, 2*time.Minute, nil, nil)
+	runtimeService, err := criclient.NewRuntimeService(baseConf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
-		return nil, fmt.Errorf("create remote runtime service failed %s", err)
+		return nil, fmt.Errorf("create remote runtime service failed: %w", err)
 	}
 
 	return &runtimePodFetcherImpl{runtimeService: runtimeService}, nil
