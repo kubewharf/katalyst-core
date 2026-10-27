@@ -44,6 +44,8 @@ type NetworkQRMPluginConfig struct {
 	EnableNICAllocationReactor bool
 	// NICHealthCheckers is the list of enabled NIC health checkers
 	NICHealthCheckers []string
+	// NICFilters is the list of enabled allocatable NIC filters
+	NICFilters []string
 	// NICSelectionPolicy is the policy to pick one NIC from the filtered candidates.
 	// supported values: random, first, last, balance.
 	//   - random: pick a NIC randomly (default).
