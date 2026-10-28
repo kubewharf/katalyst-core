@@ -23,7 +23,6 @@ import (
 	"time"
 
 	core "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/json"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -79,6 +77,7 @@ type VPAController struct {
 	vpaUpdater      control.VPAUpdater
 	podUpdater      control.PodUpdater
 	workloadControl control.UnstructuredControl
+	podResizeMode   podResizeMode
 
 	vpaIndexer cache.Indexer
 	podIndexer cache.Indexer
@@ -110,6 +109,13 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()
 
 	genericClient := controlCtx.Client
+	// Check if we are using the legacy way or the native way to resize pod resources
+	resizeMode, err := discoverPodResizeMode(genericClient.DiscoveryClient)
+	if err != nil {
+		return nil, err
+	}
+	klog.Infof("[vpa] selected %s pod resize mode", resizeMode.String())
+
 	vpaController := &VPAController{
 		ctx:                ctx,
 		conf:               vpaConf,
@@ -123,6 +129,7 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		vpaUpdater:         &control.DummyVPAUpdater{},
 		podUpdater:         &control.DummyPodUpdater{},
 		workloadControl:    &control.DummyUnstructuredControl{},
+		podResizeMode:      resizeMode,
 		vpaSyncQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "vpa"),
 		vpaSyncWorkers:     vpaConf.VPASyncWorkers,
 		syncedFunc: []cache.InformerSynced{
@@ -205,6 +212,7 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 		vpaConf,
 		vpaController.workloadLister,
 		vpaController.vpaUpdater,
+		resizeMode,
 	)
 
 	return vpaController, nil
@@ -622,7 +630,7 @@ func (vc *VPAController) updatePodResources(vpa *apis.KatalystVerticalPodAutosca
 	workqueue.ParallelizeUntil(vc.ctx, 16, len(pods), updatePodAnnotations)
 	if len(errList) > 0 {
 		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse,
-			util.VPAConditionReasonCalculatedIllegal, "failed to update pod annotations")
+			util.VPAConditionReasonCalculatedIllegal, "failed to update pod resources")
 		return utilerrors.NewAggregate(errList)
 	}
 
@@ -634,53 +642,19 @@ func (vc *VPAController) patchPodResources(vpa *apis.KatalystVerticalPodAutoscal
 	podResources map[consts.PodContainerName]apis.ContainerResources, containerResources map[consts.ContainerName]apis.ContainerResources,
 	containerPolicies map[string]apis.ContainerResourcePolicy,
 ) error {
-	annotationResource, err := katalystutil.GenerateVPAPodResizeResourceAnnotations(pod, podResources, containerResources)
+	resources, err := katalystutil.GenerateVPAPodResizeResourceAnnotations(pod, podResources, containerResources)
 	if err != nil {
 		return fmt.Errorf("failed to exact pod %v resize resource annotation from container resource: %v", pod.Name, err)
 	}
 
-	marshalledResourceAnnotation, err := json.Marshal(annotationResource)
-	if err != nil {
-		return err
+	if vpa == nil || vpa.Spec.UpdatePolicy.PodUpdatingStrategy == apis.PodUpdatingStrategyOff {
+		klog.Warningf("will not update pod %s/%s due to PodUpdatingStrategy", pod.Namespace, pod.Name)
+		return nil
 	}
 
-	annotationPolicy, err := katalystutil.GenerateVPAPodResizePolicyAnnotations(pod, containerPolicies)
-	if err != nil {
-		return err
+	if vc.podResizeMode == podResizeModeNative {
+		return vc.resizePodNative(pod, resources, containerPolicies)
 	}
 
-	marshalledPolicyAnnotation, err := json.Marshal(annotationPolicy)
-	if err != nil {
-		return err
-	}
-
-	podCopy := pod.DeepCopy()
-	if native.PodResourceDiff(pod, annotationResource) {
-		if len(annotationResource) > 0 {
-			podCopy.Annotations[apiconsts.PodAnnotationInplaceUpdateResourcesKey] = string(marshalledResourceAnnotation)
-		} else {
-			delete(podCopy.Annotations, apiconsts.PodAnnotationInplaceUpdateResourcesKey)
-		}
-		if len(annotationPolicy) > 0 {
-			podCopy.Annotations[apiconsts.PodAnnotationInplaceUpdateResizePolicyKey] = string(marshalledPolicyAnnotation)
-		} else {
-			delete(podCopy.Annotations, apiconsts.PodAnnotationInplaceUpdateResizePolicyKey)
-		}
-	}
-
-	if !apiequality.Semantic.DeepEqual(pod.Annotations, podCopy.Annotations) {
-		podUpdater := vc.podUpdater
-		if vpa == nil || vpa.Spec.UpdatePolicy.PodUpdatingStrategy == apis.PodUpdatingStrategyOff {
-			podUpdater = &control.DummyPodUpdater{}
-			klog.Warningf("will not update pod %s/%s due to PodUpdatingStrategy", pod.Namespace, pod.Name)
-		}
-
-		if err := podUpdater.PatchPod(vc.ctx, pod, podCopy); err != nil {
-			return err
-		}
-	} else {
-		klog.V(5).Infof("pod %s/%s has no need to update resources", pod.Namespace, pod.Name) //nolint:gomnd
-	}
-
-	return nil
+	return vc.resizePodLegacy(pod, resources, containerPolicies)
 }
