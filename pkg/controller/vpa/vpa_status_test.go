@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
@@ -231,6 +232,104 @@ func TestSetRecommendationAppliedCondition(t *testing.T) {
 			assert.Equal(t, tc.expectedReason, vpa.Status.Conditions[0].Reason)
 			assert.Equal(t, tc.expectedMessage, vpa.Status.Conditions[0].Message)
 			assert.Equal(t, apis.RecommendationApplied, vpa.Status.Conditions[0].Type)
+		})
+	}
+}
+
+func TestSetRecommendationAppliedConditionNative(t *testing.T) {
+	t.Parallel()
+
+	containerName := "c1"
+	vpa := &apis.KatalystVerticalPodAutoscaler{
+		Spec: apis.KatalystVerticalPodAutoscalerSpec{
+			UpdatePolicy: apis.PodUpdatePolicy{
+				PodApplyStrategy: apis.PodApplyStrategyStrategyGroup,
+			},
+		},
+		Status: apis.KatalystVerticalPodAutoscalerStatus{
+			ContainerResources: []apis.ContainerResources{{
+				ContainerName: &containerName,
+				Requests: &apis.ContainerResourceList{
+					Target: v1.ResourceList{
+						v1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+	resources := v1.ResourceRequirements{
+		Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("1")},
+	}
+
+	tests := []struct {
+		name           string
+		pod            *v1.Pod
+		expectedStatus v1.ConditionStatus
+	}{
+		{
+			name: "pod spec updated but runtime status missing",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{Containers: []v1.Container{{
+					Name:      containerName,
+					Resources: resources,
+				}}},
+				Status: v1.PodStatus{Phase: v1.PodRunning},
+			},
+			expectedStatus: v1.ConditionFalse,
+		},
+		{
+			name: "runtime resources updated",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{Containers: []v1.Container{{
+					Name:      containerName,
+					Resources: resources,
+				}}},
+				Status: v1.PodStatus{
+					Phase: v1.PodRunning,
+					ContainerStatuses: []v1.ContainerStatus{{
+						Name:      containerName,
+						Resources: &resources,
+					}},
+				},
+			},
+			expectedStatus: v1.ConditionTrue,
+		},
+		{
+			name: "runtime resources updated but resize pending",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{Containers: []v1.Container{{
+					Name:      containerName,
+					Resources: resources,
+				}}},
+				Status: v1.PodStatus{
+					Phase: v1.PodRunning,
+					Conditions: []v1.PodCondition{{
+						Type:   v1.PodResizePending,
+						Status: v1.ConditionTrue,
+					}},
+					ContainerStatuses: []v1.ContainerStatus{{
+						Name:      containerName,
+						Resources: &resources,
+					}},
+				},
+			},
+			expectedStatus: v1.ConditionFalse,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			vpaCopy := vpa.DeepCopy()
+			vs := &vpaStatusController{podResizeMode: podResizeModeNative}
+			err := vs.setRecommendationAppliedCondition(vpaCopy, []*v1.Pod{tt.pod})
+
+			assert.NoError(t, err)
+			if assert.Len(t, vpaCopy.Status.Conditions, 1) {
+				assert.Equal(t, tt.expectedStatus, vpaCopy.Status.Conditions[0].Status)
+			}
 		})
 	}
 }

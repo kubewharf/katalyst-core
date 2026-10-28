@@ -496,6 +496,46 @@ func GetVPAResourceStatusWithCurrent(vpa *apis.KatalystVerticalPodAutoscaler, po
 	return finalPodResources, finalContainerResources, nil
 }
 
+func resourceListContains(actual, expected core.ResourceList) bool {
+	for name, expectedQuantity := range expected {
+		actualQuantity, ok := actual[name]
+		if !ok || !expectedQuantity.Equal(actualQuantity) {
+			return false
+		}
+	}
+	return true
+}
+
+// CheckPodStatusResourcesUpdated checks whether kubelet has enacted the expected resources.
+func CheckPodStatusResourcesUpdated(pod *core.Pod, expected map[string]core.ResourceRequirements) bool {
+	if pod == nil {
+		return false
+	}
+
+	for _, condition := range pod.Status.Conditions {
+		if condition.Status == core.ConditionTrue &&
+			(condition.Type == core.PodResizePending || condition.Type == core.PodResizeInProgress) {
+			return false
+		}
+	}
+
+	statusByName := make(map[string]*core.ResourceRequirements, len(pod.Status.ContainerStatuses))
+	for i := range pod.Status.ContainerStatuses {
+		status := &pod.Status.ContainerStatuses[i]
+		statusByName[status.Name] = status.Resources
+	}
+
+	for name, resources := range expected {
+		actual := statusByName[name]
+		if actual == nil ||
+			!resourceListContains(actual.Requests, resources.Requests) ||
+			!resourceListContains(actual.Limits, resources.Limits) {
+			return false
+		}
+	}
+	return true
+}
+
 /*
  helper functions to generate status for vpaRec
 */

@@ -646,3 +646,112 @@ func TestGetVPAResourceStatusWithRecommendation(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckPodStatusResourcesUpdated(t *testing.T) {
+	t.Parallel()
+
+	expected := map[string]v1.ResourceRequirements{
+		"target": {
+			Requests: v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("1"),
+				v1.ResourceMemory: resource.MustParse("1Gi"),
+			},
+			Limits: v1.ResourceList{
+				v1.ResourceCPU: resource.MustParse("2"),
+			},
+		},
+	}
+	matchingResources := &v1.ResourceRequirements{
+		Requests: v1.ResourceList{
+			v1.ResourceCPU:             resource.MustParse("1"),
+			v1.ResourceMemory:          resource.MustParse("1Gi"),
+			v1.ResourceName("example"): resource.MustParse("3"),
+		},
+		Limits: v1.ResourceList{
+			v1.ResourceCPU: resource.MustParse("2"),
+		},
+	}
+
+	tests := []struct {
+		name string
+		pod  *v1.Pod
+		want bool
+	}{
+		{
+			name: "matching enacted resources",
+			pod: &v1.Pod{Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+				Name:      "target",
+				Resources: matchingResources.DeepCopy(),
+			}}}},
+			want: true,
+		},
+		{
+			name: "missing container resources",
+			pod: &v1.Pod{Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+				Name: "target",
+			}}}},
+		},
+		{
+			name: "missing container status",
+			pod:  &v1.Pod{},
+		},
+		{
+			name: "resource mismatch",
+			pod: &v1.Pod{Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+				Name: "target",
+				Resources: &v1.ResourceRequirements{Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("500m"),
+					v1.ResourceMemory: resource.MustParse("1Gi"),
+				}},
+			}}}},
+		},
+		{
+			name: "resize pending",
+			pod: &v1.Pod{Status: v1.PodStatus{
+				Conditions: []v1.PodCondition{{
+					Type:   v1.PodResizePending,
+					Status: v1.ConditionTrue,
+				}},
+				ContainerStatuses: []v1.ContainerStatus{{
+					Name:      "target",
+					Resources: matchingResources.DeepCopy(),
+				}},
+			}},
+		},
+		{
+			name: "resize in progress",
+			pod: &v1.Pod{Status: v1.PodStatus{
+				Conditions: []v1.PodCondition{{
+					Type:   v1.PodResizeInProgress,
+					Status: v1.ConditionTrue,
+				}},
+				ContainerStatuses: []v1.ContainerStatus{{
+					Name:      "target",
+					Resources: matchingResources.DeepCopy(),
+				}},
+			}},
+		},
+		{
+			name: "false resize condition does not block",
+			pod: &v1.Pod{Status: v1.PodStatus{
+				Conditions: []v1.PodCondition{{
+					Type:   v1.PodResizePending,
+					Status: v1.ConditionFalse,
+				}},
+				ContainerStatuses: []v1.ContainerStatus{{
+					Name:      "target",
+					Resources: matchingResources.DeepCopy(),
+				}},
+			}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, CheckPodStatusResourcesUpdated(tt.pod, expected))
+		})
+	}
+}
