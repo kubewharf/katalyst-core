@@ -26,18 +26,21 @@ import (
 type QRMPluginOptions struct {
 	*CPUPluginOptions
 	*MemoryPluginOptions
+	*DynamicRDTOptions
 }
 
 func NewQRMPluginOptions() *QRMPluginOptions {
 	return &QRMPluginOptions{
 		CPUPluginOptions:    NewCPUPluginOptions(),
 		MemoryPluginOptions: NewMemoryPluginOptions(),
+		DynamicRDTOptions:   NewDynamicRDTOptions(),
 	}
 }
 
 func (o *QRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.CPUPluginOptions.AddFlags(fss)
 	o.MemoryPluginOptions.AddFlags(fss)
+	o.DynamicRDTOptions.AddFlags(fss)
 }
 
 func (o *QRMPluginOptions) ApplyTo(c *qrm.QRMPluginConfiguration) error {
@@ -45,5 +48,6 @@ func (o *QRMPluginOptions) ApplyTo(c *qrm.QRMPluginConfiguration) error {
 
 	errList = append(errList, o.CPUPluginOptions.ApplyTo(c.CPUPluginConfiguration))
 	errList = append(errList, o.MemoryPluginOptions.ApplyTo(c.MemoryPluginConfiguration))
+	errList = append(errList, o.DynamicRDTOptions.ApplyTo(c))
 	return errors.NewAggregate(errList)
 }
