@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
@@ -49,7 +50,23 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 	general.InfoS("accompany device strategy binding called",
 		"available devices", sortedDevices)
 
-	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices)
+	enableHybridAccompanyResourceAllocation := ctx != nil &&
+		ctx.GPUQRMPluginConfig != nil &&
+		ctx.GPUQRMPluginConfig.EnableHybridAccompanyResourceAllocation
+
+	// device allocation is shared when hybrid allocation is enabled and the pod has the shared annotation key.
+	requestSharedDeviceAllocation := enableHybridAccompanyResourceAllocation &&
+		ctx.ResourceReq != nil &&
+		util.IsSharedDeviceAllocationRequested(
+			ctx.ResourceReq.Annotations,
+			ctx.GPUQRMPluginConfig.AccompanyResourceSharedAnnotationKey,
+		)
+
+	valid, errMsg := strategies.IsBindingContextValid(
+		ctx,
+		sortedDevices,
+		requestSharedDeviceAllocation,
+	)
 	if !valid {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -57,13 +74,8 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, fmt.Errorf("%s", errMsg)
 	}
 
-	// Two distinct identifiers are used throughout this strategy and must not be mixed:
-	//   - device/resource name (e.g. "nvidia.com/gpu"): used by DeviceTopologyRegistry,
-	//     which is keyed by the raw device resource name.
-	//   - state name (e.g. "gpu"): used by MachineState, which is keyed by the device
-	//     type. Resolve via util.ResolveResourceName before any state lookup.
+	// Topology uses resource names, while MachineState uses resolved device types.
 	accompanyResourceName := ctx.AccompanyResourceName
-	// AccompanyResource strategy requires an accompany resource name; without it, return an error.
 	if accompanyResourceName == "" {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -71,14 +83,12 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, fmt.Errorf("no accompany resource name specified")
 	}
 
-	// resourceName is the raw target resource name (used for topology registry lookups).
 	resourceName := ctx.ResourceName
 
-	// Allocate all the reusable devices first
+	// Reusable devices count toward the current request.
 	allocatedDevices := sets.NewString(ctx.DeviceReq.ReusableDevices...)
 	machineState := ctx.MachineState
 
-	// Resolve resource name -> state name for any MachineState lookup below.
 	accompanyResourceNameInState := util.ResolveResourceName(ctx.DeviceNameToTypeMap, accompanyResourceName, false)
 	if accompanyResourceNameInState == "" {
 		return &allocate.AllocationResult{
@@ -87,7 +97,6 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, fmt.Errorf("invalid accompany resource %s in state", accompanyResourceName)
 	}
 
-	// MachineState lookup: use the state-name identifier.
 	accompanyAllocatedDeviceIDs := machineState.GetAllocatedDeviceIDs(v1.ResourceName(accompanyResourceNameInState), ctx.ResourceReq.PodUid, ctx.ResourceReq.ContainerName)
 	if len(accompanyAllocatedDeviceIDs) == 0 {
 		return &allocate.AllocationResult{
@@ -96,7 +105,6 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, fmt.Errorf("no accompany resource device found for pod %s, container %s, resource %s", ctx.ResourceReq.PodUid, ctx.ResourceReq.ContainerName, accompanyResourceNameInState)
 	}
 
-	// Resolve resource name -> state name for the target resource.
 	resourceNameInState := util.ResolveResourceName(ctx.DeviceNameToTypeMap, resourceName, false)
 	if resourceNameInState == "" {
 		return &allocate.AllocationResult{
@@ -105,49 +113,29 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, fmt.Errorf("invalid resource %s in state", resourceName)
 	}
 
-	// MachineState lookup: pass state-name identifiers.
 	accompanyResourceToDeviceRatio := machineState.GetRatioOfAccompanyResourceToTargetResource(accompanyResourceNameInState, resourceNameInState)
-
-	// Find out the number of target devices to be allocated proportionally to the accompany resource devices
-	devicesToBeAllocated, err := machineState.CalculateTargetDevicesToAllocate(accompanyResourceToDeviceRatio, len(accompanyAllocatedDeviceIDs))
+	devicesToAllocate, err := machineState.CalculateTargetDevicesToAllocate(
+		accompanyResourceToDeviceRatio,
+		len(accompanyAllocatedDeviceIDs),
+		enableHybridAccompanyResourceAllocation,
+	)
 	if err != nil {
-		return &allocate.AllocationResult{
-			Success:      false,
-			ErrorMessage: err.Error(),
-		}, fmt.Errorf("failed to calculate target devices to allocate: %w", err)
+		return failedAllocationResult(fmt.Errorf("failed to calculate target devices to allocate: %w", err))
 	}
 
-	if allocatedDevices.Len() >= devicesToBeAllocated {
+	if allocatedDevices.Len() >= devicesToAllocate {
 		return &allocate.AllocationResult{
 			AllocatedDevices: allocatedDevices.UnsortedList(),
 			Success:          true,
 		}, nil
 	}
 
-	// DeviceTopologyRegistry lookup: pass the raw resource names (not the state names).
 	affinityDevices, err := ctx.DeviceTopologyRegistry.GetAffinityDevices(accompanyResourceName, resourceName)
 	if err != nil {
 		general.Warningf("failed to get affinity devices between %s and %s: %v", accompanyResourceName, resourceName, err)
 		return nil, fmt.Errorf("failed to get affinity devices between %s and %s: %w", accompanyResourceName, resourceName, err)
 	}
 
-	// Choose allocation path based on presence of affinity info
-	// If there are no affinity devices, log a warning, emit a metric for visibility, and return
-	// success with an empty allocation. This lets the pod proceed to be allocated (e.g. without RDMA devices in this
-	// scenario) instead of being rejected.
-	if len(affinityDevices) == 0 {
-		general.Warningf("no affinity devices between accompany resource %s and main resource %s, pod: %s/%s, container: %s",
-			accompanyResourceName, resourceName,
-			ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName)
-		emitAccompanyResourceAllocationMetric(ctx, metricNameNoAccompanyAffinityDevices, accompanyResourceName)
-
-		return &allocate.AllocationResult{
-			Success:          true,
-			AllocatedDevices: []string{},
-		}, nil
-	}
-
-	// DeviceTopologyRegistry lookup: pass the raw resource name (not the state name).
 	var priorityDimensions []string
 	accompanyTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(accompanyResourceName)
 	if err != nil {
@@ -167,30 +155,129 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 
 	general.Infof("Get affinity devices from allocated devices: %v", affinityDevices)
 
-	availableDevices := sets.NewString(sortedDevices...)
+	if len(affinityDevices) == 0 {
+		general.Warningf("no affinity devices between accompany resource %s and main resource %s, pod: %s/%s, container: %s",
+			accompanyResourceName, ctx.ResourceName,
+			ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName)
+		emitAccompanyResourceAllocationMetric(ctx, metricNameNoAccompanyAffinityDevices, accompanyResourceName)
 
-	// maxAllocationPerDevice is the maximum number of target devices that can be allocated to each accompany resource device.
-	// This is to uniformly distribute the target devices to each accompany resource device.
-	maxAllocationPerDevice := 1
-	if accompanyResourceToDeviceRatio > 0 {
-		maxAllocationPerDevice = int(math.Max(1/accompanyResourceToDeviceRatio, 1))
+		return &allocate.AllocationResult{
+			Success:          true,
+			AllocatedDevices: []string{},
+		}, nil
 	}
-	return s.allocateWithAffinity(ctx, accompanyAllocatedDeviceIDs, affinityDevices, priorityDimensions, availableDevices, allocatedDevices, devicesToBeAllocated, maxAllocationPerDevice, accompanyResourceName)
+
+	// Shared requests may reuse shared devices outside kubelet's available set.
+	if requestSharedDeviceAllocation {
+		return s.allocateSharedAffinityDevices(
+			ctx,
+			accompanyAllocatedDeviceIDs,
+			affinityDevices,
+			priorityDimensions,
+			allocatedDevices,
+			devicesToAllocate,
+			resourceNameInState,
+		)
+	}
+
+	// Hybrid exclusive requests use the same canonical affinity-device mapping as
+	// shared requests and topology reporting, but only allocate available devices.
+	if enableHybridAccompanyResourceAllocation {
+		return s.allocateHybridExclusiveAffinityDevices(
+			ctx,
+			accompanyAllocatedDeviceIDs,
+			affinityDevices,
+			priorityDimensions,
+			sortedDevices,
+			allocatedDevices,
+			devicesToAllocate,
+			accompanyResourceName,
+		)
+	}
+
+	// Exclusive requests allocate only from kubelet's available devices.
+	return s.allocateExclusiveAffinityDevices(
+		ctx,
+		accompanyAllocatedDeviceIDs,
+		affinityDevices,
+		priorityDimensions,
+		sortedDevices,
+		allocatedDevices,
+		devicesToAllocate,
+		accompanyResourceToDeviceRatio,
+		accompanyResourceName,
+	)
 }
 
-// allocateWithAffinity tries to allocate devices that have affinity with the allocated accompany devices.
-func (s *AccompanyResourceStrategy) allocateWithAffinity(
+// allocateHybridExclusiveAffinityDevices allocates only the affinity
+// device resolved for each accompany device when that device is available.
+// There should only be one affinity device for each accompany resource.
+func (s *AccompanyResourceStrategy) allocateHybridExclusiveAffinityDevices(
+	ctx *allocate.AllocationContext,
+	allocatedAccompanyResourceIDs []string,
+	affinityByAccompanyResource map[string]map[string]machine.DeviceIDs,
+	priorityDimensions []string,
+	sortedDevices []string,
+	selected sets.String,
+	devicesToAllocate int,
+	accompanyResourceName string,
+) (*allocate.AllocationResult, error) {
+	affinityDeviceIDs, err := resolveAffinityDeviceIDsForAccompanyResources(
+		allocatedAccompanyResourceIDs,
+		affinityByAccompanyResource,
+		priorityDimensions,
+	)
+	if err != nil {
+		return failedAllocationResult(err)
+	}
+
+	available := sets.NewString(sortedDevices...)
+	for _, deviceID := range affinityDeviceIDs.List() {
+		if available.Has(deviceID) {
+			selected.Insert(deviceID)
+		}
+		if selected.Len() >= devicesToAllocate {
+			return &allocate.AllocationResult{
+				AllocatedDevices: selected.List(),
+				Success:          true,
+			}, nil
+		}
+	}
+
+	return partialAllocationResult(
+		ctx,
+		selected.List(),
+		devicesToAllocate,
+		accompanyResourceName,
+	)
+}
+
+// allocateExclusiveAffinityDevices is responsible for exclusive allocation for only currently available target devices.
+// This strategy is not able to have pods share devices.
+// For each accompany device, it searches affinity groups in priority order and applies
+// a ratio-based limit to distribute target devices across the accompany devices.
+func (s *AccompanyResourceStrategy) allocateExclusiveAffinityDevices(
 	ctx *allocate.AllocationContext,
 	allocatedAccompanyDeviceIDs []string,
 	affinityByDevice map[string]map[string]machine.DeviceIDs,
 	priorityDimensions []string,
-	available sets.String,
+	sortedDevices []string,
 	selected sets.String,
 	devicesToAllocate int,
-	perAccompanyLimit int,
+	accompanyResourceToDeviceRatio float64,
 	accompanyResourceName string,
 ) (*allocate.AllocationResult, error) {
-	// Iterate each accompany resource device and bind target devices that have affinity with it.
+	// sortedDevices contains devices that are not already allocated.
+	available := sets.NewString(sortedDevices...)
+
+	// The ratio determines how many target devices one accompany device may receive.
+	// For example, a ratio of 0.5 permits two target devices per accompany device.
+	perAccompanyLimit := 1
+	if accompanyResourceToDeviceRatio > 0 {
+		perAccompanyLimit = int(math.Max(1/accompanyResourceToDeviceRatio, 1))
+	}
+
+	// Allocate targets for each accompany device before moving to the next one.
 	for _, accompanyID := range allocatedAccompanyDeviceIDs {
 		var allocatedForCurrent int
 		affinityForDevice, ok := affinityByDevice[accompanyID]
@@ -202,13 +289,13 @@ func (s *AccompanyResourceStrategy) allocateWithAffinity(
 		}
 
 	PriorityLoop:
+		// Earlier dimensions represent stronger affinity.
 		for _, dimName := range priorityDimensions {
 			deviceIDs, ok := affinityForDevice[dimName]
 			if !ok {
 				continue
 			}
 			for _, deviceID := range deviceIDs {
-				// Skip devices that are not available or already selected
 				if !available.Has(deviceID) || selected.Has(deviceID) {
 					continue
 				}
@@ -225,7 +312,7 @@ func (s *AccompanyResourceStrategy) allocateWithAffinity(
 					return &allocate.AllocationResult{AllocatedDevices: selected.UnsortedList(), Success: true}, nil
 				}
 
-				// Move to the next accompany device once the perAccompanyLimit threshold is reached.
+				// Stop allocating for this accompany device once its proportional share is met.
 				if allocatedForCurrent >= perAccompanyLimit {
 					break PriorityLoop
 				}
@@ -233,19 +320,181 @@ func (s *AccompanyResourceStrategy) allocateWithAffinity(
 		}
 	}
 
-	// Not enough affinity devices are currently available to satisfy the proportional accompany allocation.
-	// Rather than failing pod admission, we log a warning, emit a metric for visibility, and return
-	// success with a partial allocation. This lets the pod proceed to be allocated (e.g. without the full expected number of RDMA devices)
-	// instead of being rejected.
+	// Return the partial allocation and do not reject the pod.
+	return partialAllocationResult(
+		ctx,
+		selected.UnsortedList(),
+		devicesToAllocate,
+		accompanyResourceName,
+	)
+}
+
+// allocateSharedAffinityDevices reuses affinity devices owned only by shared pods
+// before consuming free devices from kubelet's available set.
+func (s *AccompanyResourceStrategy) allocateSharedAffinityDevices(
+	ctx *allocate.AllocationContext,
+	allocatedAccompanyResourceIDs []string,
+	affinityByAccompanyResource map[string]map[string]machine.DeviceIDs,
+	priorityDimensions []string,
+	selected sets.String,
+	devicesToAllocate int,
+	resourceNameInState string,
+) (*allocate.AllocationResult, error) {
+	// Resolve the affinity devices selected for the allocated accompany devices.
+	// This uses the same deterministic mapping exposed by topology reporting.
+	affinityDeviceIDs, err := resolveAffinityDeviceIDsForAccompanyResources(
+		allocatedAccompanyResourceIDs,
+		affinityByAccompanyResource,
+		priorityDimensions,
+	)
+	if err != nil {
+		return failedAllocationResult(err)
+	}
+
+	// Existing devices that are allocated to other shared pods are preferred over free devices.
+	// This is to maximize bin-packing and reduce resource fragmentation.
+	candidates := getSharedResourceAllocationCandidates(
+		affinityDeviceIDs,
+		ctx.MachineState[v1.ResourceName(resourceNameInState)],
+		sets.NewString(ctx.DeviceReq.AvailableDevices...),
+		selected,
+		ctx.GPUQRMPluginConfig.AccompanyResourceSharedAnnotationKey,
+	)
+
+	remaining := devicesToAllocate - selected.Len()
+	// Preserve best-effort behavior when affinity or ownership constraints leave
+	// fewer candidates than requested.
+	if len(candidates) < remaining {
+		selected.Insert(candidates...)
+		return partialAllocationResult(
+			ctx,
+			selected.List(),
+			devicesToAllocate,
+			ctx.AccompanyResourceName,
+		)
+	}
+
+	selected.Insert(candidates[:remaining]...)
+	return &allocate.AllocationResult{
+		AllocatedDevices: selected.List(),
+		Success:          true,
+	}, nil
+}
+
+// resolveAffinityDeviceIDsForAccompanyResources resolves one affinity device for each
+// allocated accompany device using the configured priority dimensions.
+// It rejects missing mappings and deduplicates devices shared by multiple accompany devices.
+func resolveAffinityDeviceIDsForAccompanyResources(
+	allocatedAccompanyResourceIDs []string,
+	affinityByAccompanyResource map[string]map[string]machine.DeviceIDs,
+	priorityDimensions []string,
+) (sets.String, error) {
+	targetDeviceByAccompanyResource := util.ResolveAffinityDeviceByAccompanyResource(
+		affinityByAccompanyResource,
+		priorityDimensions,
+	)
+	affinityDeviceIDs := sets.NewString()
+	for _, accompanyResourceID := range allocatedAccompanyResourceIDs {
+		resourceID, ok := targetDeviceByAccompanyResource[accompanyResourceID]
+		if !ok {
+			return nil, fmt.Errorf("no affinity device found for accompany resource device %s", accompanyResourceID)
+		}
+		affinityDeviceIDs.Insert(resourceID)
+	}
+	return affinityDeviceIDs, nil
+}
+
+// getSharedResourceAllocationCandidates returns shared devices before free devices.
+// This is because shared devices are preferred over free devices.
+// This is to maximize bin-packing and reduce resource fragmentation.
+func getSharedResourceAllocationCandidates(
+	eligible sets.String,
+	resourceState state.AllocationMap,
+	available sets.String,
+	selected sets.String,
+	annotationKey string,
+) []string {
+	shared := sets.NewString()
+	free := sets.NewString()
+
+	for _, resourceID := range eligible.List() {
+		if selected.Has(resourceID) {
+			continue
+		}
+
+		switch classifyResourceOwnership(resourceState[resourceID], annotationKey) {
+		case resourceShared:
+			shared.Insert(resourceID)
+		case resourceFree:
+			if available.Has(resourceID) {
+				free.Insert(resourceID)
+			}
+		case resourceExclusive:
+			// Never mix shared and exclusive owners on one device.
+		}
+	}
+
+	return append(shared.List(), free.List()...)
+}
+
+type resourceOwnership int
+
+const (
+	resourceFree resourceOwnership = iota
+	resourceShared
+	resourceExclusive
+)
+
+// classifyResourceOwnership treats a device as shared only when every owner opted in.
+// Any exclusive or unknown owner makes the whole device exclusive.
+func classifyResourceOwnership(
+	allocationState *state.AllocationState,
+	annotationKey string,
+) resourceOwnership {
+	if allocationState == nil {
+		return resourceFree
+	}
+
+	hasOwner := false
+	for _, containerEntries := range allocationState.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			hasOwner = true
+			if allocationInfo == nil ||
+				!util.IsSharedDeviceAllocationRequested(allocationInfo.Annotations, annotationKey) {
+				return resourceExclusive
+			}
+		}
+	}
+	if !hasOwner {
+		return resourceFree
+	}
+	return resourceShared
+}
+
+func failedAllocationResult(err error) (*allocate.AllocationResult, error) {
+	return &allocate.AllocationResult{
+		Success:      false,
+		ErrorMessage: err.Error(),
+	}, err
+}
+
+// partialAllocationResult reports insufficient capacity and returns the devices
+// selected by either the exclusive or hybrid allocation model. A metric is also emitted.
+func partialAllocationResult(
+	ctx *allocate.AllocationContext,
+	allocatedDevices []string,
+	devicesToAllocate int,
+	accompanyResourceName string,
+) (*allocate.AllocationResult, error) {
 	general.Warningf("not enough devices to allocate: need %d, have %d, pod: %s/%s, container: %s, resourceName: %s, accompanyResource: %s",
-		devicesToAllocate, len(selected),
+		devicesToAllocate, len(allocatedDevices),
 		ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName,
 		ctx.ResourceName, accompanyResourceName)
 	emitAccompanyResourceAllocationMetric(ctx, metricNameNotEnoughAllocatedDevicesAccompanyBind, accompanyResourceName)
 
 	return &allocate.AllocationResult{
 		Success:          true,
-		AllocatedDevices: selected.UnsortedList(),
+		AllocatedDevices: allocatedDevices,
 	}, nil
 }
 

@@ -670,7 +670,7 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 	ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	general.InfofV(4, "called")
-	if request == nil || len(request.Devices) == 0 {
+	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
 

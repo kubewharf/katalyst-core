@@ -151,6 +151,7 @@ func TestAllocationResourcesMap_CalculateTargetDevicesToAllocate(t *testing.T) {
 		name                          string
 		ratio                         float64
 		accompanyAllocatedDeviceCount int
+		roundUp                       bool
 		want                          int
 		wantErr                       bool
 	}{
@@ -189,6 +190,41 @@ func TestAllocationResourcesMap_CalculateTargetDevicesToAllocate(t *testing.T) {
 			want:                          0,
 			wantErr:                       true,
 		},
+		{
+			name:                          "round up fractional result",
+			ratio:                         4,
+			accompanyAllocatedDeviceCount: 5,
+			roundUp:                       true,
+			want:                          2,
+		},
+		{
+			name:                          "round up partial allocation",
+			ratio:                         4,
+			accompanyAllocatedDeviceCount: 2,
+			roundUp:                       true,
+			want:                          1,
+		},
+		{
+			name:                          "round up zero devices",
+			ratio:                         4,
+			accompanyAllocatedDeviceCount: 0,
+			roundUp:                       true,
+			want:                          0,
+		},
+		{
+			name:                          "round up with zero ratio falls back to 1",
+			ratio:                         0,
+			accompanyAllocatedDeviceCount: 1,
+			roundUp:                       true,
+			want:                          1,
+		},
+		{
+			name:                          "round up with negative ratio falls back to 1",
+			ratio:                         -1,
+			accompanyAllocatedDeviceCount: 1,
+			roundUp:                       true,
+			want:                          1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -196,7 +232,11 @@ func TestAllocationResourcesMap_CalculateTargetDevicesToAllocate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			arm := AllocationResourcesMap{}
-			got, err := arm.CalculateTargetDevicesToAllocate(tt.ratio, tt.accompanyAllocatedDeviceCount)
+			got, err := arm.CalculateTargetDevicesToAllocate(
+				tt.ratio,
+				tt.accompanyAllocatedDeviceCount,
+				tt.roundUp,
+			)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CalculateTargetDevicesToAllocate() error = %v, wantErr %v", err, tt.wantErr)

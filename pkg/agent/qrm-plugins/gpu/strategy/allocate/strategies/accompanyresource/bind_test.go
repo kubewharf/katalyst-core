@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
@@ -39,6 +40,512 @@ func preallocState(podUID, container string) *state.AllocationState {
 			container: &state.AllocationInfo{},
 		},
 	}}
+}
+
+func resourceStateWithOwners(annotationKey string, annotationValues ...string) *state.AllocationState {
+	podEntries := make(state.PodEntries, len(annotationValues))
+	for i, value := range annotationValues {
+		podEntries[fmt.Sprintf("pod-%d", i)] = state.ContainerEntries{
+			"container": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					Annotations: map[string]string{annotationKey: value},
+				},
+			},
+		}
+	}
+	return &state.AllocationState{PodEntries: podEntries}
+}
+
+func TestGetSharedResourceAllocationCandidates(t *testing.T) {
+	t.Parallel()
+
+	const annotationKey = "example.com/shared"
+	resourceState := state.AllocationMap{
+		"r0": resourceStateWithOwners(annotationKey, "true"),
+		"r1": nil,
+		"r2": resourceStateWithOwners(annotationKey, "false"),
+		"r3": resourceStateWithOwners(annotationKey, "true", "false"),
+	}
+	eligible := sets.NewString("r3", "r2", "r1", "r0")
+	available := sets.NewString("r1", "r2", "r3")
+
+	assert.Equal(t, []string{"r0", "r1"}, getSharedResourceAllocationCandidates(
+		eligible,
+		resourceState,
+		available,
+		sets.NewString(),
+		annotationKey,
+	))
+	assert.Equal(t, []string{"r1"}, getSharedResourceAllocationCandidates(
+		eligible,
+		resourceState,
+		available,
+		sets.NewString("r0"),
+		annotationKey,
+	))
+}
+
+func TestClassifyResourceOwnership(t *testing.T) {
+	t.Parallel()
+
+	const annotationKey = "example.com/shared"
+	assert.Equal(t, resourceFree, classifyResourceOwnership(nil, annotationKey))
+	assert.Equal(t, resourceFree, classifyResourceOwnership(&state.AllocationState{}, annotationKey))
+	assert.Equal(t, resourceShared, classifyResourceOwnership(
+		resourceStateWithOwners(annotationKey, "true", " TRUE "),
+		annotationKey,
+	))
+	assert.Equal(t, resourceExclusive, classifyResourceOwnership(
+		resourceStateWithOwners(annotationKey, "true", "false"),
+		annotationKey,
+	))
+	assert.Equal(t, resourceExclusive, classifyResourceOwnership(
+		resourceStateWithOwners("other", "true"),
+		annotationKey,
+	))
+}
+
+func TestResolveAffinityDeviceIDsForAccompanyResources(t *testing.T) {
+	t.Parallel()
+
+	affinity := map[string]map[string]machine.DeviceIDs{
+		"g0": {"fine": {"r1", "r0"}},
+		"g1": {"fine": {"r0"}},
+	}
+
+	affinityDeviceIDs, err := resolveAffinityDeviceIDsForAccompanyResources(
+		[]string{"g0", "g1"},
+		affinity,
+		[]string{"fine"},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, sets.NewString("r0"), affinityDeviceIDs)
+
+	_, err = resolveAffinityDeviceIDsForAccompanyResources(
+		[]string{"g0", "g2"},
+		affinity,
+		[]string{"fine"},
+	)
+	assert.Error(t, err)
+}
+
+func TestBindHybridReusesSharedDeviceWhenNoDeviceIsAvailable(t *testing.T) {
+	t.Parallel()
+
+	const annotationKey = "example.com/shared"
+	ctx := &allocate.AllocationContext{
+		AccompanyResourceName: "gpu",
+		ResourceName:          "rdma",
+		ResourceReq: &v1alpha1.ResourceRequest{
+			PodUid:        "pod",
+			ContainerName: "container",
+			Annotations:   map[string]string{annotationKey: "true"},
+		},
+		DeviceReq: &v1alpha1.DeviceRequest{
+			DeviceRequest: 1,
+		},
+		DeviceTopologyRegistry: buildNumaAffinityRegistry(
+			map[string][]int{"r0": {0}},
+			map[string][]int{"g0": {0}},
+		),
+		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+			GPUDeviceNames:                          []string{"gpu"},
+			RDMADeviceNames:                         []string{"rdma"},
+			EnableHybridAccompanyResourceAllocation: true,
+			AccompanyResourceSharedAnnotationKey:    annotationKey,
+		},
+		Emitter: metrics.DummyMetrics{},
+		MachineState: state.AllocationResourcesMap{
+			gpuconsts.GPUDeviceType: {
+				"g0": preallocState("pod", "container"),
+			},
+			gpuconsts.RDMADeviceType: {
+				"r0": resourceStateWithOwners(annotationKey, "true"),
+			},
+		},
+		DeviceNameToTypeMap: map[string]string{
+			"gpu":  gpuconsts.GPUDeviceType,
+			"rdma": gpuconsts.RDMADeviceType,
+		},
+	}
+
+	result, err := NewAccompanyResourceStrategy().Bind(ctx, nil)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"r0"}, result.AllocatedDevices)
+}
+
+func TestBindHybridExclusiveChecksAvailableDeviceCount(t *testing.T) {
+	t.Parallel()
+
+	ctx := &allocate.AllocationContext{
+		AccompanyResourceName: "gpu",
+		ResourceName:          "rdma",
+		ResourceReq: &v1alpha1.ResourceRequest{
+			PodUid:        "pod",
+			ContainerName: "container",
+		},
+		DeviceReq: &v1alpha1.DeviceRequest{
+			DeviceRequest:    2,
+			AvailableDevices: []string{"r0"},
+		},
+		DeviceTopologyRegistry: buildNumaAffinityRegistry(
+			map[string][]int{"r0": {0}, "r1": {0}},
+			map[string][]int{"g0": {0}, "g1": {0}},
+		),
+		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+			GPUDeviceNames:                          []string{"gpu"},
+			RDMADeviceNames:                         []string{"rdma"},
+			EnableHybridAccompanyResourceAllocation: true,
+			AccompanyResourceSharedAnnotationKey:    "example.com/shared",
+		},
+		Emitter: metrics.DummyMetrics{},
+		MachineState: state.AllocationResourcesMap{
+			gpuconsts.GPUDeviceType: {
+				"g0": preallocState("pod", "container"),
+				"g1": preallocState("pod", "container"),
+			},
+			gpuconsts.RDMADeviceType: {
+				"r0": nil,
+				"r1": nil,
+			},
+		},
+		DeviceNameToTypeMap: map[string]string{
+			"gpu":  gpuconsts.GPUDeviceType,
+			"rdma": gpuconsts.RDMADeviceType,
+		},
+	}
+
+	result, err := NewAccompanyResourceStrategy().Bind(ctx, []string{"r0"})
+
+	assert.ErrorContains(t, err, "not enough devices: need 2, have 1")
+	assert.False(t, result.Success)
+}
+
+func TestBindExclusiveUsesCanonicalAffinityDeviceOnlyInHybridMode(t *testing.T) {
+	t.Parallel()
+
+	const annotationKey = "example.com/shared"
+	testCases := []struct {
+		name         string
+		enableHybrid bool
+		expected     []string
+	}{
+		{
+			name:         "hybrid allocation does not use a sibling affinity device",
+			enableHybrid: true,
+			expected:     []string{},
+		},
+		{
+			name:         "feature disabled preserves existing affinity allocation",
+			enableHybrid: false,
+			expected:     []string{"r1"},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := &allocate.AllocationContext{
+				AccompanyResourceName: "gpu",
+				ResourceName:          "rdma",
+				ResourceReq: &v1alpha1.ResourceRequest{
+					PodUid:        "pod",
+					ContainerName: "container",
+				},
+				DeviceReq: &v1alpha1.DeviceRequest{
+					DeviceRequest:    1,
+					AvailableDevices: []string{"r1"},
+				},
+				DeviceTopologyRegistry: buildSingleDimensionAffinityRegistry(
+					"pcie",
+					[]string{"r0", "r1"},
+					[]string{"g0", "g1"},
+				),
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+					GPUDeviceNames:                          []string{"gpu"},
+					RDMADeviceNames:                         []string{"rdma"},
+					EnableHybridAccompanyResourceAllocation: tc.enableHybrid,
+					AccompanyResourceSharedAnnotationKey:    annotationKey,
+				},
+				Emitter: metrics.DummyMetrics{},
+				MachineState: state.AllocationResourcesMap{
+					gpuconsts.GPUDeviceType: {
+						"g0": preallocState("pod", "container"),
+						"g1": nil,
+					},
+					gpuconsts.RDMADeviceType: {
+						"r0": preallocState("other-pod", "container"),
+						"r1": nil,
+					},
+				},
+				DeviceNameToTypeMap: map[string]string{
+					"gpu":  gpuconsts.GPUDeviceType,
+					"rdma": gpuconsts.RDMADeviceType,
+				},
+			}
+
+			result, err := NewAccompanyResourceStrategy().Bind(ctx, []string{"r1"})
+
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, result.AllocatedDevices)
+		})
+	}
+}
+
+func TestBindHybridExclusiveRoundsUpFractionalDemand(t *testing.T) {
+	t.Parallel()
+
+	ctx := &allocate.AllocationContext{
+		AccompanyResourceName: "gpu",
+		ResourceName:          "rdma",
+		ResourceReq: &v1alpha1.ResourceRequest{
+			PodUid:        "pod",
+			ContainerName: "container",
+		},
+		DeviceReq: &v1alpha1.DeviceRequest{
+			DeviceRequest:    1,
+			AvailableDevices: []string{"r0"},
+		},
+		DeviceTopologyRegistry: buildNumaAffinityRegistry(
+			map[string][]int{"r0": {0}},
+			map[string][]int{"g0": {0}, "g1": {0}, "g2": {0}, "g3": {0}},
+		),
+		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+			GPUDeviceNames:                          []string{"gpu"},
+			RDMADeviceNames:                         []string{"rdma"},
+			EnableHybridAccompanyResourceAllocation: true,
+			AccompanyResourceSharedAnnotationKey:    "example.com/shared",
+		},
+		Emitter: metrics.DummyMetrics{},
+		MachineState: state.AllocationResourcesMap{
+			gpuconsts.GPUDeviceType: {
+				"g0": preallocState("pod", "container"),
+				"g1": preallocState("pod", "container"),
+				"g2": nil,
+				"g3": nil,
+			},
+			gpuconsts.RDMADeviceType: {
+				"r0": nil,
+			},
+		},
+		DeviceNameToTypeMap: map[string]string{
+			"gpu":  gpuconsts.GPUDeviceType,
+			"rdma": gpuconsts.RDMADeviceType,
+		},
+	}
+
+	result, err := NewAccompanyResourceStrategy().Bind(ctx, []string{"r0"})
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"r0"}, result.AllocatedDevices)
+}
+
+func TestAllocateSharedAffinityDevicesReturnsPartialAllocation(t *testing.T) {
+	t.Parallel()
+
+	ctx := &allocate.AllocationContext{
+		AccompanyResourceName: "gpu",
+		ResourceName:          "rdma",
+		ResourceReq:           &v1alpha1.ResourceRequest{},
+		DeviceReq: &v1alpha1.DeviceRequest{
+			AvailableDevices: []string{"r0"},
+		},
+		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{},
+		Emitter:            metrics.DummyMetrics{},
+		MachineState: state.AllocationResourcesMap{
+			gpuconsts.RDMADeviceType: {
+				"r0": nil,
+			},
+		},
+	}
+
+	result, err := NewAccompanyResourceStrategy().allocateSharedAffinityDevices(
+		ctx,
+		[]string{"g0", "g1"},
+		map[string]map[string]machine.DeviceIDs{
+			"g0": {"fine": {"r0"}},
+			"g1": {"fine": {"r0"}},
+		},
+		[]string{"fine"},
+		sets.NewString(),
+		2,
+		string(gpuconsts.RDMADeviceType),
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, &allocate.AllocationResult{
+		AllocatedDevices: []string{"r0"},
+		Success:          true,
+	}, result)
+}
+
+func TestBindHybridReturnsSuccessWhenNoAffinityDevicesExist(t *testing.T) {
+	t.Parallel()
+
+	ctx := &allocate.AllocationContext{
+		AccompanyResourceName: "gpu",
+		ResourceName:          "rdma",
+		ResourceReq: &v1alpha1.ResourceRequest{
+			PodUid:        "pod",
+			ContainerName: "container",
+		},
+		DeviceReq:              &v1alpha1.DeviceRequest{},
+		DeviceTopologyRegistry: buildNoAffinityRegistry(),
+		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+			GPUDeviceNames:                          []string{"gpu"},
+			RDMADeviceNames:                         []string{"rdma"},
+			EnableHybridAccompanyResourceAllocation: true,
+		},
+		Emitter: metrics.DummyMetrics{},
+		MachineState: state.AllocationResourcesMap{
+			gpuconsts.GPUDeviceType: {
+				"g0": preallocState("pod", "container"),
+			},
+			gpuconsts.RDMADeviceType: {
+				"r0": nil,
+			},
+		},
+		DeviceNameToTypeMap: map[string]string{
+			"gpu":  gpuconsts.GPUDeviceType,
+			"rdma": gpuconsts.RDMADeviceType,
+		},
+	}
+
+	result, err := NewAccompanyResourceStrategy().Bind(ctx, []string{"r0"})
+
+	assert.NoError(t, err)
+	assert.Equal(t, &allocate.AllocationResult{
+		AllocatedDevices: []string{},
+		Success:          true,
+	}, result)
+}
+
+func TestBindHybridClassicTopologyMatrix(t *testing.T) {
+	t.Parallel()
+
+	const (
+		podUID        = "pod"
+		containerName = "container"
+		annotationKey = "example.com/shared"
+	)
+	topologies := []struct {
+		gpuCount  int
+		rdmaCount int
+	}{
+		{gpuCount: 8, rdmaCount: 2},
+		{gpuCount: 8, rdmaCount: 4},
+		{gpuCount: 8, rdmaCount: 8},
+		{gpuCount: 16, rdmaCount: 4},
+		{gpuCount: 16, rdmaCount: 8},
+	}
+	gpuRequests := []int{1, 2, 4, 8}
+
+	for _, topology := range topologies {
+		topology := topology
+		for _, gpuRequest := range gpuRequests {
+			gpuRequest := gpuRequest
+			for _, shared := range []bool{false, true} {
+				shared := shared
+				t.Run(fmt.Sprintf("%d-gpu-%d-rdma/request-%d/shared-%t",
+					topology.gpuCount, topology.rdmaCount, gpuRequest, shared), func(t *testing.T) {
+					t.Parallel()
+
+					registry, machineState, expectedRDMAs := buildClassicTopologyAllocation(
+						t,
+						topology.gpuCount,
+						topology.rdmaCount,
+						gpuRequest,
+						podUID,
+						containerName,
+					)
+					annotations := map[string]string{}
+					if shared {
+						annotations[annotationKey] = "true"
+					}
+					expectedCount := (gpuRequest*topology.rdmaCount + topology.gpuCount - 1) / topology.gpuCount
+					availableRDMAs := make([]string, topology.rdmaCount)
+					for i := range availableRDMAs {
+						availableRDMAs[i] = fmt.Sprintf("r%d", i)
+					}
+
+					result, err := NewAccompanyResourceStrategy().Bind(&allocate.AllocationContext{
+						AccompanyResourceName: "gpu",
+						ResourceName:          "rdma",
+						ResourceReq: &v1alpha1.ResourceRequest{
+							PodUid:        podUID,
+							ContainerName: containerName,
+							Annotations:   annotations,
+						},
+						DeviceReq: &v1alpha1.DeviceRequest{
+							DeviceRequest:    uint64(expectedCount),
+							AvailableDevices: availableRDMAs,
+						},
+						DeviceTopologyRegistry: registry,
+						GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+							GPUDeviceNames:                          []string{"gpu"},
+							RDMADeviceNames:                         []string{"rdma"},
+							EnableHybridAccompanyResourceAllocation: true,
+							AccompanyResourceSharedAnnotationKey:    annotationKey,
+						},
+						Emitter:      metrics.DummyMetrics{},
+						MachineState: machineState,
+						DeviceNameToTypeMap: map[string]string{
+							"gpu":  gpuconsts.GPUDeviceType,
+							"rdma": gpuconsts.RDMADeviceType,
+						},
+					}, availableRDMAs)
+
+					assert.NoError(t, err)
+					assert.True(t, result.Success)
+					assert.Len(t, result.AllocatedDevices, expectedCount)
+					assert.Equal(t, expectedRDMAs, result.AllocatedDevices)
+				})
+			}
+		}
+	}
+}
+
+func TestBindDisabledReturnsReusableDeviceWithoutTopology(t *testing.T) {
+	t.Parallel()
+
+	ctx := &allocate.AllocationContext{
+		AccompanyResourceName: "gpu",
+		ResourceName:          "rdma",
+		ResourceReq: &v1alpha1.ResourceRequest{
+			PodUid:        "pod",
+			ContainerName: "container",
+		},
+		DeviceReq: &v1alpha1.DeviceRequest{
+			DeviceRequest:   1,
+			ReusableDevices: []string{"r0"},
+		},
+		DeviceTopologyRegistry: machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{}),
+		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+			GPUDeviceNames:  []string{"gpu"},
+			RDMADeviceNames: []string{"rdma"},
+		},
+		Emitter: metrics.DummyMetrics{},
+		MachineState: state.AllocationResourcesMap{
+			gpuconsts.GPUDeviceType: {
+				"g0": preallocState("pod", "container"),
+			},
+			gpuconsts.RDMADeviceType: {
+				"r0": nil,
+			},
+		},
+		DeviceNameToTypeMap: map[string]string{
+			"gpu":  gpuconsts.GPUDeviceType,
+			"rdma": gpuconsts.RDMADeviceType,
+		},
+	}
+
+	result, err := NewAccompanyResourceStrategy().Bind(ctx, []string{"r0"})
+
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"r0"}, result.AllocatedDevices)
 }
 
 func TestBind(t *testing.T) {
@@ -923,4 +1430,125 @@ func buildNumaAffinityRegistry(rdmaToNuma map[string][]int, gpuToNuma map[string
 	_ = reg.SetDeviceTopology("gpu", gpuTopo)
 
 	return reg
+}
+
+func buildSingleDimensionAffinityRegistry(
+	dimension string,
+	rdmaIDs, gpuIDs []string,
+) *machine.DeviceTopologyRegistry {
+	reg := machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
+
+	rdmaTopology := &machine.DeviceTopology{
+		PriorityDimensions: []string{dimension},
+		Devices:            map[string]machine.DeviceInfo{},
+	}
+	for _, id := range rdmaIDs {
+		rdmaTopology.Devices[id] = machine.DeviceInfo{
+			Dimensions: map[string]string{dimension: "group-0"},
+		}
+	}
+	_ = reg.SetDeviceTopology("rdma", rdmaTopology)
+
+	gpuTopology := &machine.DeviceTopology{
+		PriorityDimensions: []string{dimension},
+		Devices:            map[string]machine.DeviceInfo{},
+	}
+	for _, id := range gpuIDs {
+		gpuTopology.Devices[id] = machine.DeviceInfo{
+			Dimensions: map[string]string{dimension: "group-0"},
+		}
+	}
+	_ = reg.SetDeviceTopology("gpu", gpuTopology)
+
+	return reg
+}
+
+func buildClassicTopologyAllocation(
+	t *testing.T,
+	gpuCount, rdmaCount, gpuRequest int,
+	podUID, containerName string,
+) (*machine.DeviceTopologyRegistry, state.AllocationResourcesMap, []string) {
+	t.Helper()
+
+	assert.Zero(t, gpuCount%2)
+	assert.Zero(t, rdmaCount%2)
+	assert.Zero(t, gpuCount%rdmaCount)
+	assert.LessOrEqual(t, gpuRequest, gpuCount)
+
+	priorityDimensions := []string{"pcie", machine.DimensionNuma}
+	gpuTopology := &machine.DeviceTopology{
+		PriorityDimensions: append([]string(nil), priorityDimensions...),
+		Devices:            make(map[string]machine.DeviceInfo, gpuCount),
+	}
+	rdmaTopology := &machine.DeviceTopology{
+		PriorityDimensions: append([]string(nil), priorityDimensions...),
+		Devices:            make(map[string]machine.DeviceInfo, rdmaCount),
+	}
+	machineState := state.AllocationResourcesMap{
+		gpuconsts.GPUDeviceType:  make(state.AllocationMap, gpuCount),
+		gpuconsts.RDMADeviceType: make(state.AllocationMap, rdmaCount),
+	}
+	gpusPerRDMA := gpuCount / rdmaCount
+	gpusByPCIe := make(map[string]int, rdmaCount)
+	gpusByNUMA := make(map[int]int, 2)
+	rdmasByNUMA := make(map[int]int, 2)
+
+	for i := 0; i < gpuCount; i++ {
+		id := fmt.Sprintf("g%d", i)
+		numa := i / (gpuCount / 2)
+		pcie := fmt.Sprintf("pcie-%d", i/gpusPerRDMA)
+		gpuTopology.Devices[id] = machine.DeviceInfo{
+			NumaNodes: []int{numa},
+			Dimensions: map[string]string{
+				"pcie":                pcie,
+				machine.DimensionNuma: fmt.Sprintf("numa-%d", numa),
+			},
+		}
+		gpusByPCIe[pcie]++
+		gpusByNUMA[numa]++
+		if i < gpuRequest {
+			machineState[gpuconsts.GPUDeviceType][id] = preallocState(podUID, containerName)
+		} else {
+			machineState[gpuconsts.GPUDeviceType][id] = nil
+		}
+	}
+
+	for i := 0; i < rdmaCount; i++ {
+		id := fmt.Sprintf("r%d", i)
+		numa := i / (rdmaCount / 2)
+		rdmaTopology.Devices[id] = machine.DeviceInfo{
+			NumaNodes: []int{numa},
+			Dimensions: map[string]string{
+				"pcie":                fmt.Sprintf("pcie-%d", i),
+				machine.DimensionNuma: fmt.Sprintf("numa-%d", numa),
+			},
+		}
+		rdmasByNUMA[numa]++
+		machineState[gpuconsts.RDMADeviceType][id] = nil
+	}
+
+	assert.Len(t, gpuTopology.Devices, gpuCount)
+	assert.Len(t, rdmaTopology.Devices, rdmaCount)
+	assert.Equal(t, priorityDimensions, gpuTopology.PriorityDimensions)
+	assert.Equal(t, priorityDimensions, rdmaTopology.PriorityDimensions)
+	assert.Equal(t, map[int]int{0: gpuCount / 2, 1: gpuCount / 2}, gpusByNUMA)
+	assert.Equal(t, map[int]int{0: rdmaCount / 2, 1: rdmaCount / 2}, rdmasByNUMA)
+	assert.Len(t, gpusByPCIe, rdmaCount)
+	for _, count := range gpusByPCIe {
+		assert.Equal(t, gpusPerRDMA, count)
+	}
+
+	registry := machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+	registry.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
+	registry.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	assert.NoError(t, registry.SetDeviceTopology("gpu", gpuTopology))
+	assert.NoError(t, registry.SetDeviceTopology("rdma", rdmaTopology))
+
+	expectedRDMAs := sets.NewString()
+	for i := 0; i < gpuRequest; i++ {
+		expectedRDMAs.Insert(fmt.Sprintf("r%d", i/gpusPerRDMA))
+	}
+	return registry, machineState, expectedRDMAs.List()
 }
