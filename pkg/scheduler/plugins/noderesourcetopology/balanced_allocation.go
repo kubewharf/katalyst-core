@@ -21,7 +21,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kube-scheduler/framework"
 )
 
 func balancedAllocationScoreStrategy(requested, allocatable v1.ResourceList, resourceToWeightMap resourceToWeightMap, alignedResource sets.String) int64 {

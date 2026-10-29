@@ -28,6 +28,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/pointer"
 
 	apiautoscaling "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha2"
@@ -126,6 +128,15 @@ func TestResourcePortraitIndicatorPlugin(t *testing.T) {
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{}, []runtime.Object{}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
+			controlCtx.Client.DiscoveryClient = &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{
+				Resources: []*metav1.APIResourceList{{
+					GroupVersion: "autoscaling/v2beta2",
+					APIResources: []metav1.APIResource{{
+						Name:  "horizontalpodautoscalers",
+						Verbs: metav1.Verbs{"get", "create", "patch"},
+					}},
+				}},
+			}}
 
 			ctrl, err := NewIHPAController(context.Background(), controlCtx, nil, nil, tt.fields.ihpaConfig, nil, nil)
 			if tt.wantNil {

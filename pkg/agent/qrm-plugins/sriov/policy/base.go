@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -84,7 +85,8 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	state.SetReadonlyState(stateImpl)
 
-	runtimeClient, err := criclient.NewRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
+	runtimeClient, err := criclient.NewRuntimeService(
+		conf.RuntimeEndpoint, 2*time.Minute, compatibility.NewVersionStore(conf.CompatibilityCheckpointDirectory))
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime service failed: %w", err)
 	}

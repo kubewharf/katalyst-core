@@ -36,7 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-var _ schedulerframework.SharedLister = &testSharedLister{}
+var _ framework.SharedLister = &testSharedLister{}
 
 type testSharedLister struct {
 	nodes       []*v1.Node
@@ -44,11 +44,11 @@ type testSharedLister struct {
 	nodeInfoMap map[string]framework.NodeInfo
 }
 
-func (f *testSharedLister) NodeInfos() schedulerframework.NodeInfoLister {
+func (f *testSharedLister) NodeInfos() framework.NodeInfoLister {
 	return f
 }
 
-func (f *testSharedLister) StorageInfos() schedulerframework.StorageInfoLister {
+func (f *testSharedLister) StorageInfos() framework.StorageInfoLister {
 	return f
 }
 
