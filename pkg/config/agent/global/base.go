@@ -32,6 +32,9 @@ type BaseConfiguration struct {
 	// if LockWaitingEnabled set as true, will not panic and report agent as healthy instead
 	LockWaitingEnabled bool
 
+	// CompatibilityCheckpointDirectory is used to persist API and CRI compatibility selections.
+	CompatibilityCheckpointDirectory string
+
 	// ReclaimRelativeRootCgroupPath is configurable since we may need to
 	// specify a customized path for reclaimed-cores to enrich qos-management ways
 	ReclaimRelativeRootCgroupPath string
