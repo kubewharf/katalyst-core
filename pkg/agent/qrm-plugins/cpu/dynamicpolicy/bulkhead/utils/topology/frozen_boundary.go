@@ -237,8 +237,9 @@ func cloneFrozenBoundary(in FrozenBoundary) FrozenBoundary {
 }
 
 type frozenDynamicSemanticRelIndex struct {
-	exact     map[string]struct{}
-	ancestors map[string]struct{}
+	exact       map[string]struct{}
+	ancestors   map[string]struct{}
+	pendingPath map[string]struct{}
 }
 
 func indexFrozenDynamicSemanticRels(
@@ -247,21 +248,25 @@ func indexFrozenDynamicSemanticRels(
 	controlled map[string]struct{},
 ) frozenDynamicSemanticRelIndex {
 	index := frozenDynamicSemanticRelIndex{
-		exact:     make(map[string]struct{}),
-		ancestors: make(map[string]struct{}),
+		exact:       make(map[string]struct{}),
+		ancestors:   make(map[string]struct{}),
+		pendingPath: make(map[string]struct{}),
+	}
+	addPath := func(path map[string]struct{}, rel string) {
+		for current := rel; current != "."; current = filepath.Dir(current) {
+			path[current] = struct{}{}
+			parent := filepath.Dir(current)
+			if parent == current {
+				break
+			}
+		}
 	}
 	add := func(rel string) {
 		if _, isControlled := controlled[rel]; isControlled {
 			return
 		}
 		index.exact[rel] = struct{}{}
-		for current := rel; current != "."; current = filepath.Dir(current) {
-			index.ancestors[current] = struct{}{}
-			parent := filepath.Dir(current)
-			if parent == current {
-				break
-			}
-		}
+		addPath(index.ancestors, rel)
 	}
 	for _, rels := range []map[string]machine.CPUSet{
 		input.TargetByRel,
@@ -269,11 +274,17 @@ func indexFrozenDynamicSemanticRels(
 		input.ExpectedByRel,
 		input.RequiredByRel,
 		input.DeferredByRel,
-		input.PendingRequiredByRel,
 	} {
 		for rel := range rels {
 			add(rel)
 		}
+	}
+	for rel := range input.PendingRequiredByRel {
+		// A pending scope is the physical fallback that protects allocations
+		// whose leaf is not materialized. Pin the scope and its ancestry, but
+		// keep observed dynamic descendants eligible for identity-scoped
+		// retirement: their disappearance cannot remove CPUs from the scope.
+		addPath(index.pendingPath, rel)
 	}
 	for rel := range input.DeferredCleanupRels {
 		add(rel)
@@ -288,6 +299,9 @@ func indexFrozenDynamicSemanticRels(
 
 func (i frozenDynamicSemanticRelIndex) references(holderRel string) bool {
 	if _, semanticDescendant := i.ancestors[holderRel]; semanticDescendant {
+		return true
+	}
+	if _, pendingScopeOrAncestor := i.pendingPath[holderRel]; pendingScopeOrAncestor {
 		return true
 	}
 	for current := holderRel; current != "."; current = filepath.Dir(current) {
@@ -713,6 +727,16 @@ func evaluateFrozenBoundarySnapshot(
 				rel, gotMems.String(), wantMems.String(),
 				fmt.Errorf("shrink direct child mems union changed"))
 		}
+		for _, child := range gotChildren {
+			childRel := filepath.Join(rel, child.Name)
+			got, gotOK := current.Entries[childRel]
+			want, wantOK := expected.Entries[childRel]
+			if !gotOK || !wantOK || !entryPhysicalStateEqual(got, want) {
+				return frozenBoundaryStale(
+					childRel, frozenEntryStateString(got), frozenEntryStateString(want),
+					fmt.Errorf("shrink direct child state changed"))
+			}
+		}
 	}
 
 	expectedHolders := make(map[string]struct{}, len(boundary.RelevantCPUHolders))
@@ -766,10 +790,15 @@ func evaluateFrozenBoundarySnapshot(
 				rel, "exists=false", "exists=true",
 				fmt.Errorf("relevant CPU holder set changed: required holder disappeared"))
 		}
-		if !entryPhysicalStateEqual(got, want) {
+		if !entryCPUHolderStateEqual(got, want) {
 			return frozenBoundaryStale(
 				rel, frozenEntryStateString(got), frozenEntryStateString(want),
 				fmt.Errorf("relevant CPU holder state changed"))
+		}
+		if !validCPUHolderMemsState(got) || !validCPUHolderMemsState(want) {
+			return fmt.Errorf(
+				"relevant CPU holder %q has invalid mems state: current=%s expected=%s",
+				rel, frozenEntryStateString(got), frozenEntryStateString(want))
 		}
 		if err := validateFrozenHolderPath(
 			current, childIdentities, controlled, rel, boundary.RelevantHolderPaths[rel],
@@ -923,11 +952,25 @@ func frozenDirectChildUnion(
 }
 
 func entryPhysicalStateEqual(left, right EntryState) bool {
-	return left.Identity == right.Identity &&
-		left.ConfiguredCPUs.Equals(right.ConfiguredCPUs) &&
-		left.CPUs.Equals(right.CPUs) &&
+	return entryCPUHolderStateEqual(left, right) &&
 		cpusetListValuesEqual(left.ConfiguredMems, right.ConfiguredMems) &&
 		cpusetListValuesEqual(left.Mems, right.Mems)
+}
+
+// entryCPUHolderStateEqual compares only CPU ownership. Memory policy may
+// update a dynamic holder's mems independently while its CPU ownership stays fixed.
+func entryCPUHolderStateEqual(left, right EntryState) bool {
+	return left.Identity == right.Identity &&
+		left.ConfiguredCPUs.Equals(right.ConfiguredCPUs) &&
+		left.CPUs.Equals(right.CPUs)
+}
+
+func validCPUHolderMemsState(entry EntryState) bool {
+	if _, err := machine.Parse(entry.Mems); err != nil {
+		return false
+	}
+	_, err := machine.Parse(entry.ConfiguredMems)
+	return err == nil
 }
 
 func frozenEntryStateString(entry EntryState) string {
