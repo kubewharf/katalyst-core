@@ -180,6 +180,21 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		)
 	}
 
+	// Hybrid exclusive requests use the same canonical affinity-device mapping as
+	// shared requests and topology reporting, but only allocate available devices.
+	if enableHybridAccompanyResourceAllocation {
+		return s.allocateHybridExclusiveAffinityDevices(
+			ctx,
+			accompanyAllocatedDeviceIDs,
+			affinityDevices,
+			priorityDimensions,
+			sortedDevices,
+			allocatedDevices,
+			devicesToAllocate,
+			accompanyResourceName,
+		)
+	}
+
 	// Exclusive requests allocate only from kubelet's available devices.
 	return s.allocateExclusiveAffinityDevices(
 		ctx,
@@ -190,6 +205,49 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		allocatedDevices,
 		devicesToAllocate,
 		accompanyResourceToDeviceRatio,
+		accompanyResourceName,
+	)
+}
+
+// allocateHybridExclusiveAffinityDevices allocates only the affinity
+// device resolved for each accompany device when that device is available.
+// There should only be one affinity device for each accompany resource.
+func (s *AccompanyResourceStrategy) allocateHybridExclusiveAffinityDevices(
+	ctx *allocate.AllocationContext,
+	allocatedAccompanyResourceIDs []string,
+	affinityByAccompanyResource map[string]map[string]machine.DeviceIDs,
+	priorityDimensions []string,
+	sortedDevices []string,
+	selected sets.String,
+	devicesToAllocate int,
+	accompanyResourceName string,
+) (*allocate.AllocationResult, error) {
+	affinityDeviceIDs, err := resolveAffinityDeviceIDsForAccompanyResources(
+		allocatedAccompanyResourceIDs,
+		affinityByAccompanyResource,
+		priorityDimensions,
+	)
+	if err != nil {
+		return failedAllocationResult(err)
+	}
+
+	available := sets.NewString(sortedDevices...)
+	for _, deviceID := range affinityDeviceIDs.List() {
+		if available.Has(deviceID) {
+			selected.Insert(deviceID)
+		}
+		if selected.Len() >= devicesToAllocate {
+			return &allocate.AllocationResult{
+				AllocatedDevices: selected.List(),
+				Success:          true,
+			}, nil
+		}
+	}
+
+	return partialAllocationResult(
+		ctx,
+		selected.List(),
+		devicesToAllocate,
 		accompanyResourceName,
 	)
 }
