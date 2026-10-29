@@ -29,8 +29,12 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	clientfeatures "k8s.io/client-go/features"
+	clientfeaturestesting "k8s.io/client-go/features/testing"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
@@ -44,9 +48,26 @@ import (
 
 func generateTestKubeClientSet(objects []runtime.Object, internalObjects []runtime.Object) *client.GenericClientSet {
 	return &client.GenericClientSet{
-		KubeClient:     fake.NewSimpleClientset(objects...),
-		InternalClient: internalfake.NewSimpleClientset(internalObjects...),
+		KubeClient:      fake.NewSimpleClientset(objects...),
+		InternalClient:  internalfake.NewSimpleClientset(internalObjects...),
+		DiscoveryClient: evictionDiscoveryClient(),
 	}
+}
+
+func evictionDiscoveryClient() *fakediscovery.FakeDiscovery {
+	return &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{
+		Resources: []*metav1.APIResourceList{{
+			GroupVersion: "v1",
+			APIResources: []metav1.APIResource{{
+				Name:       "pods/eviction",
+				Namespaced: true,
+				Kind:       "Eviction",
+				Verbs:      metav1.Verbs{"create"},
+				Group:      "policy",
+				Version:    "v1",
+			}},
+		}},
+	}}
 }
 
 func generateTestConfiguration(t *testing.T) *pkgconfig.Configuration {
@@ -65,6 +86,8 @@ func generateTestConfiguration(t *testing.T) *pkgconfig.Configuration {
 }
 
 func NewFakeHealthzController(t *testing.T) (*HealthzController, error) {
+	clientfeaturestesting.SetFeatureDuringTest(t, clientfeatures.WatchListClient, false)
+
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 

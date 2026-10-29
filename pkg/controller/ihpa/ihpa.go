@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	v1 "k8s.io/client-go/kubernetes/typed/apps/v1"
-	hpalister "k8s.io/client-go/listers/autoscaling/v2"
 	"k8s.io/client-go/restmapper"
 	scaleclient "k8s.io/client-go/scale"
 	"k8s.io/client-go/tools/cache"
@@ -54,6 +53,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	resourceportrait "github.com/kubewharf/katalyst-core/pkg/controller/spd/indicator-plugin/plugins/resource-portrait"
 	katalystmetrics "github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 )
 
 const (
@@ -94,7 +94,6 @@ type IHPAController struct {
 	ihpaLister            apiautoscalingclient.IntelligentHorizontalPodAutoscalerLister
 	virtualWorkloadLister apiautoscalingclient.VirtualWorkloadLister
 	spdLister             apiWorkloadListers.ServiceProfileDescriptorLister
-	hpaLister             hpalister.HorizontalPodAutoscalerLister
 
 	appsClient     v1.AppsV1Interface
 	workloadLister map[schema.GroupVersionKind]cache.GenericLister
@@ -399,7 +398,8 @@ func (p *IHPAController) syncVirtualWorkload(ihpa *apiautoscaling.IntelligentHor
 }
 
 func (p *IHPAController) syncHPA(ihpa *apiautoscaling.IntelligentHorizontalPodAutoscaler, podTemplate *corev1.PodTemplateSpec) (hpa *v2.HorizontalPodAutoscaler, err error) {
-	hpa, err = p.hpaLister.HorizontalPodAutoscalers(ihpa.Namespace).Get(generateHPAName(ihpa.Name))
+	hpa, err = p.hpaManager.Get(
+		p.ctx, ihpa.Namespace, generateHPAName(ihpa.Name), metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			_, err = p.hpaManager.Create(p.ctx, generateHPA(ihpa, podTemplate), metav1.CreateOptions{})
@@ -424,13 +424,25 @@ func NewIHPAController(ctx context.Context, controlCtx *katalystbase.GenericCont
 	spdInformer := controlCtx.InternalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors()
 	genericClient := controlCtx.Client
 
+	versionResolver := compatibility.NewKubernetesVersionResolver(
+		genericClient.DiscoveryClient,
+		nil,
+		control.HPAVersionConfig(),
+	)
+	hpaManager, err := control.NewHPAManager(
+		genericClient.KubeClient,
+		versionResolver,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	ihpaController := &IHPAController{
 		ctx:                   ctx,
 		conf:                  conf,
-		hpaLister:             controlCtx.KubeInformerFactory.Autoscaling().V2().HorizontalPodAutoscalers().Lister(),
 		ihpaSyncQueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ihpa"),
 		ihpaLister:            ihpaInformer.Lister(),
-		hpaManager:            control.NewHPAManager(genericClient.KubeClient),
+		hpaManager:            hpaManager,
 		vwManager:             control.NewVirtualWorkloadManager(genericClient.InternalClient),
 		ihpaUpdater:           control.NewIHPAUpdater(genericClient.InternalClient),
 		spdUpdater:            control.NewSPDControlImp(controlCtx.Client.InternalClient),

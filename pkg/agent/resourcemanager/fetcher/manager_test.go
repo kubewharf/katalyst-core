@@ -89,6 +89,65 @@ func TestNewManagerImpl(t *testing.T) {
 	os.RemoveAll(socketDir)
 }
 
+func TestDeRegisterPlugin(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name               string
+		registeredEndpoint string
+		deletedEndpoint    string
+		wantStopped        bool
+	}{
+		{
+			name:               "matching endpoint",
+			registeredEndpoint: "/var/lib/kubelet/plugins/reporter.sock",
+			deletedEndpoint:    "/var/lib/kubelet/plugins/reporter.sock",
+			wantStopped:        true,
+		},
+		{
+			name:               "stale endpoint",
+			registeredEndpoint: "/var/lib/kubelet/plugins/reporter-new.sock",
+			deletedEndpoint:    "/var/lib/kubelet/plugins/reporter-old.sock",
+			wantStopped:        false,
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := &fakeEndpoint{socketPath: tc.registeredEndpoint}
+			m := &ReporterPluginManager{
+				endpoints: map[string]plugin.Endpoint{
+					"reporter": e,
+				},
+				emitter: metrics.DummyMetrics{},
+			}
+
+			m.DeRegisterPlugin("reporter", tc.deletedEndpoint)
+
+			require.Equal(t, tc.wantStopped, e.IsStopped())
+		})
+	}
+}
+
+type fakeEndpoint struct {
+	plugin.Endpoint
+	socketPath string
+	stopped    bool
+}
+
+func (e *fakeEndpoint) GetSocketPath() string {
+	return e.socketPath
+}
+
+func (e *fakeEndpoint) Stop() {
+	e.stopped = true
+}
+
+func (e *fakeEndpoint) IsStopped() bool {
+	return e.stopped
+}
+
 // Tests that the device plugin manager correctly handles registration and re-registration by
 // making sure that after registration, devices are correctly updated and if a re-registration
 // happens, we will NOT delete devices; and no orphaned devices left.
@@ -282,7 +341,7 @@ func setupReporterManager(t *testing.T, ctx context.Context, content []*v1alpha1
 
 	pluginManager.AddHandler(m.GetHandlerType(), plugincache.PluginHandler(m))
 
-	go pluginManager.Run(config.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
+	go pluginManager.Run(ctx, config.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
 
 	return m, updateChan
 }

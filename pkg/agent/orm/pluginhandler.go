@@ -95,11 +95,11 @@ func (m *ManagerImpl) RegisterPlugin(pluginName string, endpoint string, version
 }
 
 // DeRegisterPlugin deregisters the plugin
-func (m *ManagerImpl) DeRegisterPlugin(pluginName, _ string) {
+func (m *ManagerImpl) DeRegisterPlugin(pluginName, endpoint string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if eI, ok := m.endpoints[pluginName]; ok {
+	if eI, ok := m.endpoints[pluginName]; ok && eI.E.GetSocketPath() == endpoint {
 		eI.E.Stop()
 	}
 }

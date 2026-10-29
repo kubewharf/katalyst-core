@@ -84,6 +84,10 @@ type ReporterPluginManager struct {
 
 var innerReporterPluginsDisabledByDefault = sets.NewString()
 
+type endpointWithSocketPath interface {
+	GetSocketPath() string
+}
+
 // NewReporterPluginManager creates a new reporter plugin manager.
 func NewReporterPluginManager(reporterMgr reporter.Manager, emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer, conf *config.Configuration,
@@ -212,18 +216,26 @@ func (m *ReporterPluginManager) RegisterPlugin(pluginName, endpoint string, _ []
 }
 
 // DeRegisterPlugin is to handler plugin de-register event
-func (m *ReporterPluginManager) DeRegisterPlugin(pluginName, _ string) {
+func (m *ReporterPluginManager) DeRegisterPlugin(pluginName, endpoint string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if e, ok := m.endpoints[pluginName]; ok {
-		e.Stop()
-		klog.Errorf("[reporter manager] reporter plugin %s has been deregistered", pluginName)
-		_ = m.emitter.StoreInt64("reporter_plugin_deregister", 1, metrics.MetricTypeNameCount,
-			metrics.ConvertMapToTags(map[string]string{
-				"plugin": pluginName,
-			})...)
+	e, ok := m.endpoints[pluginName]
+	if !ok {
+		return
 	}
+
+	remoteEndpoint, ok := e.(endpointWithSocketPath)
+	if !ok || remoteEndpoint.GetSocketPath() != endpoint {
+		return
+	}
+
+	e.Stop()
+	klog.Errorf("[reporter manager] reporter plugin %s has been deregistered", pluginName)
+	_ = m.emitter.StoreInt64("reporter_plugin_deregister", 1, metrics.MetricTypeNameCount,
+		metrics.ConvertMapToTags(map[string]string{
+			"plugin": pluginName,
+		})...)
 }
 
 // Run start the reporter plugin manager
