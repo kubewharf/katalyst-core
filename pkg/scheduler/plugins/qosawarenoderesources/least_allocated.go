@@ -17,7 +17,7 @@ limitations under the License.
 package qosawarenoderesources
 
 import (
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kube-scheduler/framework"
 )
 
 // leastResourceScorer favors nodes with fewer requested resources.

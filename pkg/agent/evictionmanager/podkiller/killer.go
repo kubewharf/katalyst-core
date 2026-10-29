@@ -25,7 +25,6 @@ import (
 
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -34,6 +33,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/container"
 
+	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -69,15 +69,21 @@ var _ Killer = DummyKiller{}
 type EvictionAPIKiller struct {
 	emitter  metrics.MetricEmitter
 	client   kubernetes.Interface
+	ejector  control.PodEjector
 	recorder events.EventRecorder
 	conf     *config.Configuration
 }
 
 // NewEvictionAPIKiller returns a new updater Object.
 func NewEvictionAPIKiller(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
+	ejector, err := control.NewRealPodEjector(client, client.Discovery())
+	if err != nil {
+		return nil, err
+	}
 	return &EvictionAPIKiller{
 		emitter:  emitter,
 		client:   client,
+		ejector:  ejector,
 		recorder: recorder,
 		conf:     conf,
 	}, nil
@@ -106,28 +112,19 @@ func (e *EvictionAPIKiller) buildEvictionExplicitTriggerAnnotations() map[string
 }
 
 func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
-	const (
-		policyGroupVersion = "policy/v1beta1"
-		evictionKind       = "Eviction"
-	)
-
 	evictPod := func(pod *v1.Pod, gracePeriodOverride int64) error {
 		klog.Infof("[eviction-killer] send request for pod %v/%v", pod.Namespace, pod.Name)
 
-		deleteOptions := &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriodOverride}
-		eviction := &policy.Eviction{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: policyGroupVersion,
-				Kind:       evictionKind,
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        pod.Name,
-				Namespace:   pod.Namespace,
-				Annotations: e.buildEvictionExplicitTriggerAnnotations(),
-			},
-			DeleteOptions: deleteOptions,
+		deleteOptions := metav1.DeleteOptions{
+			GracePeriodSeconds: &gracePeriodOverride,
 		}
-		return e.client.PolicyV1beta1().Evictions(eviction.Namespace).Evict(context.Background(), eviction)
+		return e.ejector.EvictPod(
+			context.Background(),
+			pod.Namespace,
+			pod.Name,
+			deleteOptions,
+			e.buildEvictionExplicitTriggerAnnotations(),
+		)
 	}
 
 	return evict(e.client, e.recorder, e.emitter, pod, gracePeriodSeconds, reason, plugin, evictPod)

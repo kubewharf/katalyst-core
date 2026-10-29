@@ -113,7 +113,11 @@ func NewHealthzController(ctx context.Context,
 	)
 	if !genericConf.DryRun && !conf.DryRun {
 		cnrControl = control.NewCNRControlImpl(client.InternalClient)
-		podControl = control.NewRealPodEjector(client.KubeClient)
+		var err error
+		podControl, err = control.NewRealPodEjector(client.KubeClient, client.DiscoveryClient)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ec.nodeListerSynced = nodeInformer.Informer().HasSynced

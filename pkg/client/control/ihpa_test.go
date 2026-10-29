@@ -25,9 +25,14 @@ import (
 	externalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	autoscalingv2beta2 "k8s.io/api/autoscaling/v2beta2"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestCreateHPA(t *testing.T) {
@@ -62,7 +67,8 @@ func TestCreateHPA(t *testing.T) {
 			t.Parallel()
 
 			internalClient := fake.NewSimpleClientset()
-			manager := NewHPAManager(internalClient)
+			manager, err := NewHPAManager(internalClient, newHPADiscovery("autoscaling/v2"))
+			require.NoError(t, err)
 
 			if tc.new == nil {
 				hpa, err := manager.Create(context.TODO(), tc.new, metav1.CreateOptions{})
@@ -130,8 +136,9 @@ func TestPatchHPA(t *testing.T) {
 			t.Parallel()
 
 			internalClient := fake.NewSimpleClientset(tc.old)
-			updater := NewHPAManager(internalClient)
-			_, err := updater.Patch(context.TODO(), tc.old, tc.new, metav1.PatchOptions{})
+			updater, err := NewHPAManager(internalClient, newHPADiscovery("autoscaling/v2"))
+			require.NoError(t, err)
+			_, err = updater.Patch(context.TODO(), tc.old, tc.new, metav1.PatchOptions{})
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -143,6 +150,158 @@ func TestPatchHPA(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewHPAManagerPrefersV2(t *testing.T) {
+	t.Parallel()
+
+	client := fake.NewSimpleClientset()
+	manager, err := NewHPAManager(client, newHPADiscovery("autoscaling/v2", "autoscaling/v2beta2"))
+	require.NoError(t, err)
+
+	expected := testHPA()
+	actual, err := manager.Create(context.Background(), expected, metav1.CreateOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, expected, actual)
+
+	_, err = client.AutoscalingV2().HorizontalPodAutoscalers(expected.Namespace).
+		Get(context.Background(), expected.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	_, err = client.AutoscalingV2beta2().HorizontalPodAutoscalers(expected.Namespace).
+		Get(context.Background(), expected.Name, metav1.GetOptions{})
+	assert.Error(t, err)
+}
+
+func TestNewHPAManagerFallsBackToV2beta2(t *testing.T) {
+	t.Parallel()
+
+	client := fake.NewSimpleClientset()
+	manager, err := NewHPAManager(client, newHPADiscovery("autoscaling/v2beta2"))
+	require.NoError(t, err)
+
+	expected := testHPA()
+	actual, err := manager.Create(context.Background(), expected, metav1.CreateOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, expected, actual)
+
+	stored, err := client.AutoscalingV2beta2().HorizontalPodAutoscalers(expected.Namespace).
+		Get(context.Background(), expected.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, expected.Spec.ScaleTargetRef.Name, stored.Spec.ScaleTargetRef.Name)
+
+	fetched, err := manager.Get(
+		context.Background(), expected.Namespace, expected.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, expected, fetched)
+
+	updated := fetched.DeepCopy()
+	updated.Spec.MaxReplicas++
+	patched, err := manager.Patch(
+		context.Background(), fetched, updated, metav1.PatchOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, updated, patched)
+}
+
+func TestNewHPAManagerRejectsUnsupportedAPI(t *testing.T) {
+	t.Parallel()
+
+	manager, err := NewHPAManager(
+		fake.NewSimpleClientset(),
+		&fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{}},
+	)
+	assert.Nil(t, manager)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "discover HorizontalPodAutoscaler API")
+}
+
+func TestConvertHPAV2beta2RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	expected := testHPA()
+	external := &autoscalingv2beta2.HorizontalPodAutoscaler{}
+	require.NoError(t, convertHPA(expected, external))
+
+	actual := &autoscalingv2.HorizontalPodAutoscaler{}
+	require.NoError(t, convertHPA(external, actual))
+	assert.Equal(t, expected, actual)
+}
+
+func newHPADiscovery(groupVersions ...string) *fakediscovery.FakeDiscovery {
+	resources := make([]*metav1.APIResourceList, 0, len(groupVersions))
+	for _, groupVersion := range groupVersions {
+		resources = append(resources, &metav1.APIResourceList{
+			GroupVersion: groupVersion,
+			APIResources: []metav1.APIResource{{
+				Name:  "horizontalpodautoscalers",
+				Verbs: metav1.Verbs{"get", "create", "patch"},
+			}},
+		})
+	}
+	return &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{Resources: resources}}
+}
+
+func testHPA() *autoscalingv2.HorizontalPodAutoscaler {
+	minReplicas := int32(2)
+	return &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-hpa",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "autoscaling.katalyst.kubewharf.io/v1alpha2",
+				Kind:       "IntelligentHorizontalPodAutoscaler",
+				Name:       "test-ihpa",
+			}},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "test-workload",
+			},
+			MinReplicas: &minReplicas,
+			MaxReplicas: 10,
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: "cpu",
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: func() *int32 { value := int32(60); return &value }(),
+						},
+					},
+				},
+				{
+					Type: autoscalingv2.ExternalMetricSourceType,
+					External: &autoscalingv2.ExternalMetricSource{
+						Metric: autoscalingv2.MetricIdentifier{Name: "queue_depth"},
+						Target: autoscalingv2.MetricTarget{
+							Type:  autoscalingv2.ValueMetricType,
+							Value: resourceQuantity("5"),
+						},
+					},
+				},
+			},
+			Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+				ScaleUp: &autoscalingv2.HPAScalingRules{
+					SelectPolicy: func() *autoscalingv2.ScalingPolicySelect {
+						value := autoscalingv2.MaxChangePolicySelect
+						return &value
+					}(),
+					Policies: []autoscalingv2.HPAScalingPolicy{{
+						Type:          autoscalingv2.PodsScalingPolicy,
+						Value:         2,
+						PeriodSeconds: 60,
+					}},
+				},
+			},
+		},
+	}
+}
+
+func resourceQuantity(value string) *resource.Quantity {
+	quantity := resource.MustParse(value)
+	return &quantity
 }
 
 func TestUpdateIHPA(t *testing.T) {

@@ -21,12 +21,12 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
 
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
 )
 
-var _ schedulerframework.FilterPlugin = &NodeOvercommitment{}
+var _ framework.FilterPlugin = &NodeOvercommitment{}
 
 const (
 	// Name is the name of the plugin used in the plugin registry and configurations.
@@ -36,9 +36,9 @@ const (
 )
 
 var (
-	_ schedulerframework.PreFilterPlugin = &NodeOvercommitment{}
-	_ schedulerframework.FilterPlugin    = &NodeOvercommitment{}
-	_ schedulerframework.ReservePlugin   = &NodeOvercommitment{}
+	_ framework.PreFilterPlugin = &NodeOvercommitment{}
+	_ framework.FilterPlugin    = &NodeOvercommitment{}
+	_ framework.ReservePlugin   = &NodeOvercommitment{}
 )
 
 type NodeOvercommitment struct{}
@@ -47,7 +47,7 @@ func (n *NodeOvercommitment) Name() string {
 	return Name
 }
 
-func New(_ context.Context, args runtime.Object, h schedulerframework.Handle) (schedulerframework.Plugin, error) {
+func New(_ context.Context, args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	klog.Info("Creating new NodeOvercommitment plugin")
 
 	cache.RegisterPodHandler()

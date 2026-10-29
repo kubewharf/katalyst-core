@@ -30,7 +30,6 @@ import (
 	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apisconfig "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
@@ -69,14 +68,14 @@ type TopologyMatch struct {
 	resourceToWeightMap resourceToWeightMap
 	alignedResources    sets.String
 	resourcePolicy      consts.ResourcePluginPolicyName
-	sharedLister        schedulerframework.SharedLister
+	sharedLister        framework.SharedLister
 }
 
 var (
-	_ schedulerframework.FilterPlugin      = &TopologyMatch{}
-	_ schedulerframework.ScorePlugin       = &TopologyMatch{}
-	_ schedulerframework.ReservePlugin     = &TopologyMatch{}
-	_ schedulerframework.EnqueueExtensions = &TopologyMatch{}
+	_ framework.FilterPlugin      = &TopologyMatch{}
+	_ framework.ScorePlugin       = &TopologyMatch{}
+	_ framework.ReservePlugin     = &TopologyMatch{}
+	_ framework.EnqueueExtensions = &TopologyMatch{}
 )
 
 // Name returns name of the plugin.
@@ -84,7 +83,7 @@ func (tm *TopologyMatch) Name() string {
 	return TopologyMatchName
 }
 
-func New(_ context.Context, args runtime.Object, h schedulerframework.Handle) (schedulerframework.Plugin, error) {
+func New(_ context.Context, args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	klog.Info("Creating new TopologyMatch plugin")
 	klog.Infof("args: %+v", args)
 	tcfg, ok := args.(*apisconfig.NodeResourceTopologyArgs)

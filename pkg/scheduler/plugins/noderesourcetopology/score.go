@@ -28,7 +28,6 @@ import (
 	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -62,7 +61,7 @@ func (rw resourceToWeightMap) weight(r v1.ResourceName) int64 {
 func (tm *TopologyMatch) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
 	if !tm.topologyMatchSupport(pod) {
 		klog.V(5).Infof("pod %v not support topology match", pod.Name)
-		return schedulerframework.MaxNodeScore, nil
+		return framework.MaxNodeScore, nil
 	}
 
 	nodeName := nodeInfo.Node().Name
@@ -87,7 +86,7 @@ func (tm *TopologyMatch) Score(ctx context.Context, state framework.CycleState, 
 	return handler(pod, nodeResourceCache.TopologyZone)
 }
 
-func (tm *TopologyMatch) ScoreExtensions() schedulerframework.ScoreExtensions {
+func (tm *TopologyMatch) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 

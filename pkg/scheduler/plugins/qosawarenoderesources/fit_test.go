@@ -39,7 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-var makeFit = func(scoringStrategyType kubeschedulerconfig.ScoringStrategyType) (schedulerframework.Plugin, error) {
+var makeFit = func(scoringStrategyType kubeschedulerconfig.ScoringStrategyType) (framework.Plugin, error) {
 	return NewFit(context.Background(), &config.QoSAwareNodeResourcesFitArgs{
 		ScoringStrategy: &config.ScoringStrategy{
 			Type: scoringStrategyType,

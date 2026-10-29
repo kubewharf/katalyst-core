@@ -107,7 +107,7 @@ func NewGenericContext(base *katalystbase.GenericContext, conf *katalystconfig.C
 
 func (c *GenericContext) Run(ctx context.Context) {
 	go c.GenericContext.Run(ctx)
-	go c.PluginManager.Run(config.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
+	go c.PluginManager.Run(ctx, config.NewSourcesReady(func(_ sets.Set[string]) bool { return true }), ctx.Done())
 	go c.MetaServer.Run(ctx)
 	<-ctx.Done()
 }
@@ -120,7 +120,11 @@ type customizedPluginManager struct {
 }
 
 // Run successes iff at-least-one handler has been registered
-func (p *customizedPluginManager) Run(sourcesReady config.SourcesReady, stopCh <-chan struct{}) {
+func (p *customizedPluginManager) Run(
+	ctx context.Context,
+	sourcesReady config.SourcesReady,
+	stopCh <-chan struct{},
+) {
 	ticker := time.NewTicker(time.Second)
 	for ; true; <-ticker.C {
 		if p.enabled.Load() {
@@ -131,7 +135,7 @@ func (p *customizedPluginManager) Run(sourcesReady config.SourcesReady, stopCh <
 	ticker.Stop()
 
 	klog.Infof("started plugin-manager since handlers have been enabled")
-	p.PluginManager.Run(sourcesReady, stopCh)
+	p.PluginManager.Run(ctx, sourcesReady, stopCh)
 }
 
 func (p *customizedPluginManager) AddHandler(pluginType string, pluginHandler cache.PluginHandler) {
