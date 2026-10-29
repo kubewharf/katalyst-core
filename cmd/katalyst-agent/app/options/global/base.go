@@ -38,17 +38,19 @@ const (
 )
 
 const defaultRemoteRuntimeEndpoint = "unix:///run/containerd/containerd.sock"
+const defaultCompatibilityCheckpointDirectory = "/var/lib/katalyst/compatibility"
 
 // BaseOptions holds all the configurations for agent-base.
 // we will not try to separate this structure into several individual
 // structures since it will not be used directly by other components; instead,
 // we will only separate them with blanks in a single structure.
 type BaseOptions struct {
-	Agents             []string
-	NodeName           string
-	NodeAddress        string
-	LockFileName       string
-	LockWaitingEnabled bool
+	Agents                           []string
+	NodeName                         string
+	NodeAddress                      string
+	LockFileName                     string
+	LockWaitingEnabled               bool
+	CompatibilityCheckpointDirectory string
 
 	CgroupType            string
 	AdditionalCgroupPaths []string
@@ -83,8 +85,9 @@ type BaseOptions struct {
 
 func NewBaseOptions() *BaseOptions {
 	return &BaseOptions{
-		LockFileName:       "/tmp/katalyst_agent_lock",
-		LockWaitingEnabled: false,
+		LockFileName:                     "/tmp/katalyst_agent_lock",
+		LockWaitingEnabled:               false,
+		CompatibilityCheckpointDirectory: defaultCompatibilityCheckpointDirectory,
 
 		CgroupType: "cgroupfs",
 
@@ -118,6 +121,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.LockFileName, "locking-file", o.LockFileName, "The filename used as unique lock")
 	fs.BoolVar(&o.LockWaitingEnabled, "locking-waiting", o.LockWaitingEnabled,
 		"If failed to acquire locking files, still mark agent as healthy")
+	fs.StringVar(&o.CompatibilityCheckpointDirectory, "compatibility-checkpoint-dir", o.CompatibilityCheckpointDirectory,
+		"The directory used to persist API and CRI compatibility checkpoints")
 
 	fs.StringVar(&o.CgroupType, "cgroup-type", o.CgroupType, "The cgroup type")
 	fs.StringSliceVar(&o.AdditionalCgroupPaths, "addition-cgroup-paths", o.AdditionalCgroupPaths,
@@ -177,6 +182,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.NodeAddress = o.NodeAddress
 	c.LockFileName = o.LockFileName
 	c.LockWaitingEnabled = o.LockWaitingEnabled
+	c.CompatibilityCheckpointDirectory = o.CompatibilityCheckpointDirectory
 
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
 	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths

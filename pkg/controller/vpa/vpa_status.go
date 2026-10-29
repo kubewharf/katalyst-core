@@ -38,7 +38,6 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	katalystutil "github.com/kubewharf/katalyst-core/pkg/util"
@@ -67,14 +66,12 @@ type vpaStatusController struct {
 
 	vpaUpdater control.VPAUpdater
 
-	podResizeMode podResizeMode
-
 	metricsEmitter metrics.MetricEmitter
 }
 
 func newVPAStatusController(ctx context.Context, controlCtx *katalyst_base.GenericContext,
 	conf *controller.VPAConfig, workloadLister map[schema.GroupVersionKind]cache.GenericLister,
-	vpaUpdater control.VPAUpdater, resizeMode podResizeMode,
+	vpaUpdater control.VPAUpdater,
 ) *vpaStatusController {
 	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods()
 	vpaInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().KatalystVerticalPodAutoscalers()
@@ -93,7 +90,6 @@ func newVPAStatusController(ctx context.Context, controlCtx *katalyst_base.Gener
 		vpaSyncQueue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "vpa-status"),
 		vpaStatusSyncWorkers: conf.VPASyncWorkers,
 		vpaUpdater:           vpaUpdater,
-		podResizeMode:        resizeMode,
 		workloadLister:       workloadLister,
 		metricsEmitter:       controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags("vpa-status"),
 	}
@@ -325,24 +321,9 @@ func (vs *vpaStatusController) syncVPA(key string) error {
 	return nil
 }
 
-// setRecommendationAppliedCondition sets the VPA recommendation applied condition by checking
-// whether all pods have converged through the selected resize path.
+// setRecommendationAppliedCondition set vpa recommendation applied condition by checking all pods whether
+// are updated to the expected resources in their annotations
 func (vs *vpaStatusController) setRecommendationAppliedCondition(vpa *apis.KatalystVerticalPodAutoscaler, pods []*v1.Pod) error {
-	var (
-		podResources       map[consts.PodContainerName]apis.ContainerResources
-		containerResources map[consts.ContainerName]apis.ContainerResources
-	)
-	if vs.podResizeMode == podResizeModeNative {
-		var err error
-		podResources, containerResources, err = katalystutil.GenerateVPAResourceMap(vpa)
-		if err != nil {
-			return err
-		}
-		if vpa.Spec.UpdatePolicy.PodApplyStrategy == apis.PodApplyStrategyStrategyPod {
-			containerResources = nil
-		}
-	}
-
 	failedCount := 0
 	activePodCount := 0
 	for _, pod := range pods {
@@ -352,15 +333,7 @@ func (vs *vpaStatusController) setRecommendationAppliedCondition(vpa *apis.Katal
 		}
 
 		activePodCount += 1
-		updated := katalystutil.CheckPodSpecUpdated(pod)
-		if vs.podResizeMode == podResizeModeNative {
-			expected, err := katalystutil.GenerateVPAPodResizeResourceAnnotations(pod, podResources, containerResources)
-			if err != nil {
-				return err
-			}
-			updated = util.CheckPodStatusResourcesUpdated(pod, expected)
-		}
-		if !updated {
+		if !katalystutil.CheckPodSpecUpdated(pod) {
 			failedCount += 1
 		}
 	}

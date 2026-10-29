@@ -25,7 +25,6 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kube-scheduler/framework"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
 
@@ -39,11 +38,11 @@ import (
 )
 
 var (
-	_ schedulerframework.PreFilterPlugin   = &Fit{}
-	_ schedulerframework.FilterPlugin      = &Fit{}
-	_ schedulerframework.EnqueueExtensions = &Fit{}
-	_ schedulerframework.ScorePlugin       = &Fit{}
-	_ schedulerframework.ReservePlugin     = &Fit{}
+	_ framework.PreFilterPlugin   = &Fit{}
+	_ framework.FilterPlugin      = &Fit{}
+	_ framework.EnqueueExtensions = &Fit{}
+	_ framework.ScorePlugin       = &Fit{}
+	_ framework.ReservePlugin     = &Fit{}
 )
 
 const (
@@ -85,13 +84,13 @@ var nodeResourceStrategyTypeMap = map[kubeschedulerconfig.ScoringStrategyType]sc
 
 // Fit is a plugin that checks if a node has sufficient resources.
 type Fit struct {
-	handle schedulerframework.Handle
+	handle framework.Handle
 	resourceAllocationScorer
 	nativeFit *noderesources.Fit
 }
 
 // ScoreExtensions of the Score plugin.
-func (f *Fit) ScoreExtensions() schedulerframework.ScoreExtensions {
+func (f *Fit) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
@@ -111,7 +110,7 @@ func (f *Fit) Name() string {
 }
 
 // NewFit initializes a new plugin and returns it.
-func NewFit(_ context.Context, plArgs runtime.Object, h schedulerframework.Handle) (schedulerframework.Plugin, error) {
+func NewFit(_ context.Context, plArgs runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	args, ok := plArgs.(*config.QoSAwareNodeResourcesFitArgs)
 	if !ok {
 		return nil, fmt.Errorf("want args to be of type NodeQoSResourcesFitArgs, got %T", plArgs)
@@ -145,7 +144,7 @@ func NewFit(_ context.Context, plArgs runtime.Object, h schedulerframework.Handl
 	}, nil
 }
 
-func newNativeFit(args *config.QoSAwareNodeResourcesFitArgs, h schedulerframework.Handle) (*noderesources.Fit, error) {
+func newNativeFit(args *config.QoSAwareNodeResourcesFitArgs, h framework.Handle) (*noderesources.Fit, error) {
 	scoringStrategy := &kubeschedulerconfig.ScoringStrategy{
 		Type:                     args.ScoringStrategy.Type,
 		Resources:                args.ScoringStrategy.Resources,
@@ -171,7 +170,7 @@ func newNativeFit(args *config.QoSAwareNodeResourcesFitArgs, h schedulerframewor
 }
 
 // PreFilter invoked at the prefilter extension point.
-func (f *Fit) PreFilter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, _ []framework.NodeInfo) (*schedulerframework.PreFilterResult, *framework.Status) {
+func (f *Fit) PreFilter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, _ []framework.NodeInfo) (*framework.PreFilterResult, *framework.Status) {
 	if !util.IsReclaimedPod(pod) {
 		return nil, nil
 	}
@@ -180,7 +179,7 @@ func (f *Fit) PreFilter(ctx context.Context, cycleState framework.CycleState, po
 }
 
 // PreFilterExtensions returns prefilter extensions, pod add and remove.
-func (f *Fit) PreFilterExtensions() schedulerframework.PreFilterExtensions {
+func (f *Fit) PreFilterExtensions() framework.PreFilterExtensions {
 	return nil
 }
 

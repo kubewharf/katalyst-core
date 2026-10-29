@@ -27,13 +27,13 @@ import (
 	"google.golang.org/grpc/status"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	criutil "k8s.io/cri-client/pkg/util"
-	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 )
 
 const (
-	criV1ServicePrefix       = "/runtime.v1.RuntimeService/"
-	criV1Alpha2ServicePrefix = "/runtime.v1alpha2.RuntimeService/"
-	criVersion               = "0.1.0"
+	criV1ServicePrefix       = compatibility.RuntimeV1ServicePrefix
+	criV1Alpha2ServicePrefix = compatibility.RuntimeV1Alpha2ServicePrefix
 	maxMsgSize               = 16 * 1024 * 1024
 )
 
@@ -48,14 +48,19 @@ type RuntimeService interface {
 
 // runtimeService dispatches requests to the negotiated CRI service version.
 type runtimeService struct {
-	conn           grpc.ClientConnInterface
-	servicePrefix  string
-	requestTimeout time.Duration
+	conn            grpc.ClientConnInterface
+	servicePrefix   string
+	requestTimeout  time.Duration
+	versionResolver compatibility.VersionResolver
 }
 
 // NewRuntimeService connects to the endpoint and selects CRI v1 or v1alpha2.
 // CRI v1 is always preferred.
-func NewRuntimeService(endpoint string, connectionTimeout time.Duration) (RuntimeService, error) {
+func NewRuntimeService(
+	endpoint string,
+	connectionTimeout time.Duration,
+	versionStore compatibility.VersionStore,
+) (RuntimeService, error) {
 	addr, dialer, err := criutil.GetAddressAndDialer(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime endpoint dialer: %w", err)
@@ -77,7 +82,8 @@ func NewRuntimeService(endpoint string, connectionTimeout time.Duration) (Runtim
 		return nil, fmt.Errorf("dial runtime endpoint %q: %w", endpoint, err)
 	}
 
-	service, err := newRuntimeService(conn, connectionTimeout)
+	versionResolver := compatibility.NewRuntimeVersionResolver(conn, connectionTimeout, versionStore)
+	service, err := newRuntimeService(conn, connectionTimeout, versionResolver)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -85,48 +91,50 @@ func NewRuntimeService(endpoint string, connectionTimeout time.Duration) (Runtim
 	return service, nil
 }
 
-func newRuntimeService(conn grpc.ClientConnInterface, requestTimeout time.Duration) (*runtimeService, error) {
-	service := &runtimeService{
-		conn:           conn,
-		servicePrefix:  criV1ServicePrefix,
-		requestTimeout: requestTimeout,
+func newRuntimeService(
+	conn grpc.ClientConnInterface,
+	requestTimeout time.Duration,
+	versionResolver compatibility.VersionResolver,
+) (*runtimeService, error) {
+	if versionResolver == nil {
+		return nil, fmt.Errorf("CRI runtime API version resolver is nil")
 	}
-
-	err := service.invoke(
-		context.Background(),
-		"Version",
-		&runtimeapi.VersionRequest{Version: criVersion},
-		&runtimeapi.VersionResponse{},
-	)
-	if err == nil {
-		klog.InfoS("Using CRI runtime API", "version", "v1")
-		return service, nil
-	}
-	// Other errors are unexpected
-	if status.Code(err) != codes.Unimplemented {
-		return nil, fmt.Errorf("error validating CRI v1 runtime API: %w", err)
-	}
-
-	v1Err := err
-	// Fallback to CRI v1alpha2
-	// These CRI calls retain compatible protobuf fields across v1 and v1alpha2.
-	service.servicePrefix = criV1Alpha2ServicePrefix
-	err = service.invoke(
-		context.Background(),
-		"Version",
-		&runtimeapi.VersionRequest{Version: criVersion},
-		&runtimeapi.VersionResponse{},
-	)
+	version, err := versionResolver.Get(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("CRI v1 is unsupported (%v), error validating CRI v1alpha2 runtime API: %w", v1Err, err)
+		return nil, err
 	}
-
-	klog.InfoS("Falling back to deprecated CRI runtime API", "version", "v1alpha2")
-	return service, nil
+	servicePrefix, err := compatibility.RuntimeServicePrefix(version)
+	if err != nil {
+		return nil, err
+	}
+	return &runtimeService{
+		conn:            conn,
+		servicePrefix:   servicePrefix,
+		requestTimeout:  requestTimeout,
+		versionResolver: versionResolver,
+	}, nil
 }
 
 // invoke applies the request timeout and selected CRI service prefix.
 func (r *runtimeService) invoke(ctx context.Context, method string, request, response interface{}) error {
+	err := r.invokeOnce(ctx, method, request, response)
+	if method == "Version" || status.Code(err) != codes.Unimplemented {
+		return err
+	}
+
+	version, refreshErr := r.versionResolver.Refresh(ctx)
+	if refreshErr != nil {
+		return refreshErr
+	}
+	servicePrefix, prefixErr := compatibility.RuntimeServicePrefix(version)
+	if prefixErr != nil {
+		return prefixErr
+	}
+	r.servicePrefix = servicePrefix
+	return r.invokeOnce(ctx, method, request, response)
+}
+
+func (r *runtimeService) invokeOnce(ctx context.Context, method string, request, response interface{}) error {
 	ctx, cancel := context.WithTimeout(ctx, r.requestTimeout)
 	defer cancel()
 	return r.conn.Invoke(ctx, r.servicePrefix+method, request, response)

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/kube-scheduler/framework"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
+	internalframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
@@ -34,7 +34,7 @@ import (
 )
 
 type preFilterState struct {
-	schedulerframework.Resource
+	internalframework.Resource
 	GuaranteedCPUs int
 }
 
@@ -42,12 +42,12 @@ func (s *preFilterState) Clone() framework.StateData {
 	return s
 }
 
-func (n *NodeOvercommitment) PreFilter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, _ []framework.NodeInfo) (*schedulerframework.PreFilterResult, *framework.Status) {
+func (n *NodeOvercommitment) PreFilter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, _ []framework.NodeInfo) (*framework.PreFilterResult, *framework.Status) {
 	cycleState.Write(preFilterStateKey, computePodResourceRequest(pod))
 	return nil, nil
 }
 
-func (n *NodeOvercommitment) PreFilterExtensions() schedulerframework.PreFilterExtensions {
+func (n *NodeOvercommitment) PreFilterExtensions() framework.PreFilterExtensions {
 	return nil
 }
 

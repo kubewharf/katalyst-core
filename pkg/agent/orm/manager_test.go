@@ -589,8 +589,13 @@ type MockEndpoint struct {
 	resourceAlloc                            func(ctx context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
 	getTopologyAwareResourcesFunc            func(c context.Context, request *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 	getTopologyAwareAllocatableResourcesFunc func(c context.Context, request *pluginapi.GetTopologyAwareAllocatableResourcesRequest) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error)
+	socketPath                               string
 	stopTime                                 time.Time
 	topologyHints                            []*pluginapi.TopologyHint
+}
+
+func (m *MockEndpoint) GetSocketPath() string {
+	return m.socketPath
 }
 
 func (m *MockEndpoint) Stop() {

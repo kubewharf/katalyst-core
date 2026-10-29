@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kube-scheduler/framework"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
 
@@ -39,12 +38,12 @@ import (
 // BalancedAllocation is a score plugin that calculates the difference between the cpu and memory fraction
 // of capacity, and prioritizes the host based on how close the two metrics are to each other.
 type BalancedAllocation struct {
-	handle schedulerframework.Handle
+	handle framework.Handle
 	resourceAllocationScorer
 	nativeBalancedAllocation *noderesources.BalancedAllocation
 }
 
-var _ = schedulerframework.ScorePlugin(&BalancedAllocation{})
+var _ = framework.ScorePlugin(&BalancedAllocation{})
 
 // BalancedAllocationName is the name of the plugin used in the plugin registry and configurations.
 const BalancedAllocationName = "QoSAwareNodeResourcesBalancedAllocation"
@@ -75,12 +74,12 @@ func (ba *BalancedAllocation) Score(ctx context.Context, state framework.CycleSt
 }
 
 // ScoreExtensions of the Score plugin.
-func (ba *BalancedAllocation) ScoreExtensions() schedulerframework.ScoreExtensions {
+func (ba *BalancedAllocation) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
 // NewBalancedAllocation initializes a new plugin and returns it.
-func NewBalancedAllocation(_ context.Context, baArgs runtime.Object, h schedulerframework.Handle) (schedulerframework.Plugin, error) {
+func NewBalancedAllocation(_ context.Context, baArgs runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	args, ok := baArgs.(*config.QoSAwareNodeResourcesBalancedAllocationArgs)
 	if !ok {
 		return nil, fmt.Errorf("want args to be of type NodeQoSResourcesBalancedAllocationArgs, got %T", baArgs)
@@ -115,7 +114,7 @@ func NewBalancedAllocation(_ context.Context, baArgs runtime.Object, h scheduler
 	}, nil
 }
 
-func newNativeBalancedAllocation(args *config.QoSAwareNodeResourcesBalancedAllocationArgs, h schedulerframework.Handle) (*noderesources.BalancedAllocation, error) {
+func newNativeBalancedAllocation(args *config.QoSAwareNodeResourcesBalancedAllocationArgs, h framework.Handle) (*noderesources.BalancedAllocation, error) {
 	nativeBalancedAllocationPlugin, err := noderesources.NewBalancedAllocation(
 		context.Background(),
 		&kubeschedulerconfig.NodeResourcesBalancedAllocationArgs{
@@ -164,5 +163,5 @@ func balancedResourceScorer(requested, allocatable resourceToValueMap) int64 {
 
 	// STD (standard deviation) is always a positive value. 1-deviation lets the score to be higher for node which has least deviation and
 	// multiplying it with `MaxNodeScore` provides the scaling factor needed.
-	return int64((1 - std) * float64(schedulerframework.MaxNodeScore))
+	return int64((1 - std) * float64(framework.MaxNodeScore))
 }

@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 )
@@ -71,7 +72,8 @@ type runtimePodFetcherImpl struct {
 }
 
 func NewRuntimePodFetcher(baseConf *global.BaseConfiguration) (RuntimePodFetcher, error) {
-	runtimeService, err := criclient.NewRuntimeService(baseConf.RuntimeEndpoint, 2*time.Minute)
+	runtimeService, err := criclient.NewRuntimeService(
+		baseConf.RuntimeEndpoint, 2*time.Minute, compatibility.NewVersionStore(baseConf.CompatibilityCheckpointDirectory))
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime service failed: %w", err)
 	}

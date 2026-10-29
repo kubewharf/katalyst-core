@@ -23,10 +23,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 )
 
 type fakeClientConn struct {
@@ -54,7 +57,11 @@ func TestNewRuntimeServicePrefersV1(t *testing.T) {
 		return nil
 	}}
 
-	service, err := newRuntimeService(conn, time.Second)
+	service, err := newRuntimeService(
+		conn,
+		time.Second,
+		compatibility.NewRuntimeVersionResolver(conn, time.Second, nil),
+	)
 	if err != nil {
 		t.Fatalf("newRuntimeService returned error: %v", err)
 	}
@@ -79,7 +86,11 @@ func TestNewRuntimeServiceFallsBackToV1Alpha2(t *testing.T) {
 		return nil
 	}}
 
-	service, err := newRuntimeService(conn, time.Second)
+	service, err := newRuntimeService(
+		conn,
+		time.Second,
+		compatibility.NewRuntimeVersionResolver(conn, time.Second, nil),
+	)
 	if err != nil {
 		t.Fatalf("newRuntimeService returned error: %v", err)
 	}
@@ -131,7 +142,11 @@ func TestNewRuntimeServiceDoesNotFallbackForNonVersionErrors(t *testing.T) {
 				return tt.err
 			}}
 
-			_, err := newRuntimeService(conn, time.Second)
+			_, err := newRuntimeService(
+				conn,
+				time.Second,
+				compatibility.NewRuntimeVersionResolver(conn, time.Second, nil),
+			)
 			if status.Code(err) != tt.code {
 				t.Fatalf("error code got %v, want %v: %v", status.Code(err), tt.code, err)
 			}
@@ -157,10 +172,56 @@ func TestNewRuntimeServiceReturnsV1Alpha2ProbeError(t *testing.T) {
 		}
 	}}
 
-	_, err := newRuntimeService(conn, time.Second)
+	_, err := newRuntimeService(
+		conn,
+		time.Second,
+		compatibility.NewRuntimeVersionResolver(conn, time.Second, nil),
+	)
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("error code got %v, want %v: %v", status.Code(err), codes.Unavailable, err)
 	}
+}
+
+type fakeVersionResolver struct {
+	version        string
+	refreshVersion string
+	refreshCalls   int
+}
+
+func (f *fakeVersionResolver) Get(context.Context) (string, error) {
+	return f.version, nil
+}
+
+func (f *fakeVersionResolver) Refresh(context.Context) (string, error) {
+	f.refreshCalls++
+	return f.refreshVersion, nil
+}
+
+func TestRuntimeServiceRefreshesCachedVersionAfterUnimplemented(t *testing.T) {
+	t.Parallel()
+
+	var methods []string
+	conn := &fakeClientConn{invoke: func(method string, _, _ interface{}) error {
+		methods = append(methods, method)
+		if method == criV1Alpha2ServicePrefix+"ListContainers" {
+			return status.Error(codes.Unimplemented, "v1alpha2 removed")
+		}
+		return nil
+	}}
+	resolver := &fakeVersionResolver{
+		version:        compatibility.RuntimeVersionV1Alpha2,
+		refreshVersion: compatibility.RuntimeVersionV1,
+	}
+	service, err := newRuntimeService(conn, time.Second, resolver)
+	require.NoError(t, err)
+
+	_, err = service.ListContainers(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		criV1Alpha2ServicePrefix + "ListContainers",
+		criV1ServicePrefix + "ListContainers",
+	}, methods)
+	require.Equal(t, 1, resolver.refreshCalls)
 }
 
 func TestRuntimeServiceOperationsUseSelectedVersion(t *testing.T) {

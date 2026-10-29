@@ -55,7 +55,6 @@ jobs:
           args: --verbose --config .golangci.yml
           version: v2.4.0
           skip-cache: true
-          only-new-issues: true
 
   build:
     name: Build
