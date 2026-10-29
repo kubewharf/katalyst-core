@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"maps"
 	"net"
 	"os"
 	"path"
@@ -49,7 +50,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -4565,8 +4565,8 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 						ContainerIndex: allocationInfo.ContainerIndex,
 						ContainerType:  pluginapi.ContainerType(containerType),
 						QosLevel:       allocationInfo.QoSLevel,
-						Labels:         maputil.CopySS(allocationInfo.Labels),
-						Annotations:    maputil.CopySS(allocationInfo.Annotations),
+						Labels:         maps.Clone(allocationInfo.Labels),
+						Annotations:    maps.Clone(allocationInfo.Annotations),
 					},
 				},
 			},

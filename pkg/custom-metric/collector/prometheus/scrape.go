@@ -32,6 +32,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -285,7 +286,7 @@ func (s *ScrapeManager) fetch(ctx context.Context, w io.Writer) error {
 
 // parseContents analyzes the contents scraped from prometheus http service.
 func parseContents(r io.Reader) (map[string]*dto.MetricFamily, error) {
-	var parser expfmt.TextParser
+	parser := expfmt.NewTextParser(model.LegacyValidation)
 	mf, err := parser.TextToMetricFamilies(r)
 	if err != nil {
 		return nil, err

@@ -24,9 +24,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1beta1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	coretesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
@@ -291,13 +292,24 @@ func TestEvictionAPIKiller_EvictStampsExplicitTriggerAnnotation(t *testing.T) {
 			ctx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{pod})
 			require.NoError(t, err)
 			fakeKube := ctx.Client.KubeClient.(*fake.Clientset)
+			fakeKube.Discovery().(*fakediscovery.FakeDiscovery).Resources = []*metav1.APIResourceList{{
+				GroupVersion: "v1",
+				APIResources: []metav1.APIResource{{
+					Name:       "pods/eviction",
+					Namespaced: true,
+					Kind:       "Eviction",
+					Verbs:      metav1.Verbs{"create"},
+					Group:      "policy",
+					Version:    "v1",
+				}},
+			}}
 
-			var captured *policy.Eviction
+			var captured *policyv1.Eviction
 			fakeKube.PrependReactor("create", "pods", func(action coretesting.Action) (bool, runtime.Object, error) {
 				if action.GetSubresource() != "eviction" {
 					return false, nil, nil
 				}
-				captured = action.(coretesting.CreateAction).GetObject().(*policy.Eviction)
+				captured = action.(coretesting.CreateAction).GetObject().(*policyv1.Eviction)
 				// Simulate the API server actually deleting the pod so that
 				// waitForDeleted in evict() returns promptly.
 				_ = fakeKube.Tracker().Delete(
@@ -318,6 +330,9 @@ func TestEvictionAPIKiller_EvictStampsExplicitTriggerAnnotation(t *testing.T) {
 
 			require.NotNil(t, captured)
 			assert.Equal(t, tt.want, captured.ObjectMeta.Annotations)
+			require.NotNil(t, captured.DeleteOptions)
+			require.NotNil(t, captured.DeleteOptions.GracePeriodSeconds)
+			assert.Equal(t, int64(0), *captured.DeleteOptions.GracePeriodSeconds)
 		})
 	}
 }

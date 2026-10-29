@@ -34,6 +34,7 @@ import (
 // PodUpdater is used to update Pod
 type PodUpdater interface {
 	UpdatePod(ctx context.Context, pod *core.Pod, opts metav1.UpdateOptions) (*core.Pod, error)
+	UpdatePodResize(ctx context.Context, pod *core.Pod, opts metav1.UpdateOptions) (*core.Pod, error)
 	UpdatePodStatus(ctx context.Context, pod *core.Pod, opts metav1.UpdateOptions) (*core.Pod, error)
 	PatchPod(ctx context.Context, oldPod, newPod *core.Pod) error
 	PatchPodStatus(ctx context.Context, oldPod, newPod *core.Pod) error
@@ -42,6 +43,10 @@ type PodUpdater interface {
 type DummyPodUpdater struct{}
 
 func (d *DummyPodUpdater) UpdatePod(_ context.Context, _ *core.Pod, _ metav1.UpdateOptions) (*core.Pod, error) {
+	return nil, nil
+}
+
+func (d *DummyPodUpdater) UpdatePodResize(_ context.Context, _ *core.Pod, _ metav1.UpdateOptions) (*core.Pod, error) {
 	return nil, nil
 }
 
@@ -73,6 +78,14 @@ func (r *RealPodUpdater) UpdatePod(ctx context.Context, pod *core.Pod, opts meta
 	}
 
 	return r.client.CoreV1().Pods(pod.Namespace).Update(ctx, pod, opts)
+}
+
+func (r *RealPodUpdater) UpdatePodResize(ctx context.Context, pod *core.Pod, opts metav1.UpdateOptions) (*core.Pod, error) {
+	if pod == nil {
+		return nil, fmt.Errorf("can't resize a nil Pod")
+	}
+
+	return r.client.CoreV1().Pods(pod.Namespace).UpdateResize(ctx, pod.Name, pod, opts)
 }
 
 func (r *RealPodUpdater) PatchPod(ctx context.Context, oldPod, newPod *core.Pod) error {
@@ -109,8 +122,8 @@ func (r *RealPodUpdater) UpdatePodStatus(ctx context.Context, pod *core.Pod, opt
 	return r.client.CoreV1().Pods(pod.Namespace).UpdateStatus(ctx, pod, opts)
 }
 
-func (r *RealPodUpdater) PatchPodStatus(_ context.Context, oldPod, newPod *core.Pod) error {
-	_, _, _, err := statusutil.PatchPodStatus(r.client, oldPod.Namespace, oldPod.Name, oldPod.UID, oldPod.Status, newPod.Status)
+func (r *RealPodUpdater) PatchPodStatus(ctx context.Context, oldPod, newPod *core.Pod) error {
+	_, _, _, err := statusutil.PatchPodStatus(ctx, r.client, oldPod.Namespace, oldPod.Name, oldPod.UID, oldPod.Status, newPod.Status)
 	return err
 }
 

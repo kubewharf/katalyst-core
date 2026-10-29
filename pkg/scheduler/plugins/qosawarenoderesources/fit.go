@@ -23,8 +23,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/framework"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
 
@@ -110,7 +110,7 @@ func (f *Fit) Name() string {
 }
 
 // NewFit initializes a new plugin and returns it.
-func NewFit(plArgs runtime.Object, h framework.Handle) (framework.Plugin, error) {
+func NewFit(_ context.Context, plArgs runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	args, ok := plArgs.(*config.QoSAwareNodeResourcesFitArgs)
 	if !ok {
 		return nil, fmt.Errorf("want args to be of type NodeQoSResourcesFitArgs, got %T", plArgs)
@@ -152,6 +152,7 @@ func newNativeFit(args *config.QoSAwareNodeResourcesFitArgs, h framework.Handle)
 	}
 
 	nativeFitPlugin, err := noderesources.NewFit(
+		context.Background(),
 		&kubeschedulerconfig.NodeResourcesFitArgs{
 			ScoringStrategy: scoringStrategy,
 		}, h, feature.Features{},
@@ -169,7 +170,7 @@ func newNativeFit(args *config.QoSAwareNodeResourcesFitArgs, h framework.Handle)
 }
 
 // PreFilter invoked at the prefilter extension point.
-func (f *Fit) PreFilter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod) (*framework.PreFilterResult, *framework.Status) {
+func (f *Fit) PreFilter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, _ []framework.NodeInfo) (*framework.PreFilterResult, *framework.Status) {
 	if !util.IsReclaimedPod(pod) {
 		return nil, nil
 	}
@@ -227,7 +228,7 @@ func computePodQoSResourceRequest(pod *v1.Pod) *preFilterState {
 	return result
 }
 
-func getPreFilterState(cycleState *framework.CycleState) (*preFilterState, error) {
+func getPreFilterState(cycleState framework.CycleState) (*preFilterState, error) {
 	c, err := cycleState.Read(preFilterStateKey)
 	if err != nil {
 		// preFilterState doesn't exist, likely PreFilter wasn't invoked.
@@ -246,17 +247,17 @@ func getPreFilterState(cycleState *framework.CycleState) (*preFilterState, error
 // NOTE: if in-place-update (KEP 1287) gets implemented, then PodUpdate event
 // should be registered for this plugin since a Pod update may free up resources
 // that make other Pods schedulable.
-func (f *Fit) EventsToRegister() []framework.ClusterEvent {
-	return []framework.ClusterEvent{
-		{Resource: framework.Pod, ActionType: framework.Delete},
-		{Resource: framework.Node, ActionType: framework.Add},
-	}
+func (f *Fit) EventsToRegister(_ context.Context) ([]framework.ClusterEventWithHint, error) {
+	return []framework.ClusterEventWithHint{
+		{Event: framework.ClusterEvent{Resource: framework.Pod, ActionType: framework.Delete}},
+		{Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add}},
+	}, nil
 }
 
 // Filter invoked at the filter extension point.
 // Checks if a node has sufficient resources, such as cpu, memory, gpu, opaque int resources etc to run a pod.
 // It returns a list of insufficient resources, if empty, then the node has all the resources requested by the pod.
-func (f *Fit) Filter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+func (f *Fit) Filter(ctx context.Context, cycleState framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) *framework.Status {
 	if !util.IsReclaimedPod(pod) {
 		return nil
 	}
@@ -291,7 +292,7 @@ type InsufficientResource struct {
 	Capacity  int64
 }
 
-func fitsRequest(podRequest *preFilterState, nodeInfo *framework.NodeInfo) []InsufficientResource {
+func fitsRequest(podRequest *preFilterState, nodeInfo framework.NodeInfo) []InsufficientResource {
 	insufficientResources := make([]InsufficientResource, 0, 2)
 
 	if podRequest.ReclaimedMilliCPU == 0 &&
@@ -335,7 +336,8 @@ func fitsRequest(podRequest *preFilterState, nodeInfo *framework.NodeInfo) []Ins
 }
 
 // Score invoked at the Score extension point.
-func (f *Fit) Score(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) (int64, *framework.Status) {
+func (f *Fit) Score(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeInfo framework.NodeInfo) (int64, *framework.Status) {
+	nodeName := nodeInfo.Node().Name
 	if util.IsReclaimedPod(pod) {
 		extendedNodeInfo, err := cache.GetCache().GetNodeInfo(nodeName)
 		if err != nil {
@@ -345,11 +347,11 @@ func (f *Fit) Score(ctx context.Context, state *framework.CycleState, pod *v1.Po
 		return f.score(pod, extendedNodeInfo, nodeName)
 	}
 
-	return f.nativeFit.Score(ctx, state, pod, nodeName)
+	return f.nativeFit.Score(ctx, state, pod, nodeInfo)
 }
 
 // Reserve is the functions invoked by the framework at "Reserve" extension point.
-func (f *Fit) Reserve(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) *framework.Status {
+func (f *Fit) Reserve(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeName string) *framework.Status {
 	if !util.IsReclaimedPod(pod) || nodeName == "" || native.PodIsTerminated(pod) {
 		return nil
 	}
@@ -365,7 +367,7 @@ func (f *Fit) Reserve(ctx context.Context, state *framework.CycleState, pod *v1.
 }
 
 // Unreserve is the functions invoked by the framework at "Unreserve" extension point.
-func (f *Fit) Unreserve(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeName string) {
+func (f *Fit) Unreserve(ctx context.Context, state framework.CycleState, pod *v1.Pod, nodeName string) {
 	if !util.IsReclaimedPod(pod) || nodeName == "" {
 		return
 	}

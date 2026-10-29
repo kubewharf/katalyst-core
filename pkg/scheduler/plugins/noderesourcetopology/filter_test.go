@@ -24,8 +24,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -39,45 +40,53 @@ var _ framework.SharedLister = &testSharedLister{}
 
 type testSharedLister struct {
 	nodes       []*v1.Node
-	nodeInfos   []*framework.NodeInfo
-	nodeInfoMap map[string]*framework.NodeInfo
+	nodeInfos   []framework.NodeInfo
+	nodeInfoMap map[string]framework.NodeInfo
 }
 
 func (f *testSharedLister) NodeInfos() framework.NodeInfoLister {
 	return f
 }
 
-func (f *testSharedLister) List() ([]*framework.NodeInfo, error) {
+func (f *testSharedLister) StorageInfos() framework.StorageInfoLister {
+	return f
+}
+
+func (f *testSharedLister) IsPVCUsedByPods(string) bool {
+	return false
+}
+
+func (f *testSharedLister) List() ([]framework.NodeInfo, error) {
 	return f.nodeInfos, nil
 }
 
-func (f *testSharedLister) HavePodsWithAffinityList() ([]*framework.NodeInfo, error) {
+func (f *testSharedLister) HavePodsWithAffinityList() ([]framework.NodeInfo, error) {
 	return nil, nil
 }
 
-func (f *testSharedLister) HavePodsWithRequiredAntiAffinityList() ([]*framework.NodeInfo, error) {
+func (f *testSharedLister) HavePodsWithRequiredAntiAffinityList() ([]framework.NodeInfo, error) {
 	return nil, nil
 }
 
-func (f *testSharedLister) Get(nodeName string) (*framework.NodeInfo, error) {
+func (f *testSharedLister) Get(nodeName string) (framework.NodeInfo, error) {
 	return f.nodeInfoMap[nodeName], nil
 }
 
 func newTestSharedLister(pods []*v1.Pod, nodes []*v1.Node) *testSharedLister {
-	nodeInfoMap := make(map[string]*framework.NodeInfo)
-	nodeInfos := make([]*framework.NodeInfo, 0)
+	nodeInfoMap := make(map[string]framework.NodeInfo)
+	nodeInfos := make([]framework.NodeInfo, 0)
 	for _, pod := range pods {
 		nodeName := pod.Spec.NodeName
 		if _, ok := nodeInfoMap[nodeName]; !ok {
-			nodeInfoMap[nodeName] = framework.NewNodeInfo()
+			nodeInfoMap[nodeName] = schedulerframework.NewNodeInfo()
 		}
-		nodeInfoMap[nodeName].AddPod(pod)
+		nodeInfoMap[nodeName].(*schedulerframework.NodeInfo).AddPod(pod)
 	}
 	for _, node := range nodes {
 		if _, ok := nodeInfoMap[node.Name]; !ok {
-			nodeInfoMap[node.Name] = framework.NewNodeInfo()
+			nodeInfoMap[node.Name] = schedulerframework.NewNodeInfo()
 		}
-		nodeInfoMap[node.Name].SetNode(node)
+		nodeInfoMap[node.Name].(*schedulerframework.NodeInfo).SetNode(node)
 	}
 
 	for _, v := range nodeInfoMap {
@@ -627,20 +636,20 @@ func TestFilterNative(t *testing.T) {
 		}
 
 		ret := make(map[string]*framework.Status)
-		nodeInfos := make([]*framework.NodeInfo, 0)
+		nodeInfos := make([]framework.NodeInfo, 0)
 		nodes := make([]*v1.Node, 0)
 		for _, node := range nodeNames {
 			n := &v1.Node{}
 			n.SetName(node)
 			nodes = append(nodes, n)
-			nodeInfo := framework.NewNodeInfo()
+			nodeInfo := schedulerframework.NewNodeInfo()
 			nodeInfo.SetNode(n)
 			for _, pod := range pods {
 				nodeInfo.AddPod(pod)
 			}
 			nodeInfos = append(nodeInfos, nodeInfo)
 		}
-		f, err := runtime.NewFramework(nil, nil,
+		f, err := runtime.NewFramework(context.Background(), nil, nil,
 			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
 		assert.NoError(t, err)
 
@@ -819,20 +828,20 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 		}
 
 		ret := make(map[string]*framework.Status)
-		nodeInfos := make([]*framework.NodeInfo, 0)
+		nodeInfos := make([]framework.NodeInfo, 0)
 		nodes := make([]*v1.Node, 0)
 		for _, node := range nodeNames {
 			n := &v1.Node{}
 			n.SetName(node)
 			nodes = append(nodes, n)
-			nodeInfo := framework.NewNodeInfo()
+			nodeInfo := schedulerframework.NewNodeInfo()
 			nodeInfo.SetNode(n)
 			for _, pod := range pods {
 				nodeInfo.AddPod(pod)
 			}
 			nodeInfos = append(nodeInfos, nodeInfo)
 		}
-		f, err := runtime.NewFramework(nil, nil,
+		f, err := runtime.NewFramework(context.Background(), nil, nil,
 			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
 		assert.NoError(t, err)
 
@@ -964,20 +973,20 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 		}
 
 		ret := make(map[string]*framework.Status)
-		nodeInfos := make([]*framework.NodeInfo, 0)
+		nodeInfos := make([]framework.NodeInfo, 0)
 		nodes := make([]*v1.Node, 0)
 		for _, node := range nodeNames {
 			n := &v1.Node{}
 			n.SetName(node)
 			nodes = append(nodes, n)
-			nodeInfo := framework.NewNodeInfo()
+			nodeInfo := schedulerframework.NewNodeInfo()
 			nodeInfo.SetNode(n)
 			for _, pod := range pods {
 				nodeInfo.AddPod(pod)
 			}
 			nodeInfos = append(nodeInfos, nodeInfo)
 		}
-		f, err := runtime.NewFramework(nil, nil,
+		f, err := runtime.NewFramework(context.Background(), nil, nil,
 			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
 		assert.NoError(t, err)
 

@@ -25,20 +25,19 @@ import (
 
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
-	policy "k8s.io/api/policy/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
-	cri "k8s.io/cri-api/pkg/apis"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/container"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
+	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 )
 
 const (
@@ -70,15 +69,21 @@ var _ Killer = DummyKiller{}
 type EvictionAPIKiller struct {
 	emitter  metrics.MetricEmitter
 	client   kubernetes.Interface
+	ejector  control.PodEjector
 	recorder events.EventRecorder
 	conf     *config.Configuration
 }
 
 // NewEvictionAPIKiller returns a new updater Object.
 func NewEvictionAPIKiller(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
+	ejector, err := control.NewRealPodEjector(client, client.Discovery())
+	if err != nil {
+		return nil, err
+	}
 	return &EvictionAPIKiller{
 		emitter:  emitter,
 		client:   client,
+		ejector:  ejector,
 		recorder: recorder,
 		conf:     conf,
 	}, nil
@@ -107,28 +112,19 @@ func (e *EvictionAPIKiller) buildEvictionExplicitTriggerAnnotations() map[string
 }
 
 func (e *EvictionAPIKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
-	const (
-		policyGroupVersion = "policy/v1beta1"
-		evictionKind       = "Eviction"
-	)
-
 	evictPod := func(pod *v1.Pod, gracePeriodOverride int64) error {
 		klog.Infof("[eviction-killer] send request for pod %v/%v", pod.Namespace, pod.Name)
 
-		deleteOptions := &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriodOverride}
-		eviction := &policy.Eviction{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: policyGroupVersion,
-				Kind:       evictionKind,
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        pod.Name,
-				Namespace:   pod.Namespace,
-				Annotations: e.buildEvictionExplicitTriggerAnnotations(),
-			},
-			DeleteOptions: deleteOptions,
+		deleteOptions := metav1.DeleteOptions{
+			GracePeriodSeconds: &gracePeriodOverride,
 		}
-		return e.client.PolicyV1beta1().Evictions(eviction.Namespace).Evict(context.Background(), eviction)
+		return e.ejector.EvictPod(
+			context.Background(),
+			pod.Namespace,
+			pod.Name,
+			deleteOptions,
+			e.buildEvictionExplicitTriggerAnnotations(),
+		)
 	}
 
 	return evict(e.client, e.recorder, e.emitter, pod, gracePeriodSeconds, reason, plugin, evictPod)
@@ -285,14 +281,18 @@ func evict(client kubernetes.Interface, recorder events.EventRecorder, emitter m
 
 // ContainerKiller implements Killer interface it actually does not evict pod but
 // stop containers in given pod directly.
+type containerStopper interface {
+	StopContainer(context.Context, string, int64) error
+}
+
 type ContainerKiller struct {
-	containerManager cri.ContainerManager
+	containerManager containerStopper
 	recorder         events.EventRecorder
 	emitter          metrics.MetricEmitter
 }
 
 func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (Killer, error) {
-	remoteRuntimeService, err := remote.NewRemoteRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
+	remoteRuntimeService, err := criclient.NewRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -306,14 +306,14 @@ func NewContainerKiller(conf *config.Configuration, _ kubernetes.Interface, reco
 
 func (c *ContainerKiller) Name() string { return consts.KillerNameContainerKiller }
 
-func (c *ContainerKiller) Evict(_ context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
+func (c *ContainerKiller) Evict(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
 	if pod == nil {
 		return fmt.Errorf("pod is nil")
 	}
 
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		containerID := container.ParseContainerID(containerStatus.ContainerID)
-		err := c.containerManager.StopContainer(containerID.ID, gracePeriodSeconds)
+		err := c.containerManager.StopContainer(ctx, containerID.ID, gracePeriodSeconds)
 		if err != nil {
 			c.recorder.Eventf(pod, nil, v1.EventTypeNormal, consts.EventReasonContainerStopped, consts.EventActionContainerStopping,
 				"Failed to kill container %v; reason: %s", containerStatus.Name, reason)

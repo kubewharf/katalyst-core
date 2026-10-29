@@ -26,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -42,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -84,9 +84,9 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	state.SetReadonlyState(stateImpl)
 
-	runtimeClient, err := remote.NewRemoteRuntimeService(conf.BaseConfiguration.RuntimeEndpoint, 2*time.Minute)
+	runtimeClient, err := criclient.NewRuntimeService(conf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
-		return nil, fmt.Errorf("create remote runtime service failed %s", err)
+		return nil, fmt.Errorf("create remote runtime service failed: %w", err)
 	}
 
 	stateReconciler := handler.NewStateReconciler(stateImpl, conf,

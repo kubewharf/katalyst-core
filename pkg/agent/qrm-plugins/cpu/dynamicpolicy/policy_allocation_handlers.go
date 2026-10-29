@@ -2262,14 +2262,14 @@ func (p *DynamicPolicy) getAllocationPoolEntry(allocationInfo *state.AllocationI
 	errMsg := fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
 		ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 
-	general.Errorf(errMsg)
+	general.Errorf("%s", errMsg)
 
 	_ = p.emitter.StoreInt64(util.MetricNameOrphanContainer, 1, metrics.MetricTypeNameCount,
 		metrics.MetricTag{Key: "podNamespace", Val: allocationInfo.PodNamespace},
 		metrics.MetricTag{Key: "podName", Val: allocationInfo.PodName},
 		metrics.MetricTag{Key: "containerName", Val: allocationInfo.ContainerName},
 		metrics.MetricTag{Key: "poolName", Val: ownerPoolName})
-	return nil, fmt.Errorf(errMsg)
+	return nil, fmt.Errorf("%s", errMsg)
 }
 
 func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo *state.AllocationInfo,

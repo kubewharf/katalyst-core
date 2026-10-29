@@ -24,7 +24,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -63,7 +63,7 @@ func (c *overcommitCache) GetNode(name string) (*NodeCache, error) {
 }
 
 func (c *overcommitCache) AddPod(pod *v1.Pod) error {
-	key, err := framework.GetPodKey(pod)
+	key, err := schedulerframework.GetPodKey(pod)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (c *overcommitCache) AddPod(pod *v1.Pod) error {
 }
 
 func (c *overcommitCache) RemovePod(pod *v1.Pod) error {
-	key, err := framework.GetPodKey(pod)
+	key, err := schedulerframework.GetPodKey(pod)
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func (n *NodeCache) updateTopologyProvider(cnr *v1alpha1.CustomNodeResource) {
 
 	if CPUManagerPolicy, ok := cnr.Annotations[consts.KCNRAnnotationCPUManager]; ok {
 		if CPUManagerPolicy == string(cpumanager.PolicyStatic) {
-			n.HintProviders[string(features.CPUManager)] = struct{}{}
+			n.HintProviders[consts.KCNRAnnotationCPUManager] = struct{}{}
 		}
 	}
 
@@ -186,7 +186,7 @@ func (n *NodeCache) HintProvidersAvailable() (CPUManager, MemoryManager bool) {
 	n.RLock()
 	defer n.RUnlock()
 
-	_, ok := n.HintProviders[string(features.CPUManager)]
+	_, ok := n.HintProviders[consts.KCNRAnnotationCPUManager]
 	if ok {
 		CPUManager = true
 	}

@@ -25,9 +25,9 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"k8s.io/cri-client/pkg/util"
 	"k8s.io/klog/v2"
 	v1 "k8s.io/kubelet/pkg/apis/podresources/v1"
-	"k8s.io/kubernetes/pkg/kubelet/util"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -117,6 +117,20 @@ func (p *podResourcesClient) GetAllocatableResources(ctx context.Context, in *v1
 	}
 
 	return p.client.GetAllocatableResources(ctx, in, opts...)
+}
+
+// Get wraps the Get method of v1.PodResourcesListerClient
+func (p *podResourcesClient) Get(ctx context.Context, in *v1.GetPodResourcesRequest,
+	opts ...grpc.CallOption,
+) (*v1.GetPodResourcesResponse, error) {
+	p.RLock()
+	defer p.RUnlock()
+
+	if !p.isInitialized {
+		return nil, errNotInitialized
+	}
+
+	return p.client.Get(ctx, in, opts...)
 }
 
 // GetClientFunc is a function to get a client for the PodResourcesLister grpc service.

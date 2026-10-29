@@ -17,18 +17,24 @@ limitations under the License.
 package pod
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	kubetypes "k8s.io/apimachinery/pkg/types"
-	cri "k8s.io/cri-api/pkg/apis"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
-	"k8s.io/kubernetes/pkg/kubelet/types"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
+)
+
+const (
+	kubernetesPodNameLabel       = "io.kubernetes.pod.name"
+	kubernetesPodNamespaceLabel  = "io.kubernetes.pod.namespace"
+	kubernetesPodUIDLabel        = "io.kubernetes.pod.uid"
+	kubernetesContainerNameLabel = "io.kubernetes.container.name"
 )
 
 // RuntimePod is a group of containers.
@@ -61,13 +67,13 @@ type RuntimePodFetcher interface {
 }
 
 type runtimePodFetcherImpl struct {
-	runtimeService cri.RuntimeService
+	runtimeService criclient.RuntimeService
 }
 
 func NewRuntimePodFetcher(baseConf *global.BaseConfiguration) (RuntimePodFetcher, error) {
-	runtimeService, err := remote.NewRemoteRuntimeService(baseConf.RuntimeEndpoint, 2*time.Minute)
+	runtimeService, err := criclient.NewRuntimeService(baseConf.RuntimeEndpoint, 2*time.Minute)
 	if err != nil {
-		return nil, fmt.Errorf("create remote runtime service failed %s", err)
+		return nil, fmt.Errorf("create remote runtime service failed: %w", err)
 	}
 
 	return &runtimePodFetcherImpl{runtimeService: runtimeService}, nil
@@ -145,7 +151,7 @@ func (r *runtimePodFetcherImpl) getKubeletSandboxes(all bool) ([]*runtimeapi.Pod
 		}
 	}
 
-	resp, err := r.runtimeService.ListPodSandbox(filter)
+	resp, err := r.runtimeService.ListPodSandbox(context.Background(), filter)
 	if err != nil {
 		klog.ErrorS(err, "Failed to list pod sandboxes")
 		return nil, err
@@ -165,7 +171,7 @@ func (r *runtimePodFetcherImpl) getKubeletContainers(allContainers bool) ([]*run
 		}
 	}
 
-	containers, err := r.runtimeService.ListContainers(filter)
+	containers, err := r.runtimeService.ListContainers(context.Background(), filter)
 	if err != nil {
 		klog.ErrorS(err, "ListContainers failed")
 		return nil, err
@@ -176,7 +182,7 @@ func (r *runtimePodFetcherImpl) getKubeletContainers(allContainers bool) ([]*run
 
 // GetContainerInfo returns the additional runtime info of a container based on container id
 func (r *runtimePodFetcherImpl) GetContainerInfo(containerId string) (map[string]string, error) {
-	containerStatus, err := r.runtimeService.ContainerStatus(containerId, true)
+	containerStatus, err := r.runtimeService.ContainerStatus(context.Background(), containerId, true)
 	if containerStatus == nil || err != nil {
 		klog.ErrorS(err, "GetContainerStatus failed")
 		return nil, fmt.Errorf("get container status failed, err: %v", err)
@@ -193,9 +199,9 @@ func (r *runtimePodFetcherImpl) GetContainerInfo(containerId string) (map[string
 // getContainerInfoFromLabels gets labeledContainerInfo from labels.
 func getContainerInfoFromLabels(labels map[string]string) *labeledContainerInfo {
 	return &labeledContainerInfo{
-		PodName:       general.GetStringValueFromMap(labels, types.KubernetesPodNameLabel),
-		PodNamespace:  general.GetStringValueFromMap(labels, types.KubernetesPodNamespaceLabel),
-		PodUID:        kubetypes.UID(general.GetStringValueFromMap(labels, types.KubernetesPodUIDLabel)),
-		ContainerName: general.GetStringValueFromMap(labels, types.KubernetesContainerNameLabel),
+		PodName:       general.GetStringValueFromMap(labels, kubernetesPodNameLabel),
+		PodNamespace:  general.GetStringValueFromMap(labels, kubernetesPodNamespaceLabel),
+		PodUID:        kubetypes.UID(general.GetStringValueFromMap(labels, kubernetesPodUIDLabel)),
+		ContainerName: general.GetStringValueFromMap(labels, kubernetesContainerNameLabel),
 	}
 }

@@ -26,8 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kube-scheduler/framework"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
@@ -39,7 +40,7 @@ import (
 )
 
 var makeFit = func(scoringStrategyType kubeschedulerconfig.ScoringStrategyType) (framework.Plugin, error) {
-	return NewFit(&config.QoSAwareNodeResourcesFitArgs{
+	return NewFit(context.Background(), &config.QoSAwareNodeResourcesFitArgs{
 		ScoringStrategy: &config.ScoringStrategy{
 			Type: scoringStrategyType,
 			Resources: []kubeschedulerconfig.ResourceSpec{
@@ -124,8 +125,8 @@ var makeFitPod = func(uid types.UID, name string, res v1.ResourceList, node stri
 	return pod
 }
 
-var makeFitNode = func(name string, pods []*v1.Pod, res v1.ResourceList) *framework.NodeInfo {
-	ni := framework.NewNodeInfo(pods...)
+var makeFitNode = func(name string, pods []*v1.Pod, res v1.ResourceList) framework.NodeInfo {
+	ni := schedulerframework.NewNodeInfo(pods...)
 	ni.SetNode(&v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -156,13 +157,13 @@ func Test_Fit(t *testing.T) {
 	assert.Nil(t, err)
 	fit := f.(*Fit)
 
-	state := framework.NewCycleState()
+	state := schedulerframework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
 	}, "c1")
 
-	fit.PreFilter(context.Background(), state, p1)
+	fit.PreFilter(context.Background(), state, p1, nil)
 	data, err := state.Read(preFilterStateKey)
 	assert.Nil(t, err)
 	assert.Equal(t, data, &preFilterState{
@@ -174,11 +175,13 @@ func Test_Fit(t *testing.T) {
 
 	assert.Nil(t, fit.PreFilterExtensions())
 
-	e := []framework.ClusterEvent{
-		{Resource: framework.Pod, ActionType: framework.Delete},
-		{Resource: framework.Node, ActionType: framework.Add},
+	e := []framework.ClusterEventWithHint{
+		{Event: framework.ClusterEvent{Resource: framework.Pod, ActionType: framework.Delete}},
+		{Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add}},
 	}
-	assert.Equal(t, fit.EventsToRegister(), e)
+	events, err := fit.EventsToRegister(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, e, events)
 	assert.Nil(t, fit.ScoreExtensions())
 
 	fit.Reserve(context.Background(), nil, p1, "c1")
@@ -204,7 +207,7 @@ func Test_Allocated(t *testing.T) {
 	f, _ := makeFit(kubeschedulerconfig.LeastAllocated)
 	fit := f.(*Fit)
 
-	state := framework.NewCycleState()
+	state := schedulerframework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
@@ -222,7 +225,7 @@ func Test_Allocated(t *testing.T) {
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "")
-	fit.PreFilter(context.Background(), state, p3)
+	fit.PreFilter(context.Background(), state, p3, nil)
 
 	status := fit.Filter(context.Background(), state, p3, n1)
 	t.Logf("%v", status.Reasons())
@@ -240,7 +243,7 @@ func Test_Allocated(t *testing.T) {
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(30*1024*0o124*1024, resource.DecimalSI),
 	}, "")
-	fit.PreFilter(context.Background(), state, p4)
+	fit.PreFilter(context.Background(), state, p4, nil)
 
 	status = fit.Filter(context.Background(), state, p4, n1)
 	t.Logf("%v", status)
@@ -250,7 +253,7 @@ func Test_Allocated(t *testing.T) {
 func Test_FitScore(t *testing.T) {
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 
-	state := framework.NewCycleState()
+	state := schedulerframework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
@@ -273,19 +276,20 @@ func Test_FitScore(t *testing.T) {
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
 	}, "")
+	nodeInfo := makeFitNode("n1", nil, nil)
 
 	leastF, _ := makeFit(kubeschedulerconfig.LeastAllocated)
 	leastFit := leastF.(*Fit)
-	score, _ := leastFit.Score(context.Background(), state, p3, "n1")
+	score, _ := leastFit.Score(context.Background(), state, p3, nodeInfo)
 	assert.Equal(t, score, int64(26))
 
 	mostF, _ := makeFit(kubeschedulerconfig.MostAllocated)
 	mostFit := mostF.(*Fit)
-	score, _ = mostFit.Score(context.Background(), state, p3, "n1")
+	score, _ = mostFit.Score(context.Background(), state, p3, nodeInfo)
 	assert.Equal(t, score, int64(72))
 
 	ratioF, _ := makeFit(kubeschedulerconfig.RequestedToCapacityRatio)
 	ratioFit := ratioF.(*Fit)
-	score, _ = ratioFit.Score(context.Background(), state, p3, "n1")
+	score, _ = ratioFit.Score(context.Background(), state, p3, nodeInfo)
 	assert.Equal(t, score, int64(70))
 }

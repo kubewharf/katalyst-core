@@ -19,6 +19,7 @@ package staticpolicy
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -676,7 +676,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 
 	// since qos config util will filter out annotation keys not related to katalyst QoS,
 	// we copy original pod annotations here to use them later
-	podAnnotations := maputil.CopySS(req.Annotations)
+	podAnnotations := maps.Clone(req.Annotations)
 
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
