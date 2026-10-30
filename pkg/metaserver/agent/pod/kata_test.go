@@ -135,6 +135,17 @@ func TestKataContainerFetcher_getKataCgroupPathSuffix(t *testing.T) {
 	}
 }
 
+func TestKataContainerFetcher_getKataCgroupPathSuffixWithoutRuntimePodFetcher(t *testing.T) {
+	t.Parallel()
+
+	kataContainerFetcher := &KataContainerFetcher{}
+	var err error
+	assert.NotPanics(t, func() {
+		_, err = kataContainerFetcher.getKataCgroupPathSuffix("12345678", "container1234")
+	})
+	assert.Error(t, err)
+}
+
 func TestKataContainerFetcher_getKataContainerAbsoluteCgroupPath(t *testing.T) {
 	t.Parallel()
 

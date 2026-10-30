@@ -93,6 +93,10 @@ func (k *KataContainerFetcher) getKataContainerRelativeCgroupPath(podUID, contai
 // getKataCgroupPathSuffix retrieves the sandbox id of the kata container and
 // then constructs the cgroup path suffix.
 func (k *KataContainerFetcher) getKataCgroupPathSuffix(podUID, containerId string) (string, error) {
+	if k == nil || k.runtimePodFetcher == nil {
+		return "", fmt.Errorf("runtime pod fetcher is unavailable")
+	}
+
 	infoRaw, err := k.runtimePodFetcher.GetContainerInfo(containerId)
 	if err != nil {
 		return "", fmt.Errorf("failed to get container info, err: %v", err)
