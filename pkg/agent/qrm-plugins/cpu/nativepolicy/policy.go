@@ -56,6 +56,7 @@ const (
 )
 
 // NativePolicy is a policy compatible with Kubernetes native semantics and is used in topology-aware scheduling scenarios.
+// just test
 type NativePolicy struct {
 	sync.RWMutex
 	pluginapi.UnimplementedResourcePluginServer
