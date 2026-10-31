@@ -166,6 +166,26 @@ func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	irqForbiddenCPUSet := p.getPinnedResourcePackageIRQForbiddenCPUSet()
 	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
+	if p.dynamicConfig != nil {
+		if dyn := p.dynamicConfig.GetDynamicConfiguration(); dyn != nil &&
+			dyn.CPUPluginConfiguration != nil &&
+			dyn.CPUPluginConfiguration.BindIRQToReclaimedPool {
+			reclaimCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), func(name string) bool {
+				return name == commonstate.PoolNameReclaim
+			})
+			if reclaimCPUs.IsEmpty() {
+				return machine.NewCPUSet(), fmt.Errorf("BindIRQToReclaimedPool is enabled but the reclaimed pool has no allocated CPUs")
+			}
+			// Every logical CPU outside the reclaimed pool is forbidden for
+			// IRQ binding. Use CPUDetails.CPUs() (logical CPU IDs) rather than
+			// Cores() (CoreIDs) so SMT siblings are included. Union, not
+			// assign, so reserved/system/pinned CPUs that also fall in the
+			// reclaim pool remain forbidden.
+			forbiddenCores = forbiddenCores.Union(
+				p.machineInfo.CPUTopology.CPUDetails.CPUs().Difference(reclaimCPUs))
+		}
+	}
+
 	general.Infof("get the irq forbidden cores %v", forbiddenCores)
 	return forbiddenCores, nil
 }
@@ -193,6 +213,9 @@ func (p *DynamicPolicy) GetExclusiveIRQCPUSet() (machine.CPUSet, error) {
 
 // SetExclusiveIRQCPUSet sets the exclusive cpu set for Interrupt.
 func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
+	p.Lock()
+	defer p.Unlock()
+
 	general.Infof("set the current irq exclusive cpu set: %v", irqCPUSet)
 
 	forbidden, err := p.GetIRQForbiddenCores()
@@ -267,8 +290,19 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(newPodEntries, true)
-	p.state.SetMachineState(machineState, true)
+	if p.adjustment.cpuSetAdjustmentExecution != nil {
+		p.adjustment.cpuSetAdjustmentExecution <- struct{}{}
+	}
+
+	_, _, revision := p.state.GetAdvisorStateSnapshot()
+	if err := p.state.CommitAdvisorStateIfRevision(
+		revision, newPodEntries, machineState,
+		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
+		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		true,
+	); err != nil {
+		return err
+	}
 
 	_ = p.emitter.StoreInt64(util.MetricNameSetExclusiveIRQCPUSize, int64(irqCPUSetSize), metrics.MetricTypeNameRaw)
 	general.Infof("persistent irq exclusive cpu set %v successful", irqCPUSet.String())
