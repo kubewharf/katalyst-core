@@ -686,11 +686,8 @@ func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_EmptyReclaim(t *te
 	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = true
 
 	forbidden, err := policy.GetIRQForbiddenCores()
-	require.NoError(t, err)
-
-	// reclaim missing -> fall back: reserved (0,1) ∪ system (4,5)
-	expected := machine.NewCPUSet(0, 1, 4, 5)
-	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+	require.Error(t, err, "exclusion enabled with an empty reclaimed pool must surface an explicit error")
+	assert.True(t, forbidden.IsEmpty(), "no forbidden cores may be reported when the exclusion cannot be applied")
 }
 
 func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_Disabled(t *testing.T) {
@@ -725,4 +722,75 @@ func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_NilDynamicConfig(t
 	// nil dynamicConfig -> fall back: reserved (0,1) ∪ system (4,5)
 	expected := machine.NewCPUSet(0, 1, 4, 5)
 	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+// setupIRQBindPolicy builds a DynamicPolicy with an explicit reserved/system/reclaim
+// layout on a 16-CPU SMT topology (CPU k and k+8 share CoreID k).
+func setupIRQBindPolicy(t *testing.T, reserved, system, reclaim machine.CPUSet) *DynamicPolicy {
+	t.Helper()
+	tmpDir := t.TempDir()
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+	policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	policy.reservedCPUs = reserved.Clone()
+	if !system.IsEmpty() {
+		systemPoolName := commonstate.GetSystemPoolName("latency")
+		require.NoError(t, policy.state.SetAllocationInfo(systemPoolName, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(systemPoolName),
+			AllocationResult:         system.Clone(),
+			OriginalAllocationResult: system.Clone(),
+		}, true))
+	}
+	if !reclaim.IsEmpty() {
+		require.NoError(t, policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:         reclaim.Clone(),
+			OriginalAllocationResult: reclaim.Clone(),
+		}, true))
+	}
+	require.NotNil(t, policy.dynamicConfig.GetDynamicConfiguration().CPUPluginConfiguration)
+	policy.dynamicConfig.GetDynamicConfiguration().CPUPluginConfiguration.BindIRQToReclaimedPool = true
+	return policy
+}
+
+func TestGetIRQForbiddenCores_SMTIncludesLogicalSiblings(t *testing.T) {
+	t.Parallel()
+	// On the SMT topology CPU 4 and CPU 12 share CoreID 4; CPU 5 and CPU 13
+	// share CoreID 5. reclaim = {4,5,12,13}. The forbidden set must include
+	// every logical CPU outside reclaim, including SMT siblings 8-11 and 14-15
+	// whose CoreIDs are not in the reclaim range. Using CoreIDs (Cores())
+	// instead of logical CPU IDs would drop those siblings.
+	policy := setupIRQBindPolicy(t,
+		machine.NewCPUSet(0, 1),
+		machine.NewCPUSet(2, 3),
+		machine.NewCPUSet(4, 5, 12, 13),
+	)
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	expected := machine.NewCPUSet(0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 14, 15)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+func TestGetIRQForbiddenCores_UnionKeepsReservedInsideReclaim(t *testing.T) {
+	t.Parallel()
+	// reserved CPU 6 also belongs to the reclaim pool {6..15}. It must remain
+	// forbidden: the base forbidden set (reserved ∪ system) is preserved and
+	// unioned with the non-reclaim CPUs, rather than replaced by
+	// allCPUs-minus-reclaim which would drop CPU 6.
+	policy := setupIRQBindPolicy(t,
+		machine.NewCPUSet(6),
+		machine.NewCPUSet(4, 5),
+		machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
+	)
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	expected := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+	assert.True(t, forbidden.Contains(6), "reserved CPU 6 inside reclaim must stay forbidden, got %v", forbidden)
 }

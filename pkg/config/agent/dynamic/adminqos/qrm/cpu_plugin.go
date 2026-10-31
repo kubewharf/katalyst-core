@@ -49,8 +49,8 @@ type CPUPluginConfiguration struct {
 	// "machine cpuset - reclaimed pool cpuset (still unioned with reservedCPUs
 	// and other unconditional forbidden sources)" so that network IRQs are
 	// effectively pinned into the reclaimed pool. Requires the reclaimed pool
-	// to exist and be non-empty; otherwise the plugin falls back to the
-	// previous behavior.
+	// to exist and be non-empty; otherwise GetIRQForbiddenCores returns an error
+	// without publishing a new forbidden set.
 	BindIRQToReclaimedPool bool
 }
 
