@@ -50,10 +50,9 @@ func Test_getCgroupRootPaths(t *testing.T) {
 		return
 	}
 
+	undo := common.SetCgroup2UnifiedModeOverride(false)
+	defer undo()
 	root := "/sys/fs/cgroup/cpu"
-	if common.CheckCgroup2UnifiedMode() {
-		root = "/sys/fs/cgroup"
-	}
 	want := []string{
 		filepath.Join(root, "kubepods"),
 		filepath.Join(root, "kubepods/besteffort"),
