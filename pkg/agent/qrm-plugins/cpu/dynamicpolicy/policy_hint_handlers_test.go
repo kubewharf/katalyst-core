@@ -614,15 +614,10 @@ func TestCalculateHintsForNUMABindingSharedCores1(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			p := &DynamicPolicy{
-				machineInfo: &machine.KatalystMachineInfo{
-					CPUTopology: cpuTopology,
-				},
-				numaBindingResultAnnotationKey:      "katalyst-test/nume-bind-result",
-				sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{},
-				dynamicConfig:                       dynamic.NewDynamicAgentConfiguration(),
-			}
-			p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult = tt.preferUseExistNUMAHintResult
+			p := &DynamicPolicy{machine: machineComponent{machineInfo: &machine.KatalystMachineInfo{
+				CPUTopology: cpuTopology,
+			}}, config: configComponent{numaBindingResultAnnotationKey: "katalyst-test/nume-bind-result", dynamicConfig: dynamic.NewDynamicAgentConfiguration()}, hintOpt: hintOptimizerComponent{sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{}}}
+			p.config.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult = tt.preferUseExistNUMAHintResult
 
 			result, err := p.calculateHintsForNUMABindingSharedCores(tt.request, podEntries, machineState, tt.req)
 
@@ -719,10 +714,7 @@ func TestPopulateHintsByAlreadyExistedNUMABindingResult(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &DynamicPolicy{
-				numaBindingResultAnnotationKey: "numa_binding",
-				emitter:                        &metrics.DummyMetrics{},
-			}
+			p := &DynamicPolicy{emitter: emitterComponent{emitter: &metrics.DummyMetrics{}}, config: configComponent{numaBindingResultAnnotationKey: "numa_binding"}}
 
 			err := p.populateHintsByAlreadyExistedNUMABindingResult(tt.req, tt.hints)
 			if tt.expectedError {
@@ -745,11 +737,11 @@ func newTestPolicyForCPUTotalRequestThreshold(t *testing.T, ratio float64) *Dyna
 	policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, t.TempDir())
 	require.NoError(t, err)
 
-	policy.podAnnotationKeptKeys = []string{
+	policy.config.podAnnotationKeptKeys = []string{
 		consts.PodAnnotationInplaceUpdateResizingKey,
 	}
 
-	policy.conf.CPUQRMPluginConfig.TotalRequestThresholdHintOptimizerConfig.CPUTotalRequestThresholdRatio = ratio
+	policy.config.conf.CPUQRMPluginConfig.TotalRequestThresholdHintOptimizerConfig.CPUTotalRequestThresholdRatio = ratio
 	return policy
 }
 
@@ -818,7 +810,7 @@ func newCPUTotalRequestThresholdAllocationInfo(podUID, qosLevel string, numaID i
 func setCPUTotalRequestThresholdPodEntries(t *testing.T, policy *DynamicPolicy, podEntries state.PodEntries) {
 	t.Helper()
 
-	machineState, err := generateMachineStateFromPodEntries(policy.machineInfo.CPUTopology, podEntries, policy.state.GetMachineState())
+	machineState, err := generateMachineStateFromPodEntries(policy.machine.machineInfo.CPUTopology, podEntries, policy.state.GetMachineState())
 	require.NoError(t, err)
 
 	policy.state.SetPodEntries(podEntries, false)
