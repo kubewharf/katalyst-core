@@ -36,6 +36,9 @@ func NewCgroupIDManager(_ pod.PodFetcher) CgroupIDManager {
 func (m *unsupportedCgroupIDManager) Run(_ context.Context) {
 }
 
+func (m *unsupportedCgroupIDManager) SetPodFetcher(_ pod.PodFetcher) {
+}
+
 // GetCgroupIDForContainer returns the cgroup id of a given container.
 func (m *unsupportedCgroupIDManager) GetCgroupIDForContainer(podUID, containerID string) (uint64, error) {
 	return 0, nil
