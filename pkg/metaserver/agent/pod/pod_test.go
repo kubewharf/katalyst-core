@@ -50,6 +50,13 @@ func Test_getCgroupRootPaths(t *testing.T) {
 		return
 	}
 
+	// The expected paths use the legacy cgroup v1 layout (a per-controller
+	// /cpu/ prefix). Pin cgroup v2 detection to v1 in this subprocess so the
+	// path helpers are exercised deterministically regardless of the host's
+	// cgroup version; the mount root itself stays the standard /sys/fs/cgroup.
+	undo := common.SetCgroup2UnifiedModeOverride(false)
+	defer undo()
+
 	want := []string{
 		"/sys/fs/cgroup/cpu/kubepods",
 		"/sys/fs/cgroup/cpu/kubepods/besteffort",

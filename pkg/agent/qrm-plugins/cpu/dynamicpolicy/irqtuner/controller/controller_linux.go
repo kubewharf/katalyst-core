@@ -2562,7 +2562,8 @@ func (ic *IrqTuningController) getSocketsQualifiedNumasForBalanceFairPolicy(sock
 
 // getUnqualifiedCoresForIrqAffinity get cores which are unqualified for irq affinity
 func (ic *IrqTuningController) getUnqualifiedCoresForIrqAffinity() map[int64]interface{} {
-	unqualifiedCores := ic.getIrqAffinityForbiddenContainerCPUs()
+	forbiddenContainerCPUs := ic.getIrqAffinityForbiddenContainerCPUs()
+	unqualifiedCores := append([]int64{}, forbiddenContainerCPUs...)
 
 	// forbidden cores cannot be used as exclusive irq cores,
 	// and also cannot be affinity by irqs of nics with balance-fair policy,
@@ -2575,6 +2576,11 @@ func (ic *IrqTuningController) getUnqualifiedCoresForIrqAffinity() map[int64]int
 	for _, core := range unqualifiedCores {
 		unqualifiedCoresMap[core] = nil
 	}
+	general.Infof("%s irq affinity forbidden diagnostic: forbiddenContainerCPUs=%s irqForbiddenCores=%s combinedUnqualified=%s",
+		IrqTuningLogPrefix,
+		formatInt64SliceForDiagnostic(forbiddenContainerCPUs),
+		formatInt64SliceForDiagnostic(ic.IrqAffForbiddenCores),
+		formatInt64MapKeysForDiagnostic(unqualifiedCoresMap))
 	return unqualifiedCoresMap
 }
 
@@ -2610,6 +2616,11 @@ func (ic *IrqTuningController) getQualifiedCoresMap(destDomainCoresList []int64,
 		qualifiedCoresMap[cpu] = nil
 	}
 
+	general.Infof("%s irq affinity qualified cores diagnostic: destDomain=%s unqualified=%s qualified=%s",
+		IrqTuningLogPrefix,
+		formatInt64SliceForDiagnostic(destDomainCoresList),
+		formatInt64MapKeysForDiagnostic(unqualifiedCoresMap),
+		formatInt64MapKeysForDiagnostic(qualifiedCoresMap))
 	return qualifiedCoresMap
 }
 
@@ -2837,6 +2848,56 @@ func (ic *IrqTuningController) selectPhysicalCoreWithLeastIrqs(coreIrqsCount map
 	return ic.selectPhysicalCoreWithLeastOrMostIrqs(coreIrqsCount, qualifiedCoresMap, true)
 }
 
+func formatInt64SliceForDiagnostic(cpus []int64) string {
+	if len(cpus) == 0 {
+		return ""
+	}
+
+	copied := append([]int64{}, cpus...)
+	general.SortInt64Slice(copied)
+
+	var b strings.Builder
+	start := copied[0]
+	prev := copied[0]
+	for _, cpu := range copied[1:] {
+		if cpu == prev || cpu == prev+1 {
+			prev = cpu
+			continue
+		}
+
+		appendInt64RangeForDiagnostic(&b, start, prev)
+		start = cpu
+		prev = cpu
+	}
+	appendInt64RangeForDiagnostic(&b, start, prev)
+	return b.String()
+}
+
+func formatInt64MapKeysForDiagnostic(cpus map[int64]interface{}) string {
+	if len(cpus) == 0 {
+		return ""
+	}
+
+	keys := make([]int64, 0, len(cpus))
+	for cpu := range cpus {
+		keys = append(keys, cpu)
+	}
+	return formatInt64SliceForDiagnostic(keys)
+}
+
+func appendInt64RangeForDiagnostic(b *strings.Builder, start, end int64) {
+	if b.Len() > 0 {
+		b.WriteString(",")
+	}
+	if start == end {
+		b.WriteString(strconv.FormatInt(start, 10))
+		return
+	}
+	b.WriteString(strconv.FormatInt(start, 10))
+	b.WriteString("-")
+	b.WriteString(strconv.FormatInt(end, 10))
+}
+
 func (ic *IrqTuningController) selectPhysicalCoreWithMostIrqs(coreIrqsCount map[int64]int, qualifiedCoresMap map[int64]interface{}) (int64, error) {
 	return ic.selectPhysicalCoreWithLeastOrMostIrqs(coreIrqsCount, qualifiedCoresMap, false)
 }
@@ -2848,6 +2909,21 @@ func (ic *IrqTuningController) selectPhysicalCoreWithMostIrqs(coreIrqsCount map[
 // stable balance for all shared-nics.
 // when calculate cores irq count for low throughput nics, will account irqs of all normal throughput nics.
 func (ic *IrqTuningController) tuneNicIrqsAffinityQualifiedCores(nic *NicInfo, irqs []int, qualifiedCoresMap map[int64]interface{}, tunedIrqs []int) error {
+	// qualifiedCoresMap and IrqAffForbiddenCores are invariant across the IRQ
+	// loop (only coresIrqCount mutates below), so the diagnostic strings that
+	// render them are formatted once per NIC instead of being re-sorted on every
+	// IRQ. The verbose gate keeps bring-up visibility off the default hot path.
+	qualifiedCoresStr := formatInt64MapKeysForDiagnostic(qualifiedCoresMap)
+	forbiddenCoresStr := formatInt64SliceForDiagnostic(ic.IrqAffForbiddenCores)
+
+	general.InfofV(2, "%s irq affinity tune diagnostic: nic=%s irqs=%v tunedIrqs=%v qualifiedCores=%s irqForbiddenCores=%s",
+		IrqTuningLogPrefix,
+		nic,
+		irqs,
+		tunedIrqs,
+		qualifiedCoresStr,
+		forbiddenCoresStr)
+
 	// shared nic (include normal throughput nic and low throughput nic, stored in ic.Nics and ic.LowThroughputNics):
 	//   shared nic's irqs are not accounted in getCoresIrqCount
 	// sriov nic:
@@ -2906,6 +2982,21 @@ func (ic *IrqTuningController) tuneNicIrqsAffinityQualifiedCores(nic *NicInfo, i
 			general.Errorf("%s failed to selectPhysicalCoreWithLeastIrqs, err %v", IrqTuningLogPrefix, err)
 			continue
 		}
+		// qualifiedCoresMap is built by excluding IrqAffForbiddenCores, and the
+		// selector only picks from qualifiedCoresMap, so the chosen target can
+		// never land on a forbidden core. Keep targetQualified as the regression
+		// signal: a future selector change that breaks the invariant surfaces here
+		// at verbose level instead of silently pinning IRQs onto forbidden cores.
+		_, targetQualified := qualifiedCoresMap[targetCore]
+		general.InfofV(2, "%s irq affinity target diagnostic: nic=%s irq=%d currentCore=%d targetCore=%d targetQualified=%t qualifiedCores=%s irqForbiddenCores=%s",
+			IrqTuningLogPrefix,
+			nic,
+			irq,
+			core,
+			targetCore,
+			targetQualified,
+			qualifiedCoresStr,
+			forbiddenCoresStr)
 
 		if targetCore == core {
 			// shared nic's irqs are not accounted in getCoresIrqCount, so here coresIrqCount has not account this irq,
@@ -3764,6 +3855,7 @@ retry:
 	}
 
 	ic.IrqAffForbiddenCores = forbiddendCores.ToSliceInt64()
+	general.Infof("%s irq forbidden cores loaded from state adapter: %s", IrqTuningLogPrefix, formatInt64SliceForDiagnostic(ic.IrqAffForbiddenCores))
 
 	return nil
 }

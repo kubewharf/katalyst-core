@@ -85,6 +85,28 @@ func (lwr *ListAndWatchResponse) GetSharedBindingNUMAs() (sets.Int, error) {
 	return sharedBindingNUMAs, nil
 }
 
+// WithoutDefaultShareEntry returns a shallow copy of the response whose Entries
+// map excludes the default (non-numa-binding) share pool entry. The default
+// share pool is published as an allocatable upper bound rather than a concrete
+// block plan, so every block-oriented consumer (validator, block planner) must
+// strip it before interpreting entries as blocks. Centralizing the filter here
+// keeps that single semantic definition from drifting across call sites. A nil
+// receiver yields nil; the source response is never mutated.
+func (lwr *ListAndWatchResponse) WithoutDefaultShareEntry() *ListAndWatchResponse {
+	if lwr == nil {
+		return nil
+	}
+	filtered := *lwr
+	filtered.Entries = make(map[string]*CalculationEntries, len(lwr.Entries))
+	for entryName, entries := range lwr.Entries {
+		if entryName == commonstate.PoolNameShare {
+			continue
+		}
+		filtered.Entries[entryName] = entries
+	}
+	return &filtered
+}
+
 type BlockInfo struct {
 	Block
 	OwnerPoolEntryMap map[string]BlockEntry
