@@ -273,17 +273,27 @@ func TestDoMemTHPEnable(t *testing.T) {
 
 	oldEnabledPath := thpEnabledPath
 	oldShmemPath := thpShmemEnabledPath
+	oldMinFreeKbytesPath := minFreeKbytesPath
 	defer func() {
 		thpEnabledPath = oldEnabledPath
 		thpShmemEnabledPath = oldShmemPath
+		minFreeKbytesPath = oldMinFreeKbytesPath
 	}()
 
 	thpFile := createTempFile(t, "always madvise [never]\n")
 	shmemFile := createTempFile(t, "always within_size advise [never] deny force\n")
+	// Setting THP to madvise preserves and restores vm.min_free_kbytes; point
+	// it at a temp file so the restore never touches the read-only host
+	// /proc/sys/vm/min_free_kbytes. The restore error stays observable in
+	// production (it is aggregated into the returned error), it is just not
+	// exercised against the real sysfs here.
+	minFreeFile := createTempFile(t, "11707\n")
 	defer os.Remove(thpFile)
 	defer os.Remove(shmemFile)
+	defer os.Remove(minFreeFile)
 	thpEnabledPath = thpFile
 	thpShmemEnabledPath = shmemFile
+	minFreeKbytesPath = minFreeFile
 
 	metaServer, err := makeMetaServer()
 	assert.NoError(t, err)

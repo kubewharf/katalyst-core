@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
@@ -29,4 +30,10 @@ func TestNewGenericQRMPluginConfiguration_ContainsContainerCPUIdleAnnotation(t *
 
 	conf := NewGenericQRMPluginConfiguration()
 	assert.Contains(t, conf.PodAnnotationKeptKeys, katalystapiconsts.PodAnnotationContainerCPUIdleRateKey)
+}
+
+func TestNewQRMPluginsConfiguration_ResctrlConfigHasNoOptionDefaults(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, NewQRMPluginsConfiguration().ResctrlConfig.DefaultClosIDs)
 }

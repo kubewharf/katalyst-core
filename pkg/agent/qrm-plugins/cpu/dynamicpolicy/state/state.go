@@ -18,6 +18,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -133,6 +134,108 @@ type NUMANodeState struct {
 
 type NUMANodeMap map[int]*NUMANodeState // keyed by numa node id
 
+// RampUpReclaimDomains resolves the set of reclaim domains this allocation belongs to.
+//
+//   - non-NUMA-binding allocation maps to the global domain (FakedNUMAID);
+//   - a NUMA-binding allocation placed on a single real NUMA maps to that NUMA,
+//     cross checked against the NUMA hint annotation when one is present;
+//   - a dedicated NUMA-binding allocation distributed across several NUMAs maps
+//     to every NUMA it is placed on (dedicated cores may legitimately span
+//     NUMAs); a shared NUMA-binding allocation spanning multiple NUMAs is
+//     ambiguous and fails closed.
+//
+// A NUMA-binding allocation that has not been materialized yet (no
+// TopologyAwareAssignments, e.g. an entering request being placed) resolves
+// from its explicit NUMA hint; a committed allocation with neither placement
+// nor a hint is inconsistent and fails closed. Any other missing or ambiguous
+// domain fails closed with an error rather than collapsing to node-global.
+func (ai *AllocationInfo) RampUpReclaimDomains(topology *machine.CPUTopology) (sets.Int, error) {
+	if ai == nil {
+		return nil, fmt.Errorf("RampUpReclaimDomains got nil allocationInfo")
+	}
+
+	// non-binding shared ramp-up always belongs to the global domain.
+	if !ai.CheckNUMABinding() {
+		return sets.NewInt(commonstate.FakedNUMAID), nil
+	}
+
+	placementNUMASet := ai.GetAllocationResultNUMASet()
+	if placementNUMASet.IsEmpty() {
+		// The allocation has not been materialized yet. If it carries an
+		// explicit NUMA hint, that is its intended reclaim domain; otherwise
+		// the committed state is inconsistent and we fail closed.
+		if !ai.CheckActualNUMABinding() {
+			return nil, fmt.Errorf(
+				"missing ramp-up domain: numa-binding ramp-up allocation %s/%s/%s has no TopologyAwareAssignments and no NUMA hint",
+				ai.PodNamespace, ai.PodName, ai.ContainerName)
+		}
+		hintNUMA, err := ai.GetSpecifiedNUMABindingNUMAID()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"ambiguous ramp-up domain: numa-binding ramp-up allocation %s/%s/%s has unparseable NUMA hint: %v",
+				ai.PodNamespace, ai.PodName, ai.ContainerName, err)
+		}
+		if hintNUMA == commonstate.FakedNUMAID || !topology.CPUDetails.NUMANodes().Contains(hintNUMA) {
+			return nil, fmt.Errorf(
+				"out-of-range ramp-up domain: numa-binding ramp-up allocation %s/%s/%s has NUMA hint %d which is not in topology",
+				ai.PodNamespace, ai.PodName, ai.ContainerName, hintNUMA)
+		}
+		// Fallback: a committed ramp-up allocation should carry TopologyAwareAssignments.
+		// Resolving its domain from the NUMA hint alone indicates the committed state is
+		// inconsistent; log it so state corruption is observable rather than silent.
+		klog.Warningf("ramp-up reclaim domain resolved from NUMA hint for allocation %s/%s/%s (no TopologyAwareAssignments): committed state may be inconsistent",
+			ai.PodNamespace, ai.PodName, ai.ContainerName)
+		return sets.NewInt(hintNUMA), nil
+	}
+
+	// A dedicated NUMA-binding allocation may legitimately span multiple NUMAs
+	// (distributed evenly across NUMA nodes); every placement NUMA is its own
+	// reclaim domain. A shared NUMA-binding allocation spanning NUMAs is
+	// ambiguous: shared cores are pinned to a single NUMA by their pool.
+	if placementNUMASet.Size() > 1 {
+		if !ai.CheckDedicatedNUMABinding() {
+			return nil, fmt.Errorf(
+				"ambiguous ramp-up domain: shared numa-binding ramp-up allocation %s/%s/%s spans NUMAs %s, expected exactly one",
+				ai.PodNamespace, ai.PodName, ai.ContainerName, placementNUMASet.String())
+		}
+		domains := sets.NewInt()
+		for _, numaID := range placementNUMASet.ToSliceNoSortInt() {
+			if !topology.CPUDetails.NUMANodes().Contains(numaID) {
+				return nil, fmt.Errorf(
+					"out-of-range ramp-up domain: dedicated numa-binding ramp-up allocation %s/%s/%s placed on NUMA %d which is not in topology",
+					ai.PodNamespace, ai.PodName, ai.ContainerName, numaID)
+			}
+			domains.Insert(numaID)
+		}
+		return domains, nil
+	}
+
+	placementNUMA := placementNUMASet.ToSliceNoSortInt()[0]
+	if !topology.CPUDetails.NUMANodes().Contains(placementNUMA) {
+		return nil, fmt.Errorf(
+			"out-of-range ramp-up domain: numa-binding ramp-up allocation %s/%s/%s placed on NUMA %d which is not in topology",
+			ai.PodNamespace, ai.PodName, ai.ContainerName, placementNUMA)
+	}
+
+	// when an explicit NUMA hint is present it must agree with the placement,
+	// otherwise the domain is ambiguous and we fail closed.
+	if ai.CheckActualNUMABinding() {
+		hintNUMA, err := ai.GetSpecifiedNUMABindingNUMAID()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"ambiguous ramp-up domain: numa-binding ramp-up allocation %s/%s/%s has unparseable NUMA hint: %v",
+				ai.PodNamespace, ai.PodName, ai.ContainerName, err)
+		}
+		if hintNUMA != placementNUMA {
+			return nil, fmt.Errorf(
+				"ambiguous ramp-up domain: numa-binding ramp-up allocation %s/%s/%s placed on NUMA %d but NUMA hint indicates %d",
+				ai.PodNamespace, ai.PodName, ai.ContainerName, placementNUMA, hintNUMA)
+		}
+	}
+
+	return sets.NewInt(placementNUMA), nil
+}
+
 func (ai *AllocationInfo) Clone() *AllocationInfo {
 	if ai == nil {
 		return nil
@@ -221,6 +324,9 @@ func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
+	if len(ce) == 0 {
+		return false
+	}
 	return len(ce) == 1 && ce[commonstate.FakedContainerName] != nil
 }
 
@@ -268,6 +374,10 @@ func (pe PodEntries) Clone() PodEntries {
 
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				clone[podUID][containerName] = nil
+				continue
+			}
 			clone[podUID][containerName] = allocationInfo.Clone()
 		}
 	}
@@ -400,6 +510,51 @@ func (pe PodEntries) GetFilteredPodEntries(filter func(ai *AllocationInfo) bool)
 	return filteredEntries
 }
 
+// SteadyExclusiveNUMAs returns the NUMA ids wholly owned by a committed
+// steady-state (RampUp=false) NUMA-exclusive DNB allocation, regardless of the
+// pod's reclaimability. Such a NUMA's partition is already finalized: once a
+// NUMA-exclusive DNB leaves ramp-up its reclaim domain collapses to the steady
+// reserve (ResolvePerNUMAReservedForReclaim, e.g. two CPUs), which is
+// independent of InitialRampUpReclaimCPUSetRatio and therefore smaller than the
+// ratio-derived ramp-up hard-partition target for both reclaimable and
+// non-reclaimable pods. Every hard-partition reclaim enforcement site (ramp-up
+// floor derivation, the bulkhead precommit validator, and the advisor
+// block-plan validator) must skip these NUMAs, otherwise it re-imposes the
+// node-level ramp-up target on the finalized reserve and fails admission closed
+// for every other ramp-up QoS on the node. Reclaimability is deliberately not
+// consulted here: gating on PodEnableReclaim would leave a reclaimable steady
+// exclusive NUMA exposed to the same false minimum/imbalance rejection.
+func (pe PodEntries) SteadyExclusiveNUMAs(topology *machine.CPUTopology) sets.Int {
+	steadyNUMAs := sets.NewInt()
+	if topology == nil {
+		return steadyNUMAs
+	}
+	for _, containerEntries := range pe {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil ||
+				allocationInfo.RampUp ||
+				!allocationInfo.CheckDedicatedNUMABindingNUMAExclusive() {
+				continue
+			}
+			for numaID := range allocationInfo.TopologyAwareAssignments {
+				steadyNUMAs.Insert(numaID)
+			}
+			if len(allocationInfo.TopologyAwareAssignments) == 0 {
+				for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+					if !allocationInfo.AllocationResult.Intersection(
+						topology.CPUDetails.CPUsInNUMANodes(numaID)).IsEmpty() {
+						steadyNUMAs.Insert(numaID)
+					}
+				}
+			}
+		}
+	}
+	return steadyNUMAs
+}
+
 func (ns *NUMANodeState) Clone() *NUMANodeState {
 	if ns == nil {
 		return nil
@@ -519,6 +674,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	res := ns.DefaultCPUSet.Clone()
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if excludeWholeNUMA != nil && excludeWholeNUMA(allocationInfo) {
 				return machine.NewCPUSet()
 			} else if excludeEntry != nil && excludeEntry(allocationInfo) {
@@ -533,6 +691,9 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) bool) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if f(allocationInfo) {
 				return true
 			}
@@ -550,6 +711,9 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 ) bool {
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
 			if f(allocationInfo, annotations) {
 				return true
 			}
@@ -561,6 +725,10 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil allocation info for pod %s container %s", podUID, containerName)
 		return
 	}
 
@@ -576,6 +744,10 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 
 func (ns *NUMANodeState) SetPreOccAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
+		return
+	}
+	if allocationInfo == nil {
+		general.Warningf("skip setting nil pre-occupation allocation info for pod %s container %s", podUID, containerName)
 		return
 	}
 
@@ -740,32 +912,148 @@ func (nm NUMANodeMap) String() string {
 	return string(contentBytes)
 }
 
+// cpuPluginStateData is a lock-free plain-field container that holds the
+// non-topology portion of the cpu-plugin state. The in-memory cpuPluginState
+// wraps it with an RWMutex and clones on every getter. Grouping the fields into
+// a single value makes it trivial to deep-copy the whole set in one place.
+type cpuPluginStateData struct {
+	podEntries                                 PodEntries
+	machineState                               NUMANodeMap
+	numaHeadroom                               map[int]float64
+	allowSharedCoresOverlapReclaimedCores      bool
+	disableDedicatedCoresOverlapReclaimedCores bool
+	revision                                   uint64
+	writeGate                                  WriteGate
+}
+
+// Clone deep-copies every field of cpuPluginStateData. The caller receives a
+// fresh, fully-owned copy that is safe to hand off to another goroutine
+// without extra synchronization.
+func (d *cpuPluginStateData) Clone() cpuPluginStateData {
+	if d == nil {
+		return cpuPluginStateData{}
+	}
+	return cpuPluginStateData{
+		podEntries:                            d.podEntries.Clone(),
+		machineState:                          d.machineState.Clone(),
+		numaHeadroom:                          general.DeepCopyIntToFloat64Map(d.numaHeadroom),
+		allowSharedCoresOverlapReclaimedCores: d.allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores: d.disableDedicatedCoresOverlapReclaimedCores,
+		revision: d.revision,
+	}
+}
+
+// GetMachineState returns the raw machine-state reference held by the data
+// container. Callers that need a mutable copy must Clone() it themselves.
+func (d *cpuPluginStateData) GetMachineState() NUMANodeMap {
+	if d == nil {
+		return nil
+	}
+	return d.machineState
+}
+
+// GetNUMAHeadroom returns the raw NUMA-headroom map reference.
+func (d *cpuPluginStateData) GetNUMAHeadroom() map[int]float64 {
+	if d == nil {
+		return nil
+	}
+	return d.numaHeadroom
+}
+
+// GetPodEntries returns the raw pod-entries reference.
+func (d *cpuPluginStateData) GetPodEntries() PodEntries {
+	if d == nil {
+		return nil
+	}
+	return d.podEntries
+}
+
+// GetAllocationInfo looks up an allocation for the given pod/container using
+// the raw pod-entries map.
+func (d *cpuPluginStateData) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
+	if d == nil {
+		return nil
+	}
+	if entries, ok := d.podEntries[podUID]; ok {
+		return entries[containerName]
+	}
+	return nil
+}
+
+// GetAllowSharedCoresOverlapReclaimedCores returns the flag value.
+func (d *cpuPluginStateData) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	if d == nil {
+		return false
+	}
+	return d.allowSharedCoresOverlapReclaimedCores
+}
+
+// GetDisableDedicatedCoresOverlapReclaimedCores returns the flag value.
+func (d *cpuPluginStateData) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	if d == nil {
+		return false
+	}
+	return d.disableDedicatedCoresOverlapReclaimedCores
+}
+
+func (d *cpuPluginStateData) GetRevision() uint64 {
+	if d == nil {
+		return 0
+	}
+	return d.revision
+}
+
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
 	GetNUMAHeadroom() map[int]float64
 	GetPodEntries() PodEntries
+	// GetAdvisorStateSnapshot returns entries, machine state, and revision from
+	// one generation. The returned maps are independent clones owned by the caller.
+	GetAdvisorStateSnapshot() (PodEntries, NUMANodeMap, uint64)
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
+	GetDisableDedicatedCoresOverlapReclaimedCores() bool
+	GetRevision() uint64
 }
+
+// WritePermit is an opaque, single-use capability for one gated state write.
+// Callers can create a token, but only the installed WriteGate can bind and
+// authorize it.
+type WritePermit struct {
+	consumed bool
+}
+
+func NewWritePermit() *WritePermit {
+	return &WritePermit{}
+}
+
+// WriteGate may reject a state mutation before it changes memory or persistent
+// state. The revision and operation identify the attempted write; permit is nil
+// for ordinary writers.
+type WriteGate func(revision uint64, operation string, permit *WritePermit) error
 
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
-	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
-	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
-	SetPodEntries(podEntries PodEntries, writeThrough bool)
-	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
-	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
+	SetWritePermit(gate WriteGate)
+	SetMachineState(numaNodeMap NUMANodeMap, persist bool) error
+	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool) error
+	SetPodEntries(podEntries PodEntries, writeThrough bool) error
+	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool) error
+	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) error
+	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool) error
+	CommitAdvisorState(podEntries PodEntries, machineState NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*WritePermit) error
+	CommitAdvisorStateIfRevision(expectedRevision uint64, podEntries PodEntries, machineState NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*WritePermit) error
 
-	Delete(podUID string, containerName string, persist bool)
-	ClearState()
+	Delete(podUID string, containerName string, persist bool) error
+	ClearState() error
 	StoreState() error
 }
 
 // State interface provides methods for tracking and setting pod assignments
 type State interface {
-	reader
+	ReadonlyState
 	writer
 }
 
@@ -777,6 +1065,9 @@ type ReadonlyState interface {
 type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error)
 
 var (
+	ErrStaleStateRevision    = errors.New("stale cpu plugin state revision")
+	ErrStateRevisionOverflow = errors.New("cpu plugin state revision overflow")
+
 	readonlyStateLock sync.RWMutex
 	readonlyState     ReadonlyState
 )

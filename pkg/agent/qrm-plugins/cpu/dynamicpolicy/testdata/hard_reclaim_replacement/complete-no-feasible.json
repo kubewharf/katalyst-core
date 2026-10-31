@@ -1,0 +1,35 @@
+{
+  "name": "complete-no-feasible",
+  "generatedTopology": {
+    "numCPUs": 4,
+    "numSockets": 1,
+    "numNUMAs": 1
+  },
+  "available": "0-3",
+  "expectedReclaim": "0-1",
+  "expectedAssignmentSizes": {
+    "reclaim": 2,
+    "dedicated": 2
+  },
+  "expectCompleteNoFeasible": true,
+  "demands": [
+    {
+      "key": "reclaim",
+      "requestGroupKey": "",
+      "quantity": 2,
+      "requestQuantity": 0,
+      "eligible": "0-1",
+      "preferred": "0-1",
+      "class": "mandatory-reclaim"
+    },
+    {
+      "key": "dedicated",
+      "requestGroupKey": "pod/main",
+      "quantity": 2,
+      "requestQuantity": 2,
+      "eligible": "0-1",
+      "preferred": "",
+      "class": "dedicated"
+    }
+  ]
+}

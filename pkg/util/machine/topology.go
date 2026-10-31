@@ -266,6 +266,52 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 	return cpuTopology, nil
 }
 
+// GenerateDummyCPUTopologyWithoutSMT builds a topology where every physical
+// core owns exactly one logical cpu (CPUsPerCore()==1), i.e. SMT is disabled.
+// it is the non-SMT counterpart of GenerateDummyCPUTopology and is used to
+// prove core-aligned selection degenerates to a plain lowest-id take with zero
+// behavioral drift on hosts without hyper-threads.
+func GenerateDummyCPUTopologyWithoutSMT(cpuNum, socketNum, numaNum int) (*CPUTopology, error) {
+	if numaNum%socketNum != 0 {
+		return nil, fmt.Errorf("invalid NUMA number: %d and socket number: %d", numaNum, socketNum)
+	} else if cpuNum%numaNum != 0 {
+		return nil, fmt.Errorf("invalid cpu number: %d and NUMA number: %d", cpuNum, numaNum)
+	}
+
+	cpuTopology := new(CPUTopology)
+	cpuTopology.CPUDetails = make(map[int]CPUTopoInfo)
+	cpuTopology.NumCPUs = cpuNum
+	cpuTopology.NumCores = cpuNum
+	cpuTopology.NumSockets = socketNum
+	cpuTopology.NumNUMANodes = numaNum
+	cpuTopology.NUMANodeIDToSocketID = make(map[int]int, numaNum)
+
+	numaPerSocket := numaNum / socketNum
+	cpusPerNUMA := cpuNum / numaNum
+
+	for i := 0; i < socketNum; i++ {
+		for j := i * numaPerSocket; j < (i+1)*numaPerSocket; j++ {
+			for k := j * cpusPerNUMA; k < (j+1)*cpusPerNUMA; k++ {
+				cpuTopology.CPUDetails[k] = CPUTopoInfo{
+					NUMANodeID: j,
+					SocketID:   i,
+					CoreID:     k,
+					L3CacheID:  j,
+				}
+				cpuTopology.NUMANodeIDToSocketID[j] = i
+			}
+		}
+	}
+
+	numaToCPUs := make(NUMANodeInfo, numaNum)
+	for id := range cpuTopology.NUMANodeIDToSocketID {
+		numaToCPUs[id] = cpuTopology.CPUDetails.CPUsInNUMANodes(id)
+	}
+	cpuTopology.NUMAToCPUs = numaToCPUs
+
+	return cpuTopology, nil
+}
+
 func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTopology, error) {
 	memoryTopology := &MemoryTopology{
 		MemoryDetails:           map[int]uint64{},

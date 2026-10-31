@@ -113,8 +113,15 @@ func TestNewIrqTuningControllerRejectsUnsupportedPolicy(t *testing.T) {
 
 			controller, err := NewIrqTuningController(agentConf, nil, emitter, nil)
 
+			// NewIrqTuningController converts the v1alpha1 tuning policy to the
+			// internal config.IrqTuningPolicy before validating it, so the
+			// rejection message embeds the canonical internal policy value.
+			// Derive the expectation through the same conversion instead of
+			// hardcoding the v1alpha1 string here.
+			wantPolicy := config.ConvertDynamicConfigToIrqTuningConfig(agentConf.GetDynamicConfiguration()).IrqTuningPolicy
+
 			assert.Nil(t, controller)
-			assert.EqualError(t, err, fmt.Sprintf("irq tuning policy %s is unsupported", tt.policy))
+			assert.EqualError(t, err, fmt.Sprintf("irq tuning policy %s is unsupported", wantPolicy))
 			assert.Len(t, emitter.records, 1)
 			assert.Equal(t, irqtuner.NewIrqTuningControllerFailed, emitter.records[0].tags[0].Val)
 		})

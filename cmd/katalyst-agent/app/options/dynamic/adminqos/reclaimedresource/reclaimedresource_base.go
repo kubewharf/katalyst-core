@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/reclaimedresource/memoryheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 type ReclaimedResourceOptions struct {
@@ -39,6 +40,7 @@ type ReclaimedResourceOptions struct {
 	ReservedResourceForReclaimedCores                 general.ResourceList
 	NumaMinReservedResourceRatioForAllocate           general.ResourceList
 	NumaMinReservedResourceForAllocate                general.ResourceList
+	ReclaimedPercentageByConsumer                     map[string]int
 	*cpuheadroom.CPUHeadroomOptions
 	*memoryheadroom.MemoryHeadroomOptions
 }
@@ -74,6 +76,9 @@ func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
 			v1.ResourceCPU:    resource.MustParse("2"),
 			v1.ResourceMemory: resource.MustParse("0"),
 		},
+		ReclaimedPercentageByConsumer: map[string]int{
+			reclaim.GenericConsumerName: 100,
+		},
 		CPUHeadroomOptions:    cpuheadroom.NewCPUHeadroomOptions(),
 		MemoryHeadroomOptions: memoryheadroom.NewMemoryHeadroomOptions(),
 	}
@@ -103,6 +108,8 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"min NUMA level reserved resources ratio for reclaimed_cores pods")
 	fs.Var(&o.NumaMinReservedResourceForAllocate, "numa-min-reserved-resource-for-reclaimed-cores",
 		"min NUMA level reserved resources for reclaimed_cores pods")
+	fs.StringToIntVar(&o.ReclaimedPercentageByConsumer, "reclaimed-percentage-by-consumer", o.ReclaimedPercentageByConsumer,
+		"static percentage of total reclaimed resource owned by each named reclaim consumer, e.g. generic=60,other=40")
 
 	o.CPUHeadroomOptions.AddFlags(fss)
 	o.MemoryHeadroomOptions.AddFlags(fss)
@@ -122,6 +129,7 @@ func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourc
 	c.MinReclaimedResourceForAllocate = v1.ResourceList(o.ReservedResourceForReclaimedCores)
 	c.NumaMinReclaimedResourceRatioForAllocate = v1.ResourceList(o.NumaMinReservedResourceRatioForAllocate)
 	c.NumaMinReclaimedResourceForAllocate = v1.ResourceList(o.NumaMinReservedResourceForAllocate)
+	c.ReclaimedPercentageByConsumer = o.ReclaimedPercentageByConsumer
 
 	errList = append(errList, o.CPUHeadroomOptions.ApplyTo(c.CPUHeadroomConfiguration))
 	errList = append(errList, o.MemoryHeadroomOptions.ApplyTo(c.MemoryHeadroomConfiguration))
