@@ -444,18 +444,21 @@ func SetExtraCGMemLimitWithTimeoutAndAbsCGPath(timeoutSecs int, absCgroupPath st
 		return fmt.Errorf("invalid memory limit nbytes: %d", nbytes)
 	}
 
-	var (
-		startTime  = time.Now()
-		cgroupFile string
-	)
-
-	if common.CheckCgroup2UnifiedMode() {
-		// cgv2
-		cgroupFile = "memory.max"
-	} else {
+	cgroupFile := "memory.max"
+	if !common.CheckCgroup2UnifiedMode() {
 		// cgv1
 		cgroupFile = "memory.limit_in_bytes"
 	}
+
+	return setExtraCGMemLimitFile(absCgroupPath, timeoutSecs, nbytes, cgroupFile)
+}
+
+// setExtraCGMemLimitFile writes nbytes to the named cgroup memory-limit file
+// under absCgroupPath. The file name is chosen by the caller (v1:
+// memory.limit_in_bytes, v2: memory.max) so the bounded write semantics can be
+// tested independent of the host's cgroup version detection.
+func setExtraCGMemLimitFile(absCgroupPath string, timeoutSecs int, nbytes int64, cgroupFile string) error {
+	startTime := time.Now()
 
 	path := filepath.Join(absCgroupPath, cgroupFile)
 	// echo(1) appends a trailing newline; preserve that on the v1 "unlimited"
@@ -670,6 +673,16 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 	return err
 }
 
+// dying memcg collaborators. They are package vars (not hard-coded calls) so
+// tests can substitute fakes and a no-op sleep without monkey-patching.
+var (
+	dyingMemcgNrDyingDescendants = func(absCGPath string) (int, error) {
+		return GetManager().GetCgroupNrDyingDescendants(absCGPath)
+	}
+	dyingMemcgOffloading = MemoryOffloadingWithAbsolutePath
+	dyingMemcgSleep      = time.Sleep
+)
+
 func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, emitter metrics.MetricEmitter, entryName string, subEntryName string, mems machine.CPUSet) error {
 	// perform dying memcg reclaim for burstable cgroup
 	general.Infof("Enable dying memcg reclaim for global Cgroup: %s", absCGPath)
@@ -684,7 +697,7 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 		return nil
 	}
 
-	initialDyingDescendants, err := GetManager().GetCgroupNrDyingDescendants(absCGPath)
+	initialDyingDescendants, err := dyingMemcgNrDyingDescendants(absCGPath)
 	if err != nil {
 		general.Warningf("read nr_dying_descendants failed: %v", err)
 		return nil
@@ -700,16 +713,16 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 		general.Infof("nr_dying_descendants: %d > %d, reclaim memory", nrDyingDescendants, DyingMemcgThreshold)
 
 		// reclaim 30m, to trigger dying memory cgroup reclaim
-		err = MemoryOffloadingWithAbsolutePath(ctx, absCGPath, int64(30*1024*1024), mems)
+		err = dyingMemcgOffloading(ctx, absCGPath, int64(30*1024*1024), mems)
 		if err != nil {
 			general.Warningf("invoke memory reclaim failed: %v", err)
 			return nil
 		}
 
 		// sleep 5s
-		time.Sleep(5 * time.Second)
+		dyingMemcgSleep(5 * time.Second)
 
-		nrDyingDescendants, err = GetManager().GetCgroupNrDyingDescendants(absCGPath)
+		nrDyingDescendants, err = dyingMemcgNrDyingDescendants(absCGPath)
 		if err != nil {
 			general.Warningf("read nr_dying_descendants failed: %v", err)
 			return nil

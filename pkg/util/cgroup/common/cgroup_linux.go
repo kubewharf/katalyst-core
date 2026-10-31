@@ -39,9 +39,25 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
 )
 
+// cgroup2UnifiedModeFn detects whether the host uses cgroup v2 unified mode.
+// It is a var (defaulting to the real libcontainer detection) so tests can pin
+// v1/v2 deterministically via SetCgroup2UnifiedModeOverride instead of relying
+// on the host mount or monkey-patching.
+var cgroup2UnifiedModeFn = cgroups.IsCgroup2UnifiedMode
+
 // CheckCgroup2UnifiedMode return whether it is in cgroupv2 env
 func CheckCgroup2UnifiedMode() bool {
-	return cgroups.IsCgroup2UnifiedMode()
+	return cgroup2UnifiedModeFn()
+}
+
+// SetCgroup2UnifiedModeOverride pins cgroup v2 unified detection to unified
+// (true) or legacy v1 (false) for the duration of the returned undo function.
+// It is intended for tests only; production code leaves the default detection
+// untouched.
+func SetCgroup2UnifiedModeOverride(unified bool) (undo func()) {
+	old := cgroup2UnifiedModeFn
+	cgroup2UnifiedModeFn = func() bool { return unified }
+	return func() { cgroup2UnifiedModeFn = old }
 }
 
 func ReadTasksFile(file string) ([]string, error) {
