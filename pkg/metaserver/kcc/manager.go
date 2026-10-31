@@ -133,6 +133,7 @@ type DynamicConfigManager struct {
 	// resourceGVRMap records those GVR that should be interested
 	// gvrToKind maps from GVR to GVK (only kind can be used to reflect objects)
 	mux            sync.RWMutex
+	updateMu       sync.Mutex
 	resourceGVRMap map[string]metav1.GroupVersionResource
 
 	// checkpoint stores recent dynamic config
@@ -216,9 +217,6 @@ func (c *DynamicConfigManager) InitializeConfig(ctx context.Context) error {
 }
 
 func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bool) error {
-	c.mux.RLock()
-	defer c.mux.RUnlock()
-
 	err := c.updateConfig(ctx)
 	if err != nil {
 		_ = c.emitter.StoreInt64(metricsNameUpdateConfig, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
@@ -238,27 +236,59 @@ func (c *DynamicConfigManager) tryUpdateConfig(ctx context.Context, skipError bo
 	return nil
 }
 
-// updateConfig is used to get dynamic agent config from remote
+// updateConfig serializes update transactions without holding mux while remote
+// I/O or hooks run. The short mux sections only snapshot manager-owned inputs
+// and publish a fully validated result, so watcher registration remains
+// responsive and hooks never observe a partially committed configuration.
 func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
-	dynamicConfigCRD, success, err := c.updateDynamicConfig(c.resourceGVRMap, katalystConfigGVRToGVKMap,
+	c.updateMu.Lock()
+	defer c.updateMu.Unlock()
+
+	c.mux.RLock()
+	resourceGVRMap := make(map[string]metav1.GroupVersionResource, len(c.resourceGVRMap))
+	for resource, gvr := range c.resourceGVRMap {
+		resourceGVRMap[resource] = gvr
+	}
+	hooks := append([]ConfigurationHook(nil), c.configHooks...)
+	lastDynamicConfigCRD := deepCopyDynamicConfigCRD(c.lastDynamicConfigCRD)
+	c.mux.RUnlock()
+
+	dynamicConfigCRD, success, err := c.updateDynamicConfig(resourceGVRMap, katalystConfigGVRToGVKMap,
 		func(gvr metav1.GroupVersionResource, conf interface{}) error {
 			return c.configLoader.LoadConfig(ctx, gvr, conf)
 		},
 	)
 	if !success {
 		return err
-	} else if apiequality.Semantic.DeepEqual(c.lastDynamicConfigCRD, dynamicConfigCRD) {
+	} else if apiequality.Semantic.DeepEqual(lastDynamicConfigCRD, dynamicConfigCRD) {
 		klog.V(4).Infof("dynamic config is not changed")
 		return nil
 	}
 
-	klog.Infof("dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
 	currentConfig := deepCopy(c.defaultConfig)
 	applyDynamicConfig(currentConfig, dynamicConfigCRD)
+	// oldConfig is an isolated prepare-phase snapshot. GetDynamicConfiguration
+	// returns the live internal pointer, so deep-copy it here; hooks run outside
+	// mux and must never be able to mutate the committed configuration.
+	oldConfig := deepCopy(c.conf.GetDynamicConfiguration())
+	if reflect.DeepEqual(oldConfig, currentConfig) {
+		// Metadata such as resourceVersion may advance without changing the
+		// effective configuration. Keep the freshest CRD for diagnostics while
+		// avoiding hooks for a configuration that is byte-for-byte unchanged.
+		c.mux.Lock()
+		defer c.mux.Unlock()
+		if !apiequality.Semantic.DeepEqual(c.lastDynamicConfigCRD, lastDynamicConfigCRD) {
+			return fmt.Errorf("dynamic config changed while metadata was being refreshed")
+		}
+		c.lastDynamicConfigCRD = deepCopyDynamicConfigCRD(dynamicConfigCRD)
+		return nil
+	}
+
+	klog.Infof("dynamic config crd is changed from %v to %v", lastDynamicConfigCRD, dynamicConfigCRD)
 
 	var errList []error
-	for _, hook := range c.configHooks {
-		if err = hook(ctx, c.conf.GetDynamicConfiguration(), currentConfig); err != nil {
+	for _, hook := range hooks {
+		if err = hook(ctx, oldConfig, currentConfig); err != nil {
 			klog.Errorf("failed to run config hook: %v", err)
 			errList = append(errList, err)
 		}
@@ -268,8 +298,20 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 		return errors.NewAggregate(errList)
 	}
 
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	if !apiequality.Semantic.DeepEqual(c.lastDynamicConfigCRD, lastDynamicConfigCRD) {
+		return fmt.Errorf("dynamic config changed while hooks were running")
+	}
+	// A watcher may have been registered after resourceGVRMap was snapshotted at
+	// the top of this update. Do not publish a configuration that was built from
+	// a stale watcher set; surface the drift so the caller retries and loads the
+	// newly-registered GVRs.
+	if !reflect.DeepEqual(c.resourceGVRMap, resourceGVRMap) {
+		return fmt.Errorf("config watchers changed while update was running; retry to load them")
+	}
 	c.conf.SetDynamicConfiguration(currentConfig)
-	c.lastDynamicConfigCRD = dynamicConfigCRD
+	c.lastDynamicConfigCRD = deepCopyDynamicConfigCRD(dynamicConfigCRD)
 	return err
 }
 
@@ -393,4 +435,11 @@ func applyDynamicConfig(config *dynamic.Configuration,
 
 func deepCopy(src *dynamic.Configuration) *dynamic.Configuration {
 	return syntax.DeepCopy(src).(*dynamic.Configuration)
+}
+
+func deepCopyDynamicConfigCRD(src *crd.DynamicConfigCRD) *crd.DynamicConfigCRD {
+	if src == nil {
+		return nil
+	}
+	return syntax.DeepCopy(src).(*crd.DynamicConfigCRD)
 }

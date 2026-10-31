@@ -17,15 +17,19 @@ limitations under the License.
 package advisor
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_priorityGroupDecorator_combinedDomainStats(t *testing.T) {
@@ -210,6 +214,56 @@ func Test_priorityGroupDecorator_combinedDomainStats(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPriorityAdvisorKeepsSharedAndSharePhysicalGroupsOnSameCCD(t *testing.T) {
+	t.Parallel()
+
+	domainsMon := &monitor.DomainStats{
+		Incomings: map[int]monitor.DomainMonStat{
+			0: {
+				"shared-50": {0: {TotalMB: 4_000}},
+				"share-50":  {0: {TotalMB: 2_000}},
+			},
+		},
+		Outgoings: map[int]monitor.DomainMonStat{
+			0: {
+				"shared-50": {0: {TotalMB: 4_000}},
+				"share-50":  {0: {TotalMB: 2_000}},
+			},
+		},
+		OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+			"shared-50": {{TotalMB: 4_000}},
+			"share-50":  {{TotalMB: 2_000}},
+		},
+	}
+
+	advisor := &priorityAdvisor{
+		uniqPriorityAdvisor: newUniqPriorityAdvisor(
+			&metrics.DummyMetrics{},
+			domain.Domains{0: domain.NewDomain(0, sets.NewInt(0), 20_000)},
+			0,
+			20_000,
+			20_000,
+			100,
+			nil,
+			nil,
+			nil,
+		),
+	}
+
+	combinedStats, groupInfos, err := advisor.combinedDomainStats(domainsMon)
+	require.NoError(t, err)
+	assert.Equal(t, domainsMon, combinedStats)
+	assert.Equal(t, &groupInfo{DomainGroups: map[int]domainGroupMapping{0: {}}}, groupInfos)
+
+	gotPlan, err := advisor.GetPlan(context.Background(), domainsMon)
+	require.NoError(t, err)
+	assert.Contains(t, gotPlan.MBGroups, "shared-50")
+	assert.Contains(t, gotPlan.MBGroups, "share-50")
+	// both groups must be placed on CCD 0 (the only available CCD).
+	assert.Contains(t, gotPlan.MBGroups["shared-50"], 0)
+	assert.Contains(t, gotPlan.MBGroups["share-50"], 0)
 }
 
 func Test_priorityGroupDecorator_splitPlan(t *testing.T) {
