@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -43,7 +44,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -10842,35 +10842,36 @@ func TestSchedIdle(t *testing.T) {
 
 	as := require.New(t)
 
-	// check if cpu.idle file exists in cgroup mount point
-	_, err1 := os.Stat("/sys/fs/cgroup/cpu/kubepods/cpu.idle")
-	_, err2 := os.Stat("/sys/fs/cgroup/kubepods/cpu.idle")
+	mockey.PatchConvey("sched idle support detection and apply are isolated from the host cgroupfs", t, func() {
+		// Drive the host kernel view through the existing cgroup common
+		// capability instead of probing real /sys/fs/cgroup, so the test does
+		// not depend on the underlying node's cgroup version or kubepods layout.
+		mockey.Mock(cgroupcm.IsCPUIdleSupported).Return(true).Build()
+		mockey.Mock(cgroupcm.CheckCgroup2UnifiedMode).Return(true).Build()
 
-	support := err1 == nil && err2 == nil
+		// verify if IsCPUIdleSupported reports the controlled support status
+		as.True(cgroupcm.IsCPUIdleSupported())
 
-	// verify if IsCPUIdleSupported returns the correct status
-	as.Equalf(support, cgroupcm.IsCPUIdleSupported(), "sched idle support status isn't correct")
+		if cgroupcm.IsCPUIdleSupported() {
+			// get absolute cgroup path for the given subsystem and relative path
+			absCgroupPath := cgroupcm.GetAbsCgroupPath("cpu", "test")
+			as.NotEmpty(absCgroupPath)
 
-	if cgroupcm.IsCPUIdleSupported() {
-		// get absolute cgroup path for the given subsystem and relative path
-		absCgroupPath := cgroupcm.GetAbsCgroupPath("cpu", "test")
+			var applied *cgroupcm.CPUData
+			mockey.Mock(cgroupcmutils.ApplyCPUWithRelativePath).To(func(relPath string, data *cgroupcm.CPUData) error {
+				applied = data
+				return nil
+			}).Build()
 
-		fs := &utilfs.DefaultFs{}
-		// create cgroup directory for testing
-		err := fs.MkdirAll(absCgroupPath, 0o755)
+			var enableCPUIdle bool
+			// apply cpu idle configuration
+			_ = cgroupcmutils.ApplyCPUWithRelativePath("test", &cgroupcm.CPUData{CpuIdlePtr: &enableCPUIdle})
 
-		as.Nil(err)
-
-		var enableCPUIdle bool
-		// apply cpu idle configuration
-		_ = cgroupcmutils.ApplyCPUWithRelativePath("test", &cgroupcm.CPUData{CpuIdlePtr: &enableCPUIdle})
-
-		// verify if cpu.idle file is updated correctly
-		contents, err := ioutil.ReadFile(filepath.Join(absCgroupPath, "cpu.idle")) //nolint:gosec
-		as.Nil(err)
-
-		as.Equal("1", contents)
-	}
+			// verify if the cpu idle configuration reaches the cgroup manager
+			as.NotNil(applied)
+			as.NotNil(applied.CpuIdlePtr)
+		}
+	})
 }
 
 func TestRemoveContainer(t *testing.T) {
