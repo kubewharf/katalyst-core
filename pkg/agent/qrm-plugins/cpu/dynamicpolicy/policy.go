@@ -128,6 +128,13 @@ type DynamicPolicy struct {
 
 	irqTuner irqtuner.Tuner
 
+	// adjustment holds cpuset adjustment execution state. The full bulkhead
+	// adjustment component is introduced by later layers; this minimal stub
+	// lets test helpers compile at the foundation layer.
+	adjustment struct {
+		cpuSetAdjustmentExecution chan struct{}
+	}
+
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor                          bool
