@@ -18,6 +18,7 @@ package metric_emitter
 
 import (
 	"context"
+	"sync"
 
 	"k8s.io/klog/v2"
 
@@ -78,13 +79,39 @@ func (cme *CustomMetricEmitter) Init() error {
 
 // Run is the main logic to get metric data from multiple sources
 // and emit through the standard emit interface.
+//
+// Every syncer is started in its own goroutine. A syncer validates its
+// dependencies before spawning any background goroutine and reports a non-nil
+// error when validation fails. When any syncer fails, the emitter cancels the
+// shared context so that already-started syncers stop their background loops,
+// and then waits for every syncer goroutine to exit before returning. This
+// turns what used to be a nil-pointer panic inside a detached goroutine into an
+// observable error, and guarantees that a partial start failure neither swallows
+// the error nor leaks goroutines.
 func (cme *CustomMetricEmitter) Run(ctx context.Context) {
 	klog.Info("custom metrics emitter stated")
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
 	for _, s := range cme.syncers {
-		go s.Run(ctx)
-		klog.Infof("run metric emitter %v successfully", s.Name())
+		wg.Add(1)
+		go func(s syncer.CustomMetricSyncer) {
+			defer wg.Done()
+			if err := s.Run(ctx); err != nil {
+				// Surface the failure instead of letting it panic inside a
+				// detached goroutine, and tear down the already-started
+				// syncers so we do not leak their goroutines.
+				klog.Errorf("metric syncer %q stopped with error: %v", s.Name(), err)
+				cancel()
+			} else {
+				klog.Infof("metric syncer %q exited", s.Name())
+			}
+		}(s)
 	}
-	klog.Infof("run all metric emitters successfully")
+
 	<-ctx.Done()
+	wg.Wait()
+	klog.Infof("all metric emitters stopped")
 }

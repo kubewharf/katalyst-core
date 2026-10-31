@@ -125,7 +125,7 @@ func (p *PolicyNUMADedicated) Update() error {
 		general.Errorf("get pps failed: %v, %v", podUID, err)
 		return err
 	}
-	p.headroom = originHeadroom * (score - spd.MinPerformanceScore) / (spd.MaxPerformanceScore - spd.MinPerformanceScore)
+	p.headroom = scaleHeadroomByPerformance(originHeadroom, score)
 
 	klog.Infof("[qosaware-cpu-numa-exclusive] region %v cpuEstimation %v with reservedForAllocate %v reservedForReclaim %v"+
 		" originHeadroom %v headroom %v score %v #container %v", p.regionName, cpuEstimation, p.ReservedForAllocate,
@@ -136,4 +136,14 @@ func (p *PolicyNUMADedicated) Update() error {
 
 func (p *PolicyNUMADedicated) GetHeadroom() (float64, error) {
 	return p.headroom, nil
+}
+
+// scaleHeadroomByPerformance scales the raw headroom by the performance score and
+// clamps the result to be non-negative. The linear factor extrapolates below
+// spd.MinPerformanceScore when the score falls out of the valid range; without
+// the clamp that extrapolation would yield a negative headroom, which is
+// meaningless (headroom cannot supply negative spare CPUs).
+func scaleHeadroomByPerformance(originHeadroom, score float64) float64 {
+	factor := (score - spd.MinPerformanceScore) / (spd.MaxPerformanceScore - spd.MinPerformanceScore)
+	return math.Max(originHeadroom*factor, 0)
 }

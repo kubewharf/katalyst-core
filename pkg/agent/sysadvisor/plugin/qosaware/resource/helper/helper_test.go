@@ -19,7 +19,9 @@ package helper
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -223,9 +225,24 @@ func (p *fakePodFetcher) GetPod(ctx context.Context, podUID string) (*v1.Pod, er
 
 type fakeServiceProfilingManager struct {
 	*spd.DummyServiceProfilingManager
-	err        error
-	indicators *v1alpha1.ReclaimResourceIndicators
-	baseline   bool
+	err              error
+	performanceError error
+	performanceLevel spd.PerformanceLevel
+	indicators       *v1alpha1.ReclaimResourceIndicators
+	baseline         bool
+	baselineCalls    int
+	observedPodMeta  []metav1.ObjectMeta
+}
+
+func (p *fakeServiceProfilingManager) ServiceBusinessPerformanceLevel(_ context.Context, podMeta metav1.ObjectMeta) (spd.PerformanceLevel, error) {
+	p.observedPodMeta = append(p.observedPodMeta, podMeta)
+	return p.performanceLevel, p.performanceError
+}
+
+func (p *fakeServiceProfilingManager) ServiceBaseline(_ context.Context, podMeta metav1.ObjectMeta) (bool, error) {
+	p.baselineCalls++
+	p.observedPodMeta = append(p.observedPodMeta, podMeta)
+	return p.baseline, p.err
 }
 
 func (p *fakeServiceProfilingManager) ServiceExtendedIndicator(_ context.Context, _ metav1.ObjectMeta, indicators interface{}) (bool, error) {
@@ -238,6 +255,152 @@ func (p *fakeServiceProfilingManager) ServiceExtendedIndicator(_ context.Context
 	}
 
 	return p.baseline, nil
+}
+
+func TestPodMetaEnableReclaim(t *testing.T) {
+	t.Parallel()
+
+	podMeta := metav1.ObjectMeta{
+		UID:               types.UID("pod-uid"),
+		Namespace:         "pod-namespace",
+		Name:              "pod-name",
+		CreationTimestamp: metav1.NewTime(time.Unix(100, 0)),
+		Labels:            map[string]string{"label": "value"},
+		Annotations:       map[string]string{"annotation": "value"},
+	}
+	profilingManager := &fakeServiceProfilingManager{
+		DummyServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+	}
+	metaServer := &metaserver.MetaServer{ServiceProfilingManager: profilingManager}
+
+	got, err := PodMetaEnableReclaim(context.Background(), metaServer, podMeta, true)
+	if err != nil {
+		t.Fatalf("PodMetaEnableReclaim() error = %v", err)
+	}
+	if !got {
+		t.Fatal("PodMetaEnableReclaim() = false, want true")
+	}
+	if profilingManager.baselineCalls != 1 {
+		t.Fatalf("ServiceBaseline calls = %d, want 1", profilingManager.baselineCalls)
+	}
+	if len(profilingManager.observedPodMeta) != 2 {
+		t.Fatalf("observed metadata calls = %d, want 2", len(profilingManager.observedPodMeta))
+	}
+	for i, gotMeta := range profilingManager.observedPodMeta {
+		if !reflect.DeepEqual(gotMeta, podMeta) {
+			t.Errorf("observed metadata call %d = %#v, want %#v", i, gotMeta, podMeta)
+		}
+	}
+}
+
+func TestPodMetaEnableReclaimRejectsBaseline(t *testing.T) {
+	t.Parallel()
+
+	profilingManager := &fakeServiceProfilingManager{
+		DummyServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+		baseline:                     true,
+	}
+	metaServer := &metaserver.MetaServer{ServiceProfilingManager: profilingManager}
+
+	got, err := PodMetaEnableReclaim(context.Background(), metaServer, metav1.ObjectMeta{
+		UID:               "pod-uid",
+		CreationTimestamp: metav1.NewTime(time.Unix(100, 0)),
+	}, true)
+	if err != nil {
+		t.Fatalf("PodMetaEnableReclaim() error = %v", err)
+	}
+	if got {
+		t.Fatal("PodMetaEnableReclaim() = true, want false for baseline pod")
+	}
+	if profilingManager.baselineCalls != 1 {
+		t.Fatalf("ServiceBaseline calls = %d, want 1", profilingManager.baselineCalls)
+	}
+}
+
+func TestPodMetaPerformanceLevelEnableReclaimDoesNotEvaluateBaseline(t *testing.T) {
+	t.Parallel()
+
+	requestMeta := metav1.ObjectMeta{
+		UID:       types.UID("pod-uid"),
+		Namespace: "pod-namespace",
+		Name:      "pod-name",
+	}
+	profilingManager := &fakeServiceProfilingManager{
+		DummyServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+		baseline:                     true,
+	}
+	metaServer := &metaserver.MetaServer{
+		ServiceProfilingManager: profilingManager,
+	}
+
+	got, err := PodMetaPerformanceLevelEnableReclaim(context.Background(), metaServer, requestMeta, true)
+	if err != nil {
+		t.Fatalf("PodMetaPerformanceLevelEnableReclaim() error = %v", err)
+	}
+	if !got {
+		t.Fatal("PodMetaPerformanceLevelEnableReclaim() = false, want true")
+	}
+	if profilingManager.baselineCalls != 0 {
+		t.Fatalf("ServiceBaseline calls = %d, want 0", profilingManager.baselineCalls)
+	}
+	if len(profilingManager.observedPodMeta) != 1 {
+		t.Fatalf("observed metadata calls = %d, want 1", len(profilingManager.observedPodMeta))
+	}
+	if gotMeta := profilingManager.observedPodMeta[0]; !reflect.DeepEqual(gotMeta, requestMeta) {
+		t.Fatalf("performance metadata = %#v, want request metadata %#v", gotMeta, requestMeta)
+	}
+}
+
+func TestPodMetaEnableReclaimRejectsPoorPerformance(t *testing.T) {
+	t.Parallel()
+
+	profilingManager := &fakeServiceProfilingManager{
+		DummyServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+		performanceLevel:             spd.PerformanceLevelPoor,
+	}
+	metaServer := &metaserver.MetaServer{ServiceProfilingManager: profilingManager}
+
+	got, err := PodMetaEnableReclaim(context.Background(), metaServer, metav1.ObjectMeta{UID: "pod-uid"}, true)
+	if err != nil {
+		t.Fatalf("PodMetaEnableReclaim() error = %v", err)
+	}
+	if got {
+		t.Fatal("PodMetaEnableReclaim() = true, want false")
+	}
+	if profilingManager.baselineCalls != 0 {
+		t.Fatalf("ServiceBaseline calls = %d, want 0", profilingManager.baselineCalls)
+	}
+}
+
+func TestPodEnableReclaimStillChecksBaseline(t *testing.T) {
+	t.Parallel()
+
+	const podUID = "pod-uid"
+	profilingManager := &fakeServiceProfilingManager{
+		DummyServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+		baseline:                     true,
+	}
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &fakePodFetcher{
+				PodFetcherStub: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{{ObjectMeta: metav1.ObjectMeta{UID: types.UID(podUID)}}},
+				},
+			},
+		},
+		ServiceProfilingManager: profilingManager,
+	}
+
+	got, err := PodEnableReclaim(context.Background(), metaServer, podUID, true)
+	if err != nil {
+		t.Fatalf("PodEnableReclaim() error = %v", err)
+	}
+	if got {
+		t.Fatal("PodEnableReclaim() = true, want false for baseline pod")
+	}
+	if profilingManager.baselineCalls != 1 {
+		t.Fatalf("ServiceBaseline calls = %d, want 1", profilingManager.baselineCalls)
+	}
 }
 
 func TestPodDisableReclaimLevel(t *testing.T) {

@@ -18,6 +18,7 @@ package borwein
 
 import (
 	"fmt"
+	"time"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -27,6 +28,7 @@ import (
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -58,6 +60,12 @@ type BorweinController struct {
 	metaReader              metacache.MetaReader
 	emitter                 metrics.MetricEmitter
 	indicatorOffsetUpdaters map[string]IndicatorOffsetUpdater
+
+	// clock is the source of the current wall-clock time used for special-time
+	// slot matching. It defaults to time.Now in production so the real local
+	// time is observed; tests inject a pinned clock per case to keep special-time
+	// matching deterministic and parallel-safe.
+	clock func() time.Time
 }
 
 func NewBorweinController(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
@@ -72,22 +80,42 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 		metaReader:              metaReader,
 		indicatorOffsetUpdaters: make(map[string]IndicatorOffsetUpdater),
 		emitter:                 emitter,
+		clock:                   time.Now,
 	}
 
 	for _, indicator := range conf.BorweinConfiguration.TargetIndicators {
 		general.Infof("Enable indicator %v offset update", indicator)
 		bc.indicatorOffsets[indicator] = 0
 	}
-	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)] = updateCPUUsageIndicatorOffset
+	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)] = newCPUUsageOffsetUpdater(bc.clock)
 	bc.borweinParameters = conf.BorweinConfiguration.BorweinParameters
 
 	return bc
 }
 
+// newCPUUsageOffsetUpdater wires updateCPUUsageIndicatorOffset into the
+// IndicatorOffsetUpdater signature, closing over the controller's clock so the
+// special-time match sees that instance's time source instead of a process
+// global. A nil clock falls back to time.Now.
+func newCPUUsageOffsetUpdater(clock func() time.Time) IndicatorOffsetUpdater {
+	return func(podSet types.PodSet, currentIndicatorOffset float64, borweinParameter *borweintypes.BorweinParameter,
+		metaReader metacache.MetaReader, conf *config.Configuration, emitter metrics.MetricEmitter, regionName string,
+		strategyName string, strategy *latencyregression.BorweinStrategy,
+	) (float64, error) {
+		return updateCPUUsageIndicatorOffset(podSet, currentIndicatorOffset, borweinParameter,
+			metaReader, conf, emitter, regionName, strategyName, strategy, clock)
+	}
+}
+
 func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParameter *borweintypes.BorweinParameter,
 	metaReader metacache.MetaReader, conf *config.Configuration, emitter metrics.MetricEmitter, regionName string,
-	strategyName string, strategy *latencyregression.BorweinStrategy,
+	strategyName string, strategy *latencyregression.BorweinStrategy, clock func() time.Time,
 ) (float64, error) {
+	now := time.Now()
+	if clock != nil {
+		now = clock()
+	}
+
 	var modelName string
 	switch strategyName {
 	case consts.StrategyNameBorweinV2:
@@ -151,7 +179,7 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 
 	if strategyName == consts.StrategyNameBorweinV3 {
 		if specialAction, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
-			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
+			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), now); match {
 			actionAvg = general.MinFloat64(actionAvg, specialAction)
 
 			_ = emitter.StoreFloat64(metricBorweinIndicatorOffsetUpperBound, specialAction, metrics.MetricTypeNameRaw, metrics.MetricTag{
@@ -171,7 +199,7 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), borweinParameter)
 
 	if specialOffset, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
-		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
+		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), now); match {
 		targetOffset = specialOffset
 	}
 
@@ -275,8 +303,10 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator, st
 	return finalIndicators
 }
 
-func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
-	strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet,
+	dynamicConf *dynamic.Configuration,
+) types.Indicator {
+	strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf, dynamicConf)
 	if err != nil {
 		general.Errorf("get enabled borwein strategy failed with error: %v", err)
 		return indicators
@@ -294,15 +324,15 @@ func (bc *BorweinController) ResetIndicatorOffsets() {
 	}
 }
 
-func getEnabledBorweinStrategy(conf *config.Configuration) (string, *latencyregression.BorweinStrategy, error) {
-	strategy, err := fetchBorweinStrategy(conf, consts.StrategyNameBorweinV3, conf.EnableBorweinV3)
+func getEnabledBorweinStrategy(conf *config.Configuration, dynamicConf *dynamic.Configuration) (string, *latencyregression.BorweinStrategy, error) {
+	strategy, err := fetchBorweinStrategy(dynamicConf, consts.StrategyNameBorweinV3, conf.EnableBorweinV3)
 	if err == nil {
 		return consts.StrategyNameBorweinV3, strategy, nil
 	} else {
 		general.Warningf("%v strategy is not enabled %v", consts.StrategyNameBorweinV3, err)
 	}
 
-	strategy, err = fetchBorweinStrategy(conf, consts.StrategyNameBorweinV2, conf.EnableBorweinV2)
+	strategy, err = fetchBorweinStrategy(dynamicConf, consts.StrategyNameBorweinV2, conf.EnableBorweinV2)
 	if err == nil {
 		return consts.StrategyNameBorweinV2, strategy, nil
 	} else {
@@ -312,9 +342,10 @@ func getEnabledBorweinStrategy(conf *config.Configuration) (string, *latencyregr
 	return consts.StrategyNameNone, nil, fmt.Errorf("neither %v nor %v strategy is enabled", consts.StrategyNameBorweinV2, consts.StrategyNameBorweinV3)
 }
 
-func fetchBorweinStrategy(conf *config.Configuration, strategyName string, defaultEnable bool) (*latencyregression.BorweinStrategy, error) {
+func fetchBorweinStrategy(dynamicConf *dynamic.Configuration, strategyName string, defaultEnable bool) (*latencyregression.BorweinStrategy, error) {
 	// get strategy
-	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, defaultEnable, conf)
+	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParamWithDynamicConfiguration(
+		strategyName, defaultEnable, dynamicConf)
 	if err != nil {
 		return nil, fmt.Errorf("get %v grep param error: %v", strategyName, err)
 	}
