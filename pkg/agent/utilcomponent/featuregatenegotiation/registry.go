@@ -27,6 +27,7 @@ import (
 
 func init() {
 	RegisterNegotiationTypeFeatureGatesFinder(feature_cpu.NegotiationFeatureGateQuotaCtrlKnob, &feature_cpu.QuotaCtrlKnob{})
+	RegisterNegotiationTypeFeatureGatesFinder(feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition, &feature_cpu.DedicatedReclaimDisjointPartition{})
 }
 
 var negotiationTypeFeatureGatesFinder sync.Map

@@ -116,6 +116,62 @@ func makeState(topo *machine.CPUTopology) (qrmstate.State, error) {
 	return qrmstate.NewCheckpointState(stateDirectoryConfig, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 }
 
+func TestCPUPressureLoadEvictionShouldUseAdvisedThreshold(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                   string
+		enableStaticGate       bool
+		enableReclaim          bool
+		reservedForAllocateCPU string
+		want                   bool
+	}{
+		{
+			name:                   "static gate disabled",
+			enableReclaim:          true,
+			reservedForAllocateCPU: "0",
+		},
+		{
+			name:                   "dynamic condition disabled",
+			enableStaticGate:       true,
+			reservedForAllocateCPU: "0",
+		},
+		{
+			name:                   "reserved resource blocks advised threshold",
+			enableStaticGate:       true,
+			enableReclaim:          true,
+			reservedForAllocateCPU: "1",
+		},
+		{
+			name:                   "static gate and dynamic condition enabled",
+			enableStaticGate:       true,
+			enableReclaim:          true,
+			reservedForAllocateCPU: "0",
+			want:                   true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := config.NewConfiguration()
+			conf.EnableLoadEvictionAdvisedThreshold = tt.enableStaticGate
+			conf.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
+			conf.GetDynamicConfiguration().ReservedResourceForAllocate = v1.ResourceList{
+				v1.ResourceCPU: resource.MustParse(tt.reservedForAllocateCPU),
+			}
+
+			p := &CPUPressureLoadEviction{
+				dynamicConf:            conf.DynamicAgentConfiguration,
+				enableAdvisedThreshold: conf.EnableLoadEvictionAdvisedThreshold,
+			}
+			assert.Equal(t, tt.want, p.shouldUseAdvisedThreshold())
+		})
+	}
+}
+
 func TestNewCPUPressureLoadEviction(t *testing.T) {
 	t.Parallel()
 
@@ -1559,20 +1615,23 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 
 				commonstate.PoolNameShare: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
-						AllocationResult:         machine.MustParse("3-6,11-14"),
-						OriginalAllocationResult: machine.MustParse("3-6,11-14"),
+						AllocationMeta: commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+						// core-aligned 6-cpu (three-core) share pool: with the
+						// core-aligned reserve now holding two cpus per NUMA
+						// (limit == 8), a six-cpu share pool keeps poolSizeSum (6)
+						// strictly below the limit so this subtest still exercises
+						// the no-pressure branch.
+						AllocationResult:         machine.MustParse("3-5,11-13"),
+						OriginalAllocationResult: machine.MustParse("3-5,11-13"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(),
 							1: machine.NewCPUSet(3, 11),
-							2: machine.NewCPUSet(4, 5, 11, 12),
-							3: machine.NewCPUSet(6, 14),
+							2: machine.NewCPUSet(4, 5, 12, 13),
 						},
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(),
 							1: machine.NewCPUSet(3, 11),
-							2: machine.NewCPUSet(4, 5, 11, 12),
-							3: machine.NewCPUSet(6, 14),
+							2: machine.NewCPUSet(4, 5, 12, 13),
 						},
 					},
 				},

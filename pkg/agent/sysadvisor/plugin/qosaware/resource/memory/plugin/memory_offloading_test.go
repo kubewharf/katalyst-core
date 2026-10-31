@@ -19,11 +19,9 @@ package plugin
 import (
 	"errors"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
 
 	v1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -38,8 +36,6 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-var transparentMemoryOffloadingTestMutex sync.Mutex
-
 type mockDirEntry struct {
 	name  string
 	isDir bool
@@ -52,19 +48,17 @@ func (m mockDirEntry) Info() (os.FileInfo, error) { return nil, nil }
 
 func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaim(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
 
 	tmo := &transparentMemoryOffloading{
 		enableDyingMemcgReclaim: true,
+		readDir: func(string) ([]os.DirEntry, error) {
+			return []os.DirEntry{
+				mockDirEntry{name: "offline-besteffort-0", isDir: true},
+				mockDirEntry{name: "offline-besteffort-1", isDir: true},
+				mockDirEntry{name: "burstable", isDir: true},
+			}, nil
+		},
 	}
-
-	mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().Return([]os.DirEntry{
-		mockDirEntry{name: "offline-besteffort-0", isDir: true},
-		mockDirEntry{name: "offline-besteffort-1", isDir: true},
-		mockDirEntry{name: "burstable", isDir: true},
-	}, nil).Build()
 
 	result := tmo.GetAdvices()
 	assert.Len(t, result.ExtraEntries, 3)
@@ -86,18 +80,16 @@ func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaim(t *testing.T) 
 
 func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaimInterval(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
 
 	tmo := &transparentMemoryOffloading{
 		lastDyingCGReclaimTime:  time.Now(),
 		enableDyingMemcgReclaim: true,
+		readDir: func(string) ([]os.DirEntry, error) {
+			return []os.DirEntry{
+				mockDirEntry{name: "offline-besteffort-0", isDir: true},
+			}, nil
+		},
 	}
-
-	mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().Return([]os.DirEntry{
-		mockDirEntry{name: "offline-besteffort-0", isDir: true},
-	}, nil).Build()
 
 	result := tmo.GetAdvices()
 	assert.Len(t, result.ExtraEntries, 0)
@@ -105,15 +97,13 @@ func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaimInterval(t *tes
 
 func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaimReadDirError(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
 
 	tmo := &transparentMemoryOffloading{
 		enableDyingMemcgReclaim: true,
+		readDir: func(string) ([]os.DirEntry, error) {
+			return nil, errors.New("read failed")
+		},
 	}
-
-	mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().Return(nil, errors.New("read failed")).Build()
 
 	result := tmo.GetAdvices()
 	assert.Len(t, result.ExtraEntries, 0)
@@ -121,16 +111,6 @@ func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaimReadDirError(t 
 
 func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenCacheCloseToMapped(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
-
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
-		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
-			return nil, 128
-		})
 
 	engine := &tmoEngineInstance{
 		conf: &tmoconf.TMOConfigDetail{
@@ -140,12 +120,13 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenCacheCloseToMapped(t *te
 			PolicyName: v1alpha1.TMOPolicyNamePSI,
 		},
 		lastTime: time.Now().Add(-time.Second),
+		getStatsImpl: func() (TmoStats, error) {
+			return TmoStats{cache: 100, mapped: 60}, nil
+		},
+		policyFuncOverride: func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		},
 	}
-
-	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
-		cache:  100,
-		mapped: 60,
-	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
 	assert.Equal(t, 0.0, engine.GetOffloadingTargetSize())
@@ -153,16 +134,6 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenCacheCloseToMapped(t *te
 
 func TestTmoEngineCalculateOffloadingTargetSize_ClampByReservedInactiveFile(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
-
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
-		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
-			return nil, 128
-		})
 
 	engine := &tmoEngineInstance{
 		conf: &tmoconf.TMOConfigDetail{
@@ -173,13 +144,17 @@ func TestTmoEngineCalculateOffloadingTargetSize_ClampByReservedInactiveFile(t *t
 			PolicyName:           v1alpha1.TMOPolicyNamePSI,
 		},
 		lastTime: time.Now().Add(-time.Second),
+		getStatsImpl: func() (TmoStats, error) {
+			return TmoStats{
+				memInactiveFile: 350,
+				cache:           1000,
+				mapped:          100,
+			}, nil
+		},
+		policyFuncOverride: func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		},
 	}
-
-	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
-		memInactiveFile: 350,
-		cache:           1000,
-		mapped:          100,
-	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
 	assert.Equal(t, 50.0, engine.GetOffloadingTargetSize())
@@ -187,16 +162,6 @@ func TestTmoEngineCalculateOffloadingTargetSize_ClampByReservedInactiveFile(t *t
 
 func TestTmoEngineCalculateOffloadingTargetSize_ClampToZeroByReservedInactiveFile(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
-
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
-		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
-			return nil, 128
-		})
 
 	engine := &tmoEngineInstance{
 		conf: &tmoconf.TMOConfigDetail{
@@ -207,13 +172,17 @@ func TestTmoEngineCalculateOffloadingTargetSize_ClampToZeroByReservedInactiveFil
 			PolicyName:           v1alpha1.TMOPolicyNamePSI,
 		},
 		lastTime: time.Now().Add(-time.Second),
+		getStatsImpl: func() (TmoStats, error) {
+			return TmoStats{
+				memInactiveFile: 280,
+				cache:           1000,
+				mapped:          100,
+			}, nil
+		},
+		policyFuncOverride: func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		},
 	}
-
-	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
-		memInactiveFile: 280,
-		cache:           1000,
-		mapped:          100,
-	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
 	assert.Equal(t, 0.0, engine.GetOffloadingTargetSize())
@@ -221,16 +190,6 @@ func TestTmoEngineCalculateOffloadingTargetSize_ClampToZeroByReservedInactiveFil
 
 func TestTmoEngineCalculateOffloadingTargetSize_SkipReservedInactiveFileClampWhenSwapEnabled(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
-
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
-		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
-			return nil, 128
-		})
 
 	engine := &tmoEngineInstance{
 		conf: &tmoconf.TMOConfigDetail{
@@ -241,13 +200,17 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipReservedInactiveFileClampWhe
 			PolicyName:           v1alpha1.TMOPolicyNamePSI,
 		},
 		lastTime: time.Now().Add(-time.Second),
+		getStatsImpl: func() (TmoStats, error) {
+			return TmoStats{
+				memInactiveFile: 280,
+				cache:           1000,
+				mapped:          100,
+			}, nil
+		},
+		policyFuncOverride: func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		},
 	}
-
-	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
-		memInactiveFile: 280,
-		cache:           1000,
-		mapped:          100,
-	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
 	assert.Equal(t, 128.0, engine.GetOffloadingTargetSize())
@@ -255,16 +218,6 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipReservedInactiveFileClampWhe
 
 func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenSwapFreeLow(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
-
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
-		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
-			return nil, 128
-		})
 
 	now := time.Now()
 	fetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
@@ -281,12 +234,13 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenSwapFreeLow(t *testing.T
 			PolicyName:             v1alpha1.TMOPolicyNamePSI,
 		},
 		lastTime: time.Now().Add(-time.Second),
+		getStatsImpl: func() (TmoStats, error) {
+			return TmoStats{cache: 1000, mapped: 100}, nil
+		},
+		policyFuncOverride: func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		},
 	}
-
-	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
-		cache:  1000,
-		mapped: 100,
-	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
 	assert.Equal(t, 0.0, engine.GetOffloadingTargetSize())
@@ -294,16 +248,6 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenSwapFreeLow(t *testing.T
 
 func TestTmoEngineCalculateOffloadingTargetSize_DoNotSkipWhenSwapFreeEnough(t *testing.T) {
 	t.Parallel()
-	transparentMemoryOffloadingTestMutex.Lock()
-	defer transparentMemoryOffloadingTestMutex.Unlock()
-	defer mockey.UnPatchAll()
-
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
-	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
-		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
-			return nil, 128
-		})
 
 	now := time.Now()
 	fetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
@@ -320,12 +264,13 @@ func TestTmoEngineCalculateOffloadingTargetSize_DoNotSkipWhenSwapFreeEnough(t *t
 			PolicyName:             v1alpha1.TMOPolicyNamePSI,
 		},
 		lastTime: time.Now().Add(-time.Second),
+		getStatsImpl: func() (TmoStats, error) {
+			return TmoStats{cache: 1000, mapped: 100}, nil
+		},
+		policyFuncOverride: func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		},
 	}
-
-	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
-		cache:  1000,
-		mapped: 100,
-	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
 	assert.Equal(t, 128.0, engine.GetOffloadingTargetSize())

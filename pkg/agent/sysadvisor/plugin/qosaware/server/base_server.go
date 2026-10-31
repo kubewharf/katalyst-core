@@ -66,17 +66,17 @@ const (
 type baseServer struct {
 	mutex sync.RWMutex
 
-	name                          string
-	period                        time.Duration
-	advisorSocketPath             string
-	pluginSocketPath              string
-	reclaimRelativeRootCgroupPath string
-	stopCh                        chan struct{}
+	name              string
+	period            time.Duration
+	advisorSocketPath string
+	pluginSocketPath  string
+	stopCh            chan struct{}
 	// resourceRequestName and resourceLimitName are field names of types.ContainerInfo
 	resourceRequestName string
 	resourceLimitName   string
 
 	qosConf *generic.QoSConfiguration
+	conf    *config.Configuration
 
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
@@ -94,16 +94,16 @@ func newBaseServer(
 	resourceServer subQRMServer,
 ) *baseServer {
 	return &baseServer{
-		name:                          name,
-		period:                        conf.QoSAwarePluginConfiguration.SyncPeriod,
-		qosConf:                       conf.QoSConfiguration,
-		stopCh:                        make(chan struct{}),
-		metaCache:                     metaCache,
-		metaServer:                    metaServer,
-		emitter:                       emitter,
-		resourceAdvisor:               resourceAdvisor,
-		resourceServer:                resourceServer,
-		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
+		name:            name,
+		period:          conf.QoSAwarePluginConfiguration.SyncPeriod,
+		qosConf:         conf.QoSConfiguration,
+		conf:            conf,
+		stopCh:          make(chan struct{}),
+		metaCache:       metaCache,
+		metaServer:      metaServer,
+		emitter:         emitter,
+		resourceAdvisor: resourceAdvisor,
+		resourceServer:  resourceServer,
 	}
 }
 

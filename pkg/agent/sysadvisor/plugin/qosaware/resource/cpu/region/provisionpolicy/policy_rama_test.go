@@ -17,6 +17,7 @@ limitations under the License.
 package provisionpolicy
 
 import (
+	"math"
 	"os"
 	"testing"
 
@@ -125,7 +126,12 @@ func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string,
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
+	// NewMetaServer boots the process-global reclaim consumer registry via
+	// SetupConsumers; hold the package registry lock (same one dynamic-quota
+	// tests use around unregister->re-register) so the two cannot interleave.
+	dqRegistryMu.Lock()
 	metaServerTmp, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+	dqRegistryMu.Unlock()
 	assert.NoError(t, err)
 	require.NotNil(t, metaServerTmp)
 
@@ -435,6 +441,7 @@ func TestPolicyRama(t *testing.T) {
 			}
 			policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherRama(podNames))
 
+			tt.resourceEssentials.DynamicConfiguration = policy.conf.GetDynamicConfiguration()
 			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
 			_ = policy.Update()
 			controlKnobUpdated, err := policy.GetControlKnobAdjusted()
@@ -443,4 +450,127 @@ func TestPolicyRama(t *testing.T) {
 			assert.Equal(t, tt.wantResult, controlKnobUpdated)
 		})
 	}
+}
+
+func TestPolicyRamaRejectsEmptyIndicators(t *testing.T) {
+	t.Parallel()
+
+	conf := generateRamaTestConfiguration(t, t.TempDir(), t.TempDir(), t.TempDir())
+	policy := NewPolicyRama(
+		"share-empty-indicators",
+		configapi.QoSRegionTypeShare,
+		"",
+		conf,
+		nil,
+		nil,
+		nil,
+		metrics.DummyMetrics{},
+	).(*PolicyRama)
+	policy.SetEssentials(
+		types.ResourceEssentials{
+			DynamicConfiguration: conf.GetDynamicConfiguration(),
+		},
+		types.ControlEssentials{
+			ControlKnobs: types.ControlKnob{
+				configapi.ControlKnobNonReclaimedCPURequirement: {
+					Value: 40,
+				},
+			},
+			Indicators: types.Indicator{},
+		},
+	)
+
+	require.ErrorContains(t, policy.Update(), "illegal indicators")
+}
+
+func TestPolicyRamaHandlesZeroIndicatorCurrent(t *testing.T) {
+	t.Parallel()
+
+	conf := generateRamaTestConfiguration(t, t.TempDir(), t.TempDir(), t.TempDir())
+	policy := NewPolicyRama(
+		"dedicated-zero-sched-wait",
+		configapi.QoSRegionTypeDedicated,
+		"",
+		conf,
+		nil,
+		nil,
+		nil,
+		metrics.DummyMetrics{},
+	).(*PolicyRama)
+	policy.SetEssentials(
+		types.ResourceEssentials{
+			DynamicConfiguration: conf.GetDynamicConfiguration(),
+			ResourceLowerBound:   4,
+			ResourceUpperBound:   90,
+		},
+		types.ControlEssentials{
+			ControlKnobs: types.ControlKnob{
+				configapi.ControlKnobNonReclaimedCPURequirement: {
+					Value: 40,
+				},
+			},
+			Indicators: types.Indicator{
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
+					Current: 0,
+					Target:  460,
+				},
+			},
+		},
+	)
+
+	require.NoError(t, policy.Update())
+	controlKnobs, err := policy.GetControlKnobAdjusted()
+	require.NoError(t, err)
+	require.Equal(t, 38.0, controlKnobs[configapi.ControlKnobNonReclaimedCPURequirement].Value)
+}
+
+// TestPolicyRamaNoAdjustmentFallsBackToKnobValue pins the Inf-protection contract:
+// when indicators are present but none of them have PID parameters configured, no
+// controller produces an adjustment and cpuAdjustedRaw would remain its ±Inf
+// sentinel. The policy must fall back to the current knob value rather than
+// publishing an infinite requirement.
+func TestPolicyRamaNoAdjustmentFallsBackToKnobValue(t *testing.T) {
+	t.Parallel()
+
+	conf := generateRamaTestConfiguration(t, t.TempDir(), t.TempDir(), t.TempDir())
+	policy := NewPolicyRama(
+		"share-unconfigured-indicator",
+		configapi.QoSRegionTypeShare,
+		"",
+		conf,
+		nil,
+		nil,
+		nil,
+		metrics.DummyMetrics{},
+	).(*PolicyRama)
+	policy.SetEssentials(
+		types.ResourceEssentials{
+			DynamicConfiguration: conf.GetDynamicConfiguration(),
+			ResourceLowerBound:   4,
+			ResourceUpperBound:   90,
+		},
+		types.ControlEssentials{
+			ControlKnobs: types.ControlKnob{
+				configapi.ControlKnobNonReclaimedCPURequirement: {
+					Value: 40,
+				},
+			},
+			// CPUUsageRatio has no PIDParameters in the test configuration, so every
+			// controller iteration is skipped and no adjustment is produced.
+			Indicators: types.Indicator{
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
+					Current: 1,
+					Target:  0.5,
+				},
+			},
+		},
+	)
+
+	require.NoError(t, policy.Update())
+	controlKnobs, err := policy.GetControlKnobAdjusted()
+	require.NoError(t, err)
+
+	got := controlKnobs[configapi.ControlKnobNonReclaimedCPURequirement].Value
+	require.False(t, math.IsInf(got, 0), "adjusted knob must not be +/-Inf when no PID controller ran")
+	require.Equal(t, 40.0, got, "no valid adjustment must fall back to the current knob value")
 }
