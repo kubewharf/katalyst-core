@@ -101,32 +101,36 @@ func GetPodRequestResources(pod *v1.Pod, name v1.ResourceName) *resource.Quantit
 	return ret
 }
 
-// SumUpPodRequestResources sum up resources in all containers request
-// init container is included (count on the max request of all init containers)
-func SumUpPodRequestResources(pod *v1.Pod) v1.ResourceList {
-	res := make(v1.ResourceList)
-
-	sumRequests := func(containers []v1.Container) {
-		for _, container := range containers {
-			res = AddResources(res, container.Resources.Requests)
-		}
-
-		if pod.Spec.Overhead != nil {
-			res = AddResources(res, pod.Spec.Overhead)
-		}
+// EffectivePodRequestResources returns the Kubernetes effective pod requests:
+// max(sum(app container requests), max(init container requests)) plus pod overhead.
+func EffectivePodRequestResources(pod *v1.Pod) v1.ResourceList {
+	appRequests := make(v1.ResourceList)
+	for _, container := range pod.Spec.Containers {
+		appRequests = AddResources(appRequests, container.Resources.Requests)
 	}
 
-	sumRequests(pod.Spec.Containers)
+	initPeakRequests := make(v1.ResourceList)
 	for _, container := range pod.Spec.InitContainers {
-		for resourceName := range container.Resources.Requests {
-			quantity := container.Resources.Requests[resourceName].DeepCopy()
-			if origin, ok := res[resourceName]; !ok || (&origin).Value() < quantity.Value() {
-				res[resourceName] = quantity
+		for resourceName, quantity := range container.Resources.Requests {
+			if origin, ok := initPeakRequests[resourceName]; !ok || quantity.Cmp(origin) > 0 {
+				initPeakRequests[resourceName] = quantity.DeepCopy()
 			}
 		}
 	}
 
-	return res
+	effectiveRequests := appRequests
+	for resourceName, quantity := range initPeakRequests {
+		if origin, ok := effectiveRequests[resourceName]; !ok || quantity.Cmp(origin) > 0 {
+			effectiveRequests[resourceName] = quantity.DeepCopy()
+		}
+	}
+	return AddResources(effectiveRequests, pod.Spec.Overhead)
+}
+
+// SumUpPodRequestResources sums up effective pod request resources.
+// Init Container requests are included as per-resource maxima.
+func SumUpPodRequestResources(pod *v1.Pod) v1.ResourceList {
+	return EffectivePodRequestResources(pod)
 }
 
 // SumUpPodLimitResources sum up resources in all containers request

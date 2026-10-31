@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const (
@@ -66,11 +67,14 @@ func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metas
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore, machineInfo *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	return &MalachiteMetricsProvisioner{
-		malachiteClient: client.NewMalachiteClient(fetcher, emitter),
-		metricStore:     metricStore,
-		emitter:         emitter,
-		baseConf:        baseConf,
-		machineInfo:     machineInfo,
+		malachiteClient:    client.NewMalachiteClient(fetcher, emitter),
+		metricStore:        metricStore,
+		emitter:            emitter,
+		baseConf:           baseConf,
+		machineInfo:        machineInfo,
+		pathExistsFn:       general.IsPathExists,
+		isCgroup2UnifiedFn: common.CheckCgroup2UnifiedMode,
+		reclaimPathsFn:     reclaim.AggregateAllCgroupPaths,
 	}
 }
 
@@ -82,6 +86,32 @@ type MalachiteMetricsProvisioner struct {
 	machineInfo     *machine.KatalystMachineInfo
 	startOnce       sync.Once
 	cpuToNumaMap    map[int]int
+
+	// pathExistsFn overrides the on-host cgroupfs existence probe. Defaults to
+	// general.IsPathExists; tests inject a fake so they don't need mockey.
+	pathExistsFn func(string) bool
+	// isCgroup2UnifiedFn overrides the cgroup v2 detection. Defaults to
+	// common.CheckCgroup2UnifiedMode; tests inject a fake.
+	isCgroup2UnifiedFn func() bool
+	// reclaimPathsFn returns the aggregate reclaim cgroup paths. Defaults to
+	// reclaim.AggregateAllCgroupPaths; tests inject a fake so parallel tests
+	// don't see each other's registry entries.
+	reclaimPathsFn func() []string
+}
+
+// SetPathExistsFnForTest overrides the cgroupfs existence probe. Test-only.
+func (m *MalachiteMetricsProvisioner) SetPathExistsFnForTest(fn func(string) bool) {
+	m.pathExistsFn = fn
+}
+
+// SetIsCgroup2UnifiedFnForTest overrides the cgroup v2 detection. Test-only.
+func (m *MalachiteMetricsProvisioner) SetIsCgroup2UnifiedFnForTest(fn func() bool) {
+	m.isCgroup2UnifiedFn = fn
+}
+
+// SetReclaimPathsFnForTest overrides the aggregate reclaim cgroup paths. Test-only.
+func (m *MalachiteMetricsProvisioner) SetReclaimPathsFnForTest(fn func() []string) {
+	m.reclaimPathsFn = fn
 }
 
 func (m *MalachiteMetricsProvisioner) Run(ctx context.Context) {
@@ -189,17 +219,25 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	return errors.NewAggregate(errList)
 }
 
-func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
-	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
-	for _, path := range common.GetNUMABindingReclaimRelativeRootCgroupPaths(m.baseConf.ReclaimRelativeRootCgroupPath,
-		m.machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()) {
-		cgroupPaths = append(cgroupPaths, path)
+func (m *MalachiteMetricsProvisioner) pathExists(absPath string) bool {
+	if m.pathExistsFn != nil {
+		return m.pathExistsFn(absPath)
 	}
-	cgroupPaths = append(cgroupPaths, m.baseConf.ReclaimRelativeRootCgroupPath)
+	return general.IsPathExists(absPath)
+}
+
+func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
+	cgroupPaths := []string{common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
+
+	reclaimPaths := m.reclaimPathsFn
+	if reclaimPaths == nil {
+		reclaimPaths = reclaim.AggregateAllCgroupPaths
+	}
+	cgroupPaths = append(cgroupPaths, reclaimPaths()...)
 
 	for _, path := range m.baseConf.OptionalRelativeCgroupPaths {
 		absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)
-		if !general.IsPathExists(absPath) {
+		if !m.pathExists(absPath) {
 			general.Infof("cgroup path %v not existed, ignore it", path)
 			continue
 		}
@@ -218,7 +256,7 @@ func (m *MalachiteMetricsProvisioner) updateCgroupData() error {
 	cgroupPaths := m.getCgroupPaths()
 	errList := make([]error, 0)
 	for _, path := range cgroupPaths {
-		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)) {
+		if !m.pathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)) {
 			general.Warningf("cgroup path %v not existed, ignore it", path)
 			continue
 		}
@@ -723,10 +761,28 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 			utilmetric.MetricData{Value: cpu.CPUSchedWait * 1000, Time: &updateTime})
 		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIOWaitRatio,
 			utilmetric.MetricData{Value: cpu.CPUIowaitRatio, Time: &updateTime})
+		m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUIrqRatio,
+			utilmetric.MetricData{Value: cpu.CPUIrqRatio, Time: &updateTime})
 
 		if cpu.CpiData != nil {
+			m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUCPI,
+				utilmetric.MetricData{Value: cpu.CpiData.Cpi, Time: &updateTime})
+			m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUCycles,
+				utilmetric.MetricData{Value: cpu.CpiData.Cycles, Time: &updateTime})
+			m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUInstructions,
+				utilmetric.MetricData{Value: cpu.CpiData.Instructions, Time: &updateTime})
+			m.metricStore.SetCPUMetric(cpuID, consts.MetricCPUL3Misses,
+				utilmetric.MetricData{Value: cpu.CpiData.L3Misses, Time: &updateTime})
 			cpiTotal += cpu.CpiData.Cpi
 			cpiCount += 1
+		} else {
+			// perf counters are unavailable for this cpu this cycle. Clear any
+			// values left over from a previous cycle so consumers do not read
+			// stale CPI/cycles/instructions/L3-misses.
+			m.metricStore.DeleteCPUMetric(cpuID, consts.MetricCPUCPI)
+			m.metricStore.DeleteCPUMetric(cpuID, consts.MetricCPUCycles)
+			m.metricStore.DeleteCPUMetric(cpuID, consts.MetricCPUInstructions)
+			m.metricStore.DeleteCPUMetric(cpuID, consts.MetricCPUL3Misses)
 		}
 	}
 	m.metricStore.SetNodeMetric(consts.MetricCPUUsageRatio,

@@ -26,6 +26,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -41,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 // ObjectFetcher is used to get object information.
@@ -79,8 +81,13 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		return nil, err
 	}
 
-	// init cgroup paths
+	// init cgroup paths FIRST, before reclaim consumers boot, so any consumer
+	// construction/runtime that reads the k8s cgroup path list sees it populated.
 	common.InitKubernetesCGroupPath(common.CgroupType(conf.CgroupType), getAllAdditionalK8sCgroupPaths(conf, machineInfo))
+
+	if err = reclaim.SetupConsumers(conf, machineInfo); err != nil {
+		return nil, err
+	}
 
 	// init pod fetcher
 	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration,
@@ -202,22 +209,23 @@ func (a *MetaAgent) setComponentImplementation(setter func()) {
 }
 
 func getAllAdditionalK8sCgroupPaths(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) []string {
-	// add additional cgroup paths by custom configuration
-	additionalK8sCgroupPaths := make([]string, 0, len(conf.AdditionalK8sCgroupPaths))
-	for _, cgroupPath := range conf.AdditionalK8sCgroupPaths {
-		additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
-	}
+	// union configured additional k8s cgroup paths with the reclaim root and
+	// the per-NUMA reclaim paths derived from machine topology. This is computed
+	// directly from configuration/topology rather than from the reclaim registry,
+	// because cgroup paths are initialized before consumers boot.
+	paths := sets.NewString(conf.AdditionalK8sCgroupPaths...)
 
-	// add reclaim cgroup path
-	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, conf.ReclaimRelativeRootCgroupPath)
-
-	// if we have multiple numa nodes, we should add numa-binding reclaim cgroup path
-	if machineInfo.CPUTopology != nil {
-		nonNUMABindingReclaimRelativeRootCgroupPaths := common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt())
-		for _, cgroupPath := range nonNUMABindingReclaimRelativeRootCgroupPaths {
-			additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
+	if root := conf.BaseConfiguration.ReclaimRelativeRootCgroupPath; root != "" {
+		paths.Insert(root)
+		if machineInfo != nil && machineInfo.CPUTopology != nil {
+			numaIDs := machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()
+			for _, p := range common.GetNUMABindingReclaimRelativeRootCgroupPaths(root, numaIDs) {
+				if p != "" {
+					paths.Insert(p)
+				}
+			}
 		}
 	}
-	return additionalK8sCgroupPaths
+
+	return paths.List()
 }

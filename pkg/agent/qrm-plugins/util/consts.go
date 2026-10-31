@@ -54,6 +54,12 @@ const (
 	MetricNameSetExclusiveIRQCPUSize      = "set_exclusive_irq_cpu_size"
 	MetricNameCPUWeightSucceedShares      = "cpu_weight_succeed_shares"
 	MetricNameSystemExclusivePoolSize     = "system_exclusive_pool_size"
+	MetricNameReclaimEnabled              = "reclaim_enabled"
+
+	// MetricNameSharedCoresRampUpDisabledSeeded counts the number of times
+	// shared_cores cold-start seeding was triggered under DisableSharedCoresRampUp=true
+	// when the target pool entry is not yet ready.
+	MetricNameSharedCoresRampUpDisabledSeeded = "shared_cores_ramp_up_disabled_seeded"
 
 	// metrics for memory plugin
 	MetricNameMemSetInvalid                           = "memset_invalid"

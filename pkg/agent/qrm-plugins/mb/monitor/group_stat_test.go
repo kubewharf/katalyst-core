@@ -17,58 +17,27 @@ limitations under the License.
 package monitor
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestGroupMBStats_NormalizeShareSubgroups(t *testing.T) {
+// TestGroupMBStatsKeepsPhysicalCLOSKeysDistinct feeds per-CCD mon-group readings
+// through the production aggregation seam (putGroupCCDMBToDomain/putCCDMBStat)
+// and asserts that distinct group keys are kept separate instead of being
+// collapsed onto one bucket. The earlier version built the GroupMBStats literal
+// directly, so it passed regardless of how the production put path routed keys.
+func TestGroupMBStatsKeepsPhysicalCLOSKeysDistinct(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name                 string
-		gms                  GroupMBStats
-		wantStats            GroupMBStats
-		wantIsSharedSubgroup bool
-	}{
-		{
-			name: "happy path with shared subgroup",
-			gms: map[string]GroupMB{
-				"shared-30": map[int]MBInfo{},
-				"/":         map[int]MBInfo{},
-				"shared-60": map[int]MBInfo{},
-			},
-			wantStats: map[string]GroupMB{
-				"share-30": map[int]MBInfo{},
-				"/":        map[int]MBInfo{},
-				"share-60": map[int]MBInfo{},
-			},
-			wantIsSharedSubgroup: true,
-		},
-		{
-			name: "happy path without shared subgroup",
-			gms: map[string]GroupMB{
-				"share-30": map[int]MBInfo{},
-				"/":        map[int]MBInfo{},
-				"share":    map[int]MBInfo{},
-			},
-			wantStats: map[string]GroupMB{
-				"share-30": map[int]MBInfo{},
-				"/":        map[int]MBInfo{},
-				"share":    map[int]MBInfo{},
-			},
-			wantIsSharedSubgroup: false,
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			gotStats, gotIsSharedSubgroup := tt.gms.NormalizeShareSubgroups()
-			if !reflect.DeepEqual(gotStats, tt.wantStats) {
-				t.Errorf("NormalizeShareSubgroups() gotStats = %v, want %v", gotStats, tt.wantStats)
-			}
-			if gotIsSharedSubgroup != tt.wantIsSharedSubgroup {
-				t.Errorf("NormalizeShareSubgroups() gotIsSharedSubgroup = %v, want %v", gotIsSharedSubgroup, tt.wantIsSharedSubgroup)
-			}
-		})
-	}
+
+	domainGroupStats := map[int]GroupMBStats{}
+	putGroupCCDMBToDomain(domainGroupStats, 0, "shared-50", 0, MBInfo{TotalMB: 100})
+	putGroupCCDMBToDomain(domainGroupStats, 0, "share-50", 0, MBInfo{TotalMB: 200})
+
+	stats := domainGroupStats[0]
+	require.Len(t, stats, 2)
+	require.Contains(t, stats, "shared-50")
+	require.Contains(t, stats, "share-50")
+	require.Equal(t, 100, stats["shared-50"].SumStat().TotalMB)
+	require.Equal(t, 200, stats["share-50"].SumStat().TotalMB)
 }

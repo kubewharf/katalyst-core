@@ -41,25 +41,42 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
+// generateTestConfiguration builds a Configuration suitable for unit tests:
+// production defaults (e.g. /var/lib/katalyst, real containerd endpoint) are
+// overridden so that no system directory is created and no local containerd
+// socket is required. Production code paths are unaffected.
 func generateTestConfiguration(t *testing.T) *config.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
-	testConfiguration.EnableMetricsFetcher = false
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
+
+	testConfiguration.EnableMetricsFetcher = false
+	// Redirect checkpoint dir to a per-test temp dir so we never touch
+	// /var/lib/katalyst (which requires root and is absent in CI).
+	testConfiguration.CheckpointManagerDir = t.TempDir()
 	return testConfiguration
 }
 
-func Test_systemPlugin_GetReportContent(t *testing.T) {
-	t.Parallel()
+func newTestMetaServer(t *testing.T, conf *config.Configuration) *metaserver.MetaServer {
+	t.Helper()
 
 	genericClient := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
-	conf := generateTestConfiguration(t)
+
 	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	return meta
+}
+
+func Test_systemPlugin_GetReportContent(t *testing.T) {
+	t.Parallel()
+
+	conf := generateTestConfiguration(t)
+	meta := newTestMetaServer(t, conf)
 
 	metricsFetcher := meta.MetricsFetcher.(*metric.FakeMetricsFetcher)
 	metricsFetcher.SetSynced(true)
@@ -67,7 +84,8 @@ func Test_systemPlugin_GetReportContent(t *testing.T) {
 	metricsFetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
 
 	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	require.NotNil(t, plugin)
 
 	content, err := plugin.GetReportContent(context.Background())
 	assert.NoError(t, err)
@@ -77,14 +95,8 @@ func Test_systemPlugin_GetReportContent(t *testing.T) {
 func Test_systemPlugin_WithCache(t *testing.T) {
 	t.Parallel()
 
-	genericClient := &client.GenericClientSet{
-		KubeClient:     fake.NewSimpleClientset(),
-		InternalClient: internalfake.NewSimpleClientset(),
-		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
-	}
 	conf := generateTestConfiguration(t)
-	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
-	assert.NoError(t, err)
+	meta := newTestMetaServer(t, conf)
 
 	// mock a cache response
 	mockCache := &v1alpha1.GetReportContentResponse{
@@ -96,11 +108,71 @@ func Test_systemPlugin_WithCache(t *testing.T) {
 	}
 
 	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil, mockCache)
-	assert.NoError(t, err)
-	assert.NotNil(t, plugin)
+	require.NoError(t, err)
+	require.NotNil(t, plugin)
 
 	// Verify that the cache is properly set during initialization
 	cachedResponse := plugin.GetCache()
 	assert.NotNil(t, cachedResponse)
 	assert.Equal(t, mockCache, cachedResponse)
+}
+
+// --- boundary tests: construction failure must return an error and never
+// produce a usable plugin with nil dependencies. These tests use non-nil
+// placeholders so they do not depend on a fully bootstrapped MetaServer. ---
+
+func TestNewSystemReporterPlugin_NilEmitter(t *testing.T) {
+	t.Parallel()
+
+	plugin, err := NewSystemReporterPlugin(nil, &metaserver.MetaServer{}, &config.Configuration{}, nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, plugin)
+	assert.Contains(t, err.Error(), "emitter")
+}
+
+func TestNewSystemReporterPlugin_NilMetaServer(t *testing.T) {
+	t.Parallel()
+
+	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, nil, &config.Configuration{}, nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, plugin)
+	assert.Contains(t, err.Error(), "metaServer")
+}
+
+func TestNewSystemReporterPlugin_NilConf(t *testing.T) {
+	t.Parallel()
+
+	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, &metaserver.MetaServer{}, nil, nil, nil)
+	assert.Error(t, err)
+	assert.Nil(t, plugin)
+	assert.Contains(t, err.Error(), "conf")
+}
+
+// TestNewSystemReporterPlugin_PartialDeps ensures that when one required
+// dependency is missing the constructor rejects the request atomically: no
+// plugin is returned and no nil reference leaks into the caller.
+func TestNewSystemReporterPlugin_PartialDeps(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		emitter metrics.MetricEmitter
+		meta    *metaserver.MetaServer
+		conf    *config.Configuration
+		errSub  string
+	}{
+		{"all-nil", nil, nil, nil, "emitter"},
+		{"nil-meta", metrics.DummyMetrics{}, nil, &config.Configuration{}, "metaServer"},
+		{"nil-conf", metrics.DummyMetrics{}, &metaserver.MetaServer{}, nil, "conf"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			plugin, err := NewSystemReporterPlugin(tc.emitter, tc.meta, tc.conf, nil, nil)
+			assert.Error(t, err)
+			assert.Nil(t, plugin)
+			assert.Contains(t, err.Error(), tc.errSub)
+		})
+	}
 }
