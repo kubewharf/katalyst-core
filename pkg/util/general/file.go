@@ -208,15 +208,24 @@ func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherI
 			return
 		default:
 		}
-		if !event.Created {
-			return
-		}
-		select {
-		case pending := <-notifyCh:
-			if pending.Created {
-				event = pending
+		// Channel is full. For create events, prefer a pending create over a
+		// remove so the consumer learns about a freshly watched directory.
+		// For remove events, replace whatever is pending: when a parent is
+		// removed after its children, the outer path's removal is the signal
+		// the consumer waits for, and dropping it would leave a stale watch.
+		if event.Created {
+			select {
+			case pending := <-notifyCh:
+				if pending.Created {
+					event = pending
+				}
+			default:
 			}
-		default:
+		} else {
+			select {
+			case <-notifyCh:
+			default:
+			}
 		}
 		select {
 		case notifyCh <- event:
