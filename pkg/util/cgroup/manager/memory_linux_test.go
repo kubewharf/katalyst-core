@@ -38,8 +38,17 @@ func TestMemoryPolicy(t *testing.T) {
 	defer runtime.UnlockOSThread()
 
 	mode, mask, err := GetMemPolicy(nil, 0)
-	assert.NoError(t, err)
+	if !assert.NoError(t, err) {
+		return
+	}
+	originalMode, originalMask := mode, mask
+	defer func() {
+		assert.NoError(t, SetMemPolicy(originalMode, originalMask))
+	}()
 
+	assert.NoError(t, SetMemPolicy(MPOL_DEFAULT, bitmask.NewEmptyBitMask()))
+	mode, mask, err = GetMemPolicy(nil, 0)
+	assert.NoError(t, err)
 	assert.Equal(t, MPOL_DEFAULT, mode)
 
 	t.Logf("mask: %v", mask)

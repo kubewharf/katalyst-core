@@ -20,9 +20,12 @@ import (
 	"fmt"
 )
 
+// CgroupFSMountPoint is the default cgroupfs mount point. It is a var (not a
+// const) so tests can redirect the path helpers at a fixture root; production
+// leaves it at the default below.
+var CgroupFSMountPoint = "/sys/fs/cgroup"
+
 const (
-	// CgroupFSMountPoint default cgroup mount point
-	CgroupFSMountPoint = "/sys/fs/cgroup"
 	// DefaultSelectedSubsys cgroupv1 default select subsys
 	DefaultSelectedSubsys = "cpu"
 	// CgroupTasksFileV1 thread id file for cgroupv1

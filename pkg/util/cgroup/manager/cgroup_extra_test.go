@@ -26,9 +26,9 @@ import (
 
 // TestSetExtraCGMemLimitWithTimeoutAndAbsCGPathAllowsZeroOnCgroupV1 verifies that a
 // zero nbytes is materialized as the v1 "unlimited" sentinel (memory.limit_in_bytes
-// = 0). On non-Linux hosts CheckCgroup2UnifiedMode is stubbed to false, so the v1
-// branch is taken without needing a global mockey patch; on Linux the test relies
-// on the host's real cgroup detection and writes to a per-test TempDir.
+// = 0). It drives the shared write core directly against memory.limit_in_bytes so
+// the v1 branch is exercised deterministically regardless of whether the host is
+// cgroup v2 (where the exported entry point would select memory.max instead).
 func TestSetExtraCGMemLimitWithTimeoutAndAbsCGPathAllowsZeroOnCgroupV1(t *testing.T) {
 	t.Parallel()
 	mu.Lock()
@@ -38,7 +38,7 @@ func TestSetExtraCGMemLimitWithTimeoutAndAbsCGPathAllowsZeroOnCgroupV1(t *testin
 	limitFile := filepath.Join(cgroupDir, "memory.limit_in_bytes")
 	require.NoError(t, os.WriteFile(limitFile, []byte("1024\n"), 0o644))
 
-	err := SetExtraCGMemLimitWithTimeoutAndAbsCGPath(1, cgroupDir, 0)
+	err := setExtraCGMemLimitFile(cgroupDir, 1, 0, "memory.limit_in_bytes")
 
 	require.NoError(t, err)
 	got, err := os.ReadFile(limitFile)
