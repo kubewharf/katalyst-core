@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFileUtils(t *testing.T) {
@@ -804,10 +805,17 @@ func TestRegisterSubDirEventWatcher(t *testing.T) {
 	assert.Equal(t, grandchild, event.Path)
 
 	// 3) rmdir child -> expect notification, watchList no longer contains child.
+	// os.RemoveAll removes nested entries before the parent, so fsnotify may
+	// deliver a grandchild remove event ahead of the child event. Drain any
+	// intermediate events until the child removal arrives.
 	assert.NoError(t, os.RemoveAll(child))
-	event, ok = waitNotify(2 * time.Second)
-	assert.True(t, ok, "expect notification after remove child")
-	assert.False(t, event.Created)
+	require.Eventually(t, func() bool {
+		event, ok = waitNotify(2 * time.Second)
+		if !ok {
+			return false
+		}
+		return !event.Created && event.Path == child
+	}, 2*time.Second, 20*time.Millisecond, "watch event must target child")
 	assert.Eventually(t, func() bool {
 		for _, p := range watchList() {
 			if p == child {
