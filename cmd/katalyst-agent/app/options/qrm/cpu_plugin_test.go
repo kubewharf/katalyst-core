@@ -47,6 +47,16 @@ func TestCPUOptions_AddFlags_ParseLoadEvictionAdvisedThreshold(t *testing.T) {
 	as.NotNil(fs.Lookup("enable-load-eviction-advised-threshold"))
 	as.NoError(fs.Parse([]string{"--enable-load-eviction-advised-threshold=true"}))
 	as.True(o.EnableLoadEvictionAdvisedThreshold)
+
+	// A broken binding that ignores the supplied value would still pass the
+	// =true check because the option defaults to true; parse =false to prove
+	// the flag actually overrides the default.
+	o2 := NewCPUOptions()
+	fs2 := cliflag.NamedFlagSets{}
+	o2.AddFlags(&fs2)
+	fs2f := fs2.FlagSet("cpu_resource_plugin")
+	as.NoError(fs2f.Parse([]string{"--enable-load-eviction-advised-threshold=false"}))
+	as.False(o2.EnableLoadEvictionAdvisedThreshold)
 }
 
 func TestCPUOptions_ApplyTo_CopiesLoadEvictionAdvisedThreshold(t *testing.T) {
