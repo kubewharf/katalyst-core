@@ -20,13 +20,23 @@ limitations under the License.
 package common
 
 import (
+	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+// cgroupMountTestMu serializes tests that override the process-global
+// CgroupFSMountPoint so they cannot race with tests that assert on the real
+// /sys/fs/cgroup mount root.
+var cgroupMountTestMu sync.Mutex
+
 func TestAbsCgroupPathWithSuffix(t *testing.T) {
 	t.Parallel()
+
+	cgroupMountTestMu.Lock()
+	defer cgroupMountTestMu.Unlock()
 
 	as := require.New(t)
 	path := GetAbsCgroupPath("cpuset", "abc")
@@ -42,7 +52,15 @@ func TestGetAbsCgroupPath(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
-	_, err := GetKubernetesAnyExistAbsCgroupPath("cpuset", "")
+	// Probe with a stat that reports every candidate absent. This exercises the
+	// all-candidates-missing error path without overriding the process-global
+	// CgroupFSMountPoint, so the test is safe to run concurrently with the other
+	// path tests that read the real mount root.
+	_, err := getKubernetesAnyExistAbsCgroupPath(
+		func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+		[]string{"kubepods"},
+		"cpuset", "",
+	)
 	as.NotNil(err)
 }
 
