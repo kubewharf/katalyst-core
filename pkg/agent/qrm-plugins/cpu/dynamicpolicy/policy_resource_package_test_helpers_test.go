@@ -45,5 +45,5 @@ func mockPodInMetaServer(dp *DynamicPolicy, alloc *state.AllocationInfo, cpuReq 
 			},
 		},
 	}
-	dp.metaServer.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{mockPod}}
+	dp.meta.metaServer.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{mockPod}}
 }
