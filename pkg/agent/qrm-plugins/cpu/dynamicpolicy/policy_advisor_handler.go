@@ -19,36 +19,43 @@ package dynamicpolicy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
+	"reflect"
 	"time"
 
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/api/v1/resource"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	bulkheadmodel "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
+	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -70,9 +77,63 @@ const (
 
 /* in the below, cpu-plugin works in server-mode, while cpu-advisor works in client-mode */
 
+// cgroupResourceOps groups the per-instance cgroup / path / runtime calls used by
+// the cgroup-v1 quota convergence helpers. Every field defaults to the production
+// function (see defaultCgroupResourceOps). A nil internal-method field means the
+// production method body runs. Tests install a fake ops on their own DynamicPolicy
+// so the helpers can run under t.Parallel without monkey patching.
+type cgroupResourceOps struct {
+	// external calls
+	checkCgroup2UnifiedMode        func() bool
+	getCPUWithRelativePath         func(relCgroupPath string) (*common.CPUStats, error)
+	applyCPUWithRelativePath       func(relCgroupPath string, data *common.CPUData) error
+	getCPUWithAbsolutePath         func(absCgroupPath string) (*common.CPUStats, error)
+	applyCPUWithAbsolutePath       func(absCgroupPath string, data *common.CPUData) error
+	readDir                        func(dirname string) ([]os.DirEntry, error)
+	getContainerID                 func(pod *v1.Pod, containerName string) (string, error)
+	getPodAbsCgroupPath            func(subsys string, podUID string) (string, error)
+	getContainerRelativeCgroupPath func(podUID string, containerID string) (string, error)
+	getAbsCgroupPath               func(subsys string, suffix string) string
+
+	// internal helper seams (nil => production method)
+	getCurrentPathAllPodsDirAndMap  func(currentCgroupPath string) (map[string]*v1.Pod, []string, error)
+	getPodAndRelativePath           func(currentCgroupPath, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error)
+	applyAllContainersQuota         func(pod *v1.Pod, setToLimit bool) error
+	getAllContainersRelativePathMap func(pod *v1.Pod) map[string]*v1.Container
+	applyAllSubCgroupQuotaToUnLimit func(containerRelativePath string) error
+	checkAndApplyAllPodsQuota       func(calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error
+}
+
+// defaultCgroupResourceOps binds every external field to the production function.
+// Internal-method fields are left nil so the production method body runs.
+func defaultCgroupResourceOps() *cgroupResourceOps {
+	return &cgroupResourceOps{
+		checkCgroup2UnifiedMode:        common.CheckCgroup2UnifiedMode,
+		getCPUWithRelativePath:         cgroupmgr.GetCPUWithRelativePath,
+		applyCPUWithRelativePath:       cgroupmgr.ApplyCPUWithRelativePath,
+		getCPUWithAbsolutePath:         cgroupmgr.GetCPUWithAbsolutePath,
+		applyCPUWithAbsolutePath:       cgroupmgr.ApplyCPUWithAbsolutePath,
+		readDir:                        os.ReadDir,
+		getContainerID:                 native.GetContainerID,
+		getPodAbsCgroupPath:            common.GetPodAbsCgroupPath,
+		getContainerRelativeCgroupPath: common.GetContainerRelativeCgroupPath,
+		getAbsCgroupPath:               common.GetAbsCgroupPath,
+	}
+}
+
+// gops returns the per-instance cgroup ops, filling production defaults on first
+// use. The returned value is a pointer shared for the instance; tests replace it
+// wholesale before invoking the helpers.
+func (p *DynamicPolicy) gops() *cgroupResourceOps {
+	if p.cgroupOps == nil {
+		p.cgroupOps = defaultCgroupResourceOps()
+	}
+	return p.cgroupOps
+}
+
 // serveForAdvisor starts a server for cpu-advisor (as a client) to connect with
 func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
-	cpuPluginSocketDir := path.Dir(p.cpuPluginSocketAbsPath)
+	cpuPluginSocketDir := path.Dir(p.config.cpuPluginSocketAbsPath)
 
 	err := general.EnsureDirectory(cpuPluginSocketDir)
 	if err != nil {
@@ -81,36 +142,39 @@ func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 	}
 
 	general.Infof("ensure cpuPluginSocketDir: %s successfully", cpuPluginSocketDir)
-	if err := os.Remove(p.cpuPluginSocketAbsPath); err != nil && !os.IsNotExist(err) {
-		general.Errorf("failed to remove %s: %v", p.cpuPluginSocketAbsPath, err)
+	if err := os.Remove(p.config.cpuPluginSocketAbsPath); err != nil && !os.IsNotExist(err) {
+		general.Errorf("failed to remove %s: %v", p.config.cpuPluginSocketAbsPath, err)
 		return
 	}
 
-	sock, err := net.Listen("unix", p.cpuPluginSocketAbsPath)
+	sock, err := net.Listen("unix", p.config.cpuPluginSocketAbsPath)
 	if err != nil {
-		general.Errorf("listen at socket: %s failed with err: %v", p.cpuPluginSocketAbsPath, err)
+		general.Errorf("listen at socket: %s failed with err: %v", p.config.cpuPluginSocketAbsPath, err)
 		return
 	}
-	general.Infof("listen at: %s successfully", p.cpuPluginSocketAbsPath)
+	general.Infof("listen at: %s successfully", p.config.cpuPluginSocketAbsPath)
 
 	grpcServer := grpc.NewServer()
 	advisorapi.RegisterCPUPluginServer(grpcServer, p)
 
-	exitCh := make(chan struct{})
+	// Buffered so the Serve goroutine can always signal back without a receiver:
+	// when stopCh fires we call grpcServer.Stop() and return before reading
+	// exitCh, an unbuffered send would park the Serve goroutine forever.
+	exitCh := make(chan struct{}, 1)
 	go func() {
-		general.Infof("starting cpu plugin checkpoint grpc server at socket: %s", p.cpuPluginSocketAbsPath)
+		general.Infof("starting cpu plugin checkpoint grpc server at socket: %s", p.config.cpuPluginSocketAbsPath)
 		if err := grpcServer.Serve(sock); err != nil {
-			general.Errorf("cpu plugin checkpoint grpc server crashed with error: %v at socket: %s", err, p.cpuPluginSocketAbsPath)
+			general.Errorf("cpu plugin checkpoint grpc server crashed with error: %v at socket: %s", err, p.config.cpuPluginSocketAbsPath)
 		} else {
-			general.Infof("cpu plugin checkpoint grpc server at socket: %s exists normally", p.cpuPluginSocketAbsPath)
+			general.Infof("cpu plugin checkpoint grpc server at socket: %s exists normally", p.config.cpuPluginSocketAbsPath)
 		}
 
 		exitCh <- struct{}{}
 	}()
 
-	if conn, err := process.Dial(p.cpuPluginSocketAbsPath, 5*time.Second); err != nil {
+	if conn, err := process.Dial(p.config.cpuPluginSocketAbsPath, 5*time.Second); err != nil {
 		grpcServer.Stop()
-		general.Errorf("dial check at socket: %s failed with err: %v", p.cpuPluginSocketAbsPath, err)
+		general.Errorf("dial check at socket: %s failed with err: %v", p.config.cpuPluginSocketAbsPath, err)
 	} else {
 		_ = conn.Close()
 	}
@@ -120,6 +184,7 @@ func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 		return
 	case <-stopCh:
 		grpcServer.Stop()
+		<-exitCh
 		return
 	}
 }
@@ -208,7 +273,7 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 					allocationInfo.ContainerName, allocationInfo.ContainerType)
 			}
 
-			_, err := p.advisorClient.AddContainer(context.Background(), &advisorsvc.ContainerMetadata{
+			_, err := p.advisor.advisorClient.AddContainer(context.Background(), &advisorsvc.ContainerMetadata{
 				PodUid:               allocationInfo.PodUid,
 				PodNamespace:         allocationInfo.PodNamespace,
 				PodName:              allocationInfo.PodName,
@@ -232,8 +297,16 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 	return nil
 }
 
-func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, error) {
-	stateEntries := p.state.GetPodEntries()
+func (p *DynamicPolicy) createGetAdviceRequestAtRevision() (*advisorapi.GetAdviceRequest, uint64, error) {
+	stateEntries, machineState, revision := p.state.GetAdvisorStateSnapshot()
+	req, err := p.createGetAdviceRequestFromSnapshot(stateEntries, machineState)
+	return req, revision, err
+}
+
+func (p *DynamicPolicy) createGetAdviceRequestFromSnapshot(
+	stateEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+) (*advisorapi.GetAdviceRequest, error) {
 	chkEntries := make(map[string]*advisorapi.ContainerAllocationInfoEntries)
 	for uid, containerEntries := range stateEntries {
 		if chkEntries[uid] == nil {
@@ -294,7 +367,10 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 				// to ensure backward compatibility with checkpoint written by older versions of the plugin.
 				if allocationInfo.CheckSideCar() {
 					mainContainerInfo := containerEntries.GetMainContainerEntry()
-					if mainContainerInfo != nil {
+					if mainContainerInfo != nil && len(mainContainerInfo.Annotations) > 0 {
+						if info.Metadata.Annotations == nil {
+							info.Metadata.Annotations = make(map[string]string, len(mainContainerInfo.Annotations))
+						}
 						for key, value := range mainContainerInfo.Annotations {
 							if _, ok := info.Metadata.Annotations[key]; !ok {
 								info.Metadata.Annotations[key] = value
@@ -315,17 +391,16 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 		}
 	}
 
-	if lo.IsNil(p.featureGateManager) {
+	if lo.IsNil(p.advisor.featureGateManager) {
 		return nil, fmt.Errorf("featureGateManager is nil")
 	}
-	wantedFeatureGates, err := p.featureGateManager.GetWantedFeatureGates(finders.FeatureGateTypeCPU)
+	wantedFeatureGates, err := p.advisor.featureGateManager.GetWantedFeatureGates(finders.FeatureGateTypeCPU)
 	if err != nil {
 		return nil, err
 	}
 
 	general.InfofV(6, "CPU plugin desire negotiation feature gates: %#v", wantedFeatureGates)
 
-	machineState := p.state.GetMachineState()
 	numaResourcePackageStates := machineState.GetNUMAResourcePackageStates()
 	var resourcePackageConfig *advisorapi.ResourcePackageConfig
 	if len(numaResourcePackageStates) > 0 {
@@ -360,11 +435,11 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
-	request, err := p.createGetAdviceRequest()
+	request, requestRevision, err := p.createGetAdviceRequestAtRevision()
 	if err != nil {
 		return false, fmt.Errorf("create GetAdviceRequest failed with error: %w", err)
 	}
-	resp, err := p.advisorClient.GetAdvice(ctx, request)
+	resp, err := p.advisor.advisorClient.GetAdvice(ctx, request)
 	if err != nil {
 		if general.IsUnimplementedError(err) {
 			return false, nil
@@ -381,11 +456,13 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 		}
 	}
 
-	err = p.allocateByCPUAdvisor(request, &advisorapi.ListAndWatchResponse{
-		Entries:                               resp.Entries,
-		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          resp.ExtraEntries,
-	}, resp.SupportedFeatureGates)
+	// Convert the advisor response into internal entries before taking the policy
+	// lock. Target-driven reclaim is gated later by runtime config, not by
+	// any wire-level negotiation.
+	convertedResp := convertGetAdviceResponse(resp)
+
+	err = p.allocateByCPUAdvisorAtRevision(
+		request, convertedResp, resp.SupportedFeatureGates, requestRevision)
 	if err != nil {
 		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
 	}
@@ -396,6 +473,37 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 	}
 
 	return true, nil
+}
+
+func convertGetAdviceResponse(resp *advisorapi.GetAdviceResponse) *advisorapi.ListAndWatchResponse {
+	if resp == nil {
+		return nil
+	}
+
+	return &advisorapi.ListAndWatchResponse{
+		Entries:                               resp.Entries,
+		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
+		ExtraEntries:                          resp.ExtraEntries,
+		DisableDedicatedCoresOverlapReclaimedCores: resp.DisableDedicatedCoresOverlapReclaimedCores,
+	}
+}
+
+func validateDedicatedReclaimDisjointTransport(
+	req *advisorapi.GetAdviceRequest,
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+) error {
+	if resp == nil || !resp.DisableDedicatedCoresOverlapReclaimedCores {
+		return nil
+	}
+	if req == nil {
+		return fmt.Errorf("dedicated reclaim disjoint partition requires negotiated GetAdvice")
+	}
+	if featureGates[feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition] == nil {
+		return fmt.Errorf("feature gate %s is required for dedicated reclaim disjoint partition",
+			feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition)
+	}
+	return nil
 }
 
 // getAdviceFromAdvisorLoop gets advice from cpu-advisor periodically.
@@ -414,18 +522,18 @@ func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
 		cancel()
 	}()
 
-	_ = wait.PollImmediateUntilWithContext(ctx, p.getAdviceInterval, func(ctx context.Context) (bool, error) {
+	_ = wait.PollImmediateUntilWithContext(ctx, p.config.getAdviceInterval, func(ctx context.Context) (bool, error) {
 		isImplemented, err := p.getAdviceFromAdvisor(ctx)
 		if err != nil {
 			if featuregatenegotiation.IsFeatureGatesNotSupportedError(err) {
-				_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFeatureNotSupported, 1,
+				_ = p.emitter.emitter.StoreInt64(util.MetricNameGetAdviceFeatureNotSupported, 1,
 					metrics.MetricTypeNameRaw,
 					metrics.MetricTag{
 						Key: "error_message", Val: metric.MetricTagValueFormat(err),
 					})
 				general.Warningf("get advice from cpu advisor found not supported feature gate: %v", err)
 			} else {
-				_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
+				_ = p.emitter.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
 				general.Errorf("get advice from cpu advisor failed with error: %v", err)
 			}
 		} else if !isImplemented {
@@ -435,8 +543,8 @@ func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
 
 		_ = general.UpdateHealthzStateByError(cpuconsts.CommunicateWithAdvisor, err)
 
-		if p.advisorMonitor != nil && err == nil {
-			p.advisorMonitor.UpdateRefreshTime()
+		if p.advisor.advisorMonitor != nil && err == nil {
+			p.advisor.advisorMonitor.UpdateRefreshTime()
 		}
 		return false, nil
 	})
@@ -454,7 +562,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 		cancel()
 	}()
 
-	stream, err := p.advisorClient.ListAndWatch(ctx, &advisorsvc.Empty{})
+	stream, err := p.advisor.advisorClient.ListAndWatch(ctx, &advisorsvc.Empty{})
 	if err != nil {
 		return fmt.Errorf("call ListAndWatch of CPUAdvisorServer failed with error: %v", err)
 	}
@@ -462,7 +570,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.emitter.StoreInt64(util.MetricNameLWAdvisorServerFailed, 1, metrics.MetricTypeNameRaw)
 			return fmt.Errorf("receive ListAndWatch response of CPUAdvisorServer failed with error: %v, grpc code: %v",
 				err, status.Code(err))
 		}
@@ -476,10 +584,39 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 
 		_ = general.UpdateHealthzStateByError(cpuconsts.CommunicateWithAdvisor, err)
 
-		if p.advisorMonitor != nil && err == nil {
-			p.advisorMonitor.UpdateRefreshTime()
+		if p.advisor.advisorMonitor != nil && err == nil {
+			p.advisor.advisorMonitor.UpdateRefreshTime()
 		}
 	}
+}
+
+// advisorRequestHasActiveRampUp reports whether the advisor request carries any
+// active ramp-up. This is a node-global observation used for the stale check
+// on both the hard-partition-enabled and disabled paths: the advisor request
+// carries no allocation annotations, so per-domain ramp-up resolution is not
+// possible on the request side. Domain-scoped hard-partition enforcement is
+// derived from currentEntries (authoritative snapshot) and re-derived from
+// newEntries on the response side.
+func advisorRequestHasActiveRampUp(req *advisorapi.GetAdviceRequest) bool {
+	if req == nil {
+		return false
+	}
+	for _, containerEntries := range req.Entries {
+		if containerEntries == nil {
+			continue
+		}
+		if len(containerEntries.Entries) == 1 &&
+			containerEntries.Entries[commonstate.FakedContainerName] != nil {
+			continue
+		}
+		for _, containerInfo := range containerEntries.Entries {
+			if containerInfo != nil && containerInfo.AllocationInfo != nil &&
+				containerInfo.AllocationInfo.RampUp {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // allocateByCPUAdvisor perform allocate actions based on allocation response from cpu-advisor.
@@ -489,65 +626,213 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 	resp *advisorapi.ListAndWatchResponse,
 	featureGates map[string]*advisorsvc.FeatureGate,
 ) (err error) {
+	return p.allocateByCPUAdvisorWithRevision(req, resp, featureGates, nil)
+}
+
+func (p *DynamicPolicy) allocateByCPUAdvisorAtRevision(
+	req *advisorapi.GetAdviceRequest,
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	requestRevision uint64,
+) error {
+	return p.allocateByCPUAdvisorWithRevision(req, resp, featureGates, &requestRevision)
+}
+
+// allocateByCPUAdvisorWithRevision owns one advisor response transaction from
+// request-generation validation through canonical state commit and post-commit
+// apply. The request revision rejects stale RPC responses, while the later
+// precommit revision CAS closes races introduced during local planning.
+func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
+	req *advisorapi.GetAdviceRequest,
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	requestRevision *uint64,
+) (err error) {
 	if resp == nil {
 		return fmt.Errorf("allocateByCPUAdvisor got nil qos aware lw response")
+	}
+	if err := validateDedicatedReclaimDisjointTransport(req, resp, featureGates); err != nil {
+		return err
 	}
 
 	startTime := time.Now()
 	general.Infof("allocateByCPUAdvisor is called")
-	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
+	_ = p.emitter.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
+	leaseCtx, cancelLease := context.WithTimeout(
+		context.Background(), cpuSetAdjustmentHandlerTimeout(p.config.conf))
+	executionLease, leaseErr := p.acquireCPUSetAdjustmentExecutionLocked(leaseCtx)
+	cancelLease()
+	if leaseErr != nil {
+		return leaseErr
+	}
+	defer executionLease.release()
+	executionCtx := context.WithValue(
+		context.Background(), cpuSetAdjustmentExecutionLeaseContextKey{}, executionLease)
+
+	// A committed advisor revision is not complete until its post-commit
+	// production apply succeeds. Reconcile that exact revision before planning
+	// another frame so a failed staged migration cannot be overwritten by a
+	// later frame while the source state has already advanced.
+	if target := p.currentAdvisorPostCommitTarget(); target != nil {
+		ctx, cancel := context.WithTimeout(executionCtx, cpuSetAdjustmentHandlerTimeout(p.config.conf))
+		reconcileErr := p.reconcileOrRetireAdvisorPostCommitTarget(
+			ctx, target, cpusetutil.CPUSetAdjustmentModeRetry)
+		cancel()
+		if reconcileErr != nil {
+			return fmt.Errorf(
+				"previous advisor post-commit apply for revision %d is still pending: %w",
+				target.revision, reconcileErr)
+		}
+	}
+
+	// The synchronous response is valid only for the exact state generation
+	// used to build its request. The later precommit CAS protects mutations
+	// during planning; this guard protects the RPC round-trip itself.
+	currentRevision := p.state.GetRevision()
+	if requestRevision != nil && currentRevision != *requestRevision {
+		return fmt.Errorf("advisor request state revision is stale: expected=%d actual=%d",
+			*requestRevision, currentRevision)
+	}
+
+	currentEntries := p.state.GetPodEntries()
+	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+
+	// Staleness is checked with the node-global ramp-up observation on both
+	// paths. The advisorapi request side carries no pod annotations, so a
+	// NUMA-binding reclaim domain cannot be resolved from the request alone;
+	// enforcing per-domain consistency from the request would be semantically
+	// asymmetric (a non-binding shared ramp-up maps to the global domain on the
+	// state side but to a single-NUMA placement on the request side). The
+	// domain-scoped enforcement is instead derived solely from the committed
+	// currentEntries, and the per-domain agreement is re-derived on the
+	// response-side newEntries before it is materialized.
+	// The hard-partition reclaim gate is owned by the registered
+	// ReclaimStrategyHardPartitionRampUp strategy; this lookup is the live
+	// control-flow use of the reclaim strategy registry.
+	hardPartitionEnabled := hardPartitionReclaimConfigGated(dynamicConf)
+	currentRampUpActive := currentEntries.HasActiveRampUp()
 	if req != nil {
-		vErr := p.advisorValidator.ValidateRequest(req)
-		if vErr != nil {
+		requestRampUpActive := advisorRequestHasActiveRampUp(req)
+		if requestRampUpActive != currentRampUpActive {
+			return fmt.Errorf("advisor request ramp-up state is stale")
+		}
+		if vErr := p.advisor.advisorValidator.ValidateRequest(req); vErr != nil {
 			return fmt.Errorf("ValidateCPUAdvisorReq failed with error: %v", vErr)
 		}
 	}
-	vErr := p.advisorValidator.Validate(resp)
+	hardActiveDomains := sets.NewInt()
+	if hardPartitionEnabled && currentRampUpActive {
+		resolvedDomains, dErr := currentEntries.ActiveRampUpDomains(p.machine.machineInfo.CPUTopology)
+		if dErr != nil {
+			return fmt.Errorf("resolve current active ramp-up domains for advisor: %w", dErr)
+		}
+		hardActiveDomains = resolvedDomains
+	}
+	vErr := p.validateAdvisorResponseWithDynamicConfig(resp, dynamicConf)
 	if vErr != nil {
 		return fmt.Errorf("ValidateCPUAdvisorResp failed with error: %v", vErr)
 	}
 
-	blockToCPUSet, aErr := p.generateBlockCPUSet(resp)
+	blockToCPUSet, checkpointTransition, aErr := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
+		resp, featureGates, hardActiveDomains, dynamicConf,
+		newFrozenReclaimPlacementConstraint(
+			currentEntries, dynamicConf,
+			resp.AllowSharedCoresOverlapReclaimedCores,
+			resp.DisableDedicatedCoresOverlapReclaimedCores))
 	if aErr != nil {
-		return fmt.Errorf("generateBlockCPUSet failed with error: %v", aErr)
+		return fmt.Errorf("generateBlockCPUSet failed with error: %w", aErr)
 	}
-
-	applyErr := p.applyBlocks(blockToCPUSet, resp)
-	if applyErr != nil {
-		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
-	}
-
-	applyErr = p.applyNUMAHeadroom(resp)
-	if applyErr != nil {
-		return fmt.Errorf("applyNUMAHeadroom failed with error: %v", applyErr)
-	}
-
-	applyErr = p.applyCgroupConfigs(resp)
-	if applyErr != nil {
-		return fmt.Errorf("applyCgroupConfigs failed with error: %v", applyErr)
+	if err := p.validateHardPartitionBlockPlanWithDynamicConfig(
+		resp, blockToCPUSet, hardActiveDomains, dynamicConf); err != nil {
+		return fmt.Errorf("validate hard-partition reclaim block plan failed: %w", err)
 	}
 
 	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
-
 	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
 		general.Infof("set allowSharedCoresOverlapReclaimedCores from %v to %v",
 			curAllowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
-		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores, true)
+	}
+
+	responseAllowOverlap := resp.AllowSharedCoresOverlapReclaimedCores
+	hardActive := rampUpDomainsToLegacyHardActive(hardActiveDomains)
+	pending, applyErr := p.applyBlocksWithDynamicConfig(
+		blockToCPUSet, resp, responseAllowOverlap, hardActive, dynamicConf)
+	if applyErr != nil {
+		return fmt.Errorf("prepare applyBlocks failed with error: %w", applyErr)
+	}
+	pending.enforceSteadyReclaim = !hardActive &&
+		advisorResponseHasFakeNUMAMandatoryReclaim(resp)
+	pending.migrationCheckpointTransition = checkpointTransition
+	if p.pendingAdvisorStateMatchesCommitted(pending) &&
+		len(resp.ExtraEntries) == 0 &&
+		!p.hasAnyPendingAdvisorPostCommitTarget() {
+		if err := p.validateAdvisorPartitionBeforeCommitWithDynamicConfig(
+			pending.entries,
+			p.state.GetMachineState(),
+			pending.allowOverlap,
+			pending.disableDedicated,
+			pending.dynamicConfig,
+		); err != nil {
+			return fmt.Errorf("validate converged advisor state failed with error: %w", err)
+		}
+		if err := p.steadyFakeNUMAMigration.applyTransition(
+			pending.migrationCheckpointTransition); err != nil {
+			return fmt.Errorf("apply converged migration checkpoint transition: %w", err)
+		}
+		return nil
+	}
+	target, applyErr := p.commitAdvisorResponseWithWriteAheadTransition(
+		resp,
+		pending.migrationCheckpointTransition,
+		pending.preCommitRevision,
+		func(target *advisorPostCommitTarget) error {
+			return p.commitPendingAdvisorState(pending, target)
+		},
+	)
+	if applyErr != nil {
+		return fmt.Errorf("applyBlocks failed with error: %w", applyErr)
+	}
+
+	ctx, cancel := context.WithTimeout(executionCtx, cpuSetAdjustmentHandlerTimeout(p.config.conf))
+	defer cancel()
+	if err := p.reconcileAdvisorPostCommitTarget(ctx, target); err != nil {
+		return err
 	}
 
 	return nil
 }
 
+func (p *DynamicPolicy) validateAdvisorResponse(resp *advisorapi.ListAndWatchResponse) error {
+	var dynamicConf *dynamicconfig.Configuration
+	if p != nil && p.config.dynamicConfig != nil {
+		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
+	return p.validateAdvisorResponseWithDynamicConfig(resp, dynamicConf)
+}
+
+func (p *DynamicPolicy) validateAdvisorResponseWithDynamicConfig(
+	resp *advisorapi.ListAndWatchResponse,
+	dynamicConf *dynamicconfig.Configuration,
+) error {
+	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		return p.advisor.advisorValidator.ValidateWithDefaultShareUpperBound(resp)
+	}
+	return p.advisor.advisorValidator.Validate(resp)
+}
+
 func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
+	if p.applyCgroupConfigsHook != nil {
+		return p.applyCgroupConfigsHook(resp)
+	}
 	for _, calculationInfo := range resp.ExtraEntries {
 		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, calculationInfo.CgroupPath)) {
 			general.Infof("cgroup path not exist, skip applyCgroupConfigs: %s", common.GetAbsCgroupPath(common.DefaultSelectedSubsys, calculationInfo.CgroupPath))
@@ -571,7 +856,7 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 
 		err = p.checkAndApplyIfCgroupV1(calculationInfo, resources)
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameCheckApplyV1Error, 1, metrics.MetricTypeNameCount)
+			_ = p.emitter.emitter.StoreInt64(util.MetricNameCheckApplyV1Error, 1, metrics.MetricTypeNameCount)
 			return fmt.Errorf("checkAndApplyIfCgroupV1 failed with error: %v", err)
 		}
 
@@ -585,11 +870,12 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 }
 
 func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.CalculationInfo, resources *common.CgroupResources) error {
-	if common.CheckCgroup2UnifiedMode() {
+	ops := p.gops()
+	if ops.checkCgroup2UnifiedMode() {
 		return nil
 	}
 
-	currentParentCgroupCPUStats, err := cgroupmgr.GetCPUWithRelativePath(calculationInfo.CgroupPath)
+	currentParentCgroupCPUStats, err := ops.getCPUWithRelativePath(calculationInfo.CgroupPath)
 	if err != nil {
 		return fmt.Errorf("Get big group quota failed with error: %v", err)
 	}
@@ -614,6 +900,10 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 }
 
 func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error {
+	ops := p.gops()
+	if ops.checkAndApplyAllPodsQuota != nil {
+		return ops.checkAndApplyAllPodsQuota(calculationInfo, bigGroupQuota)
+	}
 	podsPathMap, podDirs, err := p.getCurrentPathAllPodsDirAndMap(calculationInfo.CgroupPath)
 	if err != nil {
 		return err
@@ -633,7 +923,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 		}
 
 		podLimit := limit.Cpu().MilliValue() // Value() will lose precision of data
-		podCpu, err := cgroupmgr.GetCPUWithRelativePath(podRelativePath)
+		podCpu, err := ops.getCPUWithRelativePath(podRelativePath)
 		if err != nil {
 			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", podRelativePath, err)
 		}
@@ -652,7 +942,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 				continue
 			}
 
-			err := cgroupmgr.ApplyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: podRealQuota})
+			err := ops.applyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: podRealQuota})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to realQuota %v  failed with error: %v", podRelativePath, podRealQuota, err)
 			}
@@ -662,7 +952,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 				general.Errorf("applyAllContainersQuota for pod %v failed with error: %v", pod.Name, err)
 				continue
 			}
-			err := cgroupmgr.ApplyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: -1})
+			err := ops.applyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: -1})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 failed with error: %v", podRelativePath, err)
 			}
@@ -672,7 +962,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 }
 
 func (p *DynamicPolicy) getAllDirs(parentPath string) ([]string, error) {
-	entries, err := os.ReadDir(parentPath)
+	entries, err := p.gops().readDir(parentPath)
 	if err != nil {
 		return nil, err
 	}
@@ -689,7 +979,7 @@ func (p *DynamicPolicy) getAllDirs(parentPath string) ([]string, error) {
 }
 
 func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
-	pods, err := p.metaServer.GetPodList(context.Background(), native.PodIsActive)
+	pods, err := p.meta.metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
 		return nil, fmt.Errorf("GetPodList failed with error: %v", err)
 	}
@@ -700,7 +990,7 @@ func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
 		if pod == nil {
 			continue
 		}
-		podAbsPath, err := common.GetPodAbsCgroupPath(common.DefaultSelectedSubsys, string(pod.UID))
+		podAbsPath, err := p.gops().getPodAbsCgroupPath(common.DefaultSelectedSubsys, string(pod.UID))
 		if err != nil {
 			general.Errorf("get pod %s absolute path failed with error: %v", pod.Name, err)
 			continue
@@ -712,8 +1002,11 @@ func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
 }
 
 func (p *DynamicPolicy) getPodAndRelativePath(currentCgroupPath string, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error) {
+	if h := p.gops().getPodAndRelativePath; h != nil {
+		return h(currentCgroupPath, podDir, podsPathMap)
+	}
 	podRelativePath := filepath.Join(currentCgroupPath, podDir)
-	podAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
+	podAbsPath := p.gops().getAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
 	pod, ok := podsPathMap[podAbsPath]
 	if !ok || pod == nil {
 		return nil, "", fmt.Errorf("can not get pod with abs path: %s", podAbsPath)
@@ -727,11 +1020,14 @@ func (p *DynamicPolicy) getPodAndRelativePath(currentCgroupPath string, podDir s
 }
 
 func (p *DynamicPolicy) getCurrentPathAllPodsDirAndMap(currentCgroupPath string) (map[string]*v1.Pod, []string, error) {
+	if h := p.gops().getCurrentPathAllPodsDirAndMap; h != nil {
+		return h(currentCgroupPath)
+	}
 	podsPathMap, err := p.getAllPodsPathMap()
 	if err != nil {
 		return nil, nil, fmt.Errorf("getAllPodsPathMap failed with error: %v", err)
 	}
-	absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, currentCgroupPath)
+	absPath := p.gops().getAbsCgroupPath(common.DefaultSelectedSubsys, currentCgroupPath)
 	podDirs, err := p.getAllDirs(absPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getAllPodsPath failed with error: %v", err)
@@ -741,18 +1037,22 @@ func (p *DynamicPolicy) getCurrentPathAllPodsDirAndMap(currentCgroupPath string)
 }
 
 func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]*v1.Container {
+	if h := p.gops().getAllContainersRelativePathMap; h != nil {
+		return h(pod)
+	}
+	ops := p.gops()
 	containerPathMap := make(map[string]*v1.Container)
 
 	for _, container := range pod.Spec.Containers {
 		// Create a copy of the container to avoid the loop variable capture issue
 		containerCopy := container
 
-		containerID, err := native.GetContainerID(pod, container.Name)
+		containerID, err := ops.getContainerID(pod, container.Name)
 		if err != nil {
 			general.Errorf("get container %s container id failed with error: %v", container.Name, err)
 			continue
 		}
-		containerRelativeCgroupPath, err := common.GetContainerRelativeCgroupPath(string(pod.UID), containerID)
+		containerRelativeCgroupPath, err := ops.getContainerRelativeCgroupPath(string(pod.UID), containerID)
 		if err != nil {
 			general.Errorf("get container %s relative cgroup path failed with error: %v", container.Name, err)
 			continue
@@ -765,11 +1065,15 @@ func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]
 }
 
 func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) error {
+	if h := p.gops().applyAllContainersQuota; h != nil {
+		return h(pod, setToLimit)
+	}
+	ops := p.gops()
 	allContainersRelativePathMap := p.getAllContainersRelativePathMap(pod)
 
 	for relativePath, container := range allContainersRelativePathMap {
 		limit := container.Resources.Limits.Cpu().MilliValue() // Value() will lose precision of data
-		containerCpu, err := cgroupmgr.GetCPUWithRelativePath(relativePath)
+		containerCpu, err := ops.getCPUWithRelativePath(relativePath)
 		if err != nil {
 			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", relativePath, err)
 		}
@@ -778,7 +1082,7 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 			if realQuota == containerCpu.CpuQuota {
 				continue
 			}
-			err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: realQuota})
+			err := ops.applyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: realQuota})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to %v failed with error: %v", relativePath, realQuota, err)
 			}
@@ -787,7 +1091,7 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 			if err != nil {
 				return fmt.Errorf("applyAllSubCgroupQuotaToUnLimit %s failed with error: %v", relativePath, err)
 			}
-			err = cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
+			err = ops.applyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 failed with error: %v", relativePath, err)
 			}
@@ -805,7 +1109,8 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 		return nil
 	}
 
-	subCPU, err := cgroupmgr.GetCPUWithAbsolutePath(path)
+	ops := p.gops()
+	subCPU, err := ops.getCPUWithAbsolutePath(path)
 	if err != nil {
 		return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", path, err)
 	}
@@ -814,7 +1119,7 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 		return nil
 	}
 
-	err = cgroupmgr.ApplyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
+	err = ops.applyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
 	if err != nil {
 		general.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
 		return fmt.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
@@ -824,7 +1129,10 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 }
 
 func (p *DynamicPolicy) applyAllSubCgroupQuotaToUnLimit(containerRelativePath string) error {
-	containerAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, containerRelativePath)
+	if h := p.gops().applyAllSubCgroupQuotaToUnLimit; h != nil {
+		return h(containerRelativePath)
+	}
+	containerAbsPath := p.gops().getAbsCgroupPath(common.DefaultSelectedSubsys, containerRelativePath)
 
 	return filepath.WalkDir(containerAbsPath, func(path string, d fs.DirEntry, err error) error {
 		if path == containerAbsPath {
@@ -875,6 +1183,125 @@ func isSharedBlock(block *advisorapi.BlockInfo) bool {
 	return false
 }
 
+type fakeNUMABlockClass int
+
+const (
+	fakeNUMABlockClassActualReclaim fakeNUMABlockClass = iota
+	fakeNUMABlockClassNormalShare
+	fakeNUMABlockClassIsolation
+	fakeNUMABlockClassAmbiguous
+)
+
+func classifyFakeNUMABlock(block *advisorapi.BlockInfo) fakeNUMABlockClass {
+	if block == nil || len(block.OwnerPoolEntryMap) == 0 {
+		return fakeNUMABlockClassAmbiguous
+	}
+
+	var (
+		hasReclaim   bool
+		hasShare     bool
+		hasIsolation bool
+	)
+	for poolName := range block.OwnerPoolEntryMap {
+		switch {
+		case poolName == commonstate.PoolNameReclaim:
+			hasReclaim = true
+		case commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName):
+			hasIsolation = true
+		case poolName == commonstate.PoolNameDedicated:
+			return fakeNUMABlockClassAmbiguous
+		default:
+			hasShare = true
+		}
+	}
+
+	switch {
+	case hasReclaim && !hasShare && !hasIsolation:
+		return fakeNUMABlockClassActualReclaim
+	case hasShare && !hasReclaim && !hasIsolation:
+		return fakeNUMABlockClassNormalShare
+	case hasIsolation && !hasReclaim:
+		return fakeNUMABlockClassIsolation
+	default:
+		return fakeNUMABlockClassAmbiguous
+	}
+}
+
+func getSingleNormalSharePoolName(block *advisorapi.BlockInfo) (string, bool) {
+	if classifyFakeNUMABlock(block) != fakeNUMABlockClassNormalShare {
+		return "", false
+	}
+
+	for poolName := range block.OwnerPoolEntryMap {
+		return poolName, true
+	}
+	return "", false
+}
+
+func (p *DynamicPolicy) allocateFakeNUMANormalShareBlocks(
+	blocks []*advisorapi.BlockInfo,
+	blockCPUSet advisorapi.BlockCPUSet,
+	availableCPUs *machine.CPUSet,
+	nodeRemainingCPUs *machine.CPUSet,
+	globalNonReclaimableCPUSet machine.CPUSet,
+) error {
+	return p.allocateFakeNUMANormalShareBlocksWithConstraint(
+		blocks, blockCPUSet, availableCPUs, nodeRemainingCPUs,
+		globalNonReclaimableCPUSet, frozenReclaimPlacementConstraint{})
+}
+
+func (p *DynamicPolicy) allocateFakeNUMANormalShareBlocksWithConstraint(
+	blocks []*advisorapi.BlockInfo,
+	blockCPUSet advisorapi.BlockCPUSet,
+	availableCPUs *machine.CPUSet,
+	nodeRemainingCPUs *machine.CPUSet,
+	globalNonReclaimableCPUSet machine.CPUSet,
+	frozenReclaim frozenReclaimPlacementConstraint,
+) error {
+	for _, block := range blocks {
+		if block == nil {
+			continue
+		}
+		if _, found := blockCPUSet[block.BlockId]; found {
+			continue
+		}
+
+		poolName, ok := getSingleNormalSharePoolName(block)
+		if !ok {
+			return fmt.Errorf("normal share block %s has no unique owner pool", block.BlockId)
+		}
+		quantity, err := general.CovertUInt64ToInt(block.Result)
+		if err != nil {
+			return fmt.Errorf("parse normal share block: %s result failed with error: %v", block.BlockId, err)
+		}
+
+		candidates := availableCPUs.Difference(globalNonReclaimableCPUSet)
+		if frozenReclaim.blockDisallowed(block.OwnerPoolEntryMap) {
+			candidates = candidates.Difference(frozenReclaim.cpus)
+		}
+		previous := machine.NewCPUSet()
+		if allocationInfo := p.state.GetAllocationInfo(poolName, commonstate.FakedContainerName); allocationInfo != nil {
+			previous = allocationInfo.AllocationResult.Clone()
+		}
+
+		cpuset, _, err := p.takeByTieredPreferredCPUs(candidates, []machine.CPUSet{previous}, quantity)
+		if err != nil {
+			return fmt.Errorf("allocate normal share block: %s pool: %s failed with error: %v",
+				block.BlockId, poolName, err)
+		}
+
+		blockCPUSet[block.BlockId] = cpuset
+		*availableCPUs = availableCPUs.Difference(cpuset)
+		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
+		general.InfoS("allocated fake numa normal share block",
+			"blockID", block.BlockId,
+			"poolName", poolName,
+			"previousCPUSet", previous.String(),
+			"allocatedCPUSet", cpuset.String())
+	}
+	return nil
+}
+
 // allocateDedicatedBlocks allocates CPU sets for dedicated blocks.
 // It iterates through the dedicated blocks and assigns them the CPUs they have already
 // been allocated according to the state. It also subtracts these allocated CPUs
@@ -890,7 +1317,7 @@ func (p *DynamicPolicy) allocateDedicatedBlocks(
 	allPinnedCPUSets machine.CPUSet,
 	withNUMABinding *bool,
 ) error {
-	machineInfo := p.machineInfo
+	machineInfo := p.machine.machineInfo
 	for _, block := range blocks {
 		if block == nil {
 			continue
@@ -986,8 +1413,32 @@ func (p *DynamicPolicy) allocateShareBlocks(
 	rpPinnedCPUSet map[string]machine.CPUSet,
 	allPinnedCPUSets machine.CPUSet,
 	withNUMABinding *bool,
+	sourceBlockByPool map[string]string,
 ) error {
-	machineInfo := p.machineInfo
+	return p.allocateShareBlocksWithConstraint(
+		numaID, blocks, blockCPUSet, numaAvailableCPUs, nodeRemainingCPUs, availableCPUs,
+		rpPinnedCPUSet, allPinnedCPUSets, withNUMABinding, sourceBlockByPool,
+		frozenReclaimPlacementConstraint{})
+}
+
+func (p *DynamicPolicy) allocateShareBlocksWithConstraint(
+	numaID int,
+	blocks []*advisorapi.BlockInfo,
+	blockCPUSet advisorapi.BlockCPUSet,
+	numaAvailableCPUs machine.CPUSet,
+	nodeRemainingCPUs *machine.CPUSet,
+	availableCPUs *machine.CPUSet,
+	rpPinnedCPUSet map[string]machine.CPUSet,
+	allPinnedCPUSets machine.CPUSet,
+	withNUMABinding *bool,
+	sourceBlockByPool map[string]string,
+	frozenReclaim frozenReclaimPlacementConstraint,
+) error {
+	machineInfo := p.machine.machineInfo
+	sourceBlockResultByID, err := buildAdvisorSourceBlockResultByID(blocks, sourceBlockByPool)
+	if err != nil {
+		return err
+	}
 	for _, block := range blocks {
 		if block == nil {
 			continue
@@ -1026,6 +1477,26 @@ func (p *DynamicPolicy) allocateShareBlocks(
 		} else {
 			currentAvailableCPUs = currentAvailableCPUs.Difference(allPinnedCPUSets)
 		}
+		if frozenReclaim.blockDisallowed(block.OwnerPoolEntryMap) {
+			currentAvailableCPUs = currentAvailableCPUs.Difference(frozenReclaim.cpus)
+		}
+
+		entries := frozenReclaim.entries
+		if entries == nil {
+			entries = p.state.GetPodEntries()
+		}
+		carved, err := p.tryCarveAdvisorBlockFromSourceWithEntries(
+			block, sourceBlockByPool, sourceBlockResultByID, blockCPUSet,
+			currentAvailableCPUs, availableCPUs, nodeRemainingCPUs, numaID, blockResult, entries)
+		if err != nil {
+			return err
+		}
+		if carved {
+			if withNUMABinding != nil {
+				*withNUMABinding = true
+			}
+			continue
+		}
 
 		var cpuset machine.CPUSet
 		if numaID == commonstate.FakedNUMAID {
@@ -1058,8 +1529,19 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 	globalNonReclaimableCPUSet machine.CPUSet,
 	blockCPUSet advisorapi.BlockCPUSet,
 ) error {
-	machineInfo := p.machineInfo
+	machineInfo := p.machine.machineInfo
 	topology := machineInfo.CPUTopology
+
+	// Preferred reuse: read the previous reclaim pool cpuset so this recompute can
+	// keep reclaim on its prior cores whenever they are still available, instead of
+	// re-selecting from scratch. Re-selecting from scratch makes the advisor-side
+	// reclaim jump to a near-disjoint region across recomputes, which is the
+	// amplifier that drives the parent-shrink EBUSY. An empty previous set (first
+	// allocation / pool just created) falls back to the legacy from-scratch take.
+	prevReclaim, err := p.state.GetPodEntries().GetCPUSetForPool(commonstate.PoolNameReclaim)
+	if err != nil {
+		prevReclaim = machine.NewCPUSet()
+	}
 
 	// 1. Process NUMA-aware reclaim blocks
 	for numaID, blocks := range reclaimBlocksMap {
@@ -1068,7 +1550,7 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 		}
 		numaAvailableCPUs := nodeRemainingCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
 
-		// Deduct the non-reclaimable CPUSet for this NUMA node
+		// Deduct the non-reclaimable CPUSet for this NUMA node.
 		currentAvailableCPUs := numaAvailableCPUs.Difference(globalNonReclaimableCPUSet)
 
 		for _, block := range blocks {
@@ -1093,7 +1575,18 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
 				"currentAvailableCPUs", currentAvailableCPUs.String())
 
-			cpuset, err := calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
+			// Prefer this NUMA node's slice of the previous reclaim cpuset so reclaim
+			// stays in place across recomputes; only spill to fresh cores when the
+			// prior cores were taken by dedicated/share or the requirement grew.
+			// When there is no prior reclaim on this NUMA node, keep the legacy
+			// topology-aware take so first-allocation core shape is unchanged.
+			prevOnNUMA := prevReclaim.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
+			var cpuset machine.CPUSet
+			if prevOnNUMA.IsEmpty() {
+				cpuset, err = calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
+			} else {
+				cpuset, _, err = p.takeByTieredPreferredCPUs(currentAvailableCPUs, []machine.CPUSet{prevOnNUMA}, blockResult)
+			}
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for NUMA Aware reclaim block: %s in NUMA: %d failed with error: %v", blockID, numaID, err)
 			}
@@ -1138,7 +1631,10 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
 				"currentAvailableCPUs", currentAvailableCPUs.String())
 
-			cpuset, _, err := calculator.TakeByNUMABalance(machineInfo, currentAvailableCPUs, blockResult)
+			// Prefer the whole previous reclaim cpuset as the first tier so non-NUMA
+			// reclaim also stays in place across recomputes; spill to NUMA-balanced
+			// fresh cores only when the prior cores are no longer available.
+			cpuset, _, err := p.takeByTieredPreferredCPUs(currentAvailableCPUs, []machine.CPUSet{prevReclaim}, blockResult)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for non NUMA Aware reclaim block: %s failed with error: %v", blockID, err)
 			}
@@ -1158,10 +1654,343 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 	return nil
 }
 
-// generateBlockCPUSet computes the CPUSet allocation for all requested blocks using a two-phase allocation process.
+// generateBlockCPUSet keeps legacy allocation completely isolated from the negotiated
+// dedicated/reclaim disjoint planner.
+// rampUpDomainsToLegacyHardActive converts the domain-scoped ramp-up set into the
+// node-global boolean used by the legacy block-planning helpers. The per-NUMA
+// scoping happens upstream; here we only need to know whether any ramp-up domain
+// is active.
+func rampUpDomainsToLegacyHardActive(hardActiveDomains sets.Int) bool {
+	return hardActiveDomains.Len() > 0
+}
+
+func (p *DynamicPolicy) generateBlockCPUSet(
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	hardActive bool,
+) (advisorapi.BlockCPUSet, error) {
+	blockCPUSet, _, err := p.generateBlockCPUSetWithCheckpointTransition(
+		resp, featureGates, hardActive)
+	return blockCPUSet, err
+}
+
+func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransition(
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	hardActive bool,
+) (
+	advisorapi.BlockCPUSet,
+	steadyFakeNUMAMigrationCheckpointTransition,
+	error,
+) {
+	domains := sets.NewInt()
+	if hardActive {
+		domains.Insert(commonstate.FakedNUMAID)
+	}
+	return p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
+		resp, featureGates, domains, p.config.dynamicConfig.GetDynamicConfiguration(),
+		frozenReclaimPlacementConstraint{})
+}
+
+func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransitionForAttempt(
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	hardActiveDomains sets.Int,
+	dynamicConf *dynamicconfig.Configuration,
+	frozenReclaim frozenReclaimPlacementConstraint,
+) (
+	advisorapi.BlockCPUSet,
+	steadyFakeNUMAMigrationCheckpointTransition,
+	error,
+) {
+	hardActive := rampUpDomainsToLegacyHardActive(hardActiveDomains)
+	keep := steadyFakeNUMAMigrationCheckpointTransition{
+		kind: steadyFakeNUMAMigrationCheckpointKeep,
+	}
+	if resp == nil {
+		return nil, keep, fmt.Errorf("got nil resp")
+	}
+	planningResp := resp
+	if dynamicConf != nil &&
+		dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		// Default share is a synthetic upper-bound block. Preserve it in the
+		// original response for applyBlocks, but never allocate it as an exact
+		// descriptor before QRM materializes the residual.
+		planningResp = resp.WithoutDefaultShareEntry()
+	}
+	if !planningResp.DisableDedicatedCoresOverlapReclaimedCores {
+		blockCPUSet, err := p.generateLegacyBlockCPUSetWithDynamicConfig(
+			planningResp, hardActive, dynamicConf, frozenReclaim)
+		return blockCPUSet, keep, err
+	}
+
+	if featureGates[feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition] == nil {
+		return nil, keep, fmt.Errorf(
+			"dedicated reclaim disjoint partition capability is not negotiated")
+	}
+	transition := keep
+	blockCPUSet, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(
+		planningResp, hardActive, &transition, dynamicConf, frozenReclaim)
+	return blockCPUSet, transition, err
+}
+
+func (p *DynamicPolicy) validateHardPartitionBlockPlan(
+	resp *advisorapi.ListAndWatchResponse,
+	blockCPUSet advisorapi.BlockCPUSet,
+	hardActive bool,
+) error {
+	var dynamicConf *dynamicconfig.Configuration
+	if p != nil && p.config.conf != nil {
+		dynamicConf = p.config.conf.GetDynamicConfiguration()
+	}
+	domains := sets.NewInt()
+	if hardActive {
+		domains.Insert(commonstate.FakedNUMAID)
+	}
+	return p.validateHardPartitionBlockPlanWithDynamicConfig(
+		resp, blockCPUSet, domains, dynamicConf)
+}
+
+func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
+	resp *advisorapi.ListAndWatchResponse,
+	blockCPUSet advisorapi.BlockCPUSet,
+	hardActiveDomains sets.Int,
+	dynamicConf *dynamicconfig.Configuration,
+) error {
+	hardActive := rampUpDomainsToLegacyHardActive(hardActiveDomains)
+	if !hardActive {
+		return nil
+	}
+	if resp == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
+		return fmt.Errorf("hard-partition reclaim validation requires advisor response and CPU topology")
+	}
+
+	machineState := p.state.GetMachineState()
+	rpPinnedCPUSet := machineState.GetResourcePackagePinnedCPUSet()
+	if dynamicConf == nil {
+		return fmt.Errorf("hard-partition reclaim validation requires dynamic configuration")
+	}
+	selectorText := dynamicConf.DisableReclaimPinnedCPUSetResourcePackageSelector
+	disableReclaimSelector, err := general.ParseSelector(selectorText)
+	if err != nil {
+		return err
+	}
+	nonReclaimableCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(disableReclaimSelector, machineState)
+	buildDescriptors := buildAdvisorBlockDescriptors
+	if !resp.DisableDedicatedCoresOverlapReclaimedCores {
+		buildDescriptors = buildLegacyMandatoryReclaimDescriptors
+	}
+	descriptors, err := buildDescriptors(resp, p.machine.machineInfo.CPUDetails, p.state.GetPodEntries(),
+		rpPinnedCPUSet, nonReclaimableCPUSet)
+	if err != nil {
+		return err
+	}
+	available, err := p.allocateStaticAndForbiddenPools(
+		resp, advisorapi.NewBlockCPUSet(), p.machine.machineInfo.CPUDetails.CPUs())
+	if err != nil {
+		return err
+	}
+	// NUMAs already owned by a committed steady exclusive DNB keep only their
+	// finalized reserve once ramp-up ends, regardless of reclaimability; the
+	// node-level imbalance guard must not re-impose the ratio-derived target on
+	// them, otherwise it rejects every other ramp-up QoS on the node.
+	skipNUMAs := p.state.GetPodEntries().SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology)
+	mandatory := filterAdvisorDescriptors(descriptors, func(descriptor advisorBlockDescriptor) bool {
+		return descriptor.Class == advisorBlockClassMandatoryReclaim
+	})
+	fakeDescriptors := filterAdvisorDescriptors(mandatory, func(descriptor advisorBlockDescriptor) bool {
+		return descriptor.NUMAID == commonstate.FakedNUMAID
+	})
+	if len(fakeDescriptors) > 1 {
+		return fmt.Errorf("hard-partition reclaim validation expected at most one fake-NUMA block, got %d",
+			len(fakeDescriptors))
+	}
+	if len(fakeDescriptors) == 0 ||
+		(len(fakeDescriptors) == 1 && fakeDescriptors[0].Quantity == 0) {
+		if len(fakeDescriptors) == 1 &&
+			!blockCPUSet[fakeDescriptors[0].BlockID].IsEmpty() {
+			return fmt.Errorf("hard-partition zero-quantity fake reclaim block %q is not empty",
+				fakeDescriptors[0].BlockID)
+		}
+		reclaim := machine.NewCPUSet()
+		eligible := machine.NewCPUSet()
+		for _, descriptor := range mandatory {
+			if descriptor.NUMAID == commonstate.FakedNUMAID {
+				continue
+			}
+			reclaim = reclaim.Union(blockCPUSet[descriptor.BlockID])
+			eligible = eligible.Union(descriptor.Eligible.Intersection(available))
+		}
+		if len(fakeDescriptors) == 1 && eligible.IsEmpty() {
+			return nil
+		}
+		cpusPerCore := p.machine.machineInfo.CPUTopology.CPUsPerCore()
+		return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
+			reclaim, eligible, nil, p.machine.machineInfo.CPUTopology, skipNUMAs,
+			cpusPerCore, minimumHardReclaimCoresPerNUMA*cpusPerCore)
+	}
+
+	if resp.DisableDedicatedCoresOverlapReclaimedCores {
+		descriptors, err = normalizeAdvisorDescriptorsForHardPartitionWholeCoreReclaim(
+			descriptors, available, p.machine.machineInfo.CPUTopology, skipNUMAs)
+		if err != nil {
+			return err
+		}
+	}
+	mandatory = filterAdvisorDescriptors(descriptors, func(descriptor advisorBlockDescriptor) bool {
+		return descriptor.Class == advisorBlockClassMandatoryReclaim
+	})
+	fakeDescriptors = filterAdvisorDescriptors(mandatory, func(descriptor advisorBlockDescriptor) bool {
+		return descriptor.NUMAID == commonstate.FakedNUMAID
+	})
+
+	realReclaim := machine.NewCPUSet()
+	realEligible := machine.NewCPUSet()
+	for _, descriptor := range mandatory {
+		if descriptor.NUMAID == commonstate.FakedNUMAID {
+			continue
+		}
+		numaCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(descriptor.NUMAID)
+		realReclaim = realReclaim.Union(blockCPUSet[descriptor.BlockID])
+		realEligible = realEligible.Union(
+			descriptor.Eligible.Intersection(available).Intersection(numaCPUs))
+	}
+	if outside := realReclaim.Difference(realEligible); !outside.IsEmpty() {
+		return fmt.Errorf("hard-partition real reclaim outside eligible CPUs: %s", outside.String())
+	}
+	if err := assertCoreAligned(realReclaim, p.machine.machineInfo.CPUTopology); err != nil {
+		return fmt.Errorf("hard-partition real reclaim is not core-aligned: %w", err)
+	}
+
+	fake := fakeDescriptors[0]
+	cpusPerCore, err := mandatoryReclaimCoreWidth(
+		descriptors, available, p.machine.machineInfo.CPUTopology, skipNUMAs)
+	if err != nil {
+		return fmt.Errorf("hard-partition reclaim validation: %w", err)
+	}
+	fakeCapacity := hardPartitionFakeNUMAReclaimCapacity(
+		fake, descriptors, available, p.machine.machineInfo.CPUTopology, skipNUMAs)
+	return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
+		blockCPUSet[fake.BlockID], fakeCapacity.rawEligible, fakeCapacity.effectiveByNUMA,
+		p.machine.machineInfo.CPUTopology, skipNUMAs, cpusPerCore,
+		minimumHardReclaimCoresPerNUMA*cpusPerCore)
+}
+
+func validateHardPartitionReclaimDistribution(
+	reclaim machine.CPUSet,
+	eligible machine.CPUSet,
+	topology *machine.CPUTopology,
+	excludedNUMAs sets.Int,
+	minimumPerNUMA int,
+) error {
+	cpusPerCore := 0
+	if topology != nil {
+		cpusPerCore = topology.CPUsPerCore()
+	}
+	return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
+		reclaim, eligible, nil, topology, excludedNUMAs, cpusPerCore, minimumPerNUMA)
+}
+
+func validateHardPartitionReclaimDistributionWithEffectiveCapacity(
+	reclaim machine.CPUSet,
+	eligible machine.CPUSet,
+	effectiveCapacityByNUMA map[int]int,
+	topology *machine.CPUTopology,
+	excludedNUMAs sets.Int,
+	cpusPerCore int,
+	minimumPerNUMA int,
+) error {
+	if topology == nil {
+		return fmt.Errorf("hard-partition reclaim validation requires CPU topology")
+	}
+	if cpusPerCore <= 0 {
+		return fmt.Errorf("hard-partition reclaim validation requires positive cpus per core, got %d", cpusPerCore)
+	}
+	machineCPUs := topology.CPUDetails.CPUs()
+	if outside := reclaim.Difference(machineCPUs); !outside.IsEmpty() {
+		return fmt.Errorf("hard-partition reclaim outside machine topology: %s", outside.String())
+	}
+	if outside := reclaim.Difference(eligible); !outside.IsEmpty() {
+		return fmt.Errorf("hard-partition reclaim outside eligible CPUs: %s", outside.String())
+	}
+	if err := assertCoreAligned(reclaim, topology); err != nil {
+		return fmt.Errorf("hard-partition reclaim is not core-aligned: %w", err)
+	}
+
+	countByNUMA := make(map[int]int)
+	movableByNUMA := make(map[int]int)
+	completeCapacityByNUMA := make(map[int]int)
+	firstNonSkippedNUMA := -1
+	participatingNUMAs := make([]int, 0, topology.NumNUMANodes)
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		if excludedNUMAs.Has(numaID) {
+			continue
+		}
+		if firstNonSkippedNUMA < 0 {
+			firstNonSkippedNUMA = numaID
+		}
+		numaCPUs := topology.CPUDetails.CPUsInNUMANodes(numaID)
+		completeCapacity := len(coreAlignedCandidates(
+			topology, eligible.Intersection(numaCPUs), machine.NewCPUSet())) * cpusPerCore
+		if effectiveCapacityByNUMA != nil {
+			completeCapacity = general.Min(
+				completeCapacity, effectiveCapacityByNUMA[numaID])
+		}
+		if completeCapacity == 0 {
+			continue
+		}
+		count := reclaim.Intersection(numaCPUs).Size()
+		effectiveCapacity := completeCapacity
+		if effectiveCapacityByNUMA != nil {
+			effectiveCapacity = effectiveCapacityByNUMA[numaID]
+		}
+		if count > effectiveCapacity {
+			return fmt.Errorf(
+				"hard-partition reclaim NUMA %d has %d CPUs, effective capacity is %d",
+				numaID, count, effectiveCapacity)
+		}
+		movableByNUMA[numaID] = count
+		if count < minimumPerNUMA {
+			return fmt.Errorf("hard-partition reclaim NUMA %d has %d CPUs, minimum is %d",
+				numaID, count, minimumPerNUMA)
+		}
+		countByNUMA[numaID] = count
+		completeCapacityByNUMA[numaID] = completeCapacity
+		participatingNUMAs = append(participatingNUMAs, numaID)
+	}
+	if len(countByNUMA) == 0 && firstNonSkippedNUMA >= 0 {
+		return fmt.Errorf("hard-partition reclaim NUMA %d has 0 CPUs, minimum is %d",
+			firstNonSkippedNUMA, minimumPerNUMA)
+	}
+
+	for _, lowNUMA := range participatingNUMAs {
+		lowCount := countByNUMA[lowNUMA]
+		if lowCount+cpusPerCore > completeCapacityByNUMA[lowNUMA] {
+			continue
+		}
+		for _, highNUMA := range participatingNUMAs {
+			highCount := countByNUMA[highNUMA]
+			if highCount-lowCount > cpusPerCore &&
+				movableByNUMA[highNUMA] >= cpusPerCore {
+				return fmt.Errorf(
+					"hard-partition reclaim is imbalanced across physical NUMAs: "+
+						"NUMA %d can accept another core at count %d while another NUMA has %d",
+					lowNUMA, lowCount, highCount)
+			}
+		}
+	}
+	return nil
+}
+
+// generateLegacyBlockCPUSetWithDynamicConfig computes the CPUSet allocation for all requested blocks using a two-phase allocation process.
 // Phase 1 (High Priority): Allocates Dedicated and Share blocks, resolving NUMA boundaries and updating available CPUs.
 // Phase 2 (Low Priority): Allocates Reclaim blocks, ensuring they don't use non-reclaimable pinned CPUs or CPUs already taken.
-func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchResponse) (advisorapi.BlockCPUSet, error) {
+func (p *DynamicPolicy) generateLegacyBlockCPUSetWithDynamicConfig(
+	resp *advisorapi.ListAndWatchResponse,
+	hardActive bool,
+	dynamicConf *dynamicconfig.Configuration,
+	frozenReclaim frozenReclaimPlacementConstraint,
+) (advisorapi.BlockCPUSet, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("got nil resp")
 	}
@@ -1170,8 +1999,9 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	if err != nil {
 		return nil, err
 	}
+	sourceBlockByPool := buildAdvisorSourceBlockByPool(numaToBlocks)
 
-	machineInfo := p.machineInfo
+	machineInfo := p.machine.machineInfo
 	topology := machineInfo.CPUTopology
 	availableCPUs := topology.CPUDetails.CPUs()
 
@@ -1191,7 +2021,10 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	nodeRemainingCPUs := availableCPUs.Clone()
 
 	// Get non-reclaimable pinned CPUSets
-	disableReclaimSelectorStr := p.conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector
+	if dynamicConf == nil {
+		return nil, fmt.Errorf("legacy block planning requires dynamic configuration")
+	}
+	disableReclaimSelectorStr := dynamicConf.DisableReclaimPinnedCPUSetResourcePackageSelector
 	disableReclaimSelector, err := general.ParseSelector(disableReclaimSelectorStr)
 	if err != nil {
 		return nil, err
@@ -1240,7 +2073,9 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			"nodeRemainingCPUs", nodeRemainingCPUs.String(),
 			"availableCPUs", availableCPUs.String())
 
-		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod)
+		err = p.allocateShareBlocksWithConstraint(
+			numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs,
+			rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod, sourceBlockByPool, frozenReclaim)
 		if err != nil {
 			return nil, err
 		}
@@ -1260,23 +2095,52 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			"availableCPUs", availableCPUs.String())
 	}
 
+	if hardActive {
+		reserved, err := p.preallocateLegacyHardReclaim(
+			resp, nodeRemainingCPUs, rpPinnedCPUSet, globalNonReclaimableCPUSet, blockCPUSet)
+		if err != nil {
+			return nil, fmt.Errorf("preallocate legacy hard reclaim: %w", err)
+		}
+		nodeRemainingCPUs = nodeRemainingCPUs.Difference(reserved)
+		availableCPUs = availableCPUs.Difference(reserved)
+	}
+
 	// Phase 2 for FakedNUMAID
-	// Note: Normal share blocks are not considered "shared" by isSharedBlock
-	// (which only matches isolation or NUMA-binding share pools), so they will
-	// be pushed to reclaimBlocks and processed in Phase 3 alongside reclaim blocks.
 	if blocks, ok := numaToBlocks[commonstate.FakedNUMAID]; ok {
-		var shareBlocks, reclaimBlocks []*advisorapi.BlockInfo
+		var normalShareBlocks, isolationBlocks, reclaimBlocks []*advisorapi.BlockInfo
 		for _, block := range blocks {
-			if isSharedBlock(block) {
-				shareBlocks = append(shareBlocks, block)
-			} else {
+			switch classifyFakeNUMABlock(block) {
+			case fakeNUMABlockClassNormalShare:
+				normalShareBlocks = append(normalShareBlocks, block)
+			case fakeNUMABlockClassIsolation:
+				isolationBlocks = append(isolationBlocks, block)
+			case fakeNUMABlockClassActualReclaim:
 				reclaimBlocks = append(reclaimBlocks, block)
+			default:
+				return nil, fmt.Errorf("ambiguous fake numa block: %v", block)
 			}
 		}
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
+		err = p.allocateAdvisorSourceBlocksForCarveWithConstraint(
+			normalShareBlocks, isolationBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs,
+			globalNonReclaimableCPUSet, sourceBlockByPool, frozenReclaim)
+		if err != nil {
+			return nil, err
+		}
+
 		emptyNUMA := machine.NewCPUSet()
-		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil)
+		err = p.allocateShareBlocksWithConstraint(
+			commonstate.FakedNUMAID, isolationBlocks, blockCPUSet, emptyNUMA,
+			&nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets,
+			nil, sourceBlockByPool, frozenReclaim)
+		if err != nil {
+			return nil, err
+		}
+
+		err = p.allocateFakeNUMANormalShareBlocksWithConstraint(
+			normalShareBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs,
+			globalNonReclaimableCPUSet, frozenReclaim)
 		if err != nil {
 			return nil, err
 		}
@@ -1287,7 +2151,9 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// Phase 3: Allocate Reclaim blocks
-	err = p.generateReclaimBlockCPUSet(reclaimBlocksMap, nodeRemainingCPUs, availableCPUs, globalNonReclaimableCPUSet, blockCPUSet)
+	err = p.generateReclaimBlockCPUSet(
+		reclaimBlocksMap, nodeRemainingCPUs, availableCPUs,
+		globalNonReclaimableCPUSet, blockCPUSet)
 	if err != nil {
 		return nil, err
 	}
@@ -1295,27 +2161,431 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	return blockCPUSet, nil
 }
 
-// applyBlocks allocate based on BlockCPUSet
+func (p *DynamicPolicy) preallocateLegacyHardReclaim(
+	resp *advisorapi.ListAndWatchResponse,
+	available machine.CPUSet,
+	rpPinnedCPUSet map[string]machine.CPUSet,
+	nonReclaimableCPUSet machine.CPUSet,
+	blockCPUSet advisorapi.BlockCPUSet,
+) (machine.CPUSet, error) {
+	mandatory, err := buildLegacyMandatoryReclaimDescriptors(
+		resp,
+		p.machine.machineInfo.CPUDetails,
+		p.state.GetPodEntries(),
+		rpPinnedCPUSet,
+		nonReclaimableCPUSet,
+	)
+	if err != nil {
+		return machine.NewCPUSet(), err
+	}
+	// NUMAs owned by a committed steady exclusive DNB keep only their finalized
+	// reserve once ramp-up ends; the planner must skip them so its per-NUMA
+	// minimum and cross-NUMA imbalance guards do not re-impose the ratio-derived
+	// target and reject every other ramp-up QoS on the node.
+	skipNUMAs := p.state.GetPodEntries().SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology)
+	demands, blockIDByDemandKey, err := expandHardPartitionReclaimPhase(
+		mandatory, available, p.machine.machineInfo.CPUTopology, skipNUMAs)
+	if err != nil {
+		return machine.NewCPUSet(), err
+	}
+	assignments, err := solveDisjointPartitions(demands, p.machine.machineInfo.CPUTopology)
+	if err != nil {
+		return machine.NewCPUSet(), err
+	}
+
+	reserved := machine.NewCPUSet()
+	for demandKey, cpus := range assignments {
+		blockID := blockIDByDemandKey[demandKey]
+		blockCPUSet[blockID] = blockCPUSet[blockID].Union(cpus)
+		reserved = reserved.Union(cpus)
+	}
+	return reserved, nil
+}
+
+func buildLegacyMandatoryReclaimDescriptors(
+	resp *advisorapi.ListAndWatchResponse,
+	cpuDetails machine.CPUDetails,
+	podEntries state.PodEntries,
+	rpPinnedCPUSet map[string]machine.CPUSet,
+	nonReclaimableCPUSet machine.CPUSet,
+) ([]advisorBlockDescriptor, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("got nil advisor response")
+	}
+
+	mandatoryResp := &advisorapi.ListAndWatchResponse{
+		Entries: make(map[string]*advisorapi.CalculationEntries),
+	}
+	for entryName, calculationEntries := range resp.Entries {
+		if calculationEntries == nil {
+			continue
+		}
+		calculationInfo := calculationEntries.Entries[commonstate.FakedContainerName]
+		if calculationInfo == nil {
+			continue
+		}
+		ownerPoolName, _ := resourcepackage.UnwrapOwnerPoolName(calculationInfo.OwnerPoolName)
+		if commonstate.GetPoolType(ownerPoolName) != commonstate.PoolNameReclaim {
+			continue
+		}
+
+		mandatoryResults := make(map[int64]*advisorapi.NumaCalculationResult)
+		for numaID, result := range calculationInfo.CalculationResultsByNumas {
+			if result == nil {
+				continue
+			}
+			mandatoryBlocks := make([]*advisorapi.Block, 0, len(result.Blocks))
+			for _, block := range result.Blocks {
+				if block != nil && len(block.OverlapTargets) == 0 {
+					mandatoryBlocks = append(mandatoryBlocks, block)
+				}
+			}
+			if len(mandatoryBlocks) != 0 {
+				mandatoryResults[numaID] = &advisorapi.NumaCalculationResult{Blocks: mandatoryBlocks}
+			}
+		}
+		if len(mandatoryResults) == 0 {
+			continue
+		}
+		mandatoryResp.Entries[entryName] = &advisorapi.CalculationEntries{
+			Entries: map[string]*advisorapi.CalculationInfo{
+				commonstate.FakedContainerName: {
+					OwnerPoolName:             calculationInfo.OwnerPoolName,
+					CalculationResultsByNumas: mandatoryResults,
+				},
+			},
+		}
+	}
+
+	return buildAdvisorBlockDescriptors(
+		mandatoryResp, cpuDetails, podEntries, rpPinnedCPUSet, nonReclaimableCPUSet)
+}
+
+type pendingAdvisorState struct {
+	preCommitRevision             uint64
+	entries                       state.PodEntries
+	allowOverlap                  bool
+	disableDedicated              bool
+	enforceSteadyReclaim          bool
+	residualFloor                 machine.CPUSet
+	dynamicConfig                 *dynamicconfig.Configuration
+	migrationCheckpointTransition steadyFakeNUMAMigrationCheckpointTransition
+}
+
+func (p *DynamicPolicy) pendingAdvisorStateMatchesCommitted(pending *pendingAdvisorState) bool {
+	if p == nil || p.state == nil || pending == nil {
+		return false
+	}
+	candidate := pending.entries
+	if pending.dynamicConfig != nil && !pending.dynamicConfig.EnableReclaim {
+		candidate = pending.entries.Clone()
+		if preserveCommittedReclaimPool(
+			candidate, p.state.GetPodEntries(), pending.allowOverlap) != nil {
+			return false
+		}
+		if p.machine.machineInfo != nil && p.machine.machineInfo.CPUTopology != nil {
+			if p.normalizePendingCPUPartition(candidate) != nil ||
+				p.resyncPoolOwnedAllocations(candidate) != nil {
+				return false
+			}
+		}
+	}
+	return pending.preCommitRevision == p.state.GetRevision() &&
+		pending.allowOverlap == p.state.GetAllowSharedCoresOverlapReclaimedCores() &&
+		pending.disableDedicated == p.state.GetDisableDedicatedCoresOverlapReclaimedCores() &&
+		reflect.DeepEqual(candidate, p.state.GetPodEntries())
+}
+
+// applyBlocks prepares an advisor state transition without
+// invoking allocation hooks, writing checkpoints, or mutating plugin state.
 // and the logic contains three main steps
 // 1. construct entries for dedicated containers and pools
 // 2. ensure reclaimed pool exists
 // 3. construct entries for shared and reclaimed containers
-func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *advisorapi.ListAndWatchResponse) error {
+func defaultShareQuantityFromAdvisorResponse(resp *advisorapi.ListAndWatchResponse) (int, error) {
 	if resp == nil {
-		return fmt.Errorf("applyBlocks got nil resp")
+		return 0, fmt.Errorf("default share advice response is nil")
+	}
+	entries, ok := resp.Entries[commonstate.PoolNameShare]
+	if !ok || entries == nil || len(entries.Entries) != 1 {
+		return 0, fmt.Errorf("default share advice must contain exactly one pool entry")
+	}
+	calculationInfo, ok := entries.Entries[commonstate.FakedContainerName]
+	if !ok || calculationInfo == nil || calculationInfo.OwnerPoolName != commonstate.PoolNameShare {
+		return 0, fmt.Errorf("default share advice must contain exactly one share pool entry")
+	}
+	if len(calculationInfo.CalculationResultsByNumas) != 1 {
+		return 0, fmt.Errorf("default share advice must contain only faked numa id")
+	}
+	numaResult, ok := calculationInfo.CalculationResultsByNumas[commonstate.FakedNUMAID]
+	if !ok || numaResult == nil {
+		return 0, fmt.Errorf("default share advice must contain only faked numa id")
 	}
 
+	var quantity uint64
+	for _, block := range numaResult.Blocks {
+		if block != nil {
+			quantity += block.Result
+		}
+	}
+	q, err := general.CovertUInt64ToInt(quantity)
+	if err != nil {
+		return 0, fmt.Errorf("convert default share quantity %d to int: %w", quantity, err)
+	}
+	return q, nil
+}
+
+func advisorResponseHasFakeNUMAMandatoryReclaim(
+	resp *advisorapi.ListAndWatchResponse,
+) bool {
+	if resp == nil || !resp.DisableDedicatedCoresOverlapReclaimedCores {
+		return false
+	}
+	for _, calculationEntries := range resp.Entries {
+		if calculationEntries == nil {
+			continue
+		}
+		for _, calculationInfo := range calculationEntries.Entries {
+			if calculationInfo == nil {
+				continue
+			}
+			ownerPoolName, _ := resourcepackage.UnwrapOwnerPoolName(
+				calculationInfo.OwnerPoolName)
+			if commonstate.GetPoolType(ownerPoolName) != commonstate.PoolNameReclaim {
+				continue
+			}
+			result := calculationInfo.CalculationResultsByNumas[commonstate.FakedNUMAID]
+			if result == nil {
+				continue
+			}
+			for _, block := range result.Blocks {
+				if block != nil && len(block.OverlapTargets) == 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
+	blockCPUSet advisorapi.BlockCPUSet,
+	resp *advisorapi.ListAndWatchResponse,
+	allowSharedCoresOverlapReclaimedCores bool,
+	hardActive bool,
+	dynamicConf *dynamicconfig.Configuration,
+) (*pendingAdvisorState, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("applyBlocks got nil resp")
+	}
+
+	stateRevision := p.state.GetRevision()
 	curEntries := p.state.GetPodEntries()
 	newEntries := make(state.PodEntries)
-	dedicatedCPUSet := machine.NewCPUSet()
-	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
+	var dedicatedCPUSet, pooledUnionDedicatedCPUSet machine.CPUSet
+	defaultSharePlan := defaultShareMaterializationPlan{}
+	if dynamicConf != nil &&
+		dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		defaultSharePlan.enabled = true
+		var err error
+		defaultSharePlan.advisedQuantity, err = defaultShareQuantityFromAdvisorResponse(resp)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	// Calculate from the candidate entry snapshot rather than the currently
+	// published machine state. The latter may still describe the previous
+	// placement while this advisor frame is being prepared.
+	nonReclaimActualBindingNUMAs, err := p.nonReclaimActualBindingNUMAsFromCandidate(curEntries)
+	if err != nil {
+		return nil, err
+	}
 
 	// deal with blocks of dedicated_cores and pools
+	dedicatedCPUSet, pooledUnionDedicatedCPUSet, err = p.buildAdvisorDedicatedPoolEntries(
+		blockCPUSet, resp, curEntries, newEntries, defaultSharePlan.enabled,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// deal with interrupt pools and system exclusive pools
+	if err := p.copyInterruptAndSystemPools(curEntries, newEntries); err != nil {
+		return nil, err
+	}
+
+	if resp.DisableDedicatedCoresOverlapReclaimedCores {
+		// In disjoint mode the planner owns the complete reclaim target. Do not
+		// revise or fallback-expand it after planning.
+		if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
+			return nil, fmt.Errorf("disjoint advisor response has no reclaim partition")
+		}
+	} else {
+		// Legacy mode keeps the historical fallback behavior for NUMAs without
+		// actual reclaimed NUMA binding. The mode value is materialized once here,
+		// under the plugin lock held by the advisor response handler, from the
+		// dynamicConf snapshot passed in and the share/dedicated flags carried by
+		// this response frame; it is not re-read from live config during revise.
+		// The same locked pass owns the precommit CAS that publishes newEntries,
+		// so the mode used for fallback selection is consistent with the revision
+		// being planned; it is not a separate thread-safe object and is not read
+		// by the terminal validator, which re-derives invariants from newEntries.
+		mode := reclaimFallbackMode{
+			enableReclaim:           dynamicConf != nil && dynamicConf.EnableReclaim,
+			allowSharedOverlap:      allowSharedCoresOverlapReclaimedCores,
+			disableDedicatedOverlap: resp.DisableDedicatedCoresOverlapReclaimedCores,
+		}
+		err := p.reviseReclaimPool(
+			newEntries,
+			nonReclaimActualBindingNUMAs,
+			pooledUnionDedicatedCPUSet,
+			mode,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	currentMachineState := p.state.GetMachineState()
+	rampUpReclaimFloor := machine.NewCPUSet()
+	if hardActive && resp.DisableDedicatedCoresOverlapReclaimedCores {
+		reclaimInfo := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
+		if reclaimInfo == nil {
+			return nil, fmt.Errorf("negotiated disjoint advisor result has no reclaim floor")
+		}
+		rampUpReclaimFloor = reclaimInfo.AllocationResult.Clone()
+	} else if hardActive {
+		// The floor follows the ramp-up domains recorded in the negotiated
+		// newEntries (the derive function unions its own derivation with the
+		// passed-in set, which is empty here because no further allocation is
+		// entering mid-advisor).
+		negotiatedRampUpDomains, dErr := newEntries.ActiveRampUpDomains(p.machine.machineInfo.CPUTopology)
+		if dErr != nil {
+			return nil, fmt.Errorf("resolve negotiated ramp-up domains for advisor floor: %w", dErr)
+		}
+		legacyFloor, err := p.deriveRampUpReclaimFloorForModeWithDynamicConfig(
+			currentMachineState, newEntries, negotiatedRampUpDomains, false, dynamicConf)
+		if err != nil {
+			return nil, fmt.Errorf("derive reclaim floor for advisor ramp-up failed: %w", err)
+		}
+		rampUpReclaimFloor = legacyFloor
+	}
+	if defaultSharePlan.enabled {
+		ownershipEntries, err := projectDefaultShareOwnershipEntries(curEntries, newEntries, resp)
+		if err != nil {
+			return nil, err
+		}
+		defaultSharePlan.eligibleCPUSet = p.buildDefaultShareEligibleCPUSet(
+			newEntries, currentMachineState, rampUpReclaimFloor)
+		if err := p.finalizeDefaultShareEntry(
+			newEntries, ownershipEntries, defaultSharePlan.advisedQuantity, defaultSharePlan.eligibleCPUSet,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	// calculate rampUpCPUs
+	sharedBindingNUMAs, err := resp.GetSharedBindingNUMAs()
+	if err != nil {
+		return nil, fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
+	}
+	sharedBindingNUMACPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
+	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
+	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
+	rampUpCPUs := p.machine.machineInfo.CPUDetails.CPUs().
+		Difference(p.config.reservedCPUs).
+		Difference(dedicatedCPUSet).
+		Difference(sharedBindingNUMACPUs).
+		Difference(notAllocatablePoolsCPUs)
+	rampUpCPUs = rampUpCPUs.Difference(rampUpReclaimFloor)
+
+	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, rampUpCPUs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
+			rampUpCPUs.String(), err)
+	}
+
+	// Unadvised shared-numa-binding ramp-up allocations keep their current
+	// allocation; they are protected from the final reclaim pool by the bulkhead
+	// partition view and are not rematerialized here.
+	if err := p.applyAdvisorNonPoolContainerEntries(
+		curEntries, newEntries, resp, rampUpCPUs, rampUpCPUsTopologyAwareAssignments,
+		rampUpReclaimFloor, hardActive, nonReclaimActualBindingNUMAs,
+	); err != nil {
+		return nil, err
+	}
+
+	commitOverride, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(
+		newEntries,
+		allowSharedCoresOverlapReclaimedCores,
+		resp.DisableDedicatedCoresOverlapReclaimedCores,
+		dynamicConf,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build adjustment commit override from pod entries failed with error: %w", err)
+	}
+	if err := p.syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicConfig(
+		newEntries, commitOverride, dynamicConf, defaultSharePlan.eligibleCPUSet,
+	); err != nil {
+		return nil, fmt.Errorf("sync reclaim pool with adjustment commit override failed with error: %w", err)
+	}
+	if defaultSharePlan.enabled {
+		defaultSharePlan.eligibleCPUSet = p.buildDefaultShareEligibleCPUSet(
+			newEntries, currentMachineState, rampUpReclaimFloor)
+		if err := p.finalizeDefaultShareEntry(
+			newEntries, newEntries, defaultSharePlan.advisedQuantity, defaultSharePlan.eligibleCPUSet,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	// Hard partitioning keeps every ramp-up allocation disjoint from final
+	// reclaim. With soft partitioning, only allocations whose cpuset has already
+	// been exposed need that physical invariant; omission-capable allocations
+	// keep the historical logical overlap and inherit the non-reclaim parent.
+	hardPartition := isRampUpReclaimHardPartitionEnabledWithConfig(dynamicConf)
+	if newEntries.HasActiveRampUp() &&
+		(hardPartition || exposedRampUpNeedsPhysicalDisjoint(dynamicConf, allowSharedCoresOverlapReclaimedCores)) {
+		var err error
+		if hardPartition {
+			err = p.rematerializeRampUpSharedAgainstFinalReclaim(newEntries)
+		} else {
+			err = p.rematerializeExposedRampUpSharedAgainstFinalReclaim(newEntries)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("rematerialize ramp-up shared allocations against final reclaim pool failed with error: %w", err)
+		}
+	}
+
+	return &pendingAdvisorState{
+		preCommitRevision: stateRevision,
+		entries:           newEntries,
+		allowOverlap:      allowSharedCoresOverlapReclaimedCores,
+		disableDedicated:  resp.DisableDedicatedCoresOverlapReclaimedCores,
+		residualFloor:     rampUpReclaimFloor,
+		dynamicConfig:     dynamicConf,
+	}, nil
+}
+
+// buildAdvisorDedicatedPoolEntries walks the advisor response and constructs (or
+// updates) dedicated_cores and pool entries in newEntries, accumulating the
+// union dedicated CPUSets. It is the dedicated/pools stage of
+// applyBlocksWithDynamicConfig.
+func (p *DynamicPolicy) buildAdvisorDedicatedPoolEntries(
+	blockCPUSet advisorapi.BlockCPUSet,
+	resp *advisorapi.ListAndWatchResponse,
+	curEntries state.PodEntries,
+	newEntries state.PodEntries,
+	skipSharePool bool,
+) (dedicatedCPUSet machine.CPUSet, pooledUnionDedicatedCPUSet machine.CPUSet, err error) {
+	dedicatedCPUSet = machine.NewCPUSet()
+	pooledUnionDedicatedCPUSet = machine.NewCPUSet()
 	for entryName, entry := range resp.Entries {
 		if entryName == commonstate.PoolNameInterrupt {
+			continue
+		}
+		if skipSharePool && entryName == commonstate.PoolNameShare {
 			continue
 		}
 
@@ -1330,13 +2600,13 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			// construct cpuset for this entry by union all blocks for it
 			entryCPUSet, err := calculationInfo.GetCPUSet(entryName, subEntryName, blockCPUSet)
 			if err != nil {
-				return err
+				return dedicatedCPUSet, pooledUnionDedicatedCPUSet, err
 			}
 
 			// transform cpuset into topologyAwareAssignments
-			topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, entryCPUSet)
+			topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, entryCPUSet)
 			if err != nil {
-				return fmt.Errorf("unable to calculate topologyAwareAssignments for entry: %s, subEntry: %s, entry cpuset: %s, error: %v",
+				return dedicatedCPUSet, pooledUnionDedicatedCPUSet, fmt.Errorf("unable to calculate topologyAwareAssignments for entry: %s, subEntry: %s, entry cpuset: %s, error: %v",
 					entryName, subEntryName, entryCPUSet.String(), err)
 			}
 
@@ -1346,9 +2616,9 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				// currently, cpu advisor can only create new pools,
 				// all container entries or entries with owner pool name dedicated can't be created by cpu advisor
 				if calculationInfo.OwnerPoolName == commonstate.PoolNameDedicated || subEntryName != commonstate.FakedContainerName {
-					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
+					return dedicatedCPUSet, pooledUnionDedicatedCPUSet, fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
 				} else if entryName != calculationInfo.OwnerPoolName {
-					return fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
+					return dedicatedCPUSet, pooledUnionDedicatedCPUSet, fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
 				}
 
 				general.Infof("create new pool: %s cpuset result %s", entryName, entryCPUSet.String())
@@ -1381,29 +2651,23 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			newEntries[entryName][subEntryName] = allocationInfo
 			pooledUnionDedicatedCPUSet = pooledUnionDedicatedCPUSet.Union(allocationInfo.AllocationResult)
 
-			// ramp-up finishes immediately for dedicated
 			if allocationInfo.OwnerPoolName == commonstate.PoolNameDedicated {
 				dedicatedCPUSet = dedicatedCPUSet.Union(allocationInfo.AllocationResult)
 				general.Infof("try to apply dedicated_cores: %s/%s %s: %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.AllocationResult.String())
-
-				if allocationInfo.RampUp {
-					allocationInfo.RampUp = false
-					general.Infof("pod: %s/%s, container: %s ramp up finished", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				}
 			} else {
 				for numaID, cpus := range allocationInfo.TopologyAwareAssignments {
-					_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cpus.Size()),
-						metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName},
-						metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(allocationInfo.OwnerPoolName)},
-						metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
 					general.Infof("try to apply pool %s numa %d: %s", allocationInfo.OwnerPoolName, numaID, cpus.String())
 				}
 			}
 		}
 	}
+	return dedicatedCPUSet, pooledUnionDedicatedCPUSet, nil
+}
 
-	// deal with interrupt pools
+// copyInterruptAndSystemPools carries the interrupt pool and every system
+// exclusive pool over from the current entries into the new advisor frame.
+func (p *DynamicPolicy) copyInterruptAndSystemPools(curEntries, newEntries state.PodEntries) error {
 	if subEntry, ok := curEntries[commonstate.PoolNameInterrupt]; ok {
 		newEntries[commonstate.PoolNameInterrupt] = make(state.ContainerEntries)
 		if ai, ok := subEntry[commonstate.FakedContainerName]; ok && ai != nil {
@@ -1424,35 +2688,24 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			newEntries[name][commonstate.FakedContainerName] = ai.Clone()
 		}
 	}
+	return nil
+}
 
-	// revise reclaim pool size to avoid reclaimed_cores and numa_binding dedicated_cores containers
-	// in NUMAs without cpuset actual binding
-	err := p.reviseReclaimPool(newEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet)
-	if err != nil {
-		return err
-	}
-
-	// calculate rampUpCPUs
-	sharedBindingNUMAs, err := resp.GetSharedBindingNUMAs()
-	if err != nil {
-		return fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
-	}
-	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
-	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
-	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
-	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().
-		Difference(p.reservedCPUs).
-		Difference(dedicatedCPUSet).
-		Difference(sharedBindingNUMACPUs).
-		Difference(notAllocatablePoolsCPUs)
-
-	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
-	if err != nil {
-		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
-			rampUpCPUs.String(), err)
-	}
-
-	// deal with blocks of reclaimed_cores and share_cores
+// applyAdvisorNonPoolContainerEntries replays the non-pool container allocations
+// from the current entries into the new frame, applying shared/reclaimed/ramp-up
+// placement. Unadvised shared-NUMA-binding ramp-up allocations keep their current
+// allocation and are protected from the final reclaim pool by the bulkhead
+// partition view.
+func (p *DynamicPolicy) applyAdvisorNonPoolContainerEntries(
+	curEntries state.PodEntries,
+	newEntries state.PodEntries,
+	resp *advisorapi.ListAndWatchResponse,
+	rampUpCPUs machine.CPUSet,
+	rampUpCPUsTopologyAwareAssignments map[int]machine.CPUSet,
+	rampUpReclaimFloor machine.CPUSet,
+	hardActive bool,
+	nonReclaimActualBindingNUMAs machine.CPUSet,
+) error {
 	for podUID, containerEntries := range curEntries {
 		if containerEntries.IsPoolEntry() {
 			continue
@@ -1480,7 +2733,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			case consts.PodAnnotationQoSLevelDedicatedCores:
 				errMsg := fmt.Sprintf("dedicated_cores blocks aren't applied, pod: %s/%s, container: %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				general.Errorf(errMsg)
+				general.Errorf("%s", errMsg)
 				return fmt.Errorf(errMsg)
 			case consts.PodAnnotationQoSLevelSystemCores:
 				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(newEntries, allocationInfo)
@@ -1496,12 +2749,41 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				newEntries[podUID][containerName].TopologyAwareAssignments = topologyAwareAssignments
 				newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
 			case consts.PodAnnotationQoSLevelSharedCores:
-				ownerPoolName := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
+				_, advisorReturnedAllocation := resp.GetCalculationInfo(podUID, containerName)
+				if allocationInfo.RampUp &&
+					allocationInfo.CheckSharedNUMABinding() &&
+					allocationInfo.OwnerPoolName == commonstate.EmptyOwnerPoolName &&
+					!advisorReturnedAllocation {
+					// Unadvised SNB ramp-up keeps its current allocation; the bulkhead
+					// partition view protects its exact CPUs from the final reclaim pool,
+					// so no preservation tri-state is needed here.
+					general.Infof("pod: %s/%s container: %s is an unadvised shared numa-binding ramp-up allocation, preserve its current allocation",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+					continue containerLoop
+				}
+
+				if isZeroCPUDefaultShareWithoutOwnership(allocationInfo) {
+					preserveZeroCPUDefaultShareWithoutOwnership(newEntries[podUID][containerName])
+					continue containerLoop
+				}
+
+				ownerPoolName, err := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
+				if err != nil {
+					return err
+				}
 				if allocationInfo.RampUp {
 					general.Infof("pod: %s/%s container: %s is in ramp up, set its allocation result from %s to rampUpCPUs :%s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.AllocationResult.String(), rampUpCPUs.String())
 
 					if rampUpCPUs.IsEmpty() {
+						if err := validateEmptyRampUpCPUReuse(
+							hardActive,
+							allocationInfo.AllocationResult,
+							rampUpReclaimFloor,
+						); err != nil {
+							return fmt.Errorf("pod: %s/%s container: %s %w",
+								allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
+						}
 						general.Warningf("rampUpCPUs is empty. pod: %s/%s container: %s reuses its allocation result: %s",
 							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.AllocationResult.String())
 						continue containerLoop
@@ -1519,11 +2801,11 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					}
 
 					if allocationInfo.CheckSharedNUMABinding() {
-						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+						poolEntry.QoSLevel = consts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
 						// in order to differentiate them from non-binding share cores pools during GetFilteredPoolsCPUSetMap.
 						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
-							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						})
 					}
 
@@ -1537,7 +2819,10 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
 				}
 			case consts.PodAnnotationQoSLevelReclaimedCores:
-				ownerPoolName := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
+				ownerPoolName, err := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
+				if err != nil {
+					return err
+				}
 				poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
 				if err != nil {
 					return err
@@ -1554,28 +2839,854 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			}
 		}
 	}
+	return nil
+}
 
-	// trigger allocation hooks for non-pool containers before committing to state.
-	if err := p.invokeAllocationHooksForPodEntries(curEntries, newEntries); err != nil {
-		return err
+// rematerializeRampUpSharedAgainstFinalReclaim restores the hard-partition
+// invariant (ramp-up shared allocations never overlap the final reclaim pool)
+// against the reclaim pool as it exists AFTER the adjustment commit override
+// has been applied. Plain (non-SNB) shared ramp-up allocations were assigned
+// rampUpCPUs before the override rewrote the reclaim pool, so they may end up
+// overlapping the final reclaim pool.
+//
+// Restoration is canonical, not a naive write-back of
+// allocation.Difference(reclaim): the candidate set is only used as input, and
+// the actual cpuset is re-selected through takeCoreAlignedCPUSet so the result
+// stays whole-core, deterministic and NUMA-consistent with the candidate
+// distribution. The re-layout is confined to the allocation's own remainder
+// (candidate = allocation - reclaim) and never widens to a broader universe or
+// re-picks by request quantity. Any configuration in which no complete physical
+// core survives is rejected fail-closed instead of silently shrinking to a
+// partial core.
+// Restoration applies to both plain shared and shared-NUMA-binding (SNB)
+// ramp-up allocations. The partition view normally protects an SNB's exact
+// CPUs, but a same-commit reclaim override can change the final reclaim set
+// after that protection view was built. Re-materializing from the SNB's own
+// remainder keeps its original NUMA scope while closing that revision window;
+// the terminal mutual-exclusion validator remains authoritative.
+func exposedRampUpNeedsPhysicalDisjoint(
+	dynamicConf *dynamicconfig.Configuration,
+	allowSharedOverlap bool,
+) bool {
+	if allowSharedOverlap || dynamicConf == nil || dynamicConf.AdminQoSConfiguration == nil ||
+		dynamicConf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
+		return false
 	}
+	bulkheadConfig := dynamicConf.AdminQoSConfiguration.CPUPluginConfiguration.BulkheadConfig
+	return bulkheadConfig.Enable && bulkheadConfig.EnableBulkheadCpusetTopology
+}
 
-	// use pod entries generated above to generate machine state info, and store in local state
-	newMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, newEntries, p.state.GetMachineState())
-	if err != nil {
-		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
+func (p *DynamicPolicy) rematerializeRampUpSharedAgainstFinalReclaim(
+	newEntries state.PodEntries,
+) error {
+	return p.rematerializeRampUpSharedAgainstReclaim(newEntries, p.latestAppliedReclaimCPUSet())
+}
+
+// rematerializeExposedRampUpSharedAgainstFinalReclaim is the soft-partition
+// counterpart used when shared/reclaim physical overlap is disabled. A ramp-up
+// allocation whose response may omit cpuset keeps the historical logical
+// overlap and inherits the non-reclaim parent. Once cpuset has been exposed,
+// however, the explicit response must fit below that parent, so only those
+// allocations are rematerialized.
+func (p *DynamicPolicy) rematerializeExposedRampUpSharedAgainstFinalReclaim(
+	newEntries state.PodEntries,
+) error {
+	return p.rematerializeRampUpSharedAgainstReclaimFiltered(newEntries, p.latestAppliedReclaimCPUSet(), true)
+}
+
+// latestAppliedReclaimCPUSet returns the reclaim cpuset most recently verified
+// as physically applied by the bulkhead topology owner, or an empty set when no
+// bulkhead manager is wired (tests, topology disabled before the first apply).
+func (p *DynamicPolicy) latestAppliedReclaimCPUSet() machine.CPUSet {
+	if p == nil || p.bulkhead.bulkheadManager == nil {
+		return machine.NewCPUSet()
 	}
-	p.state.SetPodEntries(newEntries, false)
-	p.state.SetMachineState(newMachineState, false)
-	if err := p.state.StoreState(); err != nil {
-		general.ErrorS(err, "store state failed")
+	return p.bulkhead.bulkheadManager.LatestAppliedReclaim()
+}
+
+// rematerializeRampUpSharedAgainstReclaim is the testable core of
+// rematerializeRampUpSharedAgainstFinalReclaim.
+//
+// The pending ramp-up allocation becomes the admission pending-protection scope
+// of the bulkhead topology. If it claims a cpu that the applied reclaim cgroups
+// still hold (the final reclaim already dropped it but the shrink has not been
+// written yet), the topology must shrink reclaim before it can satisfy the
+// protection, while the shrink itself is gated on the same protected pending
+// set. That cycle surfaces as a bare fixed-point no-progress and holds every
+// admission until the pending pods are removed. Excluding final ∪ applied
+// reclaim keeps the protection reachable without any reclaim shrink. When that
+// stricter exclusion leaves no complete physical core, fall back to the
+// historical final-only exclusion instead of rejecting the allocation.
+func (p *DynamicPolicy) rematerializeRampUpSharedAgainstReclaim(
+	newEntries state.PodEntries,
+	appliedReclaim machine.CPUSet,
+) error {
+	return p.rematerializeRampUpSharedAgainstReclaimFiltered(newEntries, appliedReclaim, false)
+}
+
+func (p *DynamicPolicy) rematerializeRampUpSharedAgainstReclaimFiltered(
+	newEntries state.PodEntries,
+	appliedReclaim machine.CPUSet,
+	exposedOnly bool,
+) error {
+	if p == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
+		return nil
+	}
+	reclaimEntries := newEntries[commonstate.PoolNameReclaim]
+	if reclaimEntries == nil {
+		return nil
+	}
+	reclaimPool := reclaimEntries[commonstate.FakedContainerName]
+	if reclaimPool == nil || reclaimPool.AllocationResult.IsEmpty() {
+		return nil
+	}
+	finalReclaim := reclaimPool.AllocationResult
+	// Applied reclaim is only an extra, preferred exclusion; it never widens the
+	// allocation and never becomes the error baseline.
+	excludeReclaim := finalReclaim.Union(appliedReclaim)
+
+	for _, containerEntries := range newEntries {
+		if containerEntries == nil || containerEntries.IsPoolEntry() {
+			continue
+		}
+		for _, ai := range containerEntries {
+			if ai == nil || !ai.RampUp || !ai.CheckShared() || ai.CheckReclaimed() ||
+				(exposedOnly && ai.Annotations[cpuconsts.CPUSetOmissionAllowedAnnotationKey] != cpusetOmissionFalse) {
+				continue
+			}
+			overlap := ai.AllocationResult.Intersection(excludeReclaim)
+			if overlap.IsEmpty() {
+				// zero-churn: already mutually exclusive with the final and the
+				// applied reclaim pool, nothing to rematerialize.
+				continue
+			}
+
+			finalCandidate := ai.AllocationResult.Difference(finalReclaim)
+			if finalCandidate.IsEmpty() {
+				return fmt.Errorf("ramp-up shared allocation is completely covered by the final reclaim pool: "+
+					"pod: %s/%s container: %s allocation: %s reclaim: %s",
+					ai.PodNamespace, ai.PodName, ai.ContainerName,
+					ai.AllocationResult.String(), finalReclaim.String())
+			}
+
+			// Prefer final ∪ applied; fall back to final-only when the stricter
+			// exclusion leaves no complete physical core.
+			excluded := excludeReclaim
+			candidate := ai.AllocationResult.Difference(excludeReclaim)
+			rematerialized := machine.NewCPUSet()
+			if !candidate.IsEmpty() {
+				rematerialized = takeCoreAlignedCPUSet(
+					p.machine.machineInfo.CPUTopology, candidate, candidate, candidate.Size())
+			}
+			if rematerialized.IsEmpty() && !excludeReclaim.Equals(finalReclaim) {
+				general.Warningf("ramp-up shared allocation of pod: %s/%s container: %s has no complete core "+
+					"outside final ∪ applied reclaim %s; falling back to final reclaim %s only",
+					ai.PodNamespace, ai.PodName, ai.ContainerName, excludeReclaim.String(), finalReclaim.String())
+				excluded = finalReclaim
+				candidate = finalCandidate
+				rematerialized = takeCoreAlignedCPUSet(
+					p.machine.machineInfo.CPUTopology, candidate, candidate, candidate.Size())
+			}
+			if rematerialized.IsEmpty() {
+				return fmt.Errorf("no complete physical core remains for ramp-up shared allocation after "+
+					"excluding both the final reclaim pool and the applied reclaim set (reclaim/floor conflict): "+
+					"pod: %s/%s container: %s allocation: %s candidate: %s final reclaim: %s applied reclaim: %s",
+					ai.PodNamespace, ai.PodName, ai.ContainerName,
+					ai.AllocationResult.String(), candidate.String(), finalReclaim.String(), appliedReclaim.String())
+			}
+			if rematerialized.Equals(ai.AllocationResult) {
+				// idempotent: the canonical selection reproduces the current
+				// allocation, skip the write-back to avoid churn.
+				continue
+			}
+
+			topologyAwareAssignments, err := machine.GetNumaAwareAssignments(
+				p.machine.machineInfo.CPUTopology, rematerialized)
+			if err != nil {
+				return fmt.Errorf("unable to calculate topologyAwareAssignments for rematerialized "+
+					"ramp-up shared allocation: pod: %s/%s container: %s cpuset: %s, error: %v",
+					ai.PodNamespace, ai.PodName, ai.ContainerName,
+					rematerialized.String(), err)
+			}
+
+			general.Infof("rematerialize ramp-up shared allocation of pod: %s/%s container: %s from %s to %s "+
+				"to keep it mutually exclusive with the final reclaim pool: %s (excluded: %s, applied reclaim: %s)",
+				ai.PodNamespace, ai.PodName, ai.ContainerName,
+				ai.AllocationResult.String(), rematerialized.String(), finalReclaim.String(),
+				excluded.String(), appliedReclaim.String())
+
+			ai.AllocationResult = rematerialized
+			ai.OriginalAllocationResult = rematerialized.Clone()
+			ai.TopologyAwareAssignments = topologyAwareAssignments
+			ai.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
+		}
 	}
 	return nil
 }
 
-func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(allocationInfo *state.AllocationInfo, resp *advisorapi.ListAndWatchResponse) string {
+func projectDefaultShareOwnershipEntries(
+	current, pending state.PodEntries,
+	resp *advisorapi.ListAndWatchResponse,
+) (state.PodEntries, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("advisor response is nil during shared owner projection")
+	}
+	projectedCurrent := current.Clone()
+	for podUID, containerEntries := range projectedCurrent {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil || allocationInfo.RampUp ||
+				allocationInfo.QoSLevel != consts.PodAnnotationQoSLevelSharedCores {
+				continue
+			}
+			calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName)
+			if !ok {
+				continue
+			}
+			if calculationInfo == nil {
+				return nil, fmt.Errorf(
+					"nil calculation info for shared owner projection: pod=%s container=%s",
+					podUID, containerName)
+			}
+			allocationInfo.OwnerPoolName = calculationInfo.OwnerPoolName
+		}
+	}
+	return supplementPodEntriesWithCurrentNonPool(pending, projectedCurrent), nil
+}
+
+func validateEmptyRampUpCPUReuse(hardPartitionEnabled bool, oldAllocation, reclaimFloor machine.CPUSet) error {
+	if !hardPartitionEnabled {
+		return nil
+	}
+	overlap := oldAllocation.Intersection(reclaimFloor)
+	if overlap.IsEmpty() {
+		return nil
+	}
+	return fmt.Errorf("ramp-up allocation %s overlaps reclaim hard floor %s when recomputed rampUpCPUs is empty",
+		oldAllocation.String(), reclaimFloor.String())
+}
+
+func (p *DynamicPolicy) commitPendingAdvisorState(
+	pending *pendingAdvisorState,
+	targets ...*advisorPostCommitTarget,
+) error {
+	if pending == nil {
+		return fmt.Errorf("pending advisor state is nil")
+	}
+	var target *advisorPostCommitTarget
+	if len(targets) > 0 {
+		target = targets[0]
+	}
+	entries, _, err := p.commitPendingCPUPartitionForAdvisorTarget(pendingCPUPartition{
+		expectedRevision:          pending.preCommitRevision,
+		entries:                   pending.entries,
+		allowOverlap:              pending.allowOverlap,
+		disableDedicated:          pending.disableDedicated,
+		persist:                   true,
+		source:                    "advisor apply",
+		requireCoreAlignedReclaim: pending.disableDedicated,
+		enforceSteadyReclaim:      pending.enforceSteadyReclaim,
+		residualFloor:             pending.residualFloor,
+		dynamicConfig:             pending.dynamicConfig,
+	}, target)
+	if err == nil {
+		pending.entries = entries
+	}
+	return err
+}
+
+func (p *DynamicPolicy) buildAdjustmentCommitOverrideFromPodEntries(
+	newEntries state.PodEntries,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+) (*cpusetutil.CPUSetAdjustmentCommitOverride, error) {
+	var dynamicConf *dynamicconfig.Configuration
+	if p != nil && p.config.dynamicConfig != nil {
+		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
+	return p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(
+		newEntries, allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores, dynamicConf)
+}
+
+func (p *DynamicPolicy) buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(
+	newEntries state.PodEntries,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	dynamicConf *dynamicconfig.Configuration,
+) (*cpusetutil.CPUSetAdjustmentCommitOverride, error) {
+	if p == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil || len(newEntries) == 0 {
+		return nil, nil
+	}
+	if allowSharedCoresOverlapReclaimedCores && !disableDedicatedCoresOverlapReclaimedCores {
+		return nil, nil
+	}
+	if allowSharedCoresOverlapReclaimedCores && disableDedicatedCoresOverlapReclaimedCores {
+		reclaimEntry := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
+		if reclaimEntry == nil || reclaimEntry.AllocationResult.IsEmpty() {
+			return nil, nil
+		}
+		dedicated := machine.NewCPUSet()
+		for _, containerEntries := range newEntries {
+			if containerEntries == nil || containerEntries.IsPoolEntry() {
+				continue
+			}
+			for _, allocation := range containerEntries {
+				if allocation != nil && allocation.CheckDedicated() {
+					dedicated = dedicated.Union(allocation.AllocationResult)
+				}
+			}
+		}
+		reclaim, err := p.coreAlignedReclaimOverride(
+			reclaimEntry.AllocationResult.Difference(dedicated),
+			disableDedicatedCoresOverlapReclaimedCores,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return &cpusetutil.CPUSetAdjustmentCommitOverride{
+			ReclaimEffective: reclaim,
+			Source:           "advisor_pending_entries",
+		}, nil
+	}
+	snapshot := newCPUSetAdjustmentStateSnapshot(p.state)
+	if snapshot == nil {
+		return nil, nil
+	}
+	snapshot.podEntries = newEntries.Clone()
+	// The advisor response mode is the pending transaction's source of truth.
+	// The checkpoint may still hold the previous mode until CommitAdvisorState
+	// persists pod entries, machine state, and the mode atomically.
+	snapshot.allowOverlap = allowSharedCoresOverlapReclaimedCores
+	snapshot.disableDedicated = disableDedicatedCoresOverlapReclaimedCores
+	var view *bulkheadmodel.DesiredView
+	var pendingProjection map[string]map[string]struct{}
+	if p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(dynamicConf) {
+		snapshotRampUpDomains, derr := snapshot.podEntries.ActiveRampUpDomains(p.machine.machineInfo.CPUTopology)
+		if derr != nil {
+			return nil, fmt.Errorf("resolve snapshot ramp-up domains for bulkhead view: %w", derr)
+		}
+		view, pendingProjection = bulkheadutils.BuildCPUSetPartitionView(
+			snapshot,
+			p.machine.machineInfo.CPUTopology,
+			p.cpuSetPartitionViewOptionsWithDynamicConfig(
+				snapshot, snapshotRampUpDomains, dynamicConf),
+		)
+	} else {
+		var err error
+		// Synchronous admission/commit must NOT discard the per-container
+		// pending-shared-projection side-channel. Previously it was dropped (`_`),
+		// so pending non-SNB shared RampUp CPUs folded exactly at the RPC boundary
+		// and could empty a reclaim SMT pair, surfacing as a UUE. The gate
+		// (HardPartition=false && !allowOverlap) is reflected by the snapshot mode.
+		view, pendingProjection, err = bulkheadutils.BuildValidatedCPUSetPartitionView(
+			snapshot,
+			p.machine.machineInfo.CPUTopology,
+			bulkheadutils.CPUSetPartitionViewOptions{},
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if view == nil {
+		return nil, nil
+	}
+	reclaim, err := p.coreAlignedReclaimOverride(
+		view.ReclaimEffective,
+		disableDedicatedCoresOverlapReclaimedCores,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Stage the per-container projection hint so the synchronous admission
+	// adjustment round consumes the exact same choke point the RPC boundary
+	// planned for. Union into any already-staged batch (never assign): two
+	// concurrent admissions in a debounced batch must both survive. An empty
+	// hint must not clear a previously staged batch. Consumed+cleared once by
+	// the next adjustment round.
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	p.adjustment.stagedPendingSharedProjection = bulkheadutils.UnionPendingSharedProjection(
+		p.adjustment.stagedPendingSharedProjection, pendingProjection)
+	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+	return &cpusetutil.CPUSetAdjustmentCommitOverride{
+		ReclaimEffective:        reclaim,
+		Source:                  "advisor_pending_entries",
+		PendingSharedProjection: pendingProjection,
+	}, nil
+}
+
+func (p *DynamicPolicy) coreAlignedReclaimOverride(
+	reclaim machine.CPUSet,
+	requireCoreAlignment bool,
+) (machine.CPUSet, error) {
+	if !requireCoreAlignment {
+		return reclaim.Clone(), nil
+	}
+	if p == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
+		return machine.NewCPUSet(), fmt.Errorf("cannot align reclaim override without cpu topology")
+	}
+	for _, cpu := range reclaim.ToSliceInt() {
+		if _, ok := p.machine.machineInfo.CPUTopology.CPUDetails[cpu]; !ok {
+			return machine.NewCPUSet(), fmt.Errorf("reclaim override cpu %d has no topology metadata", cpu)
+		}
+	}
+	return takeCoreAlignedCPUSet(
+		p.machine.machineInfo.CPUTopology,
+		reclaim,
+		reclaim,
+		reclaim.Size(),
+	), nil
+}
+
+func (p *DynamicPolicy) syncReclaimPoolWithAdjustmentCommitOverride(
+	newEntries state.PodEntries,
+	override *cpusetutil.CPUSetAdjustmentCommitOverride,
+	defaultShareEligible ...machine.CPUSet,
+) error {
+	var dynamicConf *dynamicconfig.Configuration
+	if p != nil && p.config.dynamicConfig != nil {
+		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
+	return p.syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicConfig(
+		newEntries, override, dynamicConf, defaultShareEligible...)
+}
+
+func (p *DynamicPolicy) syncReclaimPoolWithAdjustmentCommitOverrideWithDynamicConfig(
+	newEntries state.PodEntries,
+	override *cpusetutil.CPUSetAdjustmentCommitOverride,
+	dynamicConf *dynamicconfig.Configuration,
+	defaultShareEligible ...machine.CPUSet,
+) error {
+	if override == nil || (override.ReclaimEffective.IsEmpty() && override.Source == "") {
+		return nil
+	}
+	reclaimEntry, ok := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
+	if !ok || reclaimEntry == nil {
+		return nil
+	}
+	assignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, override.ReclaimEffective)
+	if err != nil {
+		return err
+	}
+	reclaim := override.ReclaimEffective.Clone()
+	reclaimEntry.AllocationResult = reclaim
+	reclaimEntry.OriginalAllocationResult = reclaim.Clone()
+	reclaimEntry.TopologyAwareAssignments = assignments
+	reclaimEntry.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(assignments)
+	general.Infof("bulkhead: synced reclaim pool with adjustment commit override, source=%s reclaim=%s",
+		override.Source, reclaim.String())
+	if dynamicConf != nil {
+		if dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+			var eligible machine.CPUSet
+			if len(defaultShareEligible) > 0 {
+				eligible = defaultShareEligible[0].Clone()
+			} else {
+				eligible = p.buildDefaultShareEligibleCPUSet(
+					newEntries, p.state.GetMachineState(), machine.NewCPUSet())
+			}
+			if err := p.finalizeDefaultShareEntryForMode(
+				newEntries,
+				newEntries,
+				0,
+				eligible,
+				defaultShareMaterializationRecovery,
+			); err != nil {
+				return fmt.Errorf("sync default share with reclaim override: %w", err)
+			}
+		}
+	}
+	return p.syncReclaimAndShareAllocationsWithFinalPools(newEntries)
+}
+
+func (p *DynamicPolicy) syncReclaimAndShareAllocationsWithFinalPools(
+	entries state.PodEntries,
+) error {
+	nonReclaimActualBindingNUMAs, err := p.nonReclaimActualBindingNUMAsFromCandidate(entries)
+	if err != nil {
+		return err
+	}
+
+	for podUID, containerEntries := range entries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+		for containerName, allocation := range containerEntries {
+			if allocation == nil || allocation.RampUp {
+				continue
+			}
+
+			ownerPoolName := allocation.GetOwnerPoolName()
+			poolEntry := entries[ownerPoolName].GetPoolEntry()
+			switch {
+			case allocation.CheckReclaimed() && ownerPoolName == commonstate.PoolNameReclaim:
+				if poolEntry == nil {
+					return fmt.Errorf("sync reclaim override owner %s/%s: reclaim pool entry is missing",
+						podUID, containerName)
+				}
+				if err := p.updateReclaimAllocationResultByPoolEntry(
+					allocation, poolEntry, nonReclaimActualBindingNUMAs,
+				); err != nil {
+					return fmt.Errorf("sync reclaim override owner %s/%s: %w", podUID, containerName, err)
+				}
+			case allocation.CheckShared() && ownerPoolName == commonstate.PoolNameShare:
+				if poolEntry == nil {
+					if isZeroCPUDefaultShareWithoutOwnership(allocation) {
+						preserveZeroCPUDefaultShareWithoutOwnership(allocation)
+						continue
+					}
+					return fmt.Errorf("sync reclaim override owner %s/%s: default share pool entry is missing",
+						podUID, containerName)
+				}
+				allocation.AllocationResult = poolEntry.AllocationResult.Clone()
+				allocation.OriginalAllocationResult = poolEntry.OriginalAllocationResult.Clone()
+				allocation.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
+				allocation.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(
+					poolEntry.OriginalTopologyAwareAssignments)
+			}
+		}
+	}
+	return nil
+}
+
+func (p *DynamicPolicy) nonReclaimActualBindingNUMAsFromCandidate(
+	entries state.PodEntries,
+) (machine.CPUSet, error) {
+	if p == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
+		return machine.NewCPUSet(), fmt.Errorf("derive candidate RNB topology: cpu topology is not initialized")
+	}
+
+	result := machine.NewCPUSet(p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt()...)
+	for podUID, containerEntries := range entries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+		for containerName, allocation := range containerEntries {
+			if allocation == nil || !allocation.CheckReclaimedActualNUMABinding() {
+				continue
+			}
+			numaID, err := allocation.GetSpecifiedNUMABindingNUMAID()
+			if err != nil {
+				return machine.NewCPUSet(), fmt.Errorf(
+					"derive candidate RNB topology for %s/%s: %w", podUID, containerName, err)
+			}
+			result = result.Difference(machine.NewCPUSet(numaID))
+		}
+	}
+	return result, nil
+}
+
+func (p *DynamicPolicy) validateAdvisorPartitionBeforeCommitWithDynamicConfig(
+	newEntries state.PodEntries,
+	newMachineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	dynamicConf *dynamicconfig.Configuration,
+) error {
+	if p == nil || p.state == nil || p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
+		return nil
+	}
+	reclaimEntries := newEntries[commonstate.PoolNameReclaim]
+	if reclaimEntries == nil {
+		return nil
+	}
+	reclaimPool := reclaimEntries[commonstate.FakedContainerName]
+	if reclaimPool == nil {
+		return nil
+	}
+
+	for numaID, reclaimInNUMA := range reclaimPool.TopologyAwareAssignments {
+		if numaID == commonstate.FakedNUMAID {
+			continue
+		}
+		numaCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID)
+		if !reclaimInNUMA.IsSubsetOf(numaCPUs) {
+			return fmt.Errorf("reclaim pool assignment crosses NUMA: numa=%d cpus=%s allowed=%s",
+				numaID, reclaimInNUMA.String(), numaCPUs.String())
+		}
+	}
+
+	// When DisableDedicatedCoresOverlapReclaimedCores is enabled, dedicated_cores
+	// containers must not share any cpu with the reclaim pool, regardless of the
+	// allowSharedCoresOverlapReclaimedCores switch.
+	if disableDedicatedCoresOverlapReclaimedCores {
+		notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(
+			newEntries,
+			state.IsForbiddenPool,
+			commonstate.IsSystemPool,
+		)
+		for _, containerEntries := range newEntries {
+			if containerEntries == nil || containerEntries.IsPoolEntry() {
+				continue
+			}
+			for _, ai := range containerEntries {
+				if ai == nil || !ai.CheckDedicated() {
+					continue
+				}
+				if overlap := reclaimPool.AllocationResult.Intersection(ai.AllocationResult); !overlap.IsEmpty() {
+					return fmt.Errorf("dedicated_cores pod: %s/%s container: %s overlaps reclaim pool while DisableDedicatedCoresOverlapReclaimedCores enabled: %s",
+						ai.PodNamespace, ai.PodName, ai.ContainerName, overlap.String())
+				}
+				if !ai.CheckDedicatedNUMABindingNUMAExclusive() {
+					continue
+				}
+				for numaID := range ai.OriginalTopologyAwareAssignments {
+					eligible := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).
+						Difference(p.config.reservedCPUs).
+						Difference(notAllocatablePoolsCPUs)
+					covered := ai.AllocationResult.Intersection(eligible).
+						Union(reclaimPool.AllocationResult.Intersection(eligible))
+					if !covered.Equals(eligible) {
+						return fmt.Errorf("exclusive dedicated/reclaim partition does not cover eligible NUMA: pod=%s/%s container=%s numa=%d dedicated=%s reclaim=%s eligible=%s missing=%s",
+							ai.PodNamespace, ai.PodName, ai.ContainerName, numaID,
+							ai.AllocationResult.Intersection(eligible).String(),
+							reclaimPool.AllocationResult.Intersection(eligible).String(),
+							eligible.String(),
+							eligible.Difference(covered).String())
+					}
+				}
+			}
+		}
+	}
+
+	// Ramp-up shared allocations are governed by the ramp-up reclaim hard
+	// partition switch (HP), not by allowSharedCoresOverlapReclaimedCores (AO):
+	// when HP is active, they must stay mutually exclusive with the FINAL
+	// reclaim pool regardless of AO. This runs BEFORE the AO early-return below
+	// so the HP=true && AO=true quadrant is covered as well; applyBlocks has
+	// already rematerialized the restorable overlaps before commit, so an
+	// overlap reaching this point fails closed.
+	hpActive := isRampUpReclaimHardPartitionEnabledWithConfig(dynamicConf) && newEntries.HasActiveRampUp()
+	if hpActive {
+		if err := validateRampUpReclaimMutualExclusion(newEntries, dynamicConf); err != nil {
+			return err
+		}
+	}
+
+	if allowSharedCoresOverlapReclaimedCores {
+		return p.validatePendingAdvisorPartitionViewWithDynamicConfig(
+			newEntries,
+			newMachineState,
+			allowSharedCoresOverlapReclaimedCores,
+			disableDedicatedCoresOverlapReclaimedCores,
+			dynamicConf,
+		)
+	}
+
+	disallowedSharedPartition := machine.NewCPUSet()
+	for name, containerEntries := range newEntries {
+		if containerEntries == nil {
+			continue
+		}
+		if containerEntries.IsPoolEntry() {
+			if ai := containerEntries[commonstate.FakedContainerName]; ai != nil &&
+				reclaimOverlapDisallowed(
+					name, ai,
+					allowSharedCoresOverlapReclaimedCores,
+					disableDedicatedCoresOverlapReclaimedCores) {
+				disallowedSharedPartition = disallowedSharedPartition.Union(ai.AllocationResult)
+			}
+			continue
+		}
+		for _, ai := range containerEntries {
+			if ai == nil || !reclaimOverlapDisallowed(
+				ai.GetOwnerPoolName(), ai,
+				allowSharedCoresOverlapReclaimedCores,
+				disableDedicatedCoresOverlapReclaimedCores) {
+				continue
+			}
+			disallowedSharedPartition = disallowedSharedPartition.Union(ai.AllocationResult)
+		}
+	}
+	if overlap := reclaimPool.AllocationResult.Intersection(disallowedSharedPartition); !overlap.IsEmpty() {
+		return fmt.Errorf("reclaim pool overlaps disallowed shared partition before commit: %s", overlap.String())
+	}
+	return p.validatePendingAdvisorPartitionViewWithDynamicConfig(
+		newEntries,
+		newMachineState,
+		allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores,
+		dynamicConf,
+	)
+}
+
+// validateRampUpReclaimMutualExclusion enforces the ramp-up reclaim hard
+// partition invariant: when the hard partition switch is active (and ramp-up
+// allocations are actually present), every ramp-up shared allocation must be
+// mutually exclusive with the FINAL reclaim pool, regardless of
+// allowSharedCoresOverlapReclaimedCores. It is self-contained on purpose so
+// the asynchronous cpuset adjustment path can stack it on top of the bulkhead
+// view validation without inheriting the full unified guard (which would be
+// wrong under an AO flip window).
+func validateRampUpReclaimMutualExclusion(
+	newEntries state.PodEntries,
+	dynamicConf *dynamicconfig.Configuration,
+) error {
+	if !isRampUpReclaimHardPartitionEnabledWithConfig(dynamicConf) || !newEntries.HasActiveRampUp() {
+		return nil
+	}
+	reclaimEntries := newEntries[commonstate.PoolNameReclaim]
+	if reclaimEntries == nil {
+		return nil
+	}
+	reclaimPool := reclaimEntries[commonstate.FakedContainerName]
+	if reclaimPool == nil {
+		return nil
+	}
+
+	for _, containerEntries := range newEntries {
+		if containerEntries == nil || containerEntries.IsPoolEntry() {
+			continue
+		}
+		for _, ai := range containerEntries {
+			if ai == nil || !ai.RampUp || !ai.CheckShared() || ai.CheckReclaimed() {
+				continue
+			}
+			if overlap := reclaimPool.AllocationResult.Intersection(ai.AllocationResult); !overlap.IsEmpty() {
+				return fmt.Errorf("ramp-up shared allocation overlaps the final reclaim pool while "+
+					"ramp-up reclaim hard partition is enabled: pod: %s/%s container: %s "+
+					"allocation: %s reclaim: %s overlap: %s",
+					ai.PodNamespace, ai.PodName, ai.ContainerName,
+					ai.AllocationResult.String(), reclaimPool.AllocationResult.String(), overlap.String())
+			}
+		}
+	}
+	return nil
+}
+
+// validatePendingAdvisorPartitionViewWithRampUpExclusionWithDynamicConfig is the
+// attempt-scoped validator: it pins the ramp-up/reclaim mutual-exclusion gate to
+// the immutable *Configuration captured at the outer attempt entry, so a commit
+// cannot mix a floor sized against generation N with a gate evaluated against
+// generation N+1 swapped in mid-flight.
+func (p *DynamicPolicy) validatePendingAdvisorPartitionViewWithRampUpExclusionWithDynamicConfig(
+	newEntries state.PodEntries,
+	newMachineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	dynamicConf *dynamicconfig.Configuration,
+) error {
+	if err := p.validatePendingAdvisorPartitionViewWithDynamicConfig(
+		newEntries, newMachineState, allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores, dynamicConf,
+	); err != nil {
+		return err
+	}
+	return validateRampUpReclaimMutualExclusion(newEntries, dynamicConf)
+}
+
+func (p *DynamicPolicy) validatePendingAdvisorPartitionView(
+	newEntries state.PodEntries,
+	newMachineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+) error {
+	var dynamicConf *dynamicconfig.Configuration
+	if p != nil && p.config.dynamicConfig != nil {
+		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
+	return p.validatePendingAdvisorPartitionViewWithDynamicConfig(
+		newEntries, newMachineState, allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores, dynamicConf)
+}
+
+func (p *DynamicPolicy) validatePendingAdvisorPartitionViewWithDynamicConfig(
+	newEntries state.PodEntries,
+	newMachineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	dynamicConf *dynamicconfig.Configuration,
+) error {
+	if !p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(dynamicConf) {
+		return nil
+	}
+	snapshot := newCPUSetAdjustmentStateSnapshot(p.state)
+	snapshot.podEntries = newEntries.Clone()
+	snapshot.machineState = newMachineState.Clone()
+	snapshot.allowOverlap = allowSharedCoresOverlapReclaimedCores
+	snapshot.disableDedicated = disableDedicatedCoresOverlapReclaimedCores
+	commitViewRampUpDomains, derr := newEntries.ActiveRampUpDomains(p.machine.machineInfo.CPUTopology)
+	if derr != nil {
+		return fmt.Errorf("resolve commit-time ramp-up domains for bulkhead view: %w", derr)
+	}
+	if _, _, err := bulkheadutils.BuildValidatedCPUSetPartitionView(
+		snapshot,
+		p.machine.machineInfo.CPUTopology,
+		p.cpuSetPartitionViewOptionsWithDynamicConfig(
+			snapshot, commitViewRampUpDomains, dynamicConf),
+	); err != nil {
+		return fmt.Errorf("validate pending advisor partition view before commit: %w", err)
+	}
+	return nil
+}
+
+func (p *DynamicPolicy) cpuSetPartitionViewOptionsWithDynamicConfig(
+	state state.ReadonlyState,
+	rampUpDomains sets.Int,
+	dynamicConf *dynamicconfig.Configuration,
+) bulkheadutils.CPUSetPartitionViewOptions {
+	var coreConf *config.Configuration
+	var topology *machine.CPUTopology
+	if p != nil {
+		coreConf = p.config.conf
+		if p.machine.machineInfo != nil {
+			topology = p.machine.machineInfo.CPUTopology
+		}
+	}
+	reservedCPUs := machine.NewCPUSet()
+	reservedReclaimedCPUs := machine.NewCPUSet()
+	reservedReclaimedCPUsFallback := 0
+	if p != nil {
+		reservedCPUs = p.config.reservedCPUs.Clone()
+		reservedReclaimedCPUs = p.reclaim.reservedReclaimedCPUSet.Clone()
+		reservedReclaimedCPUsFallback = p.reclaim.reservedReclaimedCPUsSize
+	}
+	return bulkheadutils.NewCPUSetPartitionViewOptionsWithState(
+		coreConf,
+		dynamicConf,
+		topology,
+		bulkheadutils.CPUSetPartitionViewState{
+			State:                         state,
+			ReservedCPUs:                  reservedCPUs,
+			ReservedReclaimedCPUs:         reservedReclaimedCPUs,
+			ReservedReclaimedCPUsFallback: reservedReclaimedCPUsFallback,
+		},
+		rampUpDomains,
+	)
+}
+
+func (p *DynamicPolicy) hardBulkheadPartitionValidationEnabled() bool {
+	var dynamicConf *dynamicconfig.Configuration
+	if p != nil && p.config.dynamicConfig != nil {
+		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
+	return p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(dynamicConf)
+}
+
+func (p *DynamicPolicy) hardBulkheadPartitionValidationEnabledWithDynamicConfig(
+	dynamicConf *dynamicconfig.Configuration,
+) bool {
+	if dynamicConf == nil || dynamicConf.AdminQoSConfiguration == nil ||
+		dynamicConf.AdminQoSConfiguration.CPUPluginConfiguration == nil {
+		return false
+	}
+	cpuConf := dynamicConf.AdminQoSConfiguration.CPUPluginConfiguration
+	return cpuConf.BulkheadConfig.Enable &&
+		dynamicConf.EnableReclaim &&
+		cpuConf.EnableRampUpReclaimHardPartition
+}
+
+func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(
+	allocationInfo *state.AllocationInfo,
+	resp *advisorapi.ListAndWatchResponse,
+) (string, error) {
 	ownerPoolName := allocationInfo.GetOwnerPoolName()
 	if calculationInfo, ok := resp.GetCalculationInfo(allocationInfo.PodUid, allocationInfo.ContainerName); ok {
+		if calculationInfo == nil {
+			return "", fmt.Errorf("nil calculation info for pod %s container %s",
+				allocationInfo.PodUid, allocationInfo.ContainerName)
+		}
 		general.Infof("cpu advisor put pod: %s/%s, container: %s from %s to %s",
 			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, calculationInfo.OwnerPoolName)
 
@@ -1584,13 +3695,21 @@ func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(allocationInfo *state.Alloca
 		general.Warningf("cpu advisor doesn't return entry for pod: %s/%s, container: %s, qosLevel: %s",
 			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 	}
-	return ownerPoolName
+	return ownerPoolName, nil
 }
 
-func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse) error {
-	if resp == nil {
-		return fmt.Errorf("applyNUMAHeadroom got nil resp")
+type numaHeadroomPermitWriter interface {
+	SetNUMAHeadroomWithPermit(map[int]float64, bool, *state.WritePermit) error
+}
+
+func (p *DynamicPolicy) applyHeadroom(resp *advisorapi.ListAndWatchResponse) error {
+	if p.applyHeadroomHook != nil {
+		return p.applyHeadroomHook(resp)
 	}
+	if resp == nil {
+		return fmt.Errorf("applyHeadroom got nil resp")
+	}
+	target := p.currentAdvisorPostCommitTarget()
 
 	for _, calculationInfo := range resp.ExtraEntries {
 		if calculationInfo == nil {
@@ -1601,38 +3720,112 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 			continue
 		}
 
-		cpuNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
-		if !ok {
-			general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
-			continue
+		if err := p.applyNUMAHeadroom(calculationInfo, target); err != nil {
+			return err
 		}
-
-		cpuNUMAHeadroom := &advisorapi.CPUNUMAHeadroom{}
-		err := json.Unmarshal([]byte(cpuNUMAHeadroomValue), cpuNUMAHeadroom)
-		if err != nil {
-			return fmt.Errorf("unmarshal %s: %s failed with error: %v",
-				advisorapi.ControlKnobKeyCPUNUMAHeadroom, cpuNUMAHeadroomValue, err)
-		}
-
-		p.state.SetNUMAHeadroom(*cpuNUMAHeadroom, true)
-		general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
 	}
 
 	return nil
 }
 
-func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet) error {
-	// if there is no block for state.PoolNameReclaim pool,
-	// we must make it existing here even if cause overlap
-	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
-		notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
-		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet).Difference(notAllocatablePoolsCPUs)
-		if reclaimPoolCPUSet.IsEmpty() {
-			reclaimPoolCPUSet = p.reservedReclaimedCPUSet.Clone()
-			general.Infof("fallback takeByNUMABalance for reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())
-		}
+func (p *DynamicPolicy) applyNUMAHeadroom(
+	calculationInfo *advisorsvc.CalculationInfo,
+	target *advisorPostCommitTarget,
+) error {
+	v, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
+	if !ok {
+		return nil
+	}
 
-		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, reclaimPoolCPUSet)
+	cpuNUMAHeadroom := &advisorapi.CPUNUMAHeadroom{}
+	if err := json.Unmarshal([]byte(v), cpuNUMAHeadroom); err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			advisorapi.ControlKnobKeyCPUNUMAHeadroom, v, err)
+	}
+
+	var err error
+	if target == nil {
+		err = p.state.SetNUMAHeadroom(*cpuNUMAHeadroom, true)
+	} else if writer, ok := p.state.(numaHeadroomPermitWriter); ok {
+		err = writer.SetNUMAHeadroomWithPermit(
+			*cpuNUMAHeadroom, true, p.newAdvisorStateWritePermit(target))
+	} else {
+		err = fmt.Errorf("state does not support permitted NUMA headroom writes")
+	}
+	if err != nil {
+		return fmt.Errorf("persist cpu NUMA headroom: %w", err)
+	}
+	general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
+	return nil
+}
+
+// committedReclaimNUMABucket returns the reclaim pool's committed NUMA bucket
+// from the currently published state. The second return reports whether a
+// committed bucket actually existed for the NUMA (comma-ok), so a missing key is
+// never confused with an initialized-empty bucket.
+func (p *DynamicPolicy) committedReclaimNUMABucket(numaID int) (machine.CPUSet, bool) {
+	committed := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
+	if committed == nil || committed.TopologyAwareAssignments == nil {
+		return machine.NewCPUSet(), false
+	}
+	bucket, ok := committed.TopologyAwareAssignments[numaID]
+	if !ok {
+		return machine.NewCPUSet(), false
+	}
+	return bucket, true
+}
+
+func (p *DynamicPolicy) reviseReclaimPool(
+	newEntries state.PodEntries,
+	nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet,
+	mode reclaimFallbackMode,
+) error {
+	// The advisor candidate must never promote a reclaimed_cores container in
+	// ramp-up. Reject it before backfilling buckets so an old advisor/async
+	// candidate cannot bypass the invariant.
+	if err := validateNoReclaimedRampUp(newEntries); err != nil {
+		return err
+	}
+	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(newEntries, state.IsForbiddenPool, commonstate.IsSystemPool)
+	nonReclaimCPUSet := pooledUnionDedicatedCPUSet.Union(notAllocatablePoolsCPUs)
+
+	// Ensure the reclaim pool entry exists when the advisor omits its block.
+	// Only overlap mode may fall back to CPUs already assigned to non-reclaim entries.
+	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
+		eligible := p.machine.machineInfo.CPUDetails.CPUs().
+			Difference(p.config.reservedCPUs).
+			Difference(pooledUnionDedicatedCPUSet).
+			Difference(notAllocatablePoolsCPUs)
+		// Subtract the candidate ownership the current mode forbids reclaim to borrow:
+		//  - dedicated pool/non-isolated dedicated whenever disableDedicatedOverlap is set,
+		//    independently of strict/allowSharedOverlap;
+		//  - every share-type pool (default share, custom share, share-NUMA-binding
+		//    "*-NUMAx") whenever share overlap is NOT allowed.
+		// Isolated dedicated container CPUs are already in pooledUnionDedicatedCPUSet.
+		eligible = eligible.Difference(
+			state.GetUnitedPoolsCPUs(newEntries,
+				func(poolName string) bool { return poolIsReclaimProhibited(poolName, mode) }))
+		// Prefer the already-committed reclaim identity (committed state, never a
+		// pending-WAL target) so an advisor that omits its reclaim block does not
+		// needlessly re-seed CPUs on a no-op rebuild.
+		committedPrior := machine.NewCPUSet()
+		if committed := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName); committed != nil {
+			committedPrior = committed.AllocationResult
+		}
+		reclaimPoolCPUSet, fbErr := selectBoundedReclaimFallback(
+			p.machine.machineInfo.CPUTopology,
+			eligible,
+			committedPrior,
+			p.reclaim.reservedReclaimedCPUSet,
+			p.reclaim.reservedReclaimedCPUsSize,
+			mode,
+		)
+		if fbErr != nil {
+			return fmt.Errorf("bounded reclaim fallback for advisor-omitted reclaim block: %w", fbErr)
+		}
+		general.Infof("bounded reclaim fallback for advisor-omitted reclaim block: %s", reclaimPoolCPUSet.String())
+
+		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, reclaimPoolCPUSet)
 		if err != nil {
 			return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, "+
 				"result cpuset: %s, error: %v", commonstate.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
@@ -1662,24 +3855,168 @@ func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclai
 	}
 
 	reclaimPool := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
+	// Reuse the shared ownership view for the active RNB target NUMAs instead of a
+	// second scan of the candidate.
+	ownershipView, err := buildReclaimOwnershipView(newEntries, p.machine.machineInfo.CPUTopology)
+	if err != nil {
+		return err
+	}
+	activeRNBTargets := ownershipView.activeRNBTargetNUMAs
+	// Global budget guard: the empty-branch fallback already drew up to the configured
+	// reclaim size (p.reclaim.reservedReclaimedCPUsSize). Per-NUMA bucket backfill must
+	// not inflate the pool beyond that global target for NUMAs that are not required to
+	// back an active RNB allocation — a prior that piled all CPUs on one NUMA must not
+	// then union the other NUMA's default bucket on top (4 -> 6). An active RNUMA still
+	// fails closed when it cannot be backed; its need is planned by the contract total
+	// target, not unconditionally clipped here.
+	globalReclaimBudget := p.reclaim.reservedReclaimedCPUsSize - reclaimPool.AllocationResult.Size()
+	if globalReclaimBudget < 0 {
+		globalReclaimBudget = 0
+	}
+	// Ownership the current mode forbids reclaim to borrow, read once from the candidate
+	// snapshot and applied to EVERY per-NUMA backfill — not only the global empty branch.
+	// With disableDedicatedOverlap the dedicated pool/non-isolated dedicated stays off-limits
+	// even when allowSharedOverlap is true; with strict, every share-type pool is off-limits.
+	prohibitedPoolCPUs := state.GetUnitedPoolsCPUs(newEntries,
+		func(poolName string) bool { return poolIsReclaimProhibited(poolName, mode) })
+	// selectFallback backfills one empty per-NUMA reclaim bucket. It is required only when
+	// the NUMA backs an active RNB allocation; optional buckets respect the global budget and
+	// silently skip rather than hard-fail when the mode-filtered eligible set cannot supply a
+	// core-aligned bucket.
+	selectFallback := func(numaID int, required bool) (machine.CPUSet, error) {
+		numaCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID)
+
+		committedBucket, committedOK := p.committedReclaimNUMABucket(numaID)
+		preference, reservedOK := p.reclaim.reservedReclaimedTopologyAwareAssignments[numaID]
+		var want int
+		if reservedOK {
+			want = preference.Size()
+		} else if committedOK {
+			// Reserved reclaim preference is absent for this NUMA (map miss). Reuse the
+			// already-committed bucket as both preference and requested size so a transient
+			// reserved-config gap does not silently shrink the committed partition; CPUs are
+			// still drawn from the mode-filtered eligible set below.
+			preference = committedBucket
+			want = committedBucket.Size()
+		} else {
+			preference = machine.NewCPUSet()
+			want = 0
+		}
+		var committedPrior machine.CPUSet
+		if committedOK {
+			committedPrior = committedBucket
+		} else {
+			committedPrior = machine.NewCPUSet()
+		}
+
+		// Budget pre-check BEFORE any selection: an optional (non-required) backfill is
+		// bounded by the remaining global reclaim budget. Clamp want to it (a 0 budget
+		// yields want=0 and the helper returns empty below) so we never run a hard
+		// core-aligned selection that could fake a capacity error for a bucket we should
+		// simply leave absent. A required active-RNB NUMA is NOT budget-clipped: its need
+		// is planned by the contract target, and it fails closed below if it cannot be
+		// backed from the mode-filtered eligible set.
+		if !required && want > globalReclaimBudget {
+			general.Infof("cap optional per-NUMA reclaim bucket on NUMA %d: want %d down to remaining global budget %d",
+				numaID, want, globalReclaimBudget)
+			want = globalReclaimBudget
+		}
+		// Optional want==0 (e.g. a spent global budget) means "no requirement": return
+		// empty up-front without invoking the helper, so we never hit its topology/invariant
+		// checks for a bucket that must simply be left absent. A required active-RNB NUMA
+		// with want==0 still falls through to the caller's fail-closed "cannot back" error.
+		if !required && want == 0 {
+			return machine.NewCPUSet(), nil
+		}
+
+		// Hard node reservation (p.config.reservedCPUs) is off-limits in EVERY mode, even
+		// legacy overlap: a CPU now node-reserved must never be re-added to reclaim. On top
+		// of that, forbidden/system pools and the mode-prohibited pools (dd=true dedicated,
+		// strict share) are always dropped. The dedicated-owned (nonReclaim) CPUs are
+		// borrowable only in overlap mode; disjoint mode drops them too.
+		eligible := numaCPUs.
+			Difference(p.config.reservedCPUs).
+			Difference(notAllocatablePoolsCPUs).
+			Difference(prohibitedPoolCPUs)
+		// The dedicated-owned (nonReclaim) CPUs — including non-isolated dedicated containers
+		// that prohibitedPoolCPUs (pool-level) does not cover — stay borrowable only in plain
+		// overlap mode. Once dedicated overlap is disabled (dd=true) they are subtracted even
+		// when share overlap remains allowed.
+		if !mode.allowSharedOverlap || mode.disableDedicatedOverlap {
+			eligible = eligible.Difference(nonReclaimCPUSet)
+		}
+
+		// The reclaim partition must stay core-aligned on every backfill. This is expressed
+		// through the internal requireCoreAligned discipline, NOT by flipping the real
+		// allowSharedOverlap flag — strict() and the shared/dedicated eligibility semantics
+		// stay the genuine 3-flag mode; only the core-completeness of the pick is enforced.
+		selectMode := mode
+		selectMode.requireCoreAligned = true
+		selected, err := selectBoundedReclaimFallback(
+			p.machine.machineInfo.CPUTopology,
+			eligible,
+			committedPrior,
+			preference,
+			want,
+			selectMode,
+		)
+		if err != nil {
+			// An optional bucket that the current ownership/mode cannot supply is left
+			// absent rather than failing the whole revision; a required active-RNUMA NUMA
+			// still fails closed.
+			if !required && (errors.Is(err, errReclaimFallbackCapacityInsufficient) ||
+				errors.Is(err, errReclaimFallbackEmptyRequired)) {
+				general.Infof("skip per-NUMA reclaim bucket on NUMA %d: %s", numaID, err)
+				return machine.NewCPUSet(), nil
+			}
+			return machine.NewCPUSet(), fmt.Errorf("select bounded reclaim fallback in NUMA %d: %w", numaID, err)
+		}
+		return selected, nil
+	}
 
 	// revise reclaim pool for RNB NUMAs
-	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+	for _, numaID := range p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
 		if nonReclaimActualBindingNUMAs.Contains(numaID) {
 			continue
 		}
 
 		if reclaimPool.TopologyAwareAssignments[numaID].IsEmpty() {
-			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
-			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
-			reclaimPool.TopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
-			reclaimPool.OriginalTopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
+			_, active := activeRNBTargets[numaID]
+			fallbackCPUSet, err := selectFallback(numaID, active)
+			if err != nil {
+				return err
+			}
+			if fallbackCPUSet.IsEmpty() {
+				if active {
+					// An active (non-ramp-up) RNB allocation is pinned to this
+					// NUMA, so the reclaim pool must back it. Neither the reserved
+					// preference nor the filtered committed bucket could supply a
+					// CPU: fail closed instead of leaving the pod unprovisioned.
+					return fmt.Errorf(
+						"reclaim pool cannot back active reclaimed-numa-binding on NUMA %d: "+
+							"no reserved preference and no usable committed fallback",
+						numaID)
+				}
+				// No active RNB here: leave the bucket absent rather than
+				// materializing an initialized-empty entry that normalize would
+				// later sparsify away.
+				continue
+			}
+			if remaining := globalReclaimBudget - fallbackCPUSet.Size(); remaining > 0 {
+				globalReclaimBudget = remaining
+			} else {
+				globalReclaimBudget = 0
+			}
+			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(fallbackCPUSet)
+			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(fallbackCPUSet)
+			reclaimPool.TopologyAwareAssignments[numaID] = fallbackCPUSet.Clone()
+			reclaimPool.OriginalTopologyAwareAssignments[numaID] = fallbackCPUSet.Clone()
 		}
 	}
 
 	// revise reclaim pool for non-RNB NUMAs
 	nonReclaimActualBindingNUMAsAllocation := machine.NewCPUSet()
-	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+	for _, numaID := range p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
 		if nonReclaimActualBindingNUMAs.Contains(numaID) {
 			nonReclaimActualBindingNUMAsAllocation = nonReclaimActualBindingNUMAsAllocation.Union(reclaimPool.TopologyAwareAssignments[numaID])
 		}
@@ -1690,14 +4027,31 @@ func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclai
 	// the reclaim pool is never empty. Iterate the non-RNB NUMA IDs, not the (already
 	// empty) cpu set, otherwise this branch is dead code.
 	if nonReclaimActualBindingNUMAsAllocation.IsEmpty() {
-		for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+		for _, numaID := range p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
 			if !nonReclaimActualBindingNUMAs.Contains(numaID) {
 				continue
 			}
-			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
-			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
-			reclaimPool.TopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
-			reclaimPool.OriginalTopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
+			// Non-RNB bucket fills are non-required: selectFallback already clamps want to
+			// the remaining global budget (and skips on a 0 budget), so no post-select
+			// budget re-check is needed here.
+			fallbackCPUSet, err := selectFallback(numaID, false)
+			if err != nil {
+				return err
+			}
+			if fallbackCPUSet.IsEmpty() {
+				// No reclaim CPU available for this NUMA; leave the bucket absent
+				// instead of materializing an initialized-empty entry.
+				continue
+			}
+			if remaining := globalReclaimBudget - fallbackCPUSet.Size(); remaining > 0 {
+				globalReclaimBudget = remaining
+			} else {
+				globalReclaimBudget = 0
+			}
+			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(fallbackCPUSet)
+			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(fallbackCPUSet)
+			reclaimPool.TopologyAwareAssignments[numaID] = fallbackCPUSet.Clone()
+			reclaimPool.OriginalTopologyAwareAssignments[numaID] = fallbackCPUSet.Clone()
 		}
 	}
 

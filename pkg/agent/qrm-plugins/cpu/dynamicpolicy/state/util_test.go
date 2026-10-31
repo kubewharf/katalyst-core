@@ -605,6 +605,94 @@ func TestGetUnitedPoolsCPUs(t *testing.T) {
 	}
 }
 
+func TestPodEntriesHasActiveRampUp(t *testing.T) {
+	t.Parallel()
+
+	makeAllocation := func(containerType pluginapi.ContainerType, rampUp bool) *AllocationInfo {
+		return &AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        "pod",
+				ContainerName: containerType.String(),
+				ContainerType: containerType.String(),
+			},
+			RampUp: rampUp,
+		}
+	}
+	makePoolEntry := func(rampUp bool) ContainerEntries {
+		return ContainerEntries{
+			commonstate.FakedContainerName: &AllocationInfo{
+				AllocationMeta: commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
+				RampUp:         rampUp,
+			},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		entries PodEntries
+		want    bool
+	}{
+		{name: "empty", entries: PodEntries{}, want: false},
+		{
+			name: "pool only is ignored",
+			entries: PodEntries{
+				commonstate.PoolNameShare: makePoolEntry(true),
+			},
+			want: false,
+		},
+		{
+			name: "nil real allocation is ignored",
+			entries: PodEntries{
+				"pod": {"main": nil},
+			},
+			want: false,
+		},
+		{
+			name: "real allocation not in ramp up",
+			entries: PodEntries{
+				"pod": {"main": makeAllocation(pluginapi.ContainerType_MAIN, false)},
+			},
+			want: false,
+		},
+		{
+			name: "real main allocation in ramp up",
+			entries: PodEntries{
+				"pod": {"main": makeAllocation(pluginapi.ContainerType_MAIN, true)},
+			},
+			want: true,
+		},
+		{
+			name: "sidecar activates while main is inactive",
+			entries: PodEntries{
+				"pod": {
+					"main":    makeAllocation(pluginapi.ContainerType_MAIN, false),
+					"sidecar": makeAllocation(pluginapi.ContainerType_SIDECAR, true),
+				},
+			},
+			want: true,
+		},
+		{
+			name: "main activates while sidecar is inactive",
+			entries: PodEntries{
+				"pod": {
+					"main":    makeAllocation(pluginapi.ContainerType_MAIN, true),
+					"sidecar": makeAllocation(pluginapi.ContainerType_SIDECAR, false),
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.entries.HasActiveRampUp())
+			require.Equal(t, tt.want, tt.entries.Clone().HasActiveRampUp())
+		})
+	}
+}
+
 func TestCountAllocationInfosToPoolsQuantityMap(t *testing.T) {
 	t.Parallel()
 	testName := "test"
@@ -959,13 +1047,114 @@ func TestCountAllocationInfosToPoolsQuantityMap(t *testing.T) {
 			t.Parallel()
 			if err := CountAllocationInfosToPoolsQuantityMap(tt.args.numaResourcePackagePinnedCPUSet, tt.args.allocationInfos, tt.args.poolsQuantityMap, func(allocationInfo *AllocationInfo) float64 {
 				return allocationInfo.RequestQuantity
-			}); (err != nil) != tt.wantErr {
+			}, cpuconsts.CPUIncrRatioSharedCoresNUMABinding); (err != nil) != tt.wantErr {
 				t.Errorf("CountAllocationInfosToPoolsQuantityMap() error = %v, wantErr %v", err, tt.wantErr)
 			} else if err == nil {
 				if !reflect.DeepEqual(tt.args.poolsQuantityMap, tt.want) {
 					t.Errorf("CountAllocationInfosToPoolsQuantityMap() = %v, want %v", tt.args.poolsQuantityMap, tt.want)
 				}
 			}
+		})
+	}
+}
+
+func TestCountAllocationInfosToPoolsQuantityMapUsesProvidedSharedNUMABindingRatio(t *testing.T) {
+	t.Parallel()
+
+	newAllocation := func(podUID string, numaBinding bool) *AllocationInfo {
+		annotations := map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		}
+		ownerPoolName := commonstate.PoolNameShare
+		allocationResult := machine.NewCPUSet(0)
+		topologyAwareAssignments := map[int]machine.CPUSet{
+			0: allocationResult.Clone(),
+		}
+		if numaBinding {
+			annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] = consts.PodAnnotationMemoryEnhancementNumaBindingEnable
+			ownerPoolName = "snb-pool"
+		}
+
+		return &AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        podUID,
+				PodNamespace:  "default",
+				PodName:       podUID,
+				ContainerName: "main",
+				ContainerType: pluginapi.ContainerType_MAIN.String(),
+				OwnerPoolName: ownerPoolName,
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				Annotations: annotations,
+				QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
+			},
+			AllocationResult:         allocationResult,
+			TopologyAwareAssignments: topologyAwareAssignments,
+			RequestQuantity:          1,
+		}
+	}
+
+	for _, tt := range []struct {
+		name                          string
+		allocationInfos               []*AllocationInfo
+		sharedNUMABindingCPUIncrRatio float64
+		want                          map[string]map[int]int
+	}{
+		{
+			name: "SNB ratio one",
+			allocationInfos: []*AllocationInfo{
+				newAllocation("pod-0", true),
+				newAllocation("pod-1", true),
+				newAllocation("pod-2", true),
+				newAllocation("pod-3", true),
+			},
+			sharedNUMABindingCPUIncrRatio: 1,
+			want: map[string]map[int]int{
+				"snb-pool": {0: 4},
+			},
+		},
+		{
+			name: "SNB ratio two",
+			allocationInfos: []*AllocationInfo{
+				newAllocation("pod-0", true),
+				newAllocation("pod-1", true),
+				newAllocation("pod-2", true),
+				newAllocation("pod-3", true),
+			},
+			sharedNUMABindingCPUIncrRatio: 2,
+			want: map[string]map[int]int{
+				"snb-pool": {0: 8},
+			},
+		},
+		{
+			name: "non-binding shared ignores SNB ratio",
+			allocationInfos: []*AllocationInfo{
+				newAllocation("pod-0", false),
+				newAllocation("pod-1", false),
+			},
+			sharedNUMABindingCPUIncrRatio: 2,
+			want: map[string]map[int]int{
+				commonstate.PoolNameShare: {commonstate.FakedNUMAID: 2},
+			},
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := make(map[string]map[int]int)
+			err := CountAllocationInfosToPoolsQuantityMap(
+				nil,
+				tt.allocationInfos,
+				got,
+				func(allocationInfo *AllocationInfo) float64 {
+					return allocationInfo.RequestQuantity
+				},
+				tt.sharedNUMABindingCPUIncrRatio,
+			)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
