@@ -27,10 +27,24 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
-// CustomMetricSyncer is used as a common implementation for custom-metrics emitter
+// CustomMetricSyncer is used as a common implementation for custom-metrics emitter.
 type CustomMetricSyncer interface {
 	Name() string
-	Run(ctx context.Context)
+
+	// Run starts the syncer's background loops.
+	//
+	// Implementation contract:
+	//   - It MUST validate every dependency it relies on before spawning any
+	//     goroutine, and return a non-nil error when a dependency is missing or
+	//     uninitialized. Returning such an error MUST NOT leave any goroutine
+	//     behind.
+	//   - On success it spawns its background goroutines and then blocks until
+	//     ctx is canceled. Once ctx is canceled it MUST wait for its own
+	//     background goroutines to exit before returning, so that callers can
+	//     wait on Run's return value without leaking goroutines.
+	//   - Errors are observable by the caller (the emitter logs them) and MUST
+	//     not be swallowed or recovered inside the syncer.
+	Run(ctx context.Context) error
 }
 
 type SyncerInitFunc func(conf *config.Configuration, extraConf interface{},

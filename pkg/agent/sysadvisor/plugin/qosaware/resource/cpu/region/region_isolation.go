@@ -81,9 +81,24 @@ func (r *QoSRegionIsolation) TryUpdateProvision() {
 	r.regulateProvisionControlKnob(rawControlKnobs, nil)
 }
 
+// updateProvisionPolicy intentionally does NOT run an episode of policy.Update()
+// for isolation regions: isolation sizes are derived directly from the resource
+// bounds (see PolicyBase.GetControlKnobAdjusted for the Isolation region type),
+// so there is no per-policy algorithm state to advance.
+//
+// Serialization contract (P4): the isolation region's provision state
+// (provisionPolicies, provisionPolicyResults and their regulators) is only safe
+// under the single-period serial execution imposed by the advisor loop, which
+// calls TryUpdateProvision() and then GetProvision() within one cycle. Both
+// methods already take the region mutex, so concurrent entry is excluded; we do
+// NOT add finer-grained locking on top. The regulators here are dummy
+// (NonIsolatedUpper/LowerCPUSize are not ramped), so there is no cross-cycle
+// ramp state machine to protect beyond the region mutex.
 func (r *QoSRegionIsolation) updateProvisionPolicy() {
-	// no need to update provision for isolation region
-	// todo should we run regulator processes for isolation region?
+	// Deliberately skip policy.Update(): isolation regions do not run the
+	// regulator/ramp state machine (see the contract above). We only refresh the
+	// pod set and essentials so the policy's next GetControlKnob call reads the
+	// current inputs; marking updateStatus succeeded keeps the region healthy.
 	for _, internal := range r.provisionPolicies {
 		internal.updateStatus = types.PolicyUpdateSucceeded
 

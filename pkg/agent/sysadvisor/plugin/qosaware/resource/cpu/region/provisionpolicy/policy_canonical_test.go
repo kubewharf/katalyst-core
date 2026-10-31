@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8types "k8s.io/apimachinery/pkg/types"
+	resourcepluginv1alpha1 "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -123,7 +124,14 @@ func newTestPolicyCanonical(t *testing.T, checkpointDir string, stateFileDir str
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
+	// NewMetaServer boots the process-global reclaim consumer registry via
+	// SetupConsumers. Serialize it under dqRegistryMu so it cannot interleave
+	// with a dynamic-quota subtest's unregister->re-register of the same
+	// "generic" consumer (which would otherwise delete this freshly built
+	// consumer mid-setup).
+	dqRegistryMu.Lock()
 	metaServerTmp, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+	dqRegistryMu.Unlock()
 	assert.NoError(t, err)
 	require.NotNil(t, metaServerTmp)
 
@@ -612,4 +620,288 @@ func TestInvalidPolicyCanonical(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+func TestPolicyCanonicalEstimateCPUUsageDedicatedBinding(t *testing.T) {
+	t.Parallel()
+
+	numaBindingAnnotations := map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+	}
+	numaExclusiveAnnotations := map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaBinding:   apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+	}
+
+	tests := []struct {
+		name           string
+		containerInfo  types.ContainerInfo
+		bindingNumas   machine.CPUSet
+		enableReclaim  bool
+		wantEstimation float64
+	}{
+		{
+			name: "exclusive_dedicated_binding_uses_cpuset_size",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-exclusive",
+				PodName:       "pod-exclusive",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    8.0,
+				Annotations:   numaExclusiveAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 4.0,
+		},
+		{
+			name: "non_exclusive_dedicated_binding_uses_cpu_request",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-nonexclusive",
+				PodName:       "pod-nonexclusive",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    8.0,
+				Annotations:   numaBindingAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 8.0,
+		},
+		{
+			name: "exclusive_cpuset_differs_from_request_branch_distinguishable",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-exclusive-diff",
+				PodName:       "pod-exclusive-diff",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    16.0,
+				Annotations:   numaExclusiveAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 4.0,
+		},
+		{
+			name: "non_exclusive_request_less_than_cpuset",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-nonexclusive-small",
+				PodName:       "pod-nonexclusive-small",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    2.0,
+				Annotations:   numaBindingAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 2.0,
+		},
+		{
+			name: "fractional_cpu_request",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-fractional",
+				PodName:       "pod-fractional",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    3.5,
+				Annotations:   numaBindingAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 3.5,
+		},
+		{
+			name: "zero_cpu_request_non_exclusive",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-zero-req",
+				PodName:       "pod-zero-req",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    0.0,
+				Annotations:   numaBindingAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 0.0,
+		},
+		{
+			name: "sidecar_container_estimates_zero",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-sidecar",
+				PodName:       "pod-sidecar",
+				ContainerName: "sidecar",
+				ContainerType: resourcepluginv1alpha1.ContainerType_SIDECAR,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    4.0,
+				Annotations:   numaExclusiveAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 0.0,
+		},
+		{
+			name: "multi_numa_exclusive_split_by_placement",
+			containerInfo: types.ContainerInfo{
+				PodUID:        "pod-multi-numa",
+				PodName:       "pod-multi-numa",
+				ContainerName: "main",
+				ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+				QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:    16.0,
+				Annotations:   numaExclusiveAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2, 3),
+					1: machine.NewCPUSet(8, 9, 10, 11),
+				},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 4.0,
+		},
+		{
+			name: "missing_assignment_exclusive_returns_zero",
+			containerInfo: types.ContainerInfo{
+				PodUID:                   "pod-no-assign",
+				PodName:                  "pod-no-assign",
+				ContainerName:            "main",
+				QoSLevel:                 apiconsts.PodAnnotationQoSLevelDedicatedCores,
+				CPURequest:               8.0,
+				Annotations:              numaExclusiveAnnotations,
+				TopologyAwareAssignments: map[int]machine.CPUSet{},
+			},
+			bindingNumas:   machine.NewCPUSet(0),
+			enableReclaim:  false,
+			wantEstimation: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			checkpointDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(checkpointDir) }()
+
+			stateFileDir, err := os.MkdirTemp("", "statefile")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(stateFileDir) }()
+
+			checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
+
+			regionInfo := types.RegionInfo{
+				RegionName:   "test-region",
+				RegionType:   v1alpha1.QoSRegionTypeDedicated,
+				BindingNumas: tt.bindingNumas,
+			}
+
+			podSet := make(types.PodSet)
+			podSet.Insert(tt.containerInfo.PodUID, tt.containerInfo.ContainerName)
+
+			metricFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			policy := newTestPolicyCanonical(t, checkpointDir, stateFileDir,
+				checkpointManagerDir, regionInfo, metricFetcher, podSet).(*PolicyCanonical)
+
+			err = policy.metaReader.(*metacache.MetaCacheImp).AddContainer(
+				tt.containerInfo.PodUID, tt.containerInfo.ContainerName, &tt.containerInfo)
+			require.NoError(t, err)
+			policy.metaServer.MetaAgent.SetPodFetcher(
+				constructPodFetcherCanonical([]string{tt.containerInfo.PodName}))
+
+			policy.SetEssentials(types.ResourceEssentials{
+				EnableReclaim: tt.enableReclaim,
+			}, types.ControlEssentials{})
+
+			estimation, err := policy.estimateCPUUsage()
+			require.NoError(t, err)
+			require.InDelta(t, tt.wantEstimation, estimation, 0.001,
+				"expected %.2f got %.2f", tt.wantEstimation, estimation)
+		})
+	}
+}
+
+func TestPolicyCanonicalEstimateCPUUsageNonBindingUnchanged(t *testing.T) {
+	t.Parallel()
+
+	checkpointDir, err := os.MkdirTemp("", "checkpoint")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(checkpointDir) }()
+
+	stateFileDir, err := os.MkdirTemp("", "statefile")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(stateFileDir) }()
+
+	checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
+
+	containerInfo := types.ContainerInfo{
+		PodUID:        "pod-share",
+		PodName:       "pod-share",
+		ContainerName: "main",
+		ContainerType: resourcepluginv1alpha1.ContainerType_MAIN,
+		QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+		CPURequest:    4.0,
+	}
+
+	regionInfo := types.RegionInfo{
+		RegionName: "share-region",
+		RegionType: v1alpha1.QoSRegionTypeShare,
+	}
+
+	podSet := make(types.PodSet)
+	podSet.Insert(containerInfo.PodUID, containerInfo.ContainerName)
+
+	metricFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	metricFetcher.(*metric.FakeMetricsFetcher).SetContainerMetric(
+		containerInfo.PodUID, containerInfo.ContainerName,
+		consts.MetricCPUUsageContainer, metricutil.MetricData{Value: 2})
+
+	policy := newTestPolicyCanonical(t, checkpointDir, stateFileDir,
+		checkpointManagerDir, regionInfo, metricFetcher, podSet).(*PolicyCanonical)
+
+	err = policy.metaReader.(*metacache.MetaCacheImp).AddContainer(
+		containerInfo.PodUID, containerInfo.ContainerName, &containerInfo)
+	require.NoError(t, err)
+	policy.metaServer.MetaAgent.SetPodFetcher(
+		constructPodFetcherCanonical([]string{containerInfo.PodName}))
+
+	policy.SetEssentials(types.ResourceEssentials{
+		EnableReclaim: true,
+	}, types.ControlEssentials{})
+
+	estimation, err := policy.estimateCPUUsage()
+	require.NoError(t, err)
+	require.InDelta(t, 2.5, estimation, 0.001,
+		"non-binding shared path should use metric-based estimation (2.0 * 1.25 ramp-up factor)")
 }

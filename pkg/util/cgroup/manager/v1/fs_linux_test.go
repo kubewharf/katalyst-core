@@ -20,11 +20,23 @@ limitations under the License.
 package v1
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
+	libcgroups "github.com/opencontainers/runc/libcontainer/cgroups"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
+
+func TestMain(m *testing.M) {
+	oldTestMode := libcgroups.TestMode
+	libcgroups.TestMode = true
+	code := m.Run()
+	libcgroups.TestMode = oldTestMode
+	os.Exit(code)
+}
 
 func TestNewManager(t *testing.T) {
 	t.Parallel()
@@ -46,6 +58,38 @@ func TestNewManager(t *testing.T) {
 				t.Errorf("NewManager() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_manager_GetHierarchicalNumaMemoryUsage(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	content := "total=6 N0=2 N1=4\nhierarchical_total=9 N0=3 N1=6\n"
+	if err := os.WriteFile(filepath.Join(dir, "memory.numa_stat"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write memory.numa_stat: %v", err)
+	}
+
+	got, err := NewManager().GetHierarchicalNumaMemoryUsage(dir, 4096)
+	if err != nil {
+		t.Fatalf("GetHierarchicalNumaMemoryUsage() error = %v", err)
+	}
+	want := map[int]uint64{0: 3 * 4096, 1: 6 * 4096}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetHierarchicalNumaMemoryUsage() = %v, want %v", got, want)
+	}
+}
+
+func Test_manager_GetHierarchicalNumaMemoryUsageRejectsMissingCounter(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "memory.numa_stat"), []byte("total=2 N0=2\n"), 0o644); err != nil {
+		t.Fatalf("write memory.numa_stat: %v", err)
+	}
+
+	if _, err := NewManager().GetHierarchicalNumaMemoryUsage(dir, 4096); err == nil {
+		t.Fatal("GetHierarchicalNumaMemoryUsage() expected error")
 	}
 }
 

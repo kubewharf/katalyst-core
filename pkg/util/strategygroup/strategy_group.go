@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
@@ -103,7 +104,21 @@ func GetSpecificStrategyParam(strategyName string, defaultEnable bool, conf *con
 	if err != nil {
 		return "", false, fmt.Errorf("invalid conf: %v", err)
 	}
+	return getSpecificStrategyParam(strategyName, defaultEnable, strategyGroup)
+}
 
+func GetSpecificStrategyParamWithDynamicConfiguration(strategyName string, defaultEnable bool,
+	dynamicConf *dynamic.Configuration,
+) (string, bool, error) {
+	if dynamicConf == nil || dynamicConf.StrategyGroupConfiguration == nil {
+		return "", false, fmt.Errorf("invalid dynamic configuration")
+	}
+	return getSpecificStrategyParam(strategyName, defaultEnable, dynamicConf.StrategyGroupConfiguration)
+}
+
+func getSpecificStrategyParam(strategyName string, defaultEnable bool,
+	strategyGroup *strategygroup.StrategyGroupConfiguration,
+) (string, bool, error) {
 	if !isStrategyGroupEnabled(strategyGroup, strategyName) {
 		return "", defaultEnable, nil
 	}
@@ -122,10 +137,27 @@ func StrategyPolicyOverrideForNode(strategyPolicyMap map[string]string, defaultP
 	if err != nil {
 		return defaultPolicy, fmt.Errorf("invalid conf: %v", err)
 	}
+	return strategyPolicyOverride(strategyPolicyMap, defaultPolicy, strategyGroup), nil
+}
 
+func StrategyPolicyOverrideForNodeWithDynamicConfiguration(strategyPolicyMap map[string]string, defaultPolicy string,
+	dynamicConf *dynamic.Configuration,
+) string {
+	if dynamicConf == nil {
+		return defaultPolicy
+	}
+	return strategyPolicyOverride(strategyPolicyMap, defaultPolicy, dynamicConf.StrategyGroupConfiguration)
+}
+
+func strategyPolicyOverride(strategyPolicyMap map[string]string, defaultPolicy string,
+	strategyGroup *strategygroup.StrategyGroupConfiguration,
+) string {
+	if strategyGroup == nil {
+		return defaultPolicy
+	}
 	for _, strategy := range strategyPolicyMap {
 		if !isStrategyGroupEnabled(strategyGroup, strategy) {
-			return defaultPolicy, nil
+			return defaultPolicy
 		}
 	}
 
@@ -136,11 +168,11 @@ func StrategyPolicyOverrideForNode(strategyPolicyMap map[string]string, defaultP
 
 		override, ok := strategyPolicyMap[*strategy.Name]
 		if ok {
-			return override, nil
+			return override
 		}
 	}
 
-	return defaultPolicy, nil
+	return defaultPolicy
 }
 
 func isStrategyGroupEnabled(strategyGroup *strategygroup.StrategyGroupConfiguration, strategyName string) bool {
