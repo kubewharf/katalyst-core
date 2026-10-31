@@ -36,10 +36,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+// cpuInfoPath, cpuSysDir and nodeSysDir are the host paths used to read CPU
+// flags and topology from sysfs. They are vars (not const) so that tests can
+// point them at an isolated fixture tree instead of the real host sysfs, which
+// makes the topology/flags tests deterministic and host-independent.
+var (
+	cpuInfoPath = "/proc/cpuinfo"
+	cpuSysDir   = "/sys/devices/system/cpu"
+	nodeSysDir  = "/sys/devices/system/node"
+)
+
 const (
-	cpuInfoPath  = "/proc/cpuinfo"
-	cpuSysDir    = "/sys/devices/system/cpu"
-	nodeSysDir   = "/sys/devices/system/node"
 	cpuStatFile  = "/proc/stat"
 	cpuArchAMD64 = "amd64"
 	cpuArchARM64 = "arm64"
