@@ -49,7 +49,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	resourcePackages, err := p.resourcePackageManager.NodeResourcePackages(context.Background())
 	if err != nil {
 		general.Errorf("failed to get node resource packages: %v", err)
-		_ = p.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
+		_ = p.emitter.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
 			metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		return
 	}
@@ -57,11 +57,12 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	pinnedCPUSetSize, err := resourcePackages.ListAllPinnedCPUSetSize()
 	if err != nil {
 		general.Errorf("failed to get all pinned cpuset size: %v", err)
-		_ = p.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
+		_ = p.emitter.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
 			metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		return
 	}
 
+	expectedRevision := p.state.GetRevision()
 	interruptAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameInterrupt, commonstate.FakedContainerName)
 
 	machineState := p.state.GetMachineState()
@@ -70,7 +71,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	newResourcePackageStateMap := make(map[int]map[string]*state.ResourcePackageState)
 	stateChanged := false
 
-	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+	for _, numaID := range p.machine.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
 		numaState := machineState[numaID]
 		if numaState == nil {
 			continue
@@ -79,7 +80,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 		newPinnedMap, changed, err := p.syncNumaResourcePackage(numaID, numaState, pinnedCPUSetSize, interruptAllocationInfo, resourcePackages)
 		if err != nil {
 			general.Errorf("failed to sync resource package for numa %d: %v", numaID, err)
-			_ = p.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
+			_ = p.emitter.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
 			return
@@ -102,7 +103,8 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 			}
 		}
 
-		err = p.adjustAllocationEntries(podEntries, machineState, true)
+		err = p.adjustAllocationEntriesAtRevision(
+			podEntries, machineState, true, expectedRevision)
 		if err != nil {
 			general.Errorf("adjustAllocationEntries failed: %v", err)
 			return
@@ -116,7 +118,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	for numaID, pkgs := range newResourcePackageStateMap {
 		for pkgName, rpState := range pkgs {
 			if rpState != nil {
-				_ = p.emitter.StoreInt64(util.MetricNameResourcePackagePinnedCPUSetSize, int64(rpState.PinnedCPUSet.Size()), metrics.MetricTypeNameRaw,
+				_ = p.emitter.emitter.StoreInt64(util.MetricNameResourcePackagePinnedCPUSetSize, int64(rpState.PinnedCPUSet.Size()), metrics.MetricTypeNameRaw,
 					metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 					metrics.MetricTag{Key: "package_name", Val: pkgName})
 			}
@@ -161,7 +163,7 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				}
 
 				// Ensure we only count CPUs on this NUMA node, handling cross-NUMA cases
-				dedicatedCPUs := allocationInfo.AllocationResult.Intersection(p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
+				dedicatedCPUs := allocationInfo.AllocationResult.Intersection(p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID))
 				mandatoryCPUsMap[pkgName] = mandatoryCPUsMap[pkgName].Union(dedicatedCPUs)
 			} else if allocationInfo.CheckSharedNUMABinding() {
 				sharedRequestsMap[pkgName] += allocationInfo.RequestQuantity
@@ -173,7 +175,7 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 		}
 	}
 
-	availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
+	availableCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.config.reservedCPUs)
 	// exclude interrupt cpuset from available cpuset
 	if interruptAllocationInfo != nil {
 		availableCPUs = availableCPUs.Difference(interruptAllocationInfo.AllocationResult)
@@ -236,10 +238,10 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				if currentPinned.Size() < targetSize {
 					delta := targetSize - currentPinned.Size()
 					candidates := availableForPkg.Difference(currentPinned)
-					newCPUs, err := calculator.TakeByTopology(p.machineInfo, candidates, delta, true)
+					newCPUs, err := calculator.TakeByTopology(p.machine.machineInfo, candidates, delta, true)
 					if err != nil {
 						general.Errorf("failed to expand pinned cpuset for pkg %s: %v", pkgName, err)
-						_ = p.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
+						_ = p.emitter.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
 							metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
 							metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 							metrics.MetricTag{Key: "package_name", Val: pkgName},
@@ -253,10 +255,10 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 					keepSize := targetSize - mandatoryCPUs.Size()
 
 					if keepSize > 0 {
-						kept, err := calculator.TakeByTopology(p.machineInfo, candidates, keepSize, true)
+						kept, err := calculator.TakeByTopology(p.machine.machineInfo, candidates, keepSize, true)
 						if err != nil {
 							general.Errorf("failed to shrink (select kept) for pkg %s: %v", pkgName, err)
-							_ = p.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
+							_ = p.emitter.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
 								metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
 								metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 								metrics.MetricTag{Key: "package_name", Val: pkgName},

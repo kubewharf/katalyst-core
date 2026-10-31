@@ -91,10 +91,14 @@ func (p *NativePolicy) clearResidualState() {
 			return
 		}
 
-		p.state.SetPodEntries(podEntries, false)
-		p.state.SetMachineState(updatedMachineState, false)
-		if err := p.state.StoreState(); err != nil {
-			general.ErrorS(err, "store state failed")
+		if err := p.state.CommitAdvisorState(
+			podEntries,
+			updatedMachineState,
+			p.state.GetAllowSharedCoresOverlapReclaimedCores(),
+			p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+			true,
+		); err != nil {
+			general.ErrorS(err, "commit residual state cleanup failed")
 		}
 	}
 }
