@@ -37,11 +37,27 @@ import (
 )
 
 const (
-	metricsNameHeadroomReportResult     = "headroom_report_result"
-	metricsNameHeadroomReportNUMAResult = "headroom_report_numa_result"
+	metricsNameHeadroomReportResult      = "headroom_report_result"
+	metricsNameHeadroomReportNUMAResult  = "headroom_report_numa_result"
+	metricHeadroomApportionRequested     = "headroom_apportion_requested"
+	metricHeadroomApportionEffective     = "headroom_apportion_effective"
+	metricHeadroomApportionAlignmentLoss = "headroom_apportion_alignment_loss"
 )
 
 type GetGenericReclaimOptionsFunc func() GenericReclaimOptions
+
+type NUMAResultApportioner func(
+	target resource.Quantity,
+	current map[int]resource.Quantity,
+) (resource.Quantity, map[int]resource.Quantity, error)
+
+type GenericHeadroomManagerOption func(*GenericHeadroomManager)
+
+func WithNUMAResultApportioner(apportioner NUMAResultApportioner) GenericHeadroomManagerOption {
+	return func(manager *GenericHeadroomManager) {
+		manager.numaResultApportioner = apportioner
+	}
+}
 
 type GenericReclaimOptions struct {
 	// EnableReclaim whether enable reclaim resource
@@ -66,7 +82,7 @@ type GenericSlidingWindowOptions struct {
 type GenericHeadroomManager struct {
 	sync.RWMutex
 	lastReportResult *resource.Quantity
-	// the latest transformed reporter result per numa
+	// the latest reporter result per numa before external unit transformation
 	lastNUMAReportResult map[int]resource.Quantity
 
 	metaServer              *metaserver.MetaServer
@@ -82,6 +98,7 @@ type GenericHeadroomManager struct {
 	resourceName            v1.ResourceName
 	syncPeriod              time.Duration
 	getReclaimOptions       GetGenericReclaimOptionsFunc
+	numaResultApportioner   NUMAResultApportioner
 }
 
 func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliValue bool,
@@ -90,6 +107,7 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 	getReclaimOptions GetGenericReclaimOptionsFunc,
 	metaServer *metaserver.MetaServer,
 	metaCache metacache.MetaCache,
+	opts ...GenericHeadroomManagerOption,
 ) *GenericHeadroomManager {
 	// Sliding window size and ttl are calculated by SlidingWindowTime and syncPeriod,
 	// the valid lifetime of all samples is twice the duration of the sliding window.
@@ -100,10 +118,10 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		if reportMilliValue {
 			return *resource.NewQuantity(quantity.MilliValue(), quantity.Format)
 		}
-		return quantity
+		return quantity.DeepCopy()
 	}
 
-	return &GenericHeadroomManager{
+	manager := &GenericHeadroomManager{
 		resourceName:            name,
 		lastNUMAReportResult:    make(map[int]resource.Quantity),
 		reportResultTransformer: reportResultTransformer,
@@ -126,6 +144,10 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		metaServer:              metaServer,
 		metaCache:               metaCache,
 	}
+	for _, opt := range opts {
+		opt(manager)
+	}
+	return manager
 }
 
 func (m *GenericHeadroomManager) Name() v1.ResourceName {
@@ -169,14 +191,18 @@ func (m *GenericHeadroomManager) getLastNUMAReportResult() (map[int]resource.Qua
 	if len(m.lastNUMAReportResult) == 0 {
 		return nil, fmt.Errorf("resource %s last numa report value not found", m.resourceName)
 	}
-	return m.lastNUMAReportResult, nil
+	result := make(map[int]resource.Quantity, len(m.lastNUMAReportResult))
+	for numaID, quantity := range m.lastNUMAReportResult {
+		result[numaID] = m.reportResultTransformer(quantity).DeepCopy()
+	}
+	return result, nil
 }
 
 func (m *GenericHeadroomManager) getLastReportResult() (resource.Quantity, error) {
 	if m.lastReportResult == nil {
 		return resource.Quantity{}, fmt.Errorf("resource %s last report value not found", m.resourceName)
 	}
-	return m.reportResultTransformer(*m.lastReportResult), nil
+	return m.reportResultTransformer(*m.lastReportResult).DeepCopy(), nil
 }
 
 func (m *GenericHeadroomManager) setLastReportResult(q resource.Quantity) {
@@ -265,28 +291,117 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		"reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
 		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
-	m.setLastReportResult(*reportResult)
-	headroomInfo := &types.HeadroomInfo{
-		TotalHeadroom: float64(m.lastReportResult.MilliValue()) / 1000,
-		NUMAHeadroom:  map[int]float64{},
+	allocations := make(map[int]resource.Quantity, len(reportNUMAResult))
+	var apportionRequested *resource.Quantity
+	if m.numaResultApportioner != nil {
+		validationBaseline := make(map[int]resource.Quantity, len(reportNUMAResult))
+		for numaID, result := range reportNUMAResult {
+			validationBaseline[numaID] = result.DeepCopy()
+		}
+		strategyInput := make(map[int]resource.Quantity, len(validationBaseline))
+		for numaID, limit := range validationBaseline {
+			strategyInput[numaID] = limit.DeepCopy()
+		}
+
+		requested := reportResult.DeepCopy()
+		apportionRequested = &requested
+		effective, apportioned, apportionErr := m.numaResultApportioner(requested.DeepCopy(), strategyInput)
+		if apportionErr != nil {
+			klog.Errorf("apportion numa result failed: %v", apportionErr)
+			return
+		}
+		if err := validateNUMAResult(requested, validationBaseline, effective, apportioned); err != nil {
+			klog.Errorf("validate apportioned numa result failed: %v", err)
+			return
+		}
+		effective = effective.DeepCopy()
+		reportResult = &effective
+		for numaID, allocation := range apportioned {
+			allocations[numaID] = allocation.DeepCopy()
+		}
+	} else {
+		diffRatio := float64(reportResult.Value()) / numaSum
+		for numaID, result := range reportNUMAResult {
+			if result.Value() != 0 {
+				result.Set(int64(float64(result.Value()) * diffRatio))
+			}
+			allocations[numaID] = result.DeepCopy()
+		}
 	}
 
-	// set latest numa report result
-	diffRatio := float64(reportResult.Value()) / numaSum
-	for numaID, res := range reportNUMAResult {
-		if res.Value() != 0 {
-			res.Set(int64(float64(res.Value()) * diffRatio))
-		}
-		result := m.reportResultTransformer(*res)
-		m.lastNUMAReportResult[numaID] = result
-		headroomInfo.NUMAHeadroom[numaID] = float64(res.MilliValue()) / 1000
-		m.emitNUMAResourceToMetric(numaID, metricsNameHeadroomReportNUMAResult, result)
-		klog.Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
+	headroomInfo := &types.HeadroomInfo{
+		TotalHeadroom: float64(reportResult.MilliValue()) / 1000,
+		NUMAHeadroom:  make(map[int]float64, len(allocations)),
 	}
-	err = m.metaCache.SetHeadroomEntries(string(m.resourceName), headroomInfo)
-	if err != nil {
+	for numaID, quantity := range allocations {
+		headroomInfo.NUMAHeadroom[numaID] = float64(quantity.MilliValue()) / 1000
+	}
+
+	if err = m.metaCache.SetHeadroomEntries(string(m.resourceName), headroomInfo); err != nil {
 		klog.Errorf("set headroom entries failed: %v", err)
+		return
 	}
+
+	if apportionRequested != nil {
+		m.emitCPUApportionMetrics(*apportionRequested, *reportResult)
+	}
+	m.setLastReportResult(*reportResult)
+	m.lastNUMAReportResult = allocations
+	for numaID, quantity := range allocations {
+		result := m.reportResultTransformer(quantity)
+		m.emitNUMAResourceToMetric(numaID, metricsNameHeadroomReportNUMAResult, result)
+		klog.V(4).Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
+	}
+}
+
+func validateNUMAResult(
+	requested resource.Quantity,
+	current map[int]resource.Quantity,
+	effective resource.Quantity,
+	allocations map[int]resource.Quantity,
+) error {
+	zero := resource.Quantity{}
+	if effective.Cmp(zero) < 0 {
+		return fmt.Errorf("effective target %s is negative", effective.String())
+	}
+	if effective.Cmp(requested) > 0 {
+		return fmt.Errorf("effective target %s exceeds requested target %s", effective.String(), requested.String())
+	}
+	if len(allocations) != len(current) {
+		return fmt.Errorf("numa allocation keys do not match current keys")
+	}
+
+	sum := resource.Quantity{}
+	for numaID, limit := range current {
+		allocation, ok := allocations[numaID]
+		if !ok {
+			return fmt.Errorf("numa allocation is missing key %d", numaID)
+		}
+		if allocation.Cmp(zero) < 0 {
+			return fmt.Errorf("numa %d allocation %s is negative", numaID, allocation.String())
+		}
+		if allocation.Cmp(limit) > 0 {
+			return fmt.Errorf("numa %d allocation %s exceeds current limit %s",
+				numaID, allocation.String(), limit.String())
+		}
+		sum.Add(allocation)
+	}
+	if sum.Cmp(effective) != 0 {
+		return fmt.Errorf("numa allocation sum %s does not equal effective target %s", sum.String(), effective.String())
+	}
+	return nil
+}
+
+func (m *GenericHeadroomManager) emitCPUApportionMetrics(requested, effective resource.Quantity) {
+	tags := []metrics.MetricTag{
+		{Key: "component", Val: "reporter"},
+		{Key: "resource", Val: "cpu"},
+	}
+	requestedCPU := requested.MilliValue() / 1000
+	effectiveCPU := effective.MilliValue() / 1000
+	_ = m.emitter.StoreInt64(metricHeadroomApportionRequested, requestedCPU, metrics.MetricTypeNameRaw, tags...)
+	_ = m.emitter.StoreInt64(metricHeadroomApportionEffective, effectiveCPU, metrics.MetricTypeNameRaw, tags...)
+	_ = m.emitter.StoreInt64(metricHeadroomApportionAlignmentLoss, requestedCPU-effectiveCPU, metrics.MetricTypeNameRaw, tags...)
 }
 
 func (m *GenericHeadroomManager) emitResourceToMetric(metricsName string, value resource.Quantity) {

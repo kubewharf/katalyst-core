@@ -188,7 +188,7 @@ func TestInSpecialTime(t *testing.T) {
 		curTT := tt
 		t.Run(curTT.name, func(t *testing.T) {
 			t.Parallel()
-			gotOffset, gotResult := InSpecialTime(curTT.specialTime)
+			gotOffset, gotResult := InSpecialTime(curTT.specialTime, now)
 			if !reflect.DeepEqual(gotOffset, curTT.wantOffset) {
 				t.Errorf("InSpecialTime() gotOffset = %v, want %v", gotOffset, curTT.wantOffset)
 			}
@@ -506,7 +506,7 @@ func TestMatchSpecialTimes(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, got1 := MatchSpecialTimes(tt.args.clusterSpecialTimeStrategy, tt.args.indicator)
+			got, got1 := MatchSpecialTimes(tt.args.clusterSpecialTimeStrategy, tt.args.indicator, time.Now())
 			if got != tt.want {
 				t.Errorf("MatchSpecialTimes() got = %v, want %v", got, tt.want)
 			}
