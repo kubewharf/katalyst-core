@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -1489,8 +1490,16 @@ func TestNewCheckpointState(t *testing.T) {
 
 		// prepare checkpoint for testing
 		if strings.TrimSpace(tc.checkpointContent) != "" {
-			checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
-			require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+			if strings.TrimSpace(tc.expectedError) != "" {
+				// error cases: write raw bytes so read path fails
+				checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
+				require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+			} else {
+				// valid case: unmarshal into a real checkpoint so MarshalCheckpoint computes a valid checksum
+				cp := NewCPUPluginCheckpoint()
+				require.NoError(t, json.Unmarshal([]byte(tc.checkpointContent), cp), "could not unmarshal test checkpoint content")
+				require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, cp), "could not create testing checkpoint")
+			}
 		}
 
 		restoredState, err := NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName, policyName, cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})

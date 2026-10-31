@@ -33,11 +33,14 @@ type cpuPluginState struct {
 
 	cpuTopology *machine.CPUTopology
 
-	podEntries                            PodEntries
-	machineState                          NUMANodeMap
-	numaHeadroom                          map[int]float64
-	allowSharedCoresOverlapReclaimedCores bool
-	socketTopology                        map[int]string
+	podEntries                                 PodEntries
+	machineState                               NUMANodeMap
+	numaHeadroom                               map[int]float64
+	allowSharedCoresOverlapReclaimedCores      bool
+	disableDedicatedCoresOverlapReclaimedCores bool
+	revision                                   uint64
+	writeGate                                  WriteGate
+	socketTopology                             map[int]string
 }
 
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
@@ -97,7 +100,42 @@ func (s *cpuPluginState) GetPodEntries() PodEntries {
 	return s.podEntries.Clone()
 }
 
-func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
+func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.allowSharedCoresOverlapReclaimedCores
+}
+
+func (s *cpuPluginState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.disableDedicatedCoresOverlapReclaimedCores
+}
+
+func (s *cpuPluginState) GetRevision() uint64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.revision
+}
+
+func (s *cpuPluginState) GetAdvisorStateSnapshot() (PodEntries, NUMANodeMap, uint64) {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.podEntries.Clone(), s.machineState.Clone(), s.revision
+}
+
+func (s *cpuPluginState) SetWritePermit(gate WriteGate) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.writeGate = gate
+}
+
+func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -105,17 +143,19 @@ func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
 	}
+	return nil
 }
 
-func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
+func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) error {
 	s.Lock()
 	defer s.Unlock()
 
 	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
 	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
+	return nil
 }
 
-func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
+func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -128,9 +168,10 @@ func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, 
 		"podUID", podUID,
 		"containerName", containerName,
 		"allocationInfo", allocationInfo.String())
+	return nil
 }
 
-func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
+func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -139,9 +180,10 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
 			"podEntries", podEntries.String())
 	}
+	return nil
 }
 
-func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) {
+func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -149,21 +191,50 @@ func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCor
 		"allowSharedCoresOverlapReclaimedCores", allowSharedCoresOverlapReclaimedCores)
 
 	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
+	return nil
 }
 
-func (s *cpuPluginState) GetAllowSharedCoresOverlapReclaimedCores() bool {
-	s.RLock()
-	defer s.RUnlock()
+func (s *cpuPluginState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores bool) error {
+	s.Lock()
+	defer s.Unlock()
 
-	return s.allowSharedCoresOverlapReclaimedCores
+	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
+	return nil
 }
 
-func (s *cpuPluginState) Delete(podUID string, containerName string) {
+func (s *cpuPluginState) CommitAdvisorState(podEntries PodEntries, machineState NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*WritePermit) error {
+	s.Lock()
+	defer s.Unlock()
+
+	s.podEntries = podEntries.Clone()
+	s.machineState = machineState.Clone()
+	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
+	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
+	s.revision++
+	return nil
+}
+
+func (s *cpuPluginState) CommitAdvisorStateIfRevision(expectedRevision uint64, podEntries PodEntries, machineState NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*WritePermit) error {
+	s.Lock()
+	defer s.Unlock()
+
+	if expectedRevision != s.revision {
+		return ErrStaleStateRevision
+	}
+	s.podEntries = podEntries.Clone()
+	s.machineState = machineState.Clone()
+	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
+	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
+	s.revision++
+	return nil
+}
+
+func (s *cpuPluginState) Delete(podUID string, containerName string) error {
 	s.Lock()
 	defer s.Unlock()
 
 	if _, ok := s.podEntries[podUID]; !ok {
-		return
+		return nil
 	}
 
 	delete(s.podEntries[podUID], containerName)
@@ -173,9 +244,10 @@ func (s *cpuPluginState) Delete(podUID string, containerName string) {
 	klog.V(2).InfoS("[cpu_plugin] deleted container entry",
 		"podUID", podUID,
 		"containerName", containerName)
+	return nil
 }
 
-func (s *cpuPluginState) ClearState() {
+func (s *cpuPluginState) ClearState() error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -183,4 +255,5 @@ func (s *cpuPluginState) ClearState() {
 	s.socketTopology = s.cpuTopology.GetSocketTopology()
 	s.podEntries = make(PodEntries)
 	klog.V(2).InfoS("[cpu_plugin] cleared state")
+	return nil
 }
