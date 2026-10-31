@@ -574,7 +574,8 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 				ContainerType: v1alpha1.ContainerType_MAIN,
 			})
 			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
-			strategyName, strategy, err := getEnabledBorweinStrategy(tt.args.conf)
+			strategyName, strategy, err := getEnabledBorweinStrategy(
+				tt.args.conf, tt.args.conf.GetDynamicConfiguration())
 			require.NoError(t, err)
 			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
 				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy, clock)
@@ -754,7 +755,8 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 			}
 			inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
 			mc.SetInferenceResult(inferenceResultKey, tt.fields.inferenceResults)
-			strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+			strategyName, strategy, err := getEnabledBorweinStrategy(
+				bc.conf, bc.conf.GetDynamicConfiguration())
 			require.NoError(t, err)
 			bc.updateIndicatorOffsets(tt.args.podSet, strategyName, strategy)
 		})
@@ -1008,7 +1010,8 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				metaReader:              mc,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
 			}
-			strategyName, _, err := getEnabledBorweinStrategy(bc.conf)
+			strategyName, _, err := getEnabledBorweinStrategy(
+				bc.conf, bc.conf.GetDynamicConfiguration())
 			require.NoError(t, err)
 			if got := bc.getUpdatedIndicators(tt.args.indicators, strategyName); !checkIndicatorEqual(got, tt.want) {
 				t.Errorf("BorweinController.getUpdatedIndicators() = %v, want %v", got, tt.want)
@@ -1184,11 +1187,28 @@ func TestBorweinController_GetUpdatedIndicators(t *testing.T) {
 				metaReader:              tt.fields.metaReader,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
 			}
-			if got := bc.GetUpdatedIndicators(tt.args.indicators, tt.fields.podSet); !reflect.DeepEqual(got, tt.want) {
+			if got := bc.GetUpdatedIndicators(
+				tt.args.indicators,
+				tt.fields.podSet,
+				tt.fields.conf.GetDynamicConfiguration(),
+			); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("BorweinController.getUpdatedIndicators() = %v, want %v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestGetEnabledBorweinStrategyUsesProvidedDynamicConfiguration(t *testing.T) {
+	t.Parallel()
+
+	conf := initConf(t, t.TempDir(), t.TempDir())
+	roundDynamicConf := conf.GetDynamicConfiguration()
+	conf.SetDynamicConfiguration(dynamic.NewConfiguration())
+
+	strategyName, strategy, err := getEnabledBorweinStrategy(conf, roundDynamicConf)
+	require.NoError(t, err)
+	require.Equal(t, consts.StrategyNameBorweinV2, strategyName)
+	require.NotNil(t, strategy)
 }
 
 func TestBorweinController_ResetIndicatorOffsets(t *testing.T) {

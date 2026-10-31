@@ -54,21 +54,29 @@ func (m *MockState) GetMachineState() state.NUMANodeMap {
 // Implement other required methods with empty implementations
 func (m *MockState) GetNUMAHeadroom() map[int]float64 { return nil }
 func (m *MockState) GetPodEntries() state.PodEntries  { return nil }
+func (m *MockState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	return m.GetPodEntries(), m.GetMachineState().Clone(), m.GetRevision()
+}
+
 func (m *MockState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	return nil
 }
-func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool      { return false }
-func (m *MockState) GetDisableDedicatedCoresOverlapReclaimedCores() bool { return false }
-func (m *MockState) GetRevision() uint64                                 { return 0 }
-func (m *MockState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
-	return nil, nil, 0
+func (m *MockState) GetAllowSharedCoresOverlapReclaimedCores() bool                { return false }
+func (m *MockState) GetDisableDedicatedCoresOverlapReclaimedCores() bool           { return false }
+func (m *MockState) GetRevision() uint64                                           { return 0 }
+func (m *MockState) SetWritePermit(state.WriteGate)                                {}
+func (m *MockState) SetDisableDedicatedCoresOverlapReclaimedCores(_, _ bool) error { return nil }
+func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool) error {
+	return nil
 }
-func (m *MockState) SetWritePermit(gate state.WriteGate)                               {}
-func (m *MockState) SetMachineState(numaNodeMap state.NUMANodeMap, persist bool) error { return nil }
 
-func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool) error { return nil }
+func (m *MockState) SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool) error {
+	return nil
+}
 
-func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) error { return nil }
+func (m *MockState) SetPodEntries(podEntries state.PodEntries, writeThrough bool) error {
+	return nil
+}
 
 func (m *MockState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, persist bool) error {
 	return nil
@@ -78,20 +86,32 @@ func (m *MockState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOve
 	return nil
 }
 
-func (m *MockState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool) error {
+func (m *MockState) CommitAdvisorState(
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
+	_ ...*state.WritePermit,
+) error {
 	return nil
 }
 
-func (m *MockState) CommitAdvisorState(podEntries state.PodEntries, machineState state.NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*state.WritePermit) error {
-	return nil
+func (m *MockState) CommitAdvisorStateIfRevision(
+	_ uint64,
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
+	permits ...*state.WritePermit,
+) error {
+	return m.CommitAdvisorState(
+		podEntries, machineState, allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores, persist, permits...)
 }
 
-func (m *MockState) CommitAdvisorStateIfRevision(expectedRevision uint64, podEntries state.PodEntries, machineState state.NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*state.WritePermit) error {
+func (m *MockState) Delete(podUID string, containerName string, persist bool) error {
 	return nil
 }
-func (m *MockState) Delete(podUID string, containerName string, persist bool) error { return nil }
-func (m *MockState) ClearState() error                                              { return nil }
-func (m *MockState) StoreState() error                                              { return nil }
+func (m *MockState) ClearState() error { return nil }
+func (m *MockState) StoreState() error { return nil }
 
 type resourcePackageManagerStub struct {
 	nodeResourcePackagesMap pkgutil.NUMAResourcePackageItems

@@ -54,7 +54,7 @@ func (p *PodFetcherStub) GetPod(_ context.Context, podUID string) (*v1.Pod, erro
 			return pod, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to find pod by uid %v", podUID)
+	return nil, NewPodNotFoundError(podUID)
 }
 
 func (p *PodFetcherStub) Run(_ context.Context) {}

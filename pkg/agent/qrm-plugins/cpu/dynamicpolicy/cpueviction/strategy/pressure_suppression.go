@@ -40,15 +40,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
 
 type CPUPressureSuppression struct {
-	conf                                         *config.Configuration
-	state                                        state.ReadonlyState
-	metaServer                                   *metaserver.MetaServer
-	nonNUMABindingReclaimRelativeRootCgroupPaths map[int]string
+	conf       *config.Configuration
+	state      state.ReadonlyState
+	metaServer *metaserver.MetaServer
+
+	reclaimRelativeRootCgroupPaths            []string
+	numaBindingReclaimRelativeRootCgroupPaths map[int][]string
+	existingRelativeCgroupPaths               func(...string) []string
 
 	lastToleranceTime sync.Map
 }
@@ -57,11 +61,12 @@ func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *meta
 	conf *config.Configuration, state state.ReadonlyState,
 ) (CPUPressureEviction, error) {
 	return &CPUPressureSuppression{
-		conf:       conf,
-		state:      state,
-		metaServer: metaServer,
-		nonNUMABindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		conf:                           conf,
+		state:                          state,
+		metaServer:                     metaServer,
+		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
+		existingRelativeCgroupPaths:               common.GetExistingRelativeCgroupPaths,
 	}, nil
 }
 
@@ -147,8 +152,16 @@ func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, fi
 		nonActualNUMABindingCPUSet = nonActualNUMABindingCPUSet.Union(poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID)))
 	}
 
-	// get reclaim metrics
-	reclaimMetrics, err := helper.GetReclaimMetrics(nonActualNUMABindingCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+	// get reclaim metrics aggregated across every registered reclaim consumer's cgroup subtree
+	existingPaths := p.existingRelativeCgroupPaths(p.reclaimRelativeRootCgroupPaths...)
+	// skip when none of the reclaim cgroup paths exist, consistent with the
+	// numa-binding branch and syncCPUIdle
+	if len(existingPaths) == 0 {
+		return nil, nil
+	}
+	overlapReclaim := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	reclaimMetrics, err := helper.GetReclaimMetricsMulti(nonActualNUMABindingCPUSet,
+		existingPaths, p.metaServer.MetricsFetcher, overlapReclaim)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 	}
@@ -171,16 +184,21 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 	evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
 ) ([]*v1alpha1.EvictPod, error) {
 	var evictPods []*v1alpha1.EvictPod
-	for numaID, reclaimRelativeRootCgroupPath := range p.nonNUMABindingReclaimRelativeRootCgroupPaths {
-		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, reclaimRelativeRootCgroupPath)) {
+	machineState := p.state.GetMachineState()
+	allowSharedOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
+	for numaID, reclaimPaths := range p.numaBindingReclaimRelativeRootCgroupPaths {
+		existingPaths := p.existingRelativeCgroupPaths(reclaimPaths...)
+		if len(existingPaths) == 0 {
 			continue
 		}
 
 		actualNUMABindingCPUSet := poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID))
 
-		// get reclaim metrics
-		reclaimMetrics, err := helper.GetReclaimMetrics(actualNUMABindingCPUSet,
-			reclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+		// get reclaim metrics aggregated across every registered reclaim consumer for this NUMA
+		overlapReclaim := p.resolveActualNUMABindingOverlapReclaim(numaID, machineState, allowSharedOverlap, disableDedicatedOverlap)
+		reclaimMetrics, err := helper.GetReclaimMetricsMulti(actualNUMABindingCPUSet,
+			existingPaths, p.metaServer.MetricsFetcher, overlapReclaim)
 		if err != nil {
 			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 		}
@@ -205,6 +223,16 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 	}
 
 	return evictPods, nil
+}
+
+func (p *CPUPressureSuppression) resolveActualNUMABindingOverlapReclaim(numaID int, machineState state.NUMANodeMap,
+	allowSharedOverlap, disableDedicatedOverlap bool,
+) bool {
+	if numaState := machineState[numaID]; numaState != nil &&
+		numaState.ExistMatchedAllocationInfo(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated)) {
+		return !disableDedicatedOverlap
+	}
+	return allowSharedOverlap
 }
 
 func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filteredPods []*v1.Pod,

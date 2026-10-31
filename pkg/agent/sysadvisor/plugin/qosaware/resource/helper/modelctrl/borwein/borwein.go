@@ -28,6 +28,7 @@ import (
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -302,8 +303,10 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator, st
 	return finalIndicators
 }
 
-func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
-	strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet,
+	dynamicConf *dynamic.Configuration,
+) types.Indicator {
+	strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf, dynamicConf)
 	if err != nil {
 		general.Errorf("get enabled borwein strategy failed with error: %v", err)
 		return indicators
@@ -321,15 +324,15 @@ func (bc *BorweinController) ResetIndicatorOffsets() {
 	}
 }
 
-func getEnabledBorweinStrategy(conf *config.Configuration) (string, *latencyregression.BorweinStrategy, error) {
-	strategy, err := fetchBorweinStrategy(conf, consts.StrategyNameBorweinV3, conf.EnableBorweinV3)
+func getEnabledBorweinStrategy(conf *config.Configuration, dynamicConf *dynamic.Configuration) (string, *latencyregression.BorweinStrategy, error) {
+	strategy, err := fetchBorweinStrategy(dynamicConf, consts.StrategyNameBorweinV3, conf.EnableBorweinV3)
 	if err == nil {
 		return consts.StrategyNameBorweinV3, strategy, nil
 	} else {
 		general.Warningf("%v strategy is not enabled %v", consts.StrategyNameBorweinV3, err)
 	}
 
-	strategy, err = fetchBorweinStrategy(conf, consts.StrategyNameBorweinV2, conf.EnableBorweinV2)
+	strategy, err = fetchBorweinStrategy(dynamicConf, consts.StrategyNameBorweinV2, conf.EnableBorweinV2)
 	if err == nil {
 		return consts.StrategyNameBorweinV2, strategy, nil
 	} else {
@@ -339,9 +342,10 @@ func getEnabledBorweinStrategy(conf *config.Configuration) (string, *latencyregr
 	return consts.StrategyNameNone, nil, fmt.Errorf("neither %v nor %v strategy is enabled", consts.StrategyNameBorweinV2, consts.StrategyNameBorweinV3)
 }
 
-func fetchBorweinStrategy(conf *config.Configuration, strategyName string, defaultEnable bool) (*latencyregression.BorweinStrategy, error) {
+func fetchBorweinStrategy(dynamicConf *dynamic.Configuration, strategyName string, defaultEnable bool) (*latencyregression.BorweinStrategy, error) {
 	// get strategy
-	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, defaultEnable, conf)
+	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParamWithDynamicConfiguration(
+		strategyName, defaultEnable, dynamicConf)
 	if err != nil {
 		return nil, fmt.Errorf("get %v grep param error: %v", strategyName, err)
 	}
