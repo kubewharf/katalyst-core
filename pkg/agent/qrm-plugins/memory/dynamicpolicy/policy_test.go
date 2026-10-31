@@ -81,6 +81,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 const (
@@ -389,6 +390,64 @@ func TestClearResidualState(t *testing.T) {
 		},
 	}
 	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+}
+
+func TestClearResidualStateTreatsFailedPodAsResidual(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestClearResidualStateTreatsFailedPodAsResidual")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo := &info.MachineInfo{}
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	const podUID = "failed-pod-uid"
+	dynamicPolicy.state.SetPodResourceEntries(state.PodResourceEntries{
+		v1.ResourceMemory: state.PodEntries{
+			podUID: state.ContainerEntries{
+				"main": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:        podUID,
+						PodNamespace:  "default",
+						PodName:       "failed-pod",
+						ContainerName: "main",
+						QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					},
+					AggregatedQuantity:   256 * 1024 * 1024,
+					NumaAllocationResult: machine.NewCPUSet(0),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 256 * 1024 * 1024,
+					},
+				},
+			},
+		},
+	}, true)
+	dynamicPolicy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{PodList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       types.UID(podUID),
+						Name:      "failed-pod",
+						Namespace: "default",
+					},
+					Status: v1.PodStatus{Phase: v1.PodFailed},
+				},
+			}},
+		},
+	}
+
+	dynamicPolicy.clearResidualState(nil, nil, nil, nil, nil)
+
+	as.Equal(int64(1), dynamicPolicy.residualHitMap[podUID])
 }
 
 func TestSetMemoryMigrate(t *testing.T) {
@@ -2659,6 +2718,163 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 	}, resp)
 }
 
+func TestAddReclaimedMemoryAllocatable(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestAddReclaimedMemoryAllocatable")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	numaNodes := dynamicPolicy.topology.CPUDetails.NUMANodes().ToSliceInt()
+
+	dynamicPolicy.state.SetNUMAHeadroom(map[int]int64{
+		0: 1000,
+		1: 2000,
+		2: 3000,
+		3: 4000,
+	}, false)
+
+	// Register multiple consumers so GetReclaimedPercentage returns each
+	// consumer's own percentage; the single-consumer force-100 rule only
+	// applies when exactly one consumer is registered in the whole registry.
+	reclaim.UnregisterConsumer("kcnr-a")
+	reclaim.UnregisterConsumer("kcnr-b")
+	reclaim.UnregisterConsumer("kcnr-c")
+	dynamicPolicy.dynamicConf.GetDynamicConfiguration().ReclaimedPercentageByConsumer = map[string]int{
+		"kcnr-a": 50,
+		"kcnr-b": 30,
+		"kcnr-c": 20,
+	}
+	reg := func(name string) {
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, config.NewConfiguration(), nil))
+	}
+	reg("kcnr-a")
+	reg("kcnr-b")
+	reg("kcnr-c")
+	t.Cleanup(func() {
+		reclaim.UnregisterConsumer("kcnr-a")
+		reclaim.UnregisterConsumer("kcnr-b")
+		reclaim.UnregisterConsumer("kcnr-c")
+	})
+
+	memKey := string(consts.ReclaimedResourceMemory)
+
+	newResource := func(pct float64) *pluginapi.AllocatableTopologyAwareResource {
+		list := []*pluginapi.TopologyAwareQuantity{
+			{ResourceValue: 1000 * pct / 100, Node: 0},
+			{ResourceValue: 2000 * pct / 100, Node: 1},
+			{ResourceValue: 3000 * pct / 100, Node: 2},
+			{ResourceValue: 4000 * pct / 100, Node: 3},
+		}
+		return &pluginapi.AllocatableTopologyAwareResource{
+			IsNodeResource:                       false,
+			IsScalarResource:                     true,
+			AggregatedAllocatableQuantity:        10000 * pct / 100,
+			TopologyAwareAllocatableQuantityList: list,
+			AggregatedCapacityQuantity:           10000 * pct / 100,
+			TopologyAwareCapacityQuantityList:    list,
+		}
+	}
+
+	testCases := []struct {
+		name      string
+		consumers []string
+		expected  *pluginapi.AllocatableTopologyAwareResource // nil means no entry is added
+	}{
+		{
+			name:      "empty config adds no entry",
+			consumers: nil,
+			expected:  nil,
+		},
+		{
+			name:      "single configured consumer",
+			consumers: []string{"kcnr-a"},
+			expected:  newResource(50),
+		},
+		{
+			name:      "multiple configured consumers are summed",
+			consumers: []string{"kcnr-a", "kcnr-b"},
+			expected:  newResource(80),
+		},
+		{
+			name:      "summed percentage at 100",
+			consumers: []string{"kcnr-a", "kcnr-b", "kcnr-c"},
+			expected:  newResource(100),
+		},
+		{
+			name:      "unknown consumer contributes zero",
+			consumers: []string{"kcnr-a", "does-not-exist"},
+			expected:  newResource(50),
+		},
+	}
+
+	dynamicPolicy.enableReclaimedResourceAllocatableReporting = true
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			as := require.New(t)
+
+			allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
+			dynamicPolicy.addReclaimedMemoryAllocatable(allocatableResources, numaNodes, tc.consumers)
+
+			if tc.expected == nil {
+				_, ok := allocatableResources[memKey]
+				as.False(ok, "expected no ReclaimedResourceMemory entry when config is empty")
+				return
+			}
+			as.Equal(tc.expected, allocatableResources[memKey])
+		})
+	}
+
+	// Aggregated headroom must be summed only over the topology NUMAs the caller
+	// passed in. A headroom entry for an off-topology NUMA (e.g. an NUMA that is
+	// present in the headroom state but not in the node's CPU topology) must
+	// neither appear in the topology list nor inflate the scalar aggregate.
+	previousHeadroom := map[int]int64{0: 1000, 1: 2000, 2: 3000, 3: 4000, 4: 10000}
+	dynamicPolicy.state.SetNUMAHeadroom(previousHeadroom, false)
+	offTopologyResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
+	dynamicPolicy.addReclaimedMemoryAllocatable(offTopologyResources, numaNodes, []string{"kcnr-a"})
+	offRes := offTopologyResources[memKey]
+	as.NotNil(offRes)
+	// kcnr-a is configured at 50%: 1000/2000/3000/4000 scale to
+	// 500/1000/1500/2000. NUMA 4 (headroom 10000 -> 5000) is outside numaNodes
+	// and must be excluded.
+	as.Equal(float64(5000), offRes.AggregatedAllocatableQuantity,
+		"aggregate must not fold in off-topology NUMA headroom")
+	topologyNodes := make([]int, 0, len(offRes.TopologyAwareAllocatableQuantityList))
+	for _, q := range offRes.TopologyAwareAllocatableQuantityList {
+		topologyNodes = append(topologyNodes, int(q.Node))
+	}
+	as.ElementsMatch(numaNodes, topologyNodes, "topology list must only contain topology NUMA ids")
+
+	// end-to-end: the ReclaimedResourceMemory entry is present in the full
+	// response when ReclaimConsumersForKCNR is configured.
+	dynamicPolicy.reclaimConsumersForKCNR = []string{"kcnr-a"}
+	dynamicPolicy.enableReclaimedResourceAllocatableReporting = false
+	resp, err := dynamicPolicy.GetTopologyAwareAllocatableResources(context.Background(),
+		&pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	as.Nil(err)
+	_, found := resp.AllocatableResources[memKey]
+	as.False(found)
+
+	dynamicPolicy.enableReclaimedResourceAllocatableReporting = true
+	resp, err = dynamicPolicy.GetTopologyAwareAllocatableResources(context.Background(),
+		&pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+	as.Nil(err)
+	as.Equal(newResource(50), resp.AllocatableResources[memKey])
+}
+
 func TestGetTopologyAwareResources(t *testing.T) {
 	t.Parallel()
 
@@ -3355,10 +3571,13 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 func TestHandleAdvisorResp(t *testing.T) {
 	t.Parallel()
 
+	// Set klog verbosity on a local FlagSet. Do NOT call klog.InitFlags(nil)
+	// in a defer: that re-registers klog's flags on the global flag.CommandLine
+	// and panics with "flag redefined: add_dir_header" on the second test run
+	// (count=2 or parallel subtests). The local flagSet already applies --v=6.
 	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
 	klog.InitFlags(flagSet)
 	_ = flagSet.Parse([]string{"--v", "6"})
-	defer klog.InitFlags(nil)
 
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -4354,6 +4573,7 @@ func TestNewAndStartDynamicPolicy(t *testing.T) {
 		GenericConfiguration: &generic.GenericConfiguration{},
 		AgentConfiguration: &configagent.AgentConfiguration{
 			GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
+				BaseConfiguration:       &global.BaseConfiguration{},
 				QRMAdvisorConfiguration: &global.QRMAdvisorConfiguration{},
 				GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
 					StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
@@ -6038,14 +6258,23 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				// - verify that memory plugin switches to GetAdvice
 				as := require.New(t)
 
-				lwEndedChan := make(chan time.Time)
+				// lwStartedChan is closed the moment the plugin invokes the
+				// ListAndWatch handler; lwEndedChan is closed by the test to
+				// release it. This replaces the previously bare time.Sleep so
+				// the test proceeds deterministically as soon as the plugin has
+				// actually fallen back to ListAndWatch, rather than guessing a
+				// fixed delay that is flaky under -race and parallel load.
+				lwStartedChan := make(chan struct{})
+				lwEndedChan := make(chan struct{})
 				unimplementedGetAdviceCall := memoryAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
 					Once().
 					Return((*advisorsvc.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
 				memoryAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
-					Once().
-					WaitUntil(lwEndedChan).
+					Run(func(args mock.Arguments) {
+						close(lwStartedChan)
+						<-lwEndedChan
+					}).
 					Return(nil).
 					NotBefore(unimplementedGetAdviceCall)
 
@@ -6053,29 +6282,36 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				as.NoError(err)
 				defer dynamicPolicy.Stop()
 
-				// Wait for the plugin to call advisor
-				time.Sleep(3 * time.Second)
+				// Wait for the plugin to have fallen back to ListAndWatch.
+				select {
+				case <-lwStartedChan:
+				case <-time.After(10 * time.Second):
+					t.Fatalf("ListAndWatch not started by plugin")
+				}
 				memoryAdvisorServer.AssertExpectations(t)
 
 				// ListAndWatch in progress, simulate an upgrade
 				unimplementedGetAdviceCall.Unset()
 
-				getAdviceCalledChan := make(chan struct{})
+				getAdviceCalledChan := make(chan struct{}, 1)
 				memoryAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
 					Run(func(args mock.Arguments) {
-						getAdviceCalledChan <- struct{}{}
+						select {
+						case getAdviceCalledChan <- struct{}{}:
+						default:
+						}
 					}).
 					Return(&advisorsvc.GetAdviceResponse{}, nil)
 
 				// terminate the old ListAndWatch
-				lwEndedChan <- time.Now()
+				close(lwEndedChan)
 
 				// plugin should switch to GetAdvice and call it periodically
 				for i := 0; i < 5; i++ {
 					select {
 					case <-getAdviceCalledChan:
-					case <-time.After(dynamicPolicy.getAdviceInterval * 2):
+					case <-time.After(dynamicPolicy.getAdviceInterval * 5):
 						t.Fatalf("GetAdvice not called")
 					}
 				}
@@ -6119,21 +6355,43 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 
 				// simulate a downgrade
 				// lock to ensure that policy doesn't call GetAdvice after we have removed the old expectation but haven't set the new one
+				lwStartedChan := make(chan struct{})
+				lwEndedChan := make(chan struct{})
+				unimplementedCalledChan := make(chan struct{})
 				dynamicPolicy.Lock()
 				implementedGetAdviceCall.Unset()
 				unimplementedGetAdviceCall := memoryAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
 					Once().
+					Run(func(args mock.Arguments) {
+						close(unimplementedCalledChan)
+					}).
 					Return((*advisorsvc.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
 				memoryAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
-					After(3 * time.Hour).
+					Run(func(args mock.Arguments) {
+						close(lwStartedChan)
+						<-lwEndedChan
+					}).
 					NotBefore(unimplementedGetAdviceCall).
 					Once().
 					Return(nil)
 				dynamicPolicy.Unlock()
 
-				time.Sleep(3 * time.Second)
+				// Wait deterministically for the plugin to poll the downgraded,
+				// unimplemented GetAdvice and then fall back to ListAndWatch,
+				// instead of guessing a fixed sleep.
+				select {
+				case <-unimplementedCalledChan:
+				case <-time.After(10 * time.Second):
+					t.Fatalf("downgraded GetAdvice not called")
+				}
+				select {
+				case <-lwStartedChan:
+				case <-time.After(10 * time.Second):
+					t.Fatalf("ListAndWatch not started after downgrade")
+				}
 				memoryAdvisorServer.AssertExpectations(t)
+				close(lwEndedChan)
 			},
 		},
 	} {

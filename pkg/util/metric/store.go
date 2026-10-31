@@ -124,6 +124,17 @@ func (c *MetricStore) SetCPUMetric(cpuID int, metricName string, data MetricData
 	c.cpuMetricMap[cpuID][metricName] = data
 }
 
+// DeleteCPUMetric removes a previously-set per-CPU metric. A no-op when the
+// metric (or the whole cpu entry) is absent. Used to clear stale metrics whose
+// source disappeared, so consumers no longer read a value from a previous cycle.
+func (c *MetricStore) DeleteCPUMetric(cpuID int, metricName string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if perCPU, ok := c.cpuMetricMap[cpuID]; ok {
+		delete(perCPU, metricName)
+	}
+}
+
 func (c *MetricStore) SetContainerMetric(podUID, containerName, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

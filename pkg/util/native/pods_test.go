@@ -71,6 +71,55 @@ func TestFilterPodAnnotations(t *testing.T) {
 	}
 }
 
+func TestEffectivePodRequestResources(t *testing.T) {
+	t.Parallel()
+
+	pod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Resources: v1.ResourceRequirements{Requests: v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("375m"),
+						v1.ResourceMemory: resource.MustParse("128Mi"),
+					}},
+				},
+				{
+					Resources: v1.ResourceRequirements{Requests: v1.ResourceList{
+						v1.ResourceName("example.com/milli"): resource.MustParse("500m"),
+					}},
+				},
+			},
+			InitContainers: []v1.Container{
+				{
+					Resources: v1.ResourceRequirements{Requests: v1.ResourceList{
+						v1.ResourceCPU:                           resource.MustParse("2"),
+						v1.ResourceMemory:                        resource.MustParse("64Mi"),
+						v1.ResourceName("example.com/milli"):     resource.MustParse("1500m"),
+						v1.ResourceName("example.com/init-only"): resource.MustParse("3"),
+					}},
+				},
+			},
+			Overhead: v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("75m"),
+				v1.ResourceMemory: resource.MustParse("32Mi"),
+			},
+		},
+	}
+
+	got := EffectivePodRequestResources(pod)
+	assertPodRequestQuantity(t, got, v1.ResourceCPU, "2075m")
+	assertPodRequestQuantity(t, got, v1.ResourceMemory, "160Mi")
+	assertPodRequestQuantity(t, got, v1.ResourceName("example.com/milli"), "1500m")
+	assertPodRequestQuantity(t, got, v1.ResourceName("example.com/init-only"), "3")
+	assert.Equal(t, got, SumUpPodRequestResources(pod))
+}
+
+func assertPodRequestQuantity(t *testing.T, resources v1.ResourceList, name v1.ResourceName, want string) {
+	t.Helper()
+	expected := resource.MustParse(want)
+	assert.Zero(t, expected.Cmp(resources[name]))
+}
+
 func TestGetContainerID(t *testing.T) {
 	t.Parallel()
 

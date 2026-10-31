@@ -18,6 +18,8 @@ package metamanager
 
 import (
 	"context"
+	"errors"
+	"os"
 	"sync"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -41,7 +44,8 @@ type Manager struct {
 
 	cachedPods CachedPodListFunc
 
-	podFirstRemoveTime map[string]time.Time
+	podFirstRemoveTime  map[string]time.Time
+	getPodAbsCgroupPath func(subsys, podUID string) (string, error)
 
 	podAddedFuncs   []PodAddedFunc
 	podDeletedFuncs []PodDeletedFunc
@@ -53,12 +57,13 @@ func NewManager(
 	metaServer *metaserver.MetaServer,
 ) *Manager {
 	m := &Manager{
-		emitter:            emitter,
-		MetaServer:         metaServer,
-		cachedPods:         cachedPods,
-		podAddedFuncs:      make([]PodAddedFunc, 0),
-		podDeletedFuncs:    make([]PodDeletedFunc, 0),
-		podFirstRemoveTime: make(map[string]time.Time),
+		emitter:             emitter,
+		MetaServer:          metaServer,
+		cachedPods:          cachedPods,
+		podAddedFuncs:       make([]PodAddedFunc, 0),
+		podDeletedFuncs:     make([]PodDeletedFunc, 0),
+		podFirstRemoveTime:  make(map[string]time.Time),
+		getPodAbsCgroupPath: common.GetPodAbsCgroupPath,
 	}
 	return m
 }
@@ -190,16 +195,22 @@ func (m *Manager) notifyDeletePods(podUIDSet map[string]struct{}) {
 	}
 }
 
+// canPodDelete treats typed cgroup absence as retirement proof. Any other
+// probe error is inconclusive and therefore fails closed: the Pod remains
+// cached and its existing removal timer is preserved. Deleting on permission
+// or I/O failure could release metadata while the workload cgroup is still live.
 func (m *Manager) canPodDelete(podUID string) bool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	// generate pod cgroup path, use cpu as subsystem
-	_, err := common.GetPodAbsCgroupPath(common.CgroupSubsysCPU, podUID)
+	_, err := m.getPodAbsCgroupPath(common.CgroupSubsysCPU, podUID)
 	if err != nil {
-		// GetPodAbsCgroupPath return error only if pod cgroup path not exist
-		klog.Warning(err.Error())
-		delete(m.podFirstRemoveTime, podUID)
-		return true
+		if errors.Is(err, os.ErrNotExist) {
+			delete(m.podFirstRemoveTime, podUID)
+			return true
+		}
+		general.Warningf("failed to probe pod %q cgroup path: %v", podUID, err)
+		return false
 	}
 
 	// pod is not exist in metaServer, deletionTimestamp can not be got by pod

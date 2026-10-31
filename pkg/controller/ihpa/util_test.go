@@ -284,6 +284,140 @@ func Test_generateHPA(t *testing.T) {
 		got := generateHPA(&ihpa, &v1.PodTemplateSpec{})
 		assert.Equal(t, expected, got)
 	})
+
+	// In Auto (non-Preview) strategy the static ScaleTargetRef / MinReplicas /
+	// MaxReplicas from the IHPA autoscaler spec must be passed through verbatim,
+	// rather than being rewritten to a VirtualWorkload.
+	t.Run("auto-strategy-passthrough", func(t *testing.T) {
+		t.Parallel()
+		min := int32(2)
+		scaleTargetRef := v2.CrossVersionObjectReference{
+			Kind:       "Deployment",
+			Name:       "workload",
+			APIVersion: "apps/v1",
+		}
+		ihpa := v1alpha2.IntelligentHorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test"},
+			Spec: v1alpha2.IntelligentHorizontalPodAutoscalerSpec{
+				ScaleStrategy: v1alpha2.Auto,
+				Autoscaler: v1alpha2.AutoscalerSpec{
+					ScaleTargetRef: scaleTargetRef,
+					MinReplicas:    &min,
+					MaxReplicas:    5,
+				},
+			},
+		}
+
+		expected := &v2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "ihpa-test", Namespace: "test", OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "autoscaling.katalyst.kubewharf.io/v1alpha2",
+				Kind:       "IntelligentHorizontalPodAutoscaler",
+				Name:       "test",
+			}}},
+			Spec: v2.HorizontalPodAutoscalerSpec{
+				Metrics:        []v2.MetricSpec{},
+				ScaleTargetRef: scaleTargetRef,
+				MaxReplicas:    5,
+				MinReplicas:    &min,
+			},
+		}
+		got := generateHPA(&ihpa, &v1.PodTemplateSpec{})
+		assert.Equal(t, expected, got)
+	})
+
+	// MinReplicas is an optional pointer: when the IHPA leaves it nil the
+	// generated HPA must also leave it nil (the HPA API server then applies its
+	// own default of 1), while the required MaxReplicas and ScaleTargetRef remain
+	// valid and populated.
+	t.Run("nil-min-optional", func(t *testing.T) {
+		t.Parallel()
+		scaleTargetRef := v2.CrossVersionObjectReference{
+			Kind:       "Deployment",
+			Name:       "workload",
+			APIVersion: "apps/v1",
+		}
+		ihpa := v1alpha2.IntelligentHorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test"},
+			Spec: v1alpha2.IntelligentHorizontalPodAutoscalerSpec{
+				ScaleStrategy: v1alpha2.Auto,
+				Autoscaler: v1alpha2.AutoscalerSpec{
+					ScaleTargetRef: scaleTargetRef,
+					MinReplicas:    nil,
+					MaxReplicas:    3,
+				},
+			},
+		}
+
+		expected := &v2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "ihpa-test", Namespace: "test", OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "autoscaling.katalyst.kubewharf.io/v1alpha2",
+				Kind:       "IntelligentHorizontalPodAutoscaler",
+				Name:       "test",
+			}}},
+			Spec: v2.HorizontalPodAutoscalerSpec{
+				Metrics:        []v2.MetricSpec{},
+				ScaleTargetRef: scaleTargetRef,
+				MaxReplicas:    3,
+				MinReplicas:    nil,
+			},
+		}
+		got := generateHPA(&ihpa, &v1.PodTemplateSpec{})
+		assert.Equal(t, expected, got)
+	})
+
+	// A time-bound that lies entirely outside the current wall-clock window must
+	// not override the static autoscaler Min/Max replicas (regression guard for
+	// the timezone handling in isTimeBoundValid).
+	t.Run("inactive-timebound-keeps-autoscaler-bounds", func(t *testing.T) {
+		t.Parallel()
+		min := int32(2)
+		cronMin := int32(9)
+		scaleTargetRef := v2.CrossVersionObjectReference{
+			Kind:       "Deployment",
+			Name:       "workload",
+			APIVersion: "apps/v1",
+		}
+		ihpa := v1alpha2.IntelligentHorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test"},
+			Spec: v1alpha2.IntelligentHorizontalPodAutoscalerSpec{
+				ScaleStrategy: v1alpha2.Auto,
+				Autoscaler: v1alpha2.AutoscalerSpec{
+					ScaleTargetRef: scaleTargetRef,
+					MinReplicas:    &min,
+					MaxReplicas:    4,
+				},
+				TimeBounds: []v1alpha2.TimeBound{
+					{
+						Start: metav1.Time{Time: time.Now().Add(10 * time.Minute)},
+						End:   metav1.Time{Time: time.Now().Add(20 * time.Minute)},
+						Bounds: []v1alpha2.Bound{
+							{
+								CronTab:     "* * * * *",
+								MinReplicas: &cronMin,
+								MaxReplicas: &cronMin,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expected := &v2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "ihpa-test", Namespace: "test", OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "autoscaling.katalyst.kubewharf.io/v1alpha2",
+				Kind:       "IntelligentHorizontalPodAutoscaler",
+				Name:       "test",
+			}}},
+			Spec: v2.HorizontalPodAutoscalerSpec{
+				Metrics:        []v2.MetricSpec{},
+				ScaleTargetRef: scaleTargetRef,
+				MaxReplicas:    4,
+				MinReplicas:    &min,
+			},
+		}
+		got := generateHPA(&ihpa, &v1.PodTemplateSpec{})
+		assert.Equal(t, expected, got)
+	})
 }
 
 func Test_updateStatus(t *testing.T) {

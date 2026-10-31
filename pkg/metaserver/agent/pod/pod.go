@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -49,8 +50,9 @@ type ContainerInfo struct {
 }
 
 const (
-	BypassCacheKey  ContextKey = "bypass_cache"
-	BypassCacheTrue ContextKey = "true"
+	BypassCacheKey       ContextKey = "bypass_cache"
+	StrictBypassCacheKey ContextKey = "strict_bypass_cache"
+	BypassCacheTrue      ContextKey = "true"
 
 	podFetcherKubeletHealthCheckName = "pod_fetcher_kubelet"
 	podFetcherRuntimeHealthCheckName = "pod_fetcher_runtime"
@@ -70,6 +72,36 @@ type PodFetcher interface {
 	GetPod(ctx context.Context, podUID string) (*v1.Pod, error)
 }
 
+// CachedPodSnapshotFetcher returns a deep-copied, cache-only Pod snapshot. It
+// never synchronizes kubelet; a nil or empty cache is therefore a valid
+// observation, not proof that Pods are absent. Callers requiring freshness
+// must obtain one explicit strict snapshot after cache-only resolution.
+type CachedPodSnapshotFetcher interface {
+	GetPodListFromCache(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error)
+}
+
+type ContainerIdentityFetcher interface {
+	GetContainerIDWithContext(ctx context.Context, podUID, containerName string) (string, error)
+	RefreshKubeletPodCache(ctx context.Context) error
+	IsContainerRunningInRuntime(
+		ctx context.Context,
+		podUID, containerName, containerID string,
+	) (bool, error)
+}
+
+type KubeletPodCacheSyncEvent struct {
+	CgroupCreated bool
+	Revision      uint64
+	SyncedAt      time.Time
+}
+
+type KubeletPodCacheSyncEventRegistrar interface {
+	RegisterKubeletPodCacheSyncListener(name string) (
+		events <-chan KubeletPodCacheSyncEvent,
+		unregister func(),
+	)
+}
+
 type podFetcherImpl struct {
 	kubeletPodFetcher    KubeletPodFetcher
 	runtimePodFetcher    RuntimePodFetcher
@@ -79,6 +111,8 @@ type podFetcherImpl struct {
 	kubeletPodsContinuesEmptyCount int
 	kubeletPodsCacheSkipEmptyError bool
 	kubeletPodsCacheLock           sync.RWMutex
+	kubeletPodSyncRequestSequence  uint64
+	kubeletPodSyncCommitSequence   uint64
 
 	runtimePodsCache     map[string]*RuntimePod
 	runtimePodsCacheLock sync.RWMutex
@@ -88,7 +122,22 @@ type podFetcherImpl struct {
 	baseConf        *global.BaseConfiguration
 	podConf         *metaserver.PodConfiguration
 	cgroupRootPaths []string
+
+	kubeletPodCacheSyncListenersLock sync.Mutex
+	kubeletPodCacheSyncListeners     map[string]chan KubeletPodCacheSyncEvent
+	kubeletPodCacheRevision          uint64
+	cgroupCreateResyncDelays         []time.Duration
+	// cgroupCreateResyncStepCh, when non-nil, gates each bounded-resync step:
+	// the loop waits for a token on this channel before performing a step.
+	// Tests use it to drive the loop step-by-step instead of relying on
+	// wall-clock delays; production leaves it nil.
+	cgroupCreateResyncStepCh chan struct{}
 }
+
+var (
+	_ ContainerIdentityFetcher = (*podFetcherImpl)(nil)
+	_ CachedPodSnapshotFetcher = (*podFetcherImpl)(nil)
+)
 
 func NewPodFetcher(
 	baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
@@ -100,18 +149,65 @@ func NewPodFetcher(
 		runtimePodFetcher = nil
 	}
 
-	RegisterKataContainerFetcher(runtimePodFetcher)
+	initializeRuntimeCgroupPathHandlers(runtimePodFetcher)
 
 	initializeRuntimeCgroupPathHandlers(runtimePodFetcher)
 
 	return &podFetcherImpl{
-		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
-		runtimePodFetcher: runtimePodFetcher,
-		emitter:           emitter,
-		baseConf:          baseConf,
-		podConf:           podConf,
-		cgroupRootPaths:   cgroupRootPaths,
+		kubeletPodFetcher:            NewKubeletPodFetcher(baseConf),
+		runtimePodFetcher:            runtimePodFetcher,
+		emitter:                      emitter,
+		baseConf:                     baseConf,
+		podConf:                      podConf,
+		cgroupRootPaths:              cgroupRootPaths,
+		kubeletPodCacheSyncListeners: make(map[string]chan KubeletPodCacheSyncEvent),
+		cgroupCreateResyncDelays: []time.Duration{
+			0, 100 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, time.Second,
+		},
 	}, nil
+}
+
+func (w *podFetcherImpl) RegisterKubeletPodCacheSyncListener(name string) (
+	<-chan KubeletPodCacheSyncEvent, func(),
+) {
+	w.kubeletPodCacheSyncListenersLock.Lock()
+	defer w.kubeletPodCacheSyncListenersLock.Unlock()
+	if w.kubeletPodCacheSyncListeners == nil {
+		w.kubeletPodCacheSyncListeners = make(map[string]chan KubeletPodCacheSyncEvent)
+	}
+	if old := w.kubeletPodCacheSyncListeners[name]; old != nil {
+		close(old)
+	}
+	events := make(chan KubeletPodCacheSyncEvent, 1)
+	w.kubeletPodCacheSyncListeners[name] = events
+	return events, func() {
+		w.kubeletPodCacheSyncListenersLock.Lock()
+		defer w.kubeletPodCacheSyncListenersLock.Unlock()
+		if current := w.kubeletPodCacheSyncListeners[name]; current == events {
+			delete(w.kubeletPodCacheSyncListeners, name)
+			close(events)
+		}
+	}
+}
+
+func (w *podFetcherImpl) publishKubeletPodCacheSyncEvent(event KubeletPodCacheSyncEvent) {
+	w.kubeletPodCacheSyncListenersLock.Lock()
+	defer w.kubeletPodCacheSyncListenersLock.Unlock()
+	for _, listener := range w.kubeletPodCacheSyncListeners {
+		select {
+		case listener <- event:
+			continue
+		default:
+		}
+		select {
+		case <-listener:
+		default:
+		}
+		select {
+		case listener <- event:
+		default:
+		}
+	}
 }
 
 func (w *podFetcherImpl) GetContainerSpec(podUID, containerName string) (*v1.Container, error) {
@@ -138,21 +234,70 @@ func (w *podFetcherImpl) GetContainerSpec(podUID, containerName string) (*v1.Con
 }
 
 func (w *podFetcherImpl) GetContainerID(podUID, containerName string) (string, error) {
+	return w.GetContainerIDWithContext(context.Background(), podUID, containerName)
+}
+
+// RefreshKubeletPodCache synchronously refreshes the pod identity source and
+// reports refresh failures instead of falling back to stale cached data.
+func (w *podFetcherImpl) RefreshKubeletPodCache(ctx context.Context) error {
+	if w == nil {
+		return fmt.Errorf("refresh kubelet pod cache from nil pod fetcher")
+	}
+	return w.syncKubeletPodWithContext(ctx)
+}
+
+func (w *podFetcherImpl) IsContainerRunningInRuntime(
+	ctx context.Context,
+	podUID, containerName, containerID string,
+) (bool, error) {
+	if w == nil || w.runtimePodFetcher == nil {
+		return false, fmt.Errorf("runtime pod fetcher is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	pods, err := w.runtimePodFetcher.GetPods(false)
+	if err != nil {
+		return false, fmt.Errorf("list running runtime containers: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	for _, pod := range pods {
+		if pod == nil || string(pod.UID) != podUID {
+			continue
+		}
+		for _, container := range pod.Containers {
+			if container != nil && container.Id == containerID &&
+				container.Metadata != nil && container.Metadata.Name == containerName {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func (w *podFetcherImpl) GetContainerIDWithContext(ctx context.Context, podUID, containerName string) (string, error) {
 	if w == nil {
 		return "", fmt.Errorf("get container id from nil pod fetcher")
 	}
 
-	kubeletPodsCache, err := w.getKubeletPodsCache(context.Background())
+	kubeletPodsCache, err := w.getKubeletPodsCache(ctx)
 	if err != nil {
-		return "", fmt.Errorf("getKubeletPodsCache failed with error: %v", err)
+		return "", fmt.Errorf("getKubeletPodsCache failed: %w", err)
 	}
 
 	pod := kubeletPodsCache[podUID]
 	if pod == nil {
-		return "", fmt.Errorf("pod of uid: %s isn't found", podUID)
+		return "", fmt.Errorf("%w: uid=%s", ErrPodNotFound, podUID)
 	}
 
-	return native.GetContainerID(pod, containerName)
+	containerID, err := native.GetContainerID(pod, containerName)
+	if err != nil {
+		return "", fmt.Errorf("%w: pod=%s container=%s: %v",
+			ErrContainerNotFound, podUID, containerName, err)
+	}
+	return containerID, nil
 }
 
 // startSyncKubeletPods starts the kubelet pod cache synchronization loop driven by
@@ -179,28 +324,88 @@ func (w *podFetcherImpl) startSyncKubeletPods(ctx context.Context) {
 	rateLimiter := rate.NewLimiter(w.podConf.KubeletPodCacheSyncMaxRate, w.podConf.KubeletPodCacheSyncBurstBulk)
 
 	go func() {
+		defer timer.Stop()
 		for {
 			select {
-			case _, ok := <-syncCh:
+			case event, ok := <-syncCh:
 				if !ok {
 					return
 				}
-				if rateLimiter.Allow() {
-					w.syncKubeletPod(ctx)
-					timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
+				if event.Created {
+					if err := w.runCgroupCreateBoundedResync(ctx, rateLimiter); err != nil {
+						return
+					}
+				} else {
+					if err := rateLimiter.Wait(ctx); err != nil {
+						return
+					}
+					_ = w.syncKubeletPodWithContext(ctx)
 				}
+				resetTimer(timer, w.podConf.KubeletPodCacheSyncPeriod)
 			case <-timer.C:
 				klog.Infof("cgroup watch list %v", watchList())
 				w.syncKubeletPod(ctx)
-				timer.Reset(w.podConf.KubeletPodCacheSyncPeriod)
+				resetTimer(timer, w.podConf.KubeletPodCacheSyncPeriod)
 			case <-ctx.Done():
 				klog.Infof("file event watcher stopped")
 				klog.Infof("stop timer channel when ctx.Done() has been received")
-				timer.Stop()
 				return
 			}
 		}
 	}()
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
+}
+
+func (w *podFetcherImpl) runCgroupCreateBoundedResync(
+	ctx context.Context, rateLimiter *rate.Limiter,
+) error {
+	delays := w.cgroupCreateResyncDelays
+	if len(delays) == 0 {
+		delays = []time.Duration{0}
+	}
+	for _, delay := range delays {
+		// In tests, gate each step on an explicit token so the consumer can
+		// drain between publishes; production leaves the channel nil.
+		if w.cgroupCreateResyncStepCh != nil {
+			select {
+			case <-w.cgroupCreateResyncStepCh:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return ctx.Err()
+			}
+		}
+		if err := rateLimiter.Wait(ctx); err != nil {
+			return err
+		}
+		if err := w.syncKubeletPodWithContext(ctx); err != nil {
+			continue
+		}
+		w.publishKubeletPodCacheSyncEvent(KubeletPodCacheSyncEvent{
+			CgroupCreated: true,
+			Revision:      w.currentKubeletPodCacheRevision(),
+			SyncedAt:      time.Now(),
+		})
+	}
+	return nil
 }
 
 func (w *podFetcherImpl) Run(ctx context.Context) {
@@ -218,7 +423,7 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 func (w *podFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
 	kubeletPodsCache, err := w.getKubeletPodsCache(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getKubeletPodsCache failed with error: %v", err)
+		return nil, fmt.Errorf("getKubeletPodsCache failed with error: %w", err)
 	}
 
 	w.kubeletPodsCacheLock.RLock()
@@ -235,23 +440,59 @@ func (w *podFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod)
 	return res, nil
 }
 
+func (w *podFetcherImpl) GetPodListFromCache(
+	ctx context.Context,
+	podFilter func(*v1.Pod) bool,
+) ([]*v1.Pod, error) {
+	if w == nil {
+		return nil, fmt.Errorf("get cached pod snapshot from nil pod fetcher")
+	}
+	if err := lockRLockContext(ctx, &w.kubeletPodsCacheLock); err != nil {
+		return nil, err
+	}
+	defer w.kubeletPodsCacheLock.RUnlock()
+
+	res := make([]*v1.Pod, 0, len(w.kubeletPodsCache))
+	for _, pod := range w.kubeletPodsCache {
+		if pod == nil || podFilter != nil && !podFilter(pod) {
+			continue
+		}
+		res = append(res, pod.DeepCopy())
+	}
+	return res, nil
+}
+
 func (w *podFetcherImpl) GetPod(ctx context.Context, podUID string) (*v1.Pod, error) {
 	kubeletPodsCache, err := w.getKubeletPodsCache(ctx)
 	if err != nil {
+		if ctx.Value(StrictBypassCacheKey) == BypassCacheTrue {
+			return nil, err
+		}
 		return nil, fmt.Errorf("getKubeletPodsCache failed with error: %v", err)
 	}
 	if pod, ok := kubeletPodsCache[podUID]; ok {
 		return pod, nil
 	}
-	return nil, fmt.Errorf("failed to find pod by uid %v", podUID)
+	return nil, NewPodNotFoundError(podUID)
 }
 
 func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v1.Pod, error) {
 	// if current kubelet pod cache is nil or enforce bypass, we sync cache first
-	w.kubeletPodsCacheLock.RLock()
-	if w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0 || ctx.Value(BypassCacheKey) == BypassCacheTrue {
+	if err := lockRLockContext(ctx, &w.kubeletPodsCacheLock); err != nil {
+		return nil, err
+	}
+	strictBypass := ctx.Value(StrictBypassCacheKey) == BypassCacheTrue
+	if w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0 ||
+		ctx.Value(BypassCacheKey) == BypassCacheTrue || strictBypass {
 		w.kubeletPodsCacheLock.RUnlock()
-		w.syncKubeletPod(ctx)
+		if err := w.syncKubeletPodWithContext(ctx); err != nil {
+			if strictBypass {
+				return nil, err
+			}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+		}
 	} else {
 		w.kubeletPodsCacheLock.RUnlock()
 	}
@@ -259,7 +500,9 @@ func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v
 	// if kubelet returns empty pod list continuously for specified times of running syncKubeletPod,
 	// which means there is indeed no pod scheduled on node, so we should not return error, otherwise we should return an error,
 	// which means something is wrong with running syncKubeletPod
-	w.kubeletPodsCacheLock.RLock()
+	if err := lockRLockContext(ctx, &w.kubeletPodsCacheLock); err != nil {
+		return nil, err
+	}
 	defer w.kubeletPodsCacheLock.RUnlock()
 	if !w.kubeletPodsCacheSkipEmptyError && (w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0) {
 		return nil, fmt.Errorf("first sync kubelet pod cache failed")
@@ -307,6 +550,11 @@ func (w *podFetcherImpl) syncRuntimePod(_ context.Context) {
 
 // syncKubeletPod sync local kubelet pod cache from kubelet pod fetcher.
 func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
+	_ = w.syncKubeletPodWithContext(ctx)
+}
+
+func (w *podFetcherImpl) syncKubeletPodWithContext(ctx context.Context) error {
+	requestSequence := atomic.AddUint64(&w.kubeletPodSyncRequestSequence, 1)
 	klog.Infof("sync kubelet pod")
 	kubeletPods, err := w.kubeletPodFetcher.GetPodList(ctx, nil)
 	_ = general.UpdateHealthzStateByError(podFetcherKubeletHealthCheckName, err)
@@ -318,7 +566,7 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 				"success": "false",
 				"reason":  "error",
 			})...)
-		return
+		return err
 	} else if len(kubeletPods) == 0 {
 		klog.Error("kubelet pod is empty")
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
@@ -348,8 +596,16 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 		kubeletPodsCache[string(p.GetUID())] = p
 	}
 
-	w.kubeletPodsCacheLock.Lock()
+	if err := lockContext(ctx, &w.kubeletPodsCacheLock); err != nil {
+		return err
+	}
+	if requestSequence < w.kubeletPodSyncCommitSequence {
+		w.kubeletPodsCacheLock.Unlock()
+		return nil
+	}
 	w.kubeletPodsCache = kubeletPodsCache
+	w.kubeletPodSyncCommitSequence = requestSequence
+	w.kubeletPodCacheRevision++
 	if len(kubeletPodsCache) == 0 {
 		w.kubeletPodsContinuesEmptyCount++
 	} else {
@@ -357,6 +613,39 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 	}
 	w.kubeletPodsCacheSkipEmptyError = w.kubeletPodsContinuesEmptyCount >= w.podConf.KubeletPodCacheSyncEmptyThreshold
 	w.kubeletPodsCacheLock.Unlock()
+	return nil
+}
+
+func (w *podFetcherImpl) currentKubeletPodCacheRevision() uint64 {
+	w.kubeletPodsCacheLock.RLock()
+	defer w.kubeletPodsCacheLock.RUnlock()
+	return w.kubeletPodCacheRevision
+}
+
+func lockRLockContext(ctx context.Context, lock *sync.RWMutex) error {
+	return waitForCacheLock(ctx, lock.TryRLock)
+}
+
+func lockContext(ctx context.Context, lock *sync.RWMutex) error {
+	return waitForCacheLock(ctx, lock.TryLock)
+}
+
+func waitForCacheLock(ctx context.Context, tryLock func() bool) error {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if tryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // checkPodCache if the runtime pod and kubelet pod match, and send a metric alert if they don't.

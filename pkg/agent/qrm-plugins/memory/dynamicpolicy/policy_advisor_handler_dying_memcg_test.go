@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Katalyst Authors.
+Copyright 2026 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +18,8 @@ package dynamicpolicy
 
 import (
 	"reflect"
-	"sync"
 	"testing"
 
-	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -34,14 +32,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var dyingMemcgReclaimTestMutex = &sync.Mutex{}
-
 func TestDynamicPolicy_handleAdvisorDyingMemcgReclaim(t *testing.T) {
 	t.Parallel()
 	t.Run("empty cgroup path", func(t *testing.T) {
 		t.Parallel()
-		dyingMemcgReclaimTestMutex.Lock()
-		defer dyingMemcgReclaimTestMutex.Unlock()
 		p := &DynamicPolicy{}
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CalculationResult: &advisorsvc.CalculationResult{
@@ -55,30 +49,28 @@ func TestDynamicPolicy_handleAdvisorDyingMemcgReclaim(t *testing.T) {
 
 	t.Run("disabled dying memcg reclaim", func(t *testing.T) {
 		t.Parallel()
-		dyingMemcgReclaimTestMutex.Lock()
-		defer dyingMemcgReclaimTestMutex.Unlock()
-		defer mockey.UnPatchAll()
-
-		p := &DynamicPolicy{
-			defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers("test", 1, metrics.DummyMetrics{}),
-		}
 
 		disableSwapCalled := false
 		addWorkCalled := false
 		getEffectiveCalled := false
 
-		mockey.Mock(cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive).IncludeCurrentGoRoutine().To(func(_ string) error {
-			disableSwapCalled = true
-			return nil
-		}).Build()
-		mockey.Mock((*asyncworker.AsyncLimitedWorkers).AddWork).IncludeCurrentGoRoutine().To(func(_ *asyncworker.AsyncLimitedWorkers, _ *asyncworker.Work, _ asyncworker.DuplicateWorkPolicy) error {
+		p := &DynamicPolicy{
+			defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers("test", 1, metrics.DummyMetrics{}),
+		}
+		p.cgroupOps = &cgroupOps{
+			disableSwapMaxRecursive: func(string) error {
+				disableSwapCalled = true
+				return nil
+			},
+			getEffectiveCPUSet: func(string) (machine.CPUSet, machine.CPUSet, error) {
+				getEffectiveCalled = true
+				return machine.NewCPUSet(0), machine.NewCPUSet(0), nil
+			},
+		}
+		p.addAsyncWorkFn = func(*asyncworker.Work, asyncworker.DuplicateWorkPolicy) error {
 			addWorkCalled = true
 			return nil
-		}).Build()
-		mockey.Mock(cgroupmgr.GetEffectiveCPUSetWithAbsolutePath).IncludeCurrentGoRoutine().To(func(_ string) (machine.CPUSet, machine.CPUSet, error) {
-			getEffectiveCalled = true
-			return machine.NewCPUSet(0), machine.NewCPUSet(0), nil
-		}).Build()
+		}
 
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CgroupPath: "/sys/fs/cgroup/kubepods/burstable",
@@ -99,31 +91,29 @@ func TestDynamicPolicy_handleAdvisorDyingMemcgReclaim(t *testing.T) {
 
 	t.Run("enabled dying memcg reclaim", func(t *testing.T) {
 		t.Parallel()
-		dyingMemcgReclaimTestMutex.Lock()
-		defer dyingMemcgReclaimTestMutex.Unlock()
-		defer mockey.UnPatchAll()
-
-		p := &DynamicPolicy{
-			defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers("test", 1, metrics.DummyMetrics{}),
-		}
 
 		setSwapCalled := false
 		var capturedWork *asyncworker.Work
 		var capturedPolicy asyncworker.DuplicateWorkPolicy
 		mems := machine.NewCPUSet(0, 1)
 
-		mockey.Mock(cgroupmgr.SetSwapMaxWithAbsolutePathRecursive).IncludeCurrentGoRoutine().To(func(_ string) error {
-			setSwapCalled = true
-			return nil
-		}).Build()
-		mockey.Mock(cgroupmgr.GetEffectiveCPUSetWithAbsolutePath).IncludeCurrentGoRoutine().To(func(_ string) (machine.CPUSet, machine.CPUSet, error) {
-			return machine.NewCPUSet(0), mems, nil
-		}).Build()
-		mockey.Mock((*asyncworker.AsyncLimitedWorkers).AddWork).IncludeCurrentGoRoutine().To(func(_ *asyncworker.AsyncLimitedWorkers, work *asyncworker.Work, policy asyncworker.DuplicateWorkPolicy) error {
+		p := &DynamicPolicy{
+			defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers("test", 1, metrics.DummyMetrics{}),
+		}
+		p.cgroupOps = &cgroupOps{
+			setSwapMaxRecursive: func(string) error {
+				setSwapCalled = true
+				return nil
+			},
+			getEffectiveCPUSet: func(string) (machine.CPUSet, machine.CPUSet, error) {
+				return machine.NewCPUSet(0), mems, nil
+			},
+		}
+		p.addAsyncWorkFn = func(work *asyncworker.Work, policy asyncworker.DuplicateWorkPolicy) error {
 			capturedWork = work
 			capturedPolicy = policy
 			return nil
-		}).Build()
+		}
 
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CgroupPath: "/sys/fs/cgroup/kubepods/burstable",
