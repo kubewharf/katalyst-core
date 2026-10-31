@@ -18,8 +18,10 @@ package process
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -28,6 +30,32 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+func TestGetAndUnmarshalWithContextInterruptsRequest(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	var target map[string]interface{}
+	err := GetAndUnmarshalWithContext(ctx, server.URL, &target)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("GetAndUnmarshalWithContext() error = %v, want context deadline exceeded", err)
+	}
+}
+
+func TestGetAndUnmarshalClientHasTotalTimeout(t *testing.T) {
+	t.Parallel()
+
+	if getAndUnmarshalHTTPClient.Timeout <= 0 {
+		t.Fatalf("GetAndUnmarshal HTTP client timeout = %s, want a positive total request timeout",
+			getAndUnmarshalHTTPClient.Timeout)
+	}
+}
 
 type dummyHandler struct {
 	success int

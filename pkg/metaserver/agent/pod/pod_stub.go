@@ -31,7 +31,34 @@ type PodFetcherStub struct {
 	PodList []*v1.Pod
 }
 
-var _ PodFetcher = &PodFetcherStub{}
+var (
+	_ PodFetcher               = &PodFetcherStub{}
+	_ ContainerIdentityFetcher = &PodFetcherStub{}
+)
+
+func (p *PodFetcherStub) RefreshKubeletPodCache(context.Context) error {
+	return nil
+}
+
+func (p *PodFetcherStub) IsContainerRunningInRuntime(
+	_ context.Context,
+	podUID, containerName, containerID string,
+) (bool, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	for _, pod := range p.PodList {
+		if pod == nil || string(pod.UID) != podUID {
+			continue
+		}
+		for _, status := range pod.Status.ContainerStatuses {
+			if status.Name == containerName && status.State.Running != nil &&
+				native.TrimContainerIDPrefix(status.ContainerID) == containerID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
 
 func (p *PodFetcherStub) GetPodList(_ context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
 	p.mutex.Lock()
@@ -54,7 +81,7 @@ func (p *PodFetcherStub) GetPod(_ context.Context, podUID string) (*v1.Pod, erro
 			return pod, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to find pod by uid %v", podUID)
+	return nil, NewPodNotFoundError(podUID)
 }
 
 func (p *PodFetcherStub) Run(_ context.Context) {}
@@ -65,11 +92,26 @@ func (p *PodFetcherStub) GetContainerID(podUID, containerName string) (string, e
 
 	for _, pod := range p.PodList {
 		if string(pod.UID) == podUID {
-			return native.GetContainerID(pod, containerName)
+			containerID, err := native.GetContainerID(pod, containerName)
+			if err != nil {
+				return "", fmt.Errorf("%w: pod=%s container=%s: %v",
+					ErrContainerNotFound, podUID, containerName, err)
+			}
+			return containerID, nil
 		}
 	}
 
-	return "", fmt.Errorf("container: %s isn't found in pod: %s status", containerName, podUID)
+	return "", fmt.Errorf("%w: pod=%s container=%s", ErrPodNotFound, podUID, containerName)
+}
+
+func (p *PodFetcherStub) GetContainerIDWithContext(
+	ctx context.Context,
+	podUID, containerName string,
+) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return p.GetContainerID(podUID, containerName)
 }
 
 func (p *PodFetcherStub) GetContainerSpec(podUID, containerName string) (*v1.Container, error) {
