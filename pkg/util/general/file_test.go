@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -768,19 +769,22 @@ func TestRegisterSubDirEventWatcher(t *testing.T) {
 	}, 2*time.Second, 20*time.Millisecond)
 
 	// drain helper: receives one notification within the timeout.
-	waitNotify := func(timeout time.Duration) bool {
+	waitNotify := func(timeout time.Duration) (SubDirEvent, bool) {
 		select {
-		case _, ok := <-syncCh:
-			return ok
+		case event, ok := <-syncCh:
+			return event, ok
 		case <-time.After(timeout):
-			return false
+			return SubDirEvent{}, false
 		}
 	}
 
 	// 1) mkdir child -> expect notification, watchList contains the child.
 	child := filepath.Join(root, "child")
 	assert.NoError(t, os.Mkdir(child, 0o755))
-	assert.True(t, waitNotify(2*time.Second), "expect notification after mkdir child")
+	event, ok := waitNotify(2 * time.Second)
+	assert.True(t, ok, "expect notification after mkdir child")
+	assert.True(t, event.Created)
+	assert.Equal(t, child, event.Path)
 	assert.Eventually(t, func() bool {
 		for _, p := range watchList() {
 			if p == child {
@@ -790,14 +794,20 @@ func TestRegisterSubDirEventWatcher(t *testing.T) {
 		return false
 	}, 2*time.Second, 20*time.Millisecond)
 
-	// 2) mkdir grandchild inside child -> NO notification expected
-	// (only first-level subdirectories under root are tracked).
-	assert.NoError(t, os.Mkdir(filepath.Join(child, "grand"), 0o755))
-	assert.False(t, waitNotify(500*time.Millisecond), "should not receive notification for grandchild")
+	// 2) mkdir grandchild inside child -> expect a create notification without
+	// adding the grandchild to the watch list.
+	grandchild := filepath.Join(child, "grand")
+	assert.NoError(t, os.Mkdir(grandchild, 0o755))
+	event, ok = waitNotify(2 * time.Second)
+	assert.True(t, ok, "expect notification after mkdir grandchild")
+	assert.True(t, event.Created)
+	assert.Equal(t, grandchild, event.Path)
 
 	// 3) rmdir child -> expect notification, watchList no longer contains child.
 	assert.NoError(t, os.RemoveAll(child))
-	assert.True(t, waitNotify(2*time.Second), "expect notification after remove child")
+	event, ok = waitNotify(2 * time.Second)
+	assert.True(t, ok, "expect notification after remove child")
+	assert.False(t, event.Created)
 	assert.Eventually(t, func() bool {
 		for _, p := range watchList() {
 			if p == child {
@@ -817,4 +827,36 @@ func TestRegisterSubDirEventWatcher(t *testing.T) {
 			return false
 		}
 	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestFilterExistingPaths(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	existingA := filepath.Join(tmpDir, "a")
+	existingB := filepath.Join(tmpDir, "b")
+	missing := filepath.Join(tmpDir, "does-not-exist")
+
+	for _, p := range []string{existingA, existingB} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+
+	// Order preserved; missing entries filtered out.
+	got := GetExistingPaths([]string{existingA, missing, existingB})
+	want := []string{existingA, existingB}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// All-missing input yields an empty slice.
+	if got := GetExistingPaths([]string{missing, missing + "-2"}); len(got) != 0 {
+		t.Fatalf("all-missing: got %v, want empty", got)
+	}
+
+	// Nil input yields nil (documented contract).
+	if got := GetExistingPaths(nil); got != nil {
+		t.Fatalf("nil input: got %v, want nil", got)
+	}
 }

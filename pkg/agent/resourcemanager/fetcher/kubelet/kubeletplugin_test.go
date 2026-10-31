@@ -18,6 +18,7 @@ package kubelet
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"net"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
@@ -36,6 +38,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -393,4 +396,61 @@ func Test_kubeletPlugin_WithCache(t *testing.T) {
 	cachedResponse := plugin.GetCache()
 	assert.NotNil(t, cachedResponse)
 	assert.Equal(t, mockCache, cachedResponse)
+}
+
+type fakeAdapterWithResources struct {
+	topology.DummyAdapter
+	resources *nodev1alpha1.Resources
+}
+
+func (f fakeAdapterWithResources) GetTopologyZonesAndResources(_ context.Context) ([]*nodev1alpha1.TopologyZone, *nodev1alpha1.Resources, error) {
+	return []*nodev1alpha1.TopologyZone{}, f.resources, nil
+}
+
+func TestGetCNRStatusReports_IncludesResources(t *testing.T) {
+	t.Parallel()
+
+	dir, err := tmpSocketDir()
+	assert.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	conf := generateTestConfiguration(t, dir)
+	conf.EnableReportTopologyPolicy = false
+
+	meta := generateTestMetaServer()
+
+	callback := func(name string, resp *v1alpha1.GetReportContentResponse) {
+		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
+	}
+
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback, nil)
+	assert.NoError(t, err)
+	kubePlugin := plugin.(*kubeletPlugin)
+
+	allocatable := v1.ResourceList{v1.ResourceCPU: resource.MustParse("4")}
+	capacity := v1.ResourceList{v1.ResourceCPU: resource.MustParse("8")}
+	expected := &nodev1alpha1.Resources{
+		Allocatable: &allocatable,
+		Capacity:    &capacity,
+	}
+	kubePlugin.topologyStatusAdapter = fakeAdapterWithResources{resources: expected}
+
+	contents, err := kubePlugin.getCNRStatusReports(context.TODO())
+	assert.NoError(t, err)
+	assert.Len(t, contents, 2)
+
+	var resourcesEntry *v1alpha1.ReportContent
+	for _, c := range contents {
+		if len(c.Field) > 0 && c.Field[0].FieldName == util.CNRFieldNameResources {
+			resourcesEntry = c
+			break
+		}
+	}
+	assert.NotNil(t, resourcesEntry, "expected a ReportContent with FieldName=%s", util.CNRFieldNameResources)
+	assert.Equal(t, &util.CNRGroupVersionKind, resourcesEntry.GroupVersionKind)
+	assert.Equal(t, v1alpha1.FieldType_Status, resourcesEntry.Field[0].FieldType)
+
+	var got nodev1alpha1.Resources
+	assert.NoError(t, json.Unmarshal(resourcesEntry.Field[0].Value, &got))
+	assert.Equal(t, *expected, got)
 }

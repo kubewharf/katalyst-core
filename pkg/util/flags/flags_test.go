@@ -29,6 +29,96 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+func TestExplicitValue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero value", func(t *testing.T) {
+		t.Parallel()
+
+		var value ExplicitValue[int64]
+		if value.Value != 0 || value.Changed() {
+			t.Fatalf("zero ExplicitValue = (%d, %v), want (0, false)",
+				value.Value, value.Changed())
+		}
+	})
+
+	t.Run("string value", func(t *testing.T) {
+		t.Parallel()
+
+		var value ExplicitValue[string]
+		fs := pflag.NewFlagSet("string", pflag.ContinueOnError)
+		fs.StringVar(&value.Value, "value", value.Value, "")
+		value.TrackFlag(fs, "value")
+
+		if err := fs.Parse([]string{"--value=explicit"}); err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+		if value.Value != "explicit" || !value.Changed() {
+			t.Fatalf("ExplicitValue = (%q, %v), want (%q, true)",
+				value.Value, value.Changed(), "explicit")
+		}
+	})
+
+	t.Run("single flag set", func(t *testing.T) {
+		t.Parallel()
+
+		var value ExplicitValue[int64]
+		fs := pflag.NewFlagSet("single", pflag.ContinueOnError)
+		fs.Int64Var(&value.Value, "value", value.Value, "")
+		value.TrackFlag(fs, "value")
+
+		if value.Changed() {
+			t.Fatal("Changed before Parse = true, want false")
+		}
+		if err := fs.Parse([]string{"--value=7"}); err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+		if value.Value != 7 || !value.Changed() {
+			t.Fatalf("ExplicitValue = (%d, %v), want (7, true)",
+				value.Value, value.Changed())
+		}
+	})
+
+	t.Run("multiple flag sets report any change", func(t *testing.T) {
+		t.Parallel()
+
+		var value ExplicitValue[int64]
+		first := pflag.NewFlagSet("first", pflag.ContinueOnError)
+		second := pflag.NewFlagSet("second", pflag.ContinueOnError)
+		first.Int64Var(&value.Value, "value", value.Value, "")
+		value.TrackFlag(first, "value")
+		second.Int64Var(&value.Value, "value", value.Value, "")
+		value.TrackFlag(second, "value")
+
+		if err := second.Parse([]string{"--value=11"}); err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+		if first.Lookup("value").Changed {
+			t.Fatal("first flag Changed = true, want false")
+		}
+		if value.Value != 11 || !value.Changed() {
+			t.Fatalf("ExplicitValue = (%d, %v), want (11, true)",
+				value.Value, value.Changed())
+		}
+	})
+
+	t.Run("unknown flag panics", func(t *testing.T) {
+		t.Parallel()
+
+		var value ExplicitValue[int64]
+		fs := pflag.NewFlagSet("missing", pflag.ContinueOnError)
+
+		defer func() {
+			got := recover()
+			const want = `flag "missing" is not registered`
+			if got != want {
+				t.Fatalf("panic = %#v, want %q", got, want)
+			}
+		}()
+		value.TrackFlag(fs, "missing")
+	})
+}
+
 func TestReservedMemoryVar(t *testing.T) {
 	t.Parallel()
 
@@ -141,6 +231,7 @@ func TestReservedMemoryVar(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
+		tc := tc
 		fs := pflag.NewFlagSet("blah", pflag.PanicOnError)
 
 		var reservedMemory []native.MemoryReservation
