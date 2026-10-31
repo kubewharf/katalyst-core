@@ -135,14 +135,27 @@ func (s *cpuPluginState) SetWritePermit(gate WriteGate) {
 	s.writeGate = gate
 }
 
+// permitWrite enforces an installed WriteGate before any state mutation. It
+// must be called with the state lock held. A nil gate permits the write.
+func (s *cpuPluginState) permitWrite(operation string, permit *WritePermit) error {
+	if s.writeGate != nil {
+		return s.writeGate(s.revision, operation, permit)
+	}
+	return nil
+}
+
 func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("SetMachineState", nil); err != nil {
+		return err
+	}
 	s.machineState = numaNodeMap.Clone()
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
 	}
+	s.revision++
 	return nil
 }
 
@@ -150,8 +163,12 @@ func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("SetNUMAHeadroom", nil); err != nil {
+		return err
+	}
 	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
 	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
+	s.revision++
 	return nil
 }
 
@@ -159,6 +176,9 @@ func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, 
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("SetAllocationInfo", nil); err != nil {
+		return err
+	}
 	if _, ok := s.podEntries[podUID]; !ok {
 		s.podEntries[podUID] = make(ContainerEntries)
 	}
@@ -168,6 +188,7 @@ func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, 
 		"podUID", podUID,
 		"containerName", containerName,
 		"allocationInfo", allocationInfo.String())
+	s.revision++
 	return nil
 }
 
@@ -175,11 +196,15 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("SetPodEntries", nil); err != nil {
+		return err
+	}
 	s.podEntries = podEntries.Clone()
 	if klog.V(6).Enabled() {
 		klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
 			"podEntries", podEntries.String())
 	}
+	s.revision++
 	return nil
 }
 
@@ -187,10 +212,14 @@ func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCor
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("SetAllowSharedCoresOverlapReclaimedCores", nil); err != nil {
+		return err
+	}
 	klog.InfoS("[cpu_plugin] Updated allowSharedCoresOverlapReclaimedCores",
 		"allowSharedCoresOverlapReclaimedCores", allowSharedCoresOverlapReclaimedCores)
 
 	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
+	s.revision++
 	return nil
 }
 
@@ -198,7 +227,11 @@ func (s *cpuPluginState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDe
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("SetDisableDedicatedCoresOverlapReclaimedCores", nil); err != nil {
+		return err
+	}
 	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
+	s.revision++
 	return nil
 }
 
@@ -206,6 +239,13 @@ func (s *cpuPluginState) CommitAdvisorState(podEntries PodEntries, machineState 
 	s.Lock()
 	defer s.Unlock()
 
+	var permit *WritePermit
+	if len(permits) > 0 {
+		permit = permits[0]
+	}
+	if err := s.permitWrite("CommitAdvisorState", permit); err != nil {
+		return err
+	}
 	s.podEntries = podEntries.Clone()
 	s.machineState = machineState.Clone()
 	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
@@ -221,6 +261,13 @@ func (s *cpuPluginState) CommitAdvisorStateIfRevision(expectedRevision uint64, p
 	if expectedRevision != s.revision {
 		return ErrStaleStateRevision
 	}
+	var permit *WritePermit
+	if len(permits) > 0 {
+		permit = permits[0]
+	}
+	if err := s.permitWrite("CommitAdvisorStateIfRevision", permit); err != nil {
+		return err
+	}
 	s.podEntries = podEntries.Clone()
 	s.machineState = machineState.Clone()
 	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
@@ -233,6 +280,9 @@ func (s *cpuPluginState) Delete(podUID string, containerName string) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("Delete", nil); err != nil {
+		return err
+	}
 	if _, ok := s.podEntries[podUID]; !ok {
 		return nil
 	}
@@ -244,6 +294,7 @@ func (s *cpuPluginState) Delete(podUID string, containerName string) error {
 	klog.V(2).InfoS("[cpu_plugin] deleted container entry",
 		"podUID", podUID,
 		"containerName", containerName)
+	s.revision++
 	return nil
 }
 
@@ -251,9 +302,13 @@ func (s *cpuPluginState) ClearState() error {
 	s.Lock()
 	defer s.Unlock()
 
+	if err := s.permitWrite("ClearState", nil); err != nil {
+		return err
+	}
 	s.machineState = GetDefaultMachineState(s.cpuTopology)
 	s.socketTopology = s.cpuTopology.GetSocketTopology()
 	s.podEntries = make(PodEntries)
 	klog.V(2).InfoS("[cpu_plugin] cleared state")
+	s.revision++
 	return nil
 }

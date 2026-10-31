@@ -229,7 +229,9 @@ func (sc *stateCheckpoint) SetMachineState(numaNodeMap NUMANodeMap, persist bool
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.SetMachineState(numaNodeMap)
+	if err := sc.cache.SetMachineState(numaNodeMap); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store machineState to checkpoint error")
@@ -243,7 +245,9 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64, persist bool) erro
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.SetNUMAHeadroom(m)
+	if err := sc.cache.SetNUMAHeadroom(m); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store numa headroom to checkpoint error")
@@ -259,7 +263,9 @@ func (sc *stateCheckpoint) SetAllocationInfo(
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
+	if err := sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store allocationInfo to checkpoint error")
@@ -273,7 +279,9 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) er
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.SetPodEntries(podEntries)
+	if err := sc.cache.SetPodEntries(podEntries); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store pod entries to checkpoint error")
@@ -287,7 +295,9 @@ func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedC
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores)
+	if err := sc.cache.SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store allowSharedCoresOverlapReclaimedCores to checkpoint error")
@@ -301,7 +311,9 @@ func (sc *stateCheckpoint) SetDisableDedicatedCoresOverlapReclaimedCores(disable
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores)
+	if err := sc.cache.SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store disableDedicatedCoresOverlapReclaimedCores to checkpoint error")
@@ -347,7 +359,9 @@ func (sc *stateCheckpoint) Delete(podUID string, containerName string, persist b
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.Delete(podUID, containerName)
+	if err := sc.cache.Delete(podUID, containerName); err != nil {
+		return err
+	}
 	if persist {
 		if err := sc.storeState(); err != nil {
 			klog.ErrorS(err, "[cpu_plugin] store state after delete operation to checkpoint error")
@@ -361,7 +375,9 @@ func (sc *stateCheckpoint) ClearState() error {
 	sc.Lock()
 	defer sc.Unlock()
 
-	_ = sc.cache.ClearState()
+	if err := sc.cache.ClearState(); err != nil {
+		return err
+	}
 	if err := sc.storeState(); err != nil {
 		klog.ErrorS(err, "[cpu_plugin] store state after clear operation to checkpoint error")
 		return err
