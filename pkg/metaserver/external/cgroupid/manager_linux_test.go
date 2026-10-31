@@ -20,6 +20,8 @@ limitations under the License.
 package cgroupid
 
 import (
+	"context"
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -218,6 +220,83 @@ func TestClearResidualPodsInCache(t *testing.T) {
 				cgroupIDManager.Unlock()
 			}
 		})
+	}
+}
+
+func TestIsPodOrContainerMissingInKubeletCache(t *testing.T) {
+	t.Parallel()
+
+	// These mirror the errors GetContainerIDWithContext actually returns:
+	// ErrPodNotFound / ErrContainerNotFound wrapped with %w.
+	wrappedContainerNotFound := fmt.Errorf("%w: pod=%s container=%s: %v",
+		pod.ErrContainerNotFound, "uid-x", "c-x", fmt.Errorf("container c-x container id not found"))
+	wrappedPodNotFound := fmt.Errorf("%w: uid=%s", pod.ErrPodNotFound, "uid-x")
+	otherErr := fmt.Errorf("transient kubelet rpc: connection refused")
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "wrapped container-not-found", err: wrappedContainerNotFound, want: true},
+		{name: "wrapped pod-not-found", err: wrappedPodNotFound, want: true},
+		{name: "unrelated transient error", err: otherErr, want: false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, isPodOrContainerMissingInKubeletCache(tt.err))
+		})
+	}
+}
+
+func TestSetPodFetcher(t *testing.T) {
+	t.Parallel()
+
+	cgroupIDManager := newTestCgroupIDManager(podFetcher)
+
+	newPodFetcher := &pod.PodFetcherStub{}
+	cgroupIDManager.SetPodFetcher(newPodFetcher)
+
+	assert.Equal(t, newPodFetcher, cgroupIDManager.PodFetcher)
+}
+
+func TestSetPodFetcherAfterStartDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	originalPodFetcher := &pod.PodFetcherStub{}
+	cgroupIDManager := newTestCgroupIDManager(originalPodFetcher)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cgroupIDManager.Run(ctx)
+	}()
+
+	assert.Eventually(t, func() bool {
+		cgroupIDManager.RLock()
+		defer cgroupIDManager.RUnlock()
+		return cgroupIDManager.start
+	}, time.Second, 10*time.Millisecond)
+
+	cgroupIDManager.SetPodFetcher(&pod.PodFetcherStub{})
+
+	assert.Equal(t, originalPodFetcher, cgroupIDManager.PodFetcher)
+	cancel()
+	<-done
+}
+
+func newTestCgroupIDManager(podFetcher pod.PodFetcher) *cgroupIDManagerImpl {
+	return &cgroupIDManagerImpl{
+		PodFetcher:       podFetcher,
+		podCgroupIDCache: make(PodCache),
+		reconcilePeriod:  time.Hour,
+		residualHitMap:   make(map[string]int64),
 	}
 }
 
