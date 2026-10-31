@@ -17,75 +17,93 @@ limitations under the License.
 package metamanager
 
 import (
-	"io/ioutil"
+	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
-	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-func generateTestMetaServer(conf *config.Configuration) (*metaserver.MetaServer, error) {
-	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
-	if err != nil {
-		return nil, err
+func TestCanPodDeleteOnlyOnCgroupAbsence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		pathErr    error
+		wantDelete bool
+	}{
+		{
+			name:       "missing cgroup",
+			pathErr:    os.ErrNotExist,
+			wantDelete: true,
+		},
+		{
+			name:       "general lookup failure",
+			pathErr:    errors.New("permission denied"),
+			wantDelete: false,
+		},
 	}
 
-	return metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager := &Manager{
+				podFirstRemoveTime: map[string]time.Time{"pod": time.Now()},
+				getPodAbsCgroupPath: func(_, _ string) (string, error) {
+					return "", tc.pathErr
+				},
+			}
+
+			require.Equal(t, tc.wantDelete, manager.canPodDelete("pod"))
+			_, timestampRetained := manager.podFirstRemoveTime["pod"]
+			require.Equal(t, !tc.wantDelete, timestampRetained)
+		})
+	}
 }
 
-func generateTestConfiguration(checkpointDir string) *config.Configuration {
-	conf, _ := options.NewOptions().Config()
-
-	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-
-	return conf
+func newTestMetaServer(pods []*v1.Pod) *metaserver.MetaServer {
+	return &metaserver.MetaServer{
+		MetaAgent: &metaagent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{PodList: pods},
+		},
+	}
 }
 
 func TestReconcile(t *testing.T) {
 	t.Parallel()
 
-	ckDir, err := ioutil.TempDir("", "checkpoint-Test")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(ckDir) }()
-
-	conf := generateTestConfiguration(ckDir)
-	metaServer, err := generateTestMetaServer(conf)
-	require.NoError(t, err)
-
-	metaServer.PodFetcher = &pod.PodFetcherStub{
-		PodList: []*v1.Pod{
-			{
-				ObjectMeta: v12.ObjectMeta{
-					Name: "pod0",
-					UID:  "pod0",
-				},
-			},
-			{
-				ObjectMeta: v12.ObjectMeta{
-					Name: "pod1",
-					UID:  "pod1",
-				},
-			},
-			{
-				ObjectMeta: v12.ObjectMeta{
-					Name: "pod2",
-					UID:  "pod2",
-				},
+	metaServer := newTestMetaServer([]*v1.Pod{
+		{
+			ObjectMeta: v12.ObjectMeta{
+				Name: "pod0",
+				UID:  "pod0",
 			},
 		},
-	}
+		{
+			ObjectMeta: v12.ObjectMeta{
+				Name: "pod1",
+				UID:  "pod1",
+			},
+		},
+		{
+			ObjectMeta: v12.ObjectMeta{
+				Name: "pod2",
+				UID:  "pod2",
+			},
+		},
+	})
 
 	manager := NewManager(metrics.DummyMetrics{}, func() sets.String {
 		return sets.NewString("pod0", "pod3", "pod4", "pod5")
@@ -109,36 +127,26 @@ func TestReconcile(t *testing.T) {
 func TestReconcilePods(t *testing.T) {
 	t.Parallel()
 
-	ckDir, err := ioutil.TempDir("", "checkpoint-Test")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(ckDir) }()
-
-	conf := generateTestConfiguration(ckDir)
-	metaServer, err := generateTestMetaServer(conf)
-	require.NoError(t, err)
-
-	metaServer.PodFetcher = &pod.PodFetcherStub{
-		PodList: []*v1.Pod{
-			{
-				ObjectMeta: v12.ObjectMeta{
-					Name: "pod0",
-					UID:  "pod0",
-				},
-			},
-			{
-				ObjectMeta: v12.ObjectMeta{
-					Name: "pod1",
-					UID:  "pod1",
-				},
-			},
-			{
-				ObjectMeta: v12.ObjectMeta{
-					Name: "pod2",
-					UID:  "pod2",
-				},
+	metaServer := newTestMetaServer([]*v1.Pod{
+		{
+			ObjectMeta: v12.ObjectMeta{
+				Name: "pod0",
+				UID:  "pod0",
 			},
 		},
-	}
+		{
+			ObjectMeta: v12.ObjectMeta{
+				Name: "pod1",
+				UID:  "pod1",
+			},
+		},
+		{
+			ObjectMeta: v12.ObjectMeta{
+				Name: "pod2",
+				UID:  "pod2",
+			},
+		},
+	})
 
 	manager := NewManager(metrics.DummyMetrics{}, func() sets.String {
 		return sets.NewString("pod0", "pod3", "pod4", "pod5")

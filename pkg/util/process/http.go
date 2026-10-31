@@ -299,7 +299,17 @@ func NewDefaultHTTPClient() *http.Client {
 
 // GetAndUnmarshal gets data from the given url and unmarshal it into the given struct.
 func GetAndUnmarshal(url string, v interface{}) error {
-	resp, err := http.Get(url)
+	return GetAndUnmarshalWithContext(context.Background(), url, v)
+}
+
+var getAndUnmarshalHTTPClient = NewDefaultHTTPClient()
+
+func GetAndUnmarshalWithContext(ctx context.Context, url string, v interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := getAndUnmarshalHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

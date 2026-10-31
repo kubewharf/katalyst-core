@@ -37,6 +37,7 @@ import (
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -435,8 +436,8 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(memconsts.ClearResidualState, err)
 	}()
 
-	ctx := context.Background()
-	podList, err = p.metaServer.GetPodList(ctx, nil)
+	ctx := context.WithValue(context.Background(), metapod.BypassCacheKey, metapod.BypassCacheTrue)
+	podList, err = p.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		general.Infof("get pod list failed: %v", err)
 		return
@@ -449,6 +450,10 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 
 	p.Lock()
 	defer p.Unlock()
+
+	if p.residualHitMap == nil {
+		p.residualHitMap = make(map[string]int64)
+	}
 
 	podResourceEntries := p.state.GetPodResourceEntries()
 	for _, podEntries := range podResourceEntries {

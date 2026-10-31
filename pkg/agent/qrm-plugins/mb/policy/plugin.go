@@ -218,12 +218,9 @@ func (m *MBPlugin) run() {
 		return
 	}
 
-	// some resctrl FS may present share subgroup in "shared-xx" form
-	// need to normalize to the desired form "share-xx"
-	groupMB, isObsoleteSharedSubgroupConvention := mbData.MBBody.NormalizeShareSubgroups()
-	if isObsoleteSharedSubgroupConvention {
-		mbData.MBBody = groupMB
-	}
+	// Keep physical CLOS IDs unchanged throughout the MB pipeline. "shared-50"
+	// is the default shared CLOS, while "share-50" is an explicit subgroup; a
+	// global prefix conversion would merge two independently managed groups.
 
 	if klog.V(6).Enabled() {
 		general.Infof("[mbm] [reader] resctrl reported grouped ccd mb stat: %#v", mbData.MBBody)
@@ -249,11 +246,6 @@ func (m *MBPlugin) run() {
 	}
 	if klog.V(6).Enabled() {
 		general.Infof("[mbm] mb plan update: %s", mbPlan)
-	}
-
-	// ensure shared-xx subgroups kept as is if it is the obsolete shared-xx form
-	if isObsoleteSharedSubgroupConvention {
-		mbPlan = mbPlan.GetPlanInSharedSubgroupForm()
 	}
 
 	if err := m.planAllocator.Allocate(ctx, mbPlan); err != nil {
