@@ -19,6 +19,7 @@ package provisionassembler
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -66,101 +67,194 @@ func regulateOverlapReclaimPoolSize(sharePoolSizes map[string]int, overlapReclai
 	return sharedOverlapReclaimSize, nil
 }
 
-// regulatePoolSizes modifies pool size map to legal values, taking total available
-// resource and config such as enable reclaim into account. should be compatible with
-// any case and not return error. return true if reach resource upper bound.
-func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[string]int, available int, allowExpand bool) (map[string]int, bool) {
-	expandableRequirementsSum := general.SumUpMapValues(expandableRequirements)
-	unexpandableRequirementsSum := general.SumUpMapValues(unexpandableRequirements)
-
-	requirementSum := expandableRequirementsSum + unexpandableRequirementsSum
-	if requirementSum > available {
-		requirements := general.MergeMapInt(expandableRequirements, unexpandableRequirements)
-		poolSizes, err := normalizePoolSizes(requirements, available)
-		if err != nil {
-			// all pools share available resource as fallback if normalization failed
-			for k := range requirements {
-				poolSizes[k] = available
+// allocatePoolSizesByPriority allocates physical capacity without mixing
+// guarantees from different classes in one proportional normalization. The
+// order is dedicated requirement, isolation lower bound, shared minimum, then
+// all optional expansion.
+func allocatePoolSizesByPriority(
+	available int,
+	dedicatedRequirements,
+	isolationLowerSizes,
+	shareMinimums,
+	expansionTargets map[string]int,
+) (map[string]int, bool) {
+	result := make(map[string]int)
+	remaining := general.Max(available, 0)
+	for _, tier := range []map[string]int{
+		dedicatedRequirements,
+		isolationLowerSizes,
+		shareMinimums,
+		expansionTargets,
+	} {
+		increments := make(map[string]int)
+		for name, target := range tier {
+			if delta := general.Max(target, 0) - result[name]; delta > 0 {
+				increments[name] = delta
 			}
 		}
-		return poolSizes, true
-	} else if allowExpand {
-		expandableRequirementsSum = available - unexpandableRequirementsSum
-	}
-
-	poolSizes, err := normalizePoolSizes(expandableRequirements, expandableRequirementsSum)
-	if err != nil {
-		for k := range expandableRequirements {
-			poolSizes[k] = available
+		allocated := allocateProportionally(increments, remaining)
+		for name, size := range allocated {
+			result[name] += size
+			remaining -= size
 		}
-	}
-	for name, size := range unexpandableRequirements {
-		poolSizes[name] = size
-	}
-
-	return poolSizes, false
-}
-
-func normalizePoolSizes(poolSizes map[string]int, targetSum int) (map[string]int, error) {
-	sum := general.SumUpMapValues(poolSizes)
-	if sum == targetSum {
-		return general.DeepCopyIntMap(poolSizes), nil
-	}
-
-	poolSizesNormalized := make(map[string]int)
-	normalizedSum := 0
-
-	for k, v := range poolSizes {
-		value := int(math.Ceil(float64(v*targetSum) / float64(sum)))
-		poolSizesNormalized[k] = value
-		normalizedSum += value
-	}
-
-	for {
-		if normalizedSum <= targetSum {
+		if remaining == 0 {
 			break
 		}
-		poolName := selectPoolHelper(poolSizes, poolSizesNormalized)
-		if poolName == "" {
-			return poolSizesNormalized, fmt.Errorf("no enough resource")
-		}
-		poolSizesNormalized[poolName] -= 1
-		normalizedSum -= 1
 	}
-	return poolSizesNormalized, nil
+
+	throttled := false
+	for name, target := range expansionTargets {
+		if result[name] < general.Max(target, 0) {
+			throttled = true
+			break
+		}
+	}
+	return result, throttled
 }
 
-func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int) string {
-	candidates := []string{}
-	rMax := 0.0
-	for k, v := range poolSizesNormalized {
-		if v <= 1 {
+func allocatePoolSizesByWorkloadPriority(
+	available, dedicatedAvailable, sharedAvailable int,
+	dedicatedRequirements,
+	isolationLowerSizes,
+	shareMinimums,
+	expansionTargets map[string]int,
+) (map[string]int, bool) {
+	result := make(map[string]int)
+	remaining := general.Max(available, 0)
+
+	allocateTier := func(targets map[string]int, limit int) {
+		increments := make(map[string]int)
+		for name, target := range targets {
+			if delta := general.Max(target, 0) - result[name]; delta > 0 {
+				increments[name] = delta
+			}
+		}
+		budget := general.Min(remaining, general.Max(limit, 0))
+		allocated := allocateProportionally(increments, budget)
+		for name, size := range allocated {
+			result[name] += size
+			remaining -= size
+		}
+	}
+
+	allocateTier(dedicatedRequirements, dedicatedAvailable)
+	allocateTier(isolationLowerSizes, remaining)
+	allocateTier(shareMinimums, sharedAvailable)
+
+	dedicatedExpansion := make(map[string]int)
+	isolationExpansion := make(map[string]int)
+	sharedExpansion := make(map[string]int)
+	for name, target := range expansionTargets {
+		switch {
+		case dedicatedRequirements[name] > 0:
+			dedicatedExpansion[name] = target
+		case isolationLowerSizes[name] > 0:
+			isolationExpansion[name] = target
+		default:
+			sharedExpansion[name] = target
+		}
+	}
+	allocateTier(dedicatedExpansion,
+		general.Max(dedicatedAvailable-general.SumUpMapValues(filterPoolSizes(result, dedicatedRequirements)), 0))
+	allocateTier(isolationExpansion, remaining)
+	allocateTier(sharedExpansion,
+		general.Max(sharedAvailable-general.SumUpMapValues(filterPoolSizes(result, shareMinimums)), 0))
+
+	throttled := false
+	for name, target := range expansionTargets {
+		if result[name] < general.Max(target, 0) {
+			throttled = true
+			break
+		}
+	}
+	return result, throttled
+}
+
+func filterPoolSizes(poolSizes, names map[string]int) map[string]int {
+	result := make(map[string]int)
+	for name := range names {
+		result[name] = poolSizes[name]
+	}
+	return result
+}
+
+func expandSharePoolsToCapacity(poolSizes, shareWeights map[string]int, available int) {
+	remaining := general.Max(available-general.SumUpMapValues(poolSizes), 0)
+	if remaining == 0 || len(shareWeights) == 0 {
+		return
+	}
+
+	shareTarget := remaining
+	active := general.DeepCopyIntMap(shareWeights)
+	for name := range shareWeights {
+		shareTarget += poolSizes[name]
+	}
+	fixed := make(map[string]int)
+	for len(active) > 0 {
+		fixedSum := general.SumUpMapValues(fixed)
+		desired := allocateByWeight(active, general.Max(shareTarget-fixedSum, 0))
+		changed := false
+		for name := range active {
+			if desired[name] < poolSizes[name] {
+				fixed[name] = poolSizes[name]
+				delete(active, name)
+				changed = true
+			}
+		}
+		if changed {
 			continue
 		}
-		r := float64(v) / float64(poolSizesOriginal[k])
-		if r > rMax {
-			candidates = []string{k}
-			rMax = r
-		} else if r == rMax {
-			candidates = append(candidates, k)
+		for name, size := range desired {
+			poolSizes[name] = size
 		}
+		break
 	}
+}
 
-	if len(candidates) <= 0 {
-		return ""
-	} else if len(candidates) == 1 {
-		return candidates[0]
+func allocateProportionally(requirements map[string]int, available int) map[string]int {
+	result := make(map[string]int)
+	total := general.SumUpMapValues(requirements)
+	if available <= 0 || total <= 0 {
+		return result
 	}
+	if total <= available {
+		return general.DeepCopyIntMap(requirements)
+	}
+	return allocateByWeight(requirements, available)
+}
 
-	selected := ""
-	vMax := 0
-	for _, pool := range candidates {
-		if v := poolSizesNormalized[pool]; v > vMax {
-			selected = pool
-			vMax = v
+func allocateByWeight(weights map[string]int, amount int) map[string]int {
+	result := make(map[string]int)
+	total := general.SumUpMapValues(weights)
+	if amount <= 0 || total <= 0 {
+		return result
+	}
+	type fractionalRemainder struct {
+		name      string
+		remainder int
+	}
+	remainders := make([]fractionalRemainder, 0, len(weights))
+	allocated := 0
+	for name, weight := range weights {
+		if weight <= 0 {
+			continue
 		}
+		numerator := weight * amount
+		result[name] = numerator / total
+		allocated += result[name]
+		remainders = append(remainders, fractionalRemainder{name: name, remainder: numerator % total})
 	}
-	return selected
+	sort.Slice(remainders, func(i, j int) bool {
+		if remainders[i].remainder != remainders[j].remainder {
+			return remainders[i].remainder > remainders[j].remainder
+		}
+		return remainders[i].name < remainders[j].name
+	})
+	for i := 0; allocated < amount && i < len(remainders); i++ {
+		result[remainders[i].name]++
+		allocated++
+	}
+	return result
 }
 
 type RegionMapHelper struct {

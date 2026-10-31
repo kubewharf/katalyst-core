@@ -280,3 +280,33 @@ func TestPolicyNumaExclusive(t *testing.T) {
 		})
 	}
 }
+
+// TestScaleHeadroomByPerformanceNonNegative pins the extrapolation guard: the
+// linear factor is negative when the performance score drops below
+// spd.MinPerformanceScore, which would otherwise produce a negative headroom.
+// The result must clamp to zero, while in-range and above-max scores are
+// unchanged.
+func TestScaleHeadroomByPerformanceNonNegative(t *testing.T) {
+	t.Parallel()
+
+	const origin = 80.0
+	tests := []struct {
+		name   string
+		score  float64
+		expect float64
+	}{
+		{name: "max score factor one", score: 100, expect: 80},
+		{name: "mid score half", score: 50, expect: 40},
+		{name: "min score zero", score: 0, expect: 0},
+		{name: "below min clamps to zero", score: -20, expect: 0},
+		{name: "above max stays positive", score: 120, expect: 96},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expect, scaleHeadroomByPerformance(origin, tt.score))
+		})
+	}
+}
