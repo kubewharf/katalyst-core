@@ -17,15 +17,10 @@ limitations under the License.
 package priority
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 
-	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 var (
@@ -36,77 +31,103 @@ var (
 func GetInstance() *threadSafeGroupPriority {
 	once.Do(func() {
 		instance = &threadSafeGroupPriority{
-			weights: make(map[string]int, len(resctrlMajorGroupWeights)),
+			majorWeights: make(map[string]int, len(resctrlMajorGroupWeights)),
+			exactWeights: make(map[string]int),
 		}
 		for key, value := range resctrlMajorGroupWeights {
-			instance.weights[key] = value
+			instance.majorWeights[key] = value
 		}
 	})
 	return instance
 }
 
 type threadSafeGroupPriority struct {
-	mu      sync.RWMutex
-	weights map[string]int
+	mu           sync.RWMutex
+	majorWeights map[string]int
+	exactWeights map[string]int
+}
+
+// EquivalenceGroupKey is the shared grouping contract used by sorting and
+// advisor preprocessing. Physical share subgroups intentionally include their
+// complete CLOS ID so equal numeric priorities cannot merge their traffic.
+type EquivalenceGroupKey struct {
+	Weight         int
+	PhysicalCLOSID string
 }
 
 func (g *threadSafeGroupPriority) GetWeight(name string) int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	baseWeight, ok := g.weights[getMajor(name)]
+	if weight, ok := g.exactWeights[name]; ok {
+		return weight
+	}
+
+	baseWeight, ok := g.majorWeights[getMajor(name)]
 	if !ok {
 		return defaultWeight
 	}
 
-	return baseWeight + getSubWeight(name)
+	return saturatingAddNonNegative(baseWeight, getSubWeight(name))
+}
+
+func saturatingAddNonNegative(left, right int) int {
+	maxInt := int(^uint(0) >> 1)
+	if right > maxInt-left {
+		return maxInt
+	}
+	return left + right
+}
+
+func (g *threadSafeGroupPriority) GetEquivalenceGroupKey(name string) EquivalenceGroupKey {
+	key := EquivalenceGroupKey{Weight: g.GetWeight(name)}
+	if isPhysicalShareSubgroup(name) {
+		key.PhysicalCLOSID = name
+	}
+	return key
 }
 
 func (g *threadSafeGroupPriority) SortGroups(groups []string) []sets.String {
 	sort.Slice(groups, func(i, j int) bool {
-		return g.GetWeight(groups[i]) > g.GetWeight(groups[j])
+		leftKey := g.GetEquivalenceGroupKey(groups[i])
+		rightKey := g.GetEquivalenceGroupKey(groups[j])
+		if leftKey.Weight != rightKey.Weight {
+			return leftKey.Weight > rightKey.Weight
+		}
+		if leftKey.PhysicalCLOSID != rightKey.PhysicalCLOSID {
+			return leftKey.PhysicalCLOSID < rightKey.PhysicalCLOSID
+		}
+		return groups[i] < groups[j]
 	})
 
-	return g.mergeGroupsByWeight(groups)
+	return g.mergeGroupsByEquivalenceKey(groups)
 }
 
-func (g *threadSafeGroupPriority) mergeGroupsByWeight(groups []string) []sets.String {
+func (g *threadSafeGroupPriority) mergeGroupsByEquivalenceKey(groups []string) []sets.String {
 	var mergedGroups []sets.String
+	var lastKey EquivalenceGroupKey
 	for _, group := range groups {
+		key := g.GetEquivalenceGroupKey(group)
 		if len(mergedGroups) == 0 {
 			mergedGroups = append(mergedGroups, sets.NewString(group))
+			lastKey = key
 			continue
 		}
 
-		lastGroup := mergedGroups[len(mergedGroups)-1]
-		weightLastGroup, err := g.getWeightOfEquivGroup(lastGroup)
-		if err != nil {
-			general.Warningf("[mbm] failed to get allocation weight of group %v: %v", lastGroup, err)
-			continue
-		}
-
-		if g.GetWeight(group) == weightLastGroup {
-			lastGroup.Insert(group)
+		if key == lastKey {
+			mergedGroups[len(mergedGroups)-1].Insert(group)
 			continue
 		}
 
 		mergedGroups = append(mergedGroups, sets.NewString(group))
+		lastKey = key
 	}
 	return mergedGroups
-}
-
-func (g *threadSafeGroupPriority) getWeightOfEquivGroup(equivGroups sets.String) (int, error) {
-	repGroup, err := resource.GetGroupRepresentative(equivGroups)
-	if err != nil {
-		return 0, errors.Wrap(err, fmt.Sprintf("failed to get representative of groups %v", equivGroups))
-	}
-
-	return g.GetWeight(repGroup), nil
 }
 
 func (g *threadSafeGroupPriority) AddWeight(name string, weight int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.weights[name] = weight
+	g.exactWeights[name] = weight
 }

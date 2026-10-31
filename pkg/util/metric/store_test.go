@@ -77,6 +77,33 @@ func TestStore_SetAndGetCPUMetric(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestStore_DeleteCPUMetric(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	store := NewMetricStore()
+	store.SetCPUMetric(0, "cpi", MetricData{Value: 1.5, Time: &now})
+	store.SetCPUMetric(0, "cycles", MetricData{Value: 100, Time: &now})
+
+	// sanity: both present
+	_, err := store.GetCPUMetric(0, "cpi")
+	assert.NoError(t, err)
+
+	store.DeleteCPUMetric(0, "cpi")
+	_, err = store.GetCPUMetric(0, "cpi")
+	assert.Error(t, err)
+
+	// other metric on the same cpu is untouched
+	v, err := store.GetCPUMetric(0, "cycles")
+	assert.NoError(t, err)
+	assert.Equal(t, 100.0, v.Value)
+
+	// deleting a missing metric / missing cpu is a no-op
+	store.DeleteCPUMetric(0, "cpi")
+	store.DeleteCPUMetric(99, "cpi")
+}
+
 func TestStore_ContainerMetric(t *testing.T) {
 	t.Parallel()
 

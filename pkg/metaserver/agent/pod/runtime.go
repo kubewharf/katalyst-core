@@ -177,13 +177,14 @@ func (r *runtimePodFetcherImpl) getKubeletContainers(allContainers bool) ([]*run
 // GetContainerInfo returns the additional runtime info of a container based on container id
 func (r *runtimePodFetcherImpl) GetContainerInfo(containerId string) (map[string]string, error) {
 	containerStatus, err := r.runtimeService.ContainerStatus(containerId, true)
-	if containerStatus == nil || err != nil {
-		klog.ErrorS(err, "GetContainerStatus failed")
-		return nil, fmt.Errorf("get container status failed, err: %v", err)
+	if err != nil {
+		return nil, fmt.Errorf("get container status failed: %w", err)
+	}
+	if containerStatus == nil {
+		return nil, fmt.Errorf("container status is nil")
 	}
 
 	if containerStatus.Info == nil {
-		klog.ErrorS(err, "ContainerStatus has no info")
 		return nil, fmt.Errorf("containerStatus has no info")
 	}
 

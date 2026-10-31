@@ -121,6 +121,11 @@ type SubDirWatcherInfo struct {
 	RootPaths []string
 }
 
+type SubDirEvent struct {
+	Path    string
+	Created bool
+}
+
 // DirWatchListFunc returns a snapshot of the paths currently being watched
 // (both root paths and discovered first-level children), sorted to keep log
 // output stable. It is goroutine safe and may be called from any goroutine.
@@ -154,13 +159,13 @@ type DirWatchListFunc func() []string
 //
 // The caller is responsible for any rate limiting / periodic fallback /
 // actual sync behavior on top of the returned signal channel.
-func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherInfo) (<-chan struct{}, DirWatchListFunc, error) {
+func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherInfo) (<-chan SubDirEvent, DirWatchListFunc, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, nil, fmt.Errorf("new fsNotify watcher failed: %w", err)
 	}
 
-	notifyCh := make(chan struct{}, 1)
+	notifyCh := make(chan SubDirEvent, 1)
 
 	// rootPaths and childPaths are only accessed from the watcher goroutine
 	// below, so they don't need synchronization.
@@ -197,9 +202,33 @@ func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherI
 		return true
 	}
 
-	notify := func() {
+	notify := func(event SubDirEvent) {
 		select {
-		case notifyCh <- struct{}{}:
+		case notifyCh <- event:
+			return
+		default:
+		}
+		// Channel is full. For create events, prefer a pending create over a
+		// remove so the consumer learns about a freshly watched directory.
+		// For remove events, replace whatever is pending: when a parent is
+		// removed after its children, the outer path's removal is the signal
+		// the consumer waits for, and dropping it would leave a stale watch.
+		if event.Created {
+			select {
+			case pending := <-notifyCh:
+				if pending.Created {
+					event = pending
+				}
+			default:
+			}
+		} else {
+			select {
+			case <-notifyCh:
+			default:
+			}
+		}
+		select {
+		case notifyCh <- event:
 		default:
 		}
 	}
@@ -252,8 +281,9 @@ func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherI
 				}
 				eventPath := filepath.Clean(event.Name)
 				needSync := false
+				created := event.Op&fsnotify.Create != 0
 				if rootPaths.Has(filepath.Dir(eventPath)) {
-					if event.Op&fsnotify.Create != 0 {
+					if created {
 						info, statErr := os.Stat(eventPath)
 						if statErr != nil {
 							klog.ErrorS(statErr, "failed stat event path", "path", eventPath)
@@ -267,10 +297,14 @@ func RegisterSubDirEventWatcher(stop <-chan struct{}, watcherInfo SubDirWatcherI
 						}
 					}
 				}
+				if childPaths.Has(filepath.Dir(eventPath)) &&
+					event.Op&(fsnotify.Create|fsnotify.Remove) != 0 {
+					needSync = true
+				}
 				if event.Op&(fsnotify.Create|fsnotify.Remove) != 0 &&
 					(needSync || rootPaths.Has(eventPath) || childPaths.Has(eventPath)) {
 					klog.InfoS("sub-dir watcher path event", "event", event.String())
-					notify()
+					notify(SubDirEvent{Path: eventPath, Created: created})
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -295,6 +329,21 @@ func GetOneExistPath(paths []string) string {
 		}
 	}
 	return ""
+}
+
+// GetExistingPaths returns the subset of paths that exist on disk,
+// preserving input order.
+func GetExistingPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if IsPathExists(p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // GetOneExistPathUntilExist returns a path until one provided path exists
