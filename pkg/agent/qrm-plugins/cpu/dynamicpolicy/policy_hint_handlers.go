@@ -60,7 +60,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		}
 
 		if !ok {
-			_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+			_ = p.emitter.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 				"resource":      v1.ResourceCPU.String(),
 				"podNamespace":  req.PodNamespace,
 				"podName":       req.PodName,
@@ -84,7 +84,7 @@ func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 	}
 
 	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
-		p.enableReclaimNUMABinding {
+		p.config.enableReclaimNUMABinding {
 		return p.reclaimedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
@@ -146,7 +146,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			}
 
 			var err error
-			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, machineState)
+			machineState, err = generateMachineStateFromPodEntries(p.machine.machineInfo.CPUTopology, podEntries, machineState)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -161,7 +161,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			(*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 		var extraErr error
-		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, p.extraStateFileAbsPath, availableNUMAs, []v1.ResourceName{
+		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, p.config.extraStateFileAbsPath, availableNUMAs, []v1.ResourceName{
 			v1.ResourceCPU,
 		})
 		if extraErr != nil {
@@ -180,7 +180,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
-	if err := AccompanyResourceRegistry.GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
+	if err := p.accompanyReg().GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentTopologyHints failed with error: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func (p *DynamicPolicy) calculateHints(
 	}
 	sort.Ints(numaNodes)
 
-	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(request, p.machineInfo.CPUTopology)
+	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(request, p.machine.machineInfo.CPUTopology)
 	if err != nil {
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
@@ -224,7 +224,7 @@ func (p *DynamicPolicy) calculateHints(
 	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(req.Annotations)
 
 	var numaNumber int
-	numaIDs, err := qosutil.AnnotationsGetNUMAIDs(req.Annotations, numaNodes, p.numaIDsAnnotationKey)
+	numaIDs, err := qosutil.AnnotationsGetNUMAIDs(req.Annotations, numaNodes, p.config.numaIDsAnnotationKey)
 	if err != nil {
 		return nil, fmt.Errorf("get NUMA IDs from annotations failed with error: %v", err)
 	}
@@ -232,13 +232,13 @@ func (p *DynamicPolicy) calculateHints(
 	if !numaIDs.IsEmpty() {
 		numaNumber = numaIDs.Count()
 	} else {
-		numaNumber, err = qosutil.AnnotationsGetNUMANumber(req.Annotations, len(numaNodes), p.numaNumberAnnotationKey)
+		numaNumber, err = qosutil.AnnotationsGetNUMANumber(req.Annotations, len(numaNodes), p.config.numaNumberAnnotationKey)
 		if err != nil {
 			return nil, fmt.Errorf("get NUMA number from annotations failed with error: %v", err)
 		}
 	}
 
-	cpusPerCore := p.machineInfo.CPUsPerCore()
+	cpusPerCore := p.machine.machineInfo.CPUsPerCore()
 	if cpusPerCore == 0 {
 		return nil, fmt.Errorf("0 cpus per core, which is unexpected")
 	}
@@ -258,36 +258,13 @@ func (p *DynamicPolicy) calculateHints(
 		return nil, fmt.Errorf("NUMA exclusive and full_pcpus_pairing is not supported at the same time")
 	}
 
-	numasPerSocket, err := p.machineInfo.NUMAsPerSocket()
+	numasPerSocket, err := p.machine.machineInfo.NUMAsPerSocket()
 	if err != nil {
 		return nil, fmt.Errorf("NUMAsPerSocket failed with error: %v", err)
 	}
 
-	totalAvailableCPUs := machine.NewCPUSet()
-	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
-
-	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req, numaNumber)
-	for _, nodeID := range numaNodes {
-		if machineState[nodeID] == nil {
-			general.Warningf("NUMA: %d has nil state", nodeID)
-			numaToAvailableCPUCount[nodeID] = 0
-			continue
-		}
-
-		if numaExclusive && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
-			numaToAvailableCPUCount[nodeID] = 0
-			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
-				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
-			numaToAvailableCPUCount[nodeID] = 0
-			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
-				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-		} else {
-			availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs)
-			numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
-			totalAvailableCPUs.Add(availableCPUs.ToSliceNoSortInt()...)
-		}
-	}
+	numaToAvailableCPUCount, totalAvailableCPUs := p.countAvailableCPUsPerNUMA(
+		request, podEntries, machineState, req, numaNodes, numaNumber, numaBinding, numaExclusive)
 
 	general.Infof("calculate hints with req: %.3f, numaToAvailableCPUCount: %+v",
 		request, numaToAvailableCPUCount)
@@ -300,7 +277,7 @@ func (p *DynamicPolicy) calculateHints(
 
 	var availableNumaHints []*pluginapi.TopologyHint
 	// minAffinitySize is the minimum number of NUMA nodes from the hints
-	minAffinitySize := p.machineInfo.CPUDetails.NUMANodes().Size()
+	minAffinitySize := p.machine.machineInfo.CPUDetails.NUMANodes().Size()
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
@@ -327,7 +304,7 @@ func (p *DynamicPolicy) calculateHints(
 			minAffinitySize = maskCount
 		}
 
-		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machineInfo.CPUTopology)
+		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machine.machineInfo.CPUTopology)
 		if err != nil {
 			return
 		} else if maskCount <= numasPerSocket && crossSockets {
@@ -347,7 +324,7 @@ func (p *DynamicPolicy) calculateHints(
 			}
 		} else if fullPCPUsPairing {
 			// Filter out hints that cannot allocate to physical cores only
-			availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(maskBits...).Intersection(totalAvailableCPUs)
+			availableCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(maskBits...).Intersection(totalAvailableCPUs)
 			if !p.canFullPCPUsPairing(int(request), cpusPerCore, availableCPUs) {
 				return
 			}
@@ -401,7 +378,7 @@ func (p *DynamicPolicy) calculateHints(
 		Hints: availableNumaHints,
 	}
 
-	err = p.dedicatedCoresNUMABindingHintOptimizer.OptimizeHints(
+	err = p.hintOpt.dedicatedCoresNUMABindingHintOptimizer.OptimizeHints(
 		hintoptimizer.Request{
 			ResourceRequest: req,
 			CPURequest:      request,
@@ -411,7 +388,7 @@ func (p *DynamicPolicy) calculateHints(
 	}
 
 	// populate hints by already existed numa binding result for non-exclusive container
-	if !numaExclusive && p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+	if !numaExclusive && p.config.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
 		err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
 		if err != nil {
 			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
@@ -424,13 +401,50 @@ func (p *DynamicPolicy) calculateHints(
 	}, nil
 }
 
+// countAvailableCPUsPerNUMA walks the machine NUMA state and tallies the
+// available CPUs per NUMA, skipping NUMAs disallowed by numa-exclusive /
+// numa-binding placement. It returns the per-NUMA available counts and the
+// union of available CPUs used later for even-distribution and full-PCPUs checks.
+func (p *DynamicPolicy) countAvailableCPUsPerNUMA(
+	request float64, podEntries state.PodEntries, machineState state.NUMANodeMap,
+	req *pluginapi.ResourceRequest, numaNodes []int, numaNumber int,
+	numaBinding, numaExclusive bool,
+) (numaToAvailableCPUCount map[int]int, totalAvailableCPUs machine.CPUSet) {
+	totalAvailableCPUs = machine.NewCPUSet()
+	numaToAvailableCPUCount = make(map[int]int, len(numaNodes))
+
+	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req, numaNumber)
+	for _, nodeID := range numaNodes {
+		if machineState[nodeID] == nil {
+			general.Warningf("NUMA: %d has nil state", nodeID)
+			numaToAvailableCPUCount[nodeID] = 0
+			continue
+		}
+
+		if numaExclusive && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else {
+			availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.config.reservedCPUs)
+			numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
+			totalAvailableCPUs.Add(availableCPUs.ToSliceNoSortInt()...)
+		}
+	}
+	return numaToAvailableCPUCount, totalAvailableCPUs
+}
+
 // canAlignedBySocket is a function that returns true if numa nodes used is aligned by socket.
 func (p *DynamicPolicy) canAlignedBySocket(numaNodesUsed []int, request int) bool {
 	// Get the number of sockets allocated from the hint
-	hintSockets := p.machineInfo.CPUDetails.SocketsInNUMANodes(numaNodesUsed...).Size()
+	hintSockets := p.machine.machineInfo.CPUDetails.SocketsInNUMANodes(numaNodesUsed...).Size()
 
 	// Get the minimum number of sockets needed to fit the request using ceiling division
-	cpusPerSocket := p.machineInfo.CPUTopology.CPUsPerSocket()
+	cpusPerSocket := p.machine.machineInfo.CPUTopology.CPUsPerSocket()
 	if cpusPerSocket == 0 {
 		return false
 	}
@@ -454,7 +468,7 @@ func (p *DynamicPolicy) canDistributeEvenlyAcrossNuma(numaNodesUsed []int, reque
 
 	requestPerNuma := request / numNumaNodesUsed
 	for _, numaNode := range numaNodesUsed {
-		availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaNode).Intersection(totalAvailableCPUs)
+		availableCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaNode).Intersection(totalAvailableCPUs)
 		// If full PCPUs pairing is enabled, need to ensure that each numa node has enough cores to allocate fully
 		if fullPCPUsPairing {
 			return p.canFullPCPUsPairing(requestPerNuma, cpusPerCore, availableCPUs)
@@ -473,7 +487,7 @@ func (p *DynamicPolicy) canDistributeEvenlyAcrossNuma(numaNodesUsed []int, reque
 // canFullPCPUsPairing is a function that returns true if the request can be allocated to full physical cores
 func (p *DynamicPolicy) canFullPCPUsPairing(request, cpusPerCore int, availableCPUs machine.CPUSet) bool {
 	// Get all available cores currently
-	availableCores := calculator.GetFreeCores(p.machineInfo, availableCPUs)
+	availableCores := calculator.GetFreeCores(p.machine.machineInfo, availableCPUs)
 
 	// Get the number of requested physical cores through floor division
 	coresRequest := request / cpusPerCore
@@ -561,7 +575,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 	general.Infof("cpu hints for pod:%s/%s, container: %s success, hints: %v",
 		req.PodNamespace, req.PodName, req.ContainerName, hints)
 
-	if err := AccompanyResourceRegistry.GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
+	if err := p.accompanyReg().GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentTopologyHints failed with error: %v", err)
 	}
 
@@ -595,12 +609,12 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(req *pluginap
 	p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateLeft)
 
 	// If no valid hints are generated and this is not a single-NUMA scenario, return an error
-	if len(hints.Hints) == 0 && !(p.metaServer.NumNUMANodes == 1 && nonActualBindingNUMAs.Size() > 0) {
+	if len(hints.Hints) == 0 && !(p.meta.metaServer.NumNUMANodes == 1 && nonActualBindingNUMAs.Size() > 0) {
 		return nil, cpuutil.ErrNoAvailableCPUHints
 	}
 
 	// populate hints by already existed numa binding result
-	if p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+	if p.config.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
 		err := p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
 		if err != nil {
 			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
@@ -668,7 +682,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 				return nil, fmt.Errorf("snb port not support cross numa")
 			}
 			nodeID := numaSet.ToSliceInt()[0]
-			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.config.reservedCPUs)
 			originRequest, _ := allocationInfo.GetPodAggregatedRequest()
 
 			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request:%.3f->%.3f)",
@@ -681,7 +695,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
 				req.PodNamespace, req.PodName, req.ContainerName)
 			hints = cpuutil.RegenerateHints(allocationInfo, false)
-			err = p.sharedCoresNUMABindingHintOptimizer.OptimizeHints(
+			err = p.hintOpt.sharedCoresNUMABindingHintOptimizer.OptimizeHints(
 				hintoptimizer.Request{
 					ResourceRequest: req,
 					CPURequest:      request,
@@ -699,7 +713,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 		}
 	}
 
-	if err := AccompanyResourceRegistry.GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
+	if err := p.accompanyReg().GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentTopologyHints failed with error: %v", err)
 	}
 
@@ -713,7 +727,7 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state
 	}
 
 	var err error
-	machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
+	machineState, err := generateMachineStateFromPodEntries(p.machine.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -731,7 +745,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBinding(
 		return machine.NewCPUSet()
 	}
 
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.config.reservedCPUs, nil,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding)).Size()
 	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
@@ -751,7 +765,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 	filteredNUMANodes := make([]int, 0, len(numaNodes))
 
 	for _, nodeID := range numaNodes {
-		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.config.reservedCPUs)
 		if nonBindingNUMAs.Contains(nodeID) {
 			// take this non-binding NUMA for candidate shared_cores with numa_binding,
 			// won't cause non-binding shared_cores in short supply
@@ -778,7 +792,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
-	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(request, p.machineInfo.CPUTopology)
+	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(request, p.machine.machineInfo.CPUTopology)
 	if err != nil {
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
@@ -789,7 +803,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
 	}
 
-	if p.enableSNBHighNumaPreference {
+	if p.config.enableSNBHighNumaPreference {
 		general.Infof("SNB high numa preference is enabled,high numa node is preferential when calculating cpu hints")
 		sort.Slice(numaNodes, func(i, j int) bool {
 			return numaNodes[i] > numaNodes[j]
@@ -800,7 +814,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	cpuutil.PopulateHintsByAvailableNUMANodes(numaNodes, hints, true)
 
 	// optimize hints by shared_cores numa_binding hint optimizer
-	err = p.sharedCoresNUMABindingHintOptimizer.OptimizeHints(
+	err = p.hintOpt.sharedCoresNUMABindingHintOptimizer.OptimizeHints(
 		hintoptimizer.Request{
 			ResourceRequest: req,
 			CPURequest:      request,
@@ -819,7 +833,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	}
 
 	// populate hints by already existed numa binding result
-	if p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+	if p.config.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
 		err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
 		if err != nil {
 			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
@@ -859,7 +873,7 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 	if index == -1 {
 		general.Warningf("failed to find already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
 			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
-		_ = p.emitter.StoreInt64(util.MetricNameHintAnnotationInconsistent, 1, metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+		_ = p.emitter.emitter.StoreInt64(util.MetricNameHintAnnotationInconsistent, 1, metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 			"podNamespace": req.PodNamespace,
 			"podName":      req.PodName,
 		})...)
@@ -869,7 +883,7 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 		for i, hint := range hints.Hints {
 			if i == index {
 				if !hint.Preferred {
-					_ = p.emitter.StoreInt64(util.MetricNameHintAnnotationMismatch, 1, metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+					_ = p.emitter.emitter.StoreInt64(util.MetricNameHintAnnotationMismatch, 1, metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 						"podNamespace": req.PodNamespace,
 						"podName":      req.PodName,
 					})...)
@@ -885,7 +899,7 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 }
 
 func (p *DynamicPolicy) getNUMABindingResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
-	result, ok := req.Annotations[p.numaBindingResultAnnotationKey]
+	result, ok := req.Annotations[p.config.numaBindingResultAnnotationKey]
 	if !ok {
 		return machine.CPUSet{}, nil
 	}

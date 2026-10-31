@@ -27,16 +27,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 type cpuAdvisorValidationFunc func(resp *advisorapi.ListAndWatchResponse) error
 
 type CPUAdvisorValidator struct {
-	state       state.State
+	state       state.ReadonlyState
 	machineInfo *machine.KatalystMachineInfo
 }
 
-func NewCPUAdvisorValidator(state state.State, machineInfo *machine.KatalystMachineInfo) *CPUAdvisorValidator {
+func NewCPUAdvisorValidator(state state.ReadonlyState, machineInfo *machine.KatalystMachineInfo) *CPUAdvisorValidator {
 	return &CPUAdvisorValidator{
 		state:       state,
 		machineInfo: machineInfo,
@@ -90,20 +91,73 @@ func (c *CPUAdvisorValidator) ValidateRequest(req *advisorapi.GetAdviceRequest) 
 }
 
 func (c *CPUAdvisorValidator) Validate(resp *advisorapi.ListAndWatchResponse) error {
+	return c.validate(resp, false)
+}
+
+func (c *CPUAdvisorValidator) ValidateWithDefaultShareUpperBound(resp *advisorapi.ListAndWatchResponse) error {
+	return c.validate(resp, true)
+}
+
+func (c *CPUAdvisorValidator) validate(resp *advisorapi.ListAndWatchResponse, defaultShareUpperBound bool) error {
 	if resp == nil {
 		return fmt.Errorf("got nil cpu advisor resp")
+	}
+
+	blockResp := resp
+	var defaultShareUpperBoundErr error
+	if defaultShareUpperBound {
+		defaultShareUpperBoundErr = c.validateDefaultShareUpperBound(resp)
+		blockResp = resp.WithoutDefaultShareEntry()
 	}
 
 	var errList []error
 	for _, validator := range []cpuAdvisorValidationFunc{
 		c.validateEntries,
-		c.validateStaticPools,
 		c.validateForbiddenPools,
-		c.validateBlocks,
 	} {
 		errList = append(errList, validator(resp))
 	}
+	errList = append(errList,
+		defaultShareUpperBoundErr,
+		c.validateStaticPools(resp),
+		c.validateOverlapPolicy(blockResp),
+		c.validateResourcePackageOwners(blockResp),
+		c.validateBlocks(blockResp),
+	)
 	return errors.NewAggregate(errList)
+}
+
+func (c *CPUAdvisorValidator) validateDefaultShareUpperBound(resp *advisorapi.ListAndWatchResponse) error {
+	calculationEntries := resp.Entries[commonstate.PoolNameShare]
+	if calculationEntries == nil {
+		return fmt.Errorf("default share upper bound is missing")
+	}
+	calculationInfo := calculationEntries.Entries[commonstate.FakedContainerName]
+	if calculationInfo == nil {
+		return fmt.Errorf("default share upper bound is missing")
+	}
+	if calculationInfo.OwnerPoolName != commonstate.PoolNameShare {
+		return fmt.Errorf("default share has invalid owner pool name: %s", calculationInfo.OwnerPoolName)
+	}
+	if len(calculationInfo.CalculationResultsByNumas) != 1 {
+		return fmt.Errorf("default share upper bound must contain only faked numa id")
+	}
+	result := calculationInfo.CalculationResultsByNumas[commonstate.FakedNUMAID]
+	if result == nil || len(result.Blocks) != 1 || result.Blocks[0] == nil {
+		return fmt.Errorf("default share upper bound must contain exactly one block")
+	}
+	quantity, err := general.CovertUInt64ToInt(result.Blocks[0].Result)
+	if err != nil {
+		return fmt.Errorf("convert default share upper bound failed: %v", err)
+	}
+	if c.machineInfo == nil || c.machineInfo.CPUTopology == nil {
+		return fmt.Errorf("validate default share upper bound got nil topology")
+	}
+	if quantity > c.machineInfo.CPUTopology.NumCPUs {
+		return fmt.Errorf("default share upper bound %d exceeds total capacity %d",
+			quantity, c.machineInfo.CPUTopology.NumCPUs)
+	}
+	return nil
 }
 
 func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchResponse) error {
@@ -153,11 +207,24 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 						err, podUID, containerName)
 				}
 
-				// currently, we don't support strategy to adjust cpuset of dedicated_cores containers.
-				// for stability if the dedicated_cores container calculation result and allocation result, we will return error.
-				if calculationQuantity != allocationInfo.AllocationResult.Size() {
+				if resp.DisableDedicatedCoresOverlapReclaimedCores && calculationQuantity == 0 {
+					return fmt.Errorf("pod: %s container: %s has zero dedicated calculation result in disjoint mode",
+						podUID, containerName)
+				}
+
+				// In disjoint mode the dedicated/reclaim partition is
+				// re-driven by the incoming advisor response, so NUMA-binding
+				// dedicated allocations may legitimately shrink or grow (e.g. a
+				// non-exclusive DNB container whose target expands as the
+				// reclaim pool changes). Rejecting such grows would deadlock the
+				// container at its current (possibly minimal) size. Legacy /
+				// overlap mode retains the exact-size contract.
+				allocationQuantity := allocationInfo.AllocationResult.Size()
+				if calculationQuantity != allocationQuantity &&
+					(!resp.DisableDedicatedCoresOverlapReclaimedCores ||
+						!allocationInfo.CheckDedicatedNUMABinding()) {
 					return fmt.Errorf("pod: %s container: %s calculation result: %d and allocation result: %d mismatch",
-						podUID, containerName, calculationQuantity, allocationInfo.AllocationResult.Size())
+						podUID, containerName, calculationQuantity, allocationQuantity)
 				}
 			}
 		}
@@ -167,10 +234,13 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
 
 	for podUID, containerEntries := range sharedNUMABindingAllocationInfos {
-		for containerName := range containerEntries {
+		for containerName, allocationInfo := range containerEntries {
 			calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName)
 
 			if !ok {
+				if allocationInfo.RampUp && allocationInfo.OwnerPoolName == commonstate.EmptyOwnerPoolName {
+					continue
+				}
 				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
 			}
 
@@ -252,9 +322,103 @@ func (c *CPUAdvisorValidator) validateForbiddenPools(resp *advisorapi.ListAndWat
 	return nil
 }
 
+type blockOwnerPolicy struct {
+	hasDedicated bool
+	hasShared    bool
+	hasReclaim   bool
+}
+
+func (c *CPUAdvisorValidator) validateOverlapPolicy(resp *advisorapi.ListAndWatchResponse) error {
+	blockPolicies := make(map[string]*blockOwnerPolicy)
+	err := visitAdvisorBlocks(resp, func(ownerPoolName string, block *advisorapi.Block) error {
+		ownerPoolName, _ = resourcepackage.UnwrapOwnerPoolName(ownerPoolName)
+		policy := blockPolicies[block.BlockId]
+		if policy == nil {
+			policy = &blockOwnerPolicy{}
+			blockPolicies[block.BlockId] = policy
+		}
+		switch commonstate.GetPoolType(ownerPoolName) {
+		case commonstate.PoolNameDedicated:
+			policy.hasDedicated = true
+		case commonstate.PoolNameReclaim:
+			policy.hasReclaim = true
+		default:
+			policy.hasShared = true
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for blockID, policy := range blockPolicies {
+		if resp.DisableDedicatedCoresOverlapReclaimedCores && policy.hasDedicated && policy.hasReclaim {
+			return fmt.Errorf("dedicated and reclaim share block %s while overlap is disabled", blockID)
+		}
+		if !resp.AllowSharedCoresOverlapReclaimedCores && policy.hasShared && policy.hasReclaim {
+			return fmt.Errorf("shared and reclaim share block %s while overlap is disabled", blockID)
+		}
+	}
+	return nil
+}
+
+func (c *CPUAdvisorValidator) validateResourcePackageOwners(resp *advisorapi.ListAndWatchResponse) error {
+	blockPackages := make(map[string]string)
+	blockPackageSet := make(map[string]bool)
+	return visitAdvisorBlocks(resp, func(ownerPoolName string, block *advisorapi.Block) error {
+		poolName, packageName := resourcepackage.UnwrapOwnerPoolName(ownerPoolName)
+		if commonstate.GetPoolType(poolName) == commonstate.PoolNameReclaim && packageName == "" {
+			return nil
+		}
+		if blockPackageSet[block.BlockId] && blockPackages[block.BlockId] != packageName {
+			return fmt.Errorf("block %s aliases have incompatible resource packages", block.BlockId)
+		}
+		blockPackages[block.BlockId] = packageName
+		blockPackageSet[block.BlockId] = true
+		return nil
+	})
+}
+
+func visitAdvisorBlocks(
+	resp *advisorapi.ListAndWatchResponse,
+	visit func(ownerPoolName string, block *advisorapi.Block) error,
+) error {
+	if resp == nil {
+		return fmt.Errorf("got nil cpu advisor resp")
+	}
+	for entryName, entries := range resp.Entries {
+		if entries == nil {
+			continue
+		}
+		for subEntryName, info := range entries.Entries {
+			if info == nil {
+				continue
+			}
+			for numaID, result := range info.CalculationResultsByNumas {
+				if result == nil {
+					continue
+				}
+				for _, block := range result.Blocks {
+					if block == nil {
+						continue
+					}
+					if err := visit(info.OwnerPoolName, block); err != nil {
+						return fmt.Errorf("entry %s sub-entry %s NUMA %d: %w",
+							entryName, subEntryName, numaID, err)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchResponse) error {
 	if c.machineInfo == nil || c.machineInfo.CPUTopology == nil {
 		return fmt.Errorf("validateBlocksByTopology got nil topology")
+	}
+
+	if err := c.validateReclaimNUMAResults(resp); err != nil {
+		return err
 	}
 
 	numaToBlocks, err := resp.GetBlocks()
@@ -294,6 +458,63 @@ func (c *CPUAdvisorValidator) validateBlocks(resp *advisorapi.ListAndWatchRespon
 
 	if totalQuantity > c.machineInfo.CPUTopology.NumCPUs {
 		return fmt.Errorf("numaQuantity: %d exceeds total capacity: %d", totalQuantity, c.machineInfo.CPUTopology.NumCPUs)
+	}
+	return nil
+}
+
+func (c *CPUAdvisorValidator) validateReclaimNUMAResults(resp *advisorapi.ListAndWatchResponse) error {
+	if resp == nil || resp.AllowSharedCoresOverlapReclaimedCores {
+		return nil
+	}
+	reclaimInfo := getReclaimCalculationInfo(resp)
+	if reclaimInfo == nil {
+		return nil
+	}
+
+	for numaID, result := range reclaimInfo.CalculationResultsByNumas {
+		if numaID == commonstate.FakedNUMAID {
+			continue
+		}
+		if result == nil {
+			return fmt.Errorf("empty reclaim blocks for NUMA: %d", numaID)
+		}
+		if len(result.Blocks) == 0 {
+			return fmt.Errorf("empty reclaim blocks for NUMA: %d", numaID)
+		}
+		hasValidBlock := false
+		for _, block := range result.Blocks {
+			if block != nil {
+				hasValidBlock = true
+				break
+			}
+		}
+		if !hasValidBlock {
+			return fmt.Errorf("empty reclaim blocks for NUMA: %d", numaID)
+		}
+	}
+	return nil
+}
+
+func getReclaimCalculationInfo(resp *advisorapi.ListAndWatchResponse) *advisorapi.CalculationInfo {
+	if resp == nil || resp.Entries == nil {
+		return nil
+	}
+	reclaimEntries := resp.Entries[commonstate.PoolNameReclaim]
+	if reclaimEntries == nil {
+		return nil
+	}
+	if info := reclaimEntries.Entries[commonstate.FakedContainerName]; info != nil {
+		return info
+	}
+	for _, info := range reclaimEntries.Entries {
+		if info != nil && info.OwnerPoolName == commonstate.PoolNameReclaim {
+			return info
+		}
+	}
+	for _, info := range reclaimEntries.Entries {
+		if info != nil {
+			return info
+		}
 	}
 	return nil
 }
