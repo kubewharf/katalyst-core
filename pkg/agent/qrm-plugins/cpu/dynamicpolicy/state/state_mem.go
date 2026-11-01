@@ -271,7 +271,7 @@ func (s *cpuPluginState) CommitAdvisorState(
 	if len(permits) > 0 {
 		permit = permits[0]
 	}
-	if err := s.permitWrite("CommitAdvisorStateIfRevision", permit); err != nil {
+	if err := s.permitWrite("CommitAdvisorState", permit); err != nil {
 		return err
 	}
 	s.podEntries = podEntries.Clone()

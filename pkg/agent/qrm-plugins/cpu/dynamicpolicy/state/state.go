@@ -375,7 +375,6 @@ func (pe PodEntries) Clone() PodEntries {
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
-				clone[podUID][containerName] = nil
 				continue
 			}
 			clone[podUID][containerName] = allocationInfo.Clone()
