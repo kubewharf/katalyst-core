@@ -132,6 +132,9 @@ func (c *MetricStore) DeleteCPUMetric(cpuID int, metricName string) {
 	defer c.mutex.Unlock()
 	if perCPU, ok := c.cpuMetricMap[cpuID]; ok {
 		delete(perCPU, metricName)
+		if len(perCPU) == 0 {
+			delete(c.cpuMetricMap, cpuID)
+		}
 	}
 }
 

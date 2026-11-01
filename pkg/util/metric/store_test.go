@@ -104,6 +104,32 @@ func TestStore_DeleteCPUMetric(t *testing.T) {
 	store.DeleteCPUMetric(99, "cpi")
 }
 
+// TestStore_DeleteCPUMetricRemovesEmptyEntry ensures that deleting the last
+// per-CPU metric removes the empty map entry from cpuMetricMap, preventing
+// unbounded growth of stale empty entries.
+func TestStore_DeleteCPUMetricRemovesEmptyEntry(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	store := NewMetricStore()
+	store.SetCPUMetric(0, "cpi", MetricData{Value: 1.5, Time: &now})
+
+	// sanity: entry exists
+	store.mutex.RLock()
+	_, ok := store.cpuMetricMap[0]
+	store.mutex.RUnlock()
+	assert.True(t, ok, "cpu entry should exist before delete")
+
+	store.DeleteCPUMetric(0, "cpi")
+
+	// after deleting the last metric, the empty entry must be removed
+	store.mutex.RLock()
+	_, ok = store.cpuMetricMap[0]
+	store.mutex.RUnlock()
+	assert.False(t, ok, "empty cpu entry should be removed after deleting last metric")
+}
+
 func TestStore_ContainerMetric(t *testing.T) {
 	t.Parallel()
 
