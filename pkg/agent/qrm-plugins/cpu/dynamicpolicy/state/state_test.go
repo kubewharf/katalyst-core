@@ -154,6 +154,23 @@ func TestCPUPluginStateCommitAdvisorStateIsAtomic(t *testing.T) {
 	}
 }
 
+func TestCPUPluginStateCommitAdvisorStateGateOperationName(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+
+	var gotOperation string
+	s.SetWritePermit(func(_ uint64, operation string, _ *WritePermit) error {
+		gotOperation = operation
+		return nil
+	})
+
+	entries := PodEntries{"pod": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)}}}
+	require.NoError(t, s.CommitAdvisorState(entries, NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)}}, false, false, false))
+	require.Equal(t, "CommitAdvisorState", gotOperation)
+}
+
 func TestCPUPluginStateCommitAdvisorStateIfRevisionRejectsStaleSnapshot(t *testing.T) {
 	t.Parallel()
 	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
