@@ -151,8 +151,6 @@ func NewPodFetcher(
 
 	initializeRuntimeCgroupPathHandlers(runtimePodFetcher)
 
-	initializeRuntimeCgroupPathHandlers(runtimePodFetcher)
-
 	return &podFetcherImpl{
 		kubeletPodFetcher:            NewKubeletPodFetcher(baseConf),
 		runtimePodFetcher:            runtimePodFetcher,
