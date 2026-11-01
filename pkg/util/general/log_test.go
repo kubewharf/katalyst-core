@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -116,27 +117,46 @@ func TestInfoSVDoesNotPanic(t *testing.T) {
 // TestInfoSVCapturesMessageAndKeyValues redirects klog to a buffer and asserts
 // the InfoSV message and its structured key/value pairs actually reach the log
 // sink at an enabled verbosity, while staying silent when the level is disabled.
+//
+// Because klog output and verbosity flags are process-global, the capture logic
+// runs in a helper subprocess. The parent test calls t.Parallel() (satisfying
+// paralleltest) and only inspects the subprocess output; no global state is
+// mutated in the parent process.
 func TestInfoSVCapturesMessageAndKeyValues(t *testing.T) {
 	t.Parallel()
+
+	if os.Getenv("KATALYST_INFOSV_HELPER") == "1" {
+		testInfoSVCaptureHelper(t)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestInfoSVCapturesMessageAndKeyValues$", "-test.v")
+	cmd.Env = append(os.Environ(), "KATALYST_INFOSV_HELPER=1")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "subprocess failed:\n%s", out)
+
+	combined := string(out)
+	require.Contains(t, combined, "probe-enabled")
+	require.Contains(t, combined, "probe-key")
+	require.Contains(t, combined, "probe-value")
+	require.NotContains(t, combined, "probe-disabled")
+}
+
+func testInfoSVCaptureHelper(t *testing.T) {
 	var buf bytes.Buffer
 	klog.SetOutput(&buf)
-	defer klog.SetOutput(os.Stderr)
 	klog.InitFlags(flag.CommandLine)
-	require.NoError(t, flag.Set("v", "2"))
-	require.NoError(t, flag.Set("logtostderr", "false"))
-	defer func() { _ = flag.Set("v", "0"); _ = flag.Set("logtostderr", "true") }()
+	_ = flag.Set("v", "2")
+	_ = flag.Set("logtostderr", "false")
 
 	// disabled level (5 > 2): must emit nothing.
-	buf.Reset()
 	InfoSV(5, "probe-disabled", "k", "v")
 	klog.Flush()
-	require.NotContains(t, buf.String(), "probe-disabled")
 
 	// enabled level (2 <= 2): message + structured kvs reach the sink.
 	InfoSV(2, "probe-enabled", "probe-key", "probe-value")
 	klog.Flush()
-	out := buf.String()
-	require.Contains(t, out, "probe-enabled")
-	require.Contains(t, out, "probe-key")
-	require.Contains(t, out, "probe-value")
+
+	// Print captured buffer to stdout for parent to inspect.
+	fmt.Print(buf.String())
 }
