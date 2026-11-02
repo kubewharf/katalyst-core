@@ -36,6 +36,23 @@ type BaseConfiguration struct {
 	// specify a customized path for reclaimed-cores to enrich qos-management ways
 	ReclaimRelativeRootCgroupPath string
 
+	// ReclaimConsumers is the list of reclaim consumer names to activate at
+	// agent boot. Each name must resolve to a registered factory in
+	// pkg/util/reclaim. Defaults to [GenericConsumerName] when empty.
+	ReclaimConsumers []string
+
+	// ReclaimConsumersForKCNR is the subset of reclaim consumer names whose
+	// per-consumer reclaimed percentage is summed and applied to the NUMA
+	// and total memory headroom reported to KCNR. Empty means no
+	// ReclaimedResourceMemory entry is reported.
+	ReclaimConsumersForKCNR []string
+
+	// GenericReclaimedResourcePercentage is the fraction (0-100) of the total
+	// reclaimed resource reported by the GenericConsumer for both headroom and
+	// provision. Other ReclaimedConsumer impls supply their own percentages via
+	// GetReclaimedPercentage. Defaults to 100.
+	GenericReclaimedResourcePercentage float64
+
 	*MachineInfoConfiguration
 	*KubeletConfiguration
 	*RuntimeConfiguration
