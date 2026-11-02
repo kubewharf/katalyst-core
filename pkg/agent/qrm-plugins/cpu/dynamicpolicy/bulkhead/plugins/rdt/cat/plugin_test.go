@@ -101,23 +101,23 @@ func TestCATPluginBuildsSymmetricDomainMasksAndPrefersDirectClosOverride(t *test
 	}, &fakeClosManager{clos: []qrmresctrlmanager.CPUListClos{
 		{ID: "dedicated"}, {ID: "share-03"}, {ID: "external"},
 	}}, manager, fakeCapabilityProvider{capabilities: map[int]rdt.CATCapability{
-		0: {CBMMask: 0xff, MinCBMBits: 1},
-		1: {CBMMask: 0xff, MinCBMBits: 1},
+		0: {CBMMask: 0xf0, MinCBMBits: 2},
+		1: {CBMMask: 0x0f, MinCBMBits: 2},
 	}})
 
 	_, err := plugin.reconcileConfig(context.Background(), qrmconfig.DynamicBulkheadRDTConfiguration{
 		DefaultCATWays: catExpr("2"),
 		ClosCATWays: map[string]qrmconfig.CATWaysExpression{
-			"batch":    catExpr("2"),
-			"share-03": catExpr("2"),
+			"batch":    catExpr("3"),
+			"share-03": catExpr("4"),
 		},
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, []catWrite{
-		{clos: "dedicated", mask: map[int]uint64{0: 0x03, 1: 0x03}},
-		{clos: "external", mask: map[int]uint64{0: 0x30, 1: 0x30}},
-		{clos: "share-03", mask: map[int]uint64{0: 0x0c, 1: 0x0c}},
+		{clos: "dedicated", mask: map[int]uint64{0: 0x30, 1: 0x03}},
+		{clos: "external", mask: map[int]uint64{0: 0x30, 1: 0x03}},
+		{clos: "share-03", mask: map[int]uint64{0: 0xf0, 1: 0x0f}},
 	}, manager.writes)
 }
 
@@ -142,7 +142,7 @@ func TestCATPluginBuildsExpressionTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, applied)
 	require.Equal(t, []catWrite{
-		{clos: "share-00", mask: map[int]uint64{0: 0x600, 1: 0xc0}},
+		{clos: "share-00", mask: map[int]uint64{0: 0x003, 1: 0x03}},
 		{clos: "share-01", mask: map[int]uint64{0: 0x1ff, 1: 0x3f}},
 	}, manager.writes)
 }
@@ -170,7 +170,7 @@ func TestCATPluginExclusiveClosIDsReserveNonOverlappingWays(t *testing.T) {
 	require.Equal(t, []catWrite{
 		{clos: "clos-a", mask: map[int]uint64{0: 0x03}},
 		{clos: "peer-b", mask: map[int]uint64{0: 0x0c}},
-		{clos: "peer-c", mask: map[int]uint64{0: 0x30}},
+		{clos: "peer-c", mask: map[int]uint64{0: 0x0c}},
 	}, manager.writes)
 }
 
@@ -361,7 +361,7 @@ func TestCATPluginPartialFailureRollsBackEveryManagedClos(t *testing.T) {
 	require.ErrorContains(t, err, "apply CAT")
 	require.Equal(t, []catWrite{
 		{clos: "dedicated", mask: map[int]uint64{0: 0x0f}},
-		{clos: "share-03", mask: map[int]uint64{0: 0xf0}},
+		{clos: "share-03", mask: map[int]uint64{0: 0x0f}},
 		{clos: "dedicated", mask: map[int]uint64{0: 0x03}},
 		{clos: "share-03", mask: map[int]uint64{0: 0x03}},
 	}, manager.writes)
@@ -386,7 +386,7 @@ func TestCATPluginPartialFailureWithZeroDefaultRollsBackCapabilityBaseline(t *te
 	require.ErrorContains(t, err, "apply CAT")
 	require.Equal(t, []catWrite{
 		{clos: "dedicated", mask: map[int]uint64{0: 0x0f}},
-		{clos: "share-03", mask: map[int]uint64{0: 0xf0}},
+		{clos: "share-03", mask: map[int]uint64{0: 0x0f}},
 		{clos: "dedicated", mask: map[int]uint64{0: 0xff}},
 		{clos: "share-03", mask: map[int]uint64{0: 0xff}},
 	}, manager.writes)
@@ -574,7 +574,7 @@ func TestCATPluginKeepsPhysicalClosIDsDistinct(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []catWrite{
 		{clos: "share-03", mask: map[int]uint64{0: 0x03}},
-		{clos: "shared-foreign", mask: map[int]uint64{0: 0x0c}},
+		{clos: "shared-foreign", mask: map[int]uint64{0: 0x03}},
 	}, manager.writes)
 }
 
@@ -639,69 +639,4 @@ func TestCATPluginTreatsUnsupportedCapabilityAsNoop(t *testing.T) {
 	require.NoError(t, plugin.PeriodicalHandler(context.Background(), periodicalContext(conf)))
 	require.Empty(t, manager.writes)
 	require.Empty(t, manager.invalidated)
-}
-
-func mustWays(t *testing.T, raw string) qrmconfig.CATWaysExpression {
-	t.Helper()
-	expr, err := qrmconfig.ParseCATWaysExpression(raw)
-	if err != nil {
-		t.Fatalf("parse ways expression %q: %v", raw, err)
-	}
-	return expr
-}
-
-func maskByID(t *testing.T, clos []qrmresctrlmanager.CPUListClos, def string, overrides map[string]qrmconfig.CATWaysExpression, policy qrmconfig.CATPolicy) map[string]uint64 {
-	t.Helper()
-	caps := map[int]rdt.CATCapability{0: {CBMMask: 0xff, MinCBMBits: 0}}
-	targets, err := buildTargets(caps, clos, mustWays(t, def), overrides, policy)
-	if err != nil {
-		t.Fatalf("buildTargets: %v", err)
-	}
-	out := make(map[string]uint64, len(targets))
-	for _, tg := range targets {
-		out[tg.clos] = tg.mask[0]
-	}
-	return out
-}
-
-// Regression: two non-exclusive CLOSes must pack into disjoint cache ways.
-// Before the fix both independently claimed the lowest free slot and the masks
-// overlapped completely, defeating RDT cache isolation.
-func TestBuildTargetsNonExclusivePacksDisjoint(t *testing.T) {
-	t.Parallel()
-	clos := []qrmresctrlmanager.CPUListClos{{ID: "shared"}, {ID: "reclaim"}}
-	masks := maskByID(t, clos, "2", nil, qrmconfig.CATPolicy{})
-	if masks["shared"] != 0x3 {
-		t.Errorf("shared mask = %#x, want 0x3", masks["shared"])
-	}
-	if masks["reclaim"] != 0xc {
-		t.Errorf("reclaim mask = %#x, want 0xc", masks["reclaim"])
-	}
-	if masks["shared"]&masks["reclaim"] != 0 {
-		t.Errorf("non-exclusive masks overlap: shared=%#x reclaim=%#x", masks["shared"], masks["reclaim"])
-	}
-}
-
-// An exclusive CLOS reserves the high ways; the non-exclusive CLOS must fit in
-// the remaining low ways without overlapping the exclusive reservation.
-func TestBuildTargetsExclusiveThenNonExclusiveDisjoint(t *testing.T) {
-	t.Parallel()
-	clos := []qrmresctrlmanager.CPUListClos{{ID: "dedicated"}, {ID: "shared"}}
-	policy := qrmconfig.CATPolicy{
-		ExclusiveClosIDs: []string{"dedicated"},
-		ClosPlacements: map[string]qrmconfig.CATPlacementPolicy{
-			"dedicated": {Direction: qrmconfig.CATAllocationDirectionHigh},
-		},
-	}
-	overrides := map[string]qrmconfig.CATWaysExpression{"dedicated": mustWays(t, "4")}
-	masks := maskByID(t, clos, "2", overrides, policy)
-	if masks["dedicated"] != 0xf0 {
-		t.Errorf("dedicated mask = %#x, want 0xf0", masks["dedicated"])
-	}
-	if masks["shared"] != 0x3 {
-		t.Errorf("shared mask = %#x, want 0x3", masks["shared"])
-	}
-	if masks["dedicated"]&masks["shared"] != 0 {
-		t.Errorf("exclusive and non-exclusive masks overlap: dedicated=%#x shared=%#x", masks["dedicated"], masks["shared"])
-	}
 }

@@ -431,12 +431,6 @@ func buildTargets(
 			return nil, fmt.Errorf("build CAT target for CLOS %q: %w", current.ID, err)
 		}
 		targets[current.ID] = target
-		// Reserve this CLOS's allocation from the shared remaining pool so
-		// multiple non-exclusive CLOSes pack into disjoint cache ways instead
-		// of every one independently claiming the same free slot.
-		for domain, mask := range target {
-			remaining[domain] &^= mask
-		}
 	}
 
 	ids := make([]string, 0, len(targets))
