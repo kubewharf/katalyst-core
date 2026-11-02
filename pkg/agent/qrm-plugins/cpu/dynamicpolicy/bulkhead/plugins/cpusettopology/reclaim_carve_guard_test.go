@@ -421,3 +421,199 @@ func TestReclassifyAdmissionDeferredLeavesRequiresOwnerAuthority(t *testing.T) {
 		})
 	}
 }
+
+func TestReclassifyAdmissionDeferredLeavesAllowsReclaimToPrimaryHandoff(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rel           = "kubepods/pod-handoff/container-handoff"
+		podUID        = "pod-handoff"
+		containerName = "container-handoff"
+	)
+	ownerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "shared-pool"}
+
+	for _, tc := range []struct {
+		name           string
+		current        machine.CPUSet
+		target         machine.CPUSet
+		shadowReclaim  machine.CPUSet
+		desiredReclaim machine.CPUSet
+		appliedReclaim machine.CPUSet
+		historical     machine.CPUSet
+		uncovered      machine.CPUSet
+		otherOwner     machine.CPUSet
+		reclaimOwner   machine.CPUSet
+		ambiguous      machine.CPUSet
+		wantDeferred   bool
+	}{
+		{
+			name:           "canonical handoff leaves old applied view",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 5, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			appliedReclaim: machine.NewCPUSet(3, 5, 100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3, 5),
+			reclaimOwner:   machine.NewCPUSet(3, 5, 100),
+			wantDeferred:   true,
+		},
+		{
+			name:           "partially landed handoff keeps remaining delta deferred",
+			current:        machine.NewCPUSet(2, 3),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(5, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			appliedReclaim: machine.NewCPUSet(5, 100),
+			historical:     machine.NewCPUSet(2, 3),
+			uncovered:      machine.NewCPUSet(5),
+			reclaimOwner:   machine.NewCPUSet(5, 100),
+			wantDeferred:   true,
+		},
+		{
+			name:           "shadow-only delta lacks applied reclaim authority",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 5, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			appliedReclaim: machine.NewCPUSet(100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3, 5),
+		},
+		{
+			name:           "handoff still belongs to desired reclaim",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 5, 100),
+			desiredReclaim: machine.NewCPUSet(5, 100),
+			appliedReclaim: machine.NewCPUSet(3, 5, 100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3, 5),
+		},
+		{
+			name:           "remainder outside historical owner",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 4),
+			shadowReclaim:  machine.NewCPUSet(3, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			appliedReclaim: machine.NewCPUSet(3, 100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3),
+		},
+		{
+			name:           "handoff does not leave old reclaim",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3),
+		},
+		{
+			name:           "handoff has another historical owner",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 5, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			appliedReclaim: machine.NewCPUSet(3, 5, 100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3, 5),
+			otherOwner:     machine.NewCPUSet(5),
+		},
+		{
+			name:           "handoff ownership is ambiguous",
+			current:        machine.NewCPUSet(2),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 5, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			appliedReclaim: machine.NewCPUSet(3, 5, 100),
+			historical:     machine.NewCPUSet(2),
+			uncovered:      machine.NewCPUSet(3, 5),
+			ambiguous:      machine.NewCPUSet(3),
+		},
+		{
+			name:           "current touches old reclaim",
+			current:        machine.NewCPUSet(2, 3),
+			target:         machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:  machine.NewCPUSet(3, 5, 100),
+			desiredReclaim: machine.NewCPUSet(100),
+			historical:     machine.NewCPUSet(2, 3),
+			uncovered:      machine.NewCPUSet(5),
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			state := cpustate.NewCPUPluginState(nil)
+			if err := state.SetAllocationInfo(podUID, containerName, &cpustate.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid: podUID, ContainerName: containerName,
+					OwnerPoolName: ownerID.Name, QoSLevel: commonstate.PoolNameShare,
+				},
+				AllocationResult: tc.target.Clone(),
+			}); err != nil {
+				t.Fatalf("seed allocation: %v", err)
+			}
+
+			desired := model.NewDesiredView()
+			desired.DesiredReclaimEffective = tc.desiredReclaim.Clone()
+			desired.PoolOwners[ownerID] = model.DesiredPoolOwner{ExpectedCPUSet: tc.target.Clone()}
+			otherOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "other-pool"}
+			reclaimOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindReclaim}
+
+			applied := &model.AppliedView{
+				CPUSetPartitionView: model.NewCPUSetPartitionView(),
+				Level:               model.AppliedViewLevelFull,
+				RelProofByRel: map[string]model.CgroupRelProof{
+					rel: {Device: 1, Inode: 2, CPUSet: tc.current.Clone()},
+				},
+				PoolProjection: model.NewAppliedPoolProjection(),
+			}
+			applied.ReclaimEffective = tc.appliedReclaim.Clone()
+			applied.PoolProjection.CPUSetByIdentity[ownerID] = tc.historical.Clone()
+			if !tc.otherOwner.IsEmpty() {
+				applied.PoolProjection.CPUSetByIdentity[otherOwnerID] = tc.otherOwner.Clone()
+			}
+			if !tc.reclaimOwner.IsEmpty() {
+				applied.PoolProjection.CPUSetByIdentity[reclaimOwnerID] = tc.reclaimOwner.Clone()
+			}
+			applied.PoolProjection.UncoveredCPUs = tc.uncovered.Clone()
+			applied.PoolProjection.AmbiguousCPUs = tc.ambiguous.Clone()
+
+			result := &expectedCPUSetBuildResult{
+				ExpectedByRel:     map[string]machine.CPUSet{rel: tc.target.Clone()},
+				DeferredLeafByRel: map[string]machine.CPUSet{},
+				LifecycleProofs: containerLifecycleProofSet{OrderedProofs: []containerLifecycleProof{{
+					PodUID: podUID, ContainerName: containerName, ContainerID: "container-id",
+					RelativePath: rel, DesiredCPUSet: tc.target.Clone(), State: containerLifecycleResolved,
+				}}},
+			}
+			plugin := &CPUSetTopologyPlugin{cgroup: &fakeCgroupClient{
+				cpus: map[string]machine.CPUSet{rel: tc.current.Clone()},
+			}}
+
+			plugin.reclassifyAdmissionDeferredLeaves(context.Background(), bulkheadapi.HandlerContext{
+				CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{State: state},
+				DesiredView:                desired,
+				AppliedView:                applied,
+			}, tc.shadowReclaim, result)
+
+			deferred, isDeferred := result.DeferredLeafByRel[rel]
+			if isDeferred != tc.wantDeferred {
+				t.Fatalf("deferred=%v, want %v; expected=%v deferred=%v",
+					isDeferred, tc.wantDeferred, result.ExpectedByRel, result.DeferredLeafByRel)
+			}
+			if tc.wantDeferred {
+				if !deferred.Equals(tc.target) {
+					t.Fatalf("deferred=%s, want %s", deferred.String(), tc.target.String())
+				}
+				if _, ok := result.ExpectedByRel[rel]; ok {
+					t.Fatalf("handoff leaf remained synchronously required: %v", result.ExpectedByRel)
+				}
+			} else if expected, ok := result.ExpectedByRel[rel]; !ok || !expected.Equals(tc.target) {
+				t.Fatalf("synchronous expected=%v, want %s", result.ExpectedByRel, tc.target.String())
+			}
+		})
+	}
+}

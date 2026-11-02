@@ -3259,8 +3259,7 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 			current, readErr = p.cgroup.ReadCPUSet(ctx, rel)
 		}
 		if readErr != nil || current.Equals(target) ||
-			!current.Intersection(shadowReclaim).IsEmpty() ||
-			!target.Intersection(shadowReclaim).IsEmpty() {
+			!current.Intersection(shadowReclaim).IsEmpty() {
 			continue
 		}
 		proof, ok := proofByRel[rel]
@@ -3273,23 +3272,52 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 			continue
 		}
 		desiredOwner, ok := in.DesiredView.PoolOwners[ownerID]
-		if !ok || !target.IsSubsetOf(desiredOwner.ExpectedCPUSet) {
+		if !ok || !target.IsSubsetOf(desiredOwner.ExpectedCPUSet) ||
+			!target.Intersection(in.DesiredView.DesiredReclaimEffective).IsEmpty() {
 			continue
 		}
+
 		applied := in.AppliedView
 		if applied == nil {
 			continue
 		}
+
+		// A strict grow may move CPUs out of the old Applied reclaim floor into
+		// the newly-desired primary owner. Those CPUs still appear in the
+		// applied-enforced shadow and Applied reclaim, even though the new Desired
+		// view has already assigned them to the target pool. Only that handoff
+		// subset may ride out the stale Applied view; the current leaf and every
+		// other target CPU keep the original reclaim, ownership and ambiguity gates.
+		handoff := machine.NewCPUSet()
+		if current.IsSubsetOf(target) {
+			handoff = target.Difference(current).
+				Intersection(shadowReclaim).
+				Intersection(applied.ReclaimEffective)
+		}
+
 		projection := applied.PoolProjection
 		historicalOwner, ok := projection.CPUSetByIdentity[ownerID]
-		if !ok || !target.IsSubsetOf(historicalOwner) ||
-			!target.Intersection(projection.AmbiguousCPUs).IsEmpty() ||
-			!target.Intersection(projection.UncoveredCPUs).IsEmpty() {
+		if !ok {
+			continue
+		}
+		remainder := target.Difference(handoff)
+		if !remainder.IsSubsetOf(historicalOwner) ||
+			!remainder.Intersection(shadowReclaim).IsEmpty() ||
+			!remainder.Intersection(projection.UncoveredCPUs).IsEmpty() ||
+			!target.Intersection(projection.AmbiguousCPUs).IsEmpty() {
 			continue
 		}
 		conflict := false
 		for otherOwner, cpus := range projection.CPUSetByIdentity {
-			if otherOwner != ownerID && !target.Intersection(cpus).IsEmpty() {
+			if otherOwner == ownerID {
+				continue
+			}
+			if !remainder.Intersection(cpus).IsEmpty() {
+				conflict = true
+				break
+			}
+			if otherOwner.Kind != model.CPUSetPoolKindReclaim &&
+				!handoff.Intersection(cpus).IsEmpty() {
 				conflict = true
 				break
 			}
