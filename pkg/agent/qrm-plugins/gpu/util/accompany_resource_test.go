@@ -67,6 +67,64 @@ func TestResolveAffinityDeviceByAccompanyResource(t *testing.T) {
 			priorities: []string{"fine"},
 			expected:   map[string]string{"g0": "r0", "g1": "r0"},
 		},
+		{
+			name: "evenly split one affinity group",
+			affinity: map[string]map[string]machine.DeviceIDs{
+				"g3": {"pcie": {"r1", "r0"}},
+				"g1": {"pcie": {"r1", "r0"}},
+				"g0": {"pcie": {"r1", "r0"}},
+				"g2": {"pcie": {"r1", "r0"}},
+			},
+			priorities: []string{"pcie"},
+			expected: map[string]string{
+				"g0": "r0",
+				"g1": "r0",
+				"g2": "r1",
+				"g3": "r1",
+			},
+		},
+		{
+			name: "balance uneven affinity group",
+			affinity: map[string]map[string]machine.DeviceIDs{
+				"g0": {"pcie": {"r0", "r1"}},
+				"g1": {"pcie": {"r0", "r1"}},
+				"g2": {"pcie": {"r0", "r1"}},
+				"g3": {"pcie": {"r0", "r1"}},
+				"g4": {"pcie": {"r0", "r1"}},
+			},
+			priorities: []string{"pcie"},
+			expected: map[string]string{
+				"g0": "r0",
+				"g1": "r0",
+				"g2": "r0",
+				"g3": "r1",
+				"g4": "r1",
+			},
+		},
+		{
+			name: "split independent affinity groups",
+			affinity: map[string]map[string]machine.DeviceIDs{
+				"g0": {"pcie": {"r1", "r0"}},
+				"g1": {"pcie": {"r1", "r0"}},
+				"g2": {"pcie": {"r1", "r0"}},
+				"g3": {"pcie": {"r1", "r0"}},
+				"g4": {"pcie": {"r3", "r2"}},
+				"g5": {"pcie": {"r3", "r2"}},
+				"g6": {"pcie": {"r3", "r2"}},
+				"g7": {"pcie": {"r3", "r2"}},
+			},
+			priorities: []string{"pcie"},
+			expected: map[string]string{
+				"g0": "r0",
+				"g1": "r0",
+				"g2": "r1",
+				"g3": "r1",
+				"g4": "r2",
+				"g5": "r2",
+				"g6": "r3",
+				"g7": "r3",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -84,12 +142,17 @@ func TestResolveAffinityDeviceByAccompanyResource(t *testing.T) {
 func TestResolveAffinityDeviceByAccompanyResourceDoesNotMutateInput(t *testing.T) {
 	t.Parallel()
 
-	resourceIDs := machine.DeviceIDs{"r1", "r0"}
-	affinity := map[string]map[string]machine.DeviceIDs{"g0": {"fine": resourceIDs}}
+	g0ResourceIDs := machine.DeviceIDs{"r1", "r0"}
+	g1ResourceIDs := machine.DeviceIDs{"r1", "r0"}
+	affinity := map[string]map[string]machine.DeviceIDs{
+		"g0": {"fine": g0ResourceIDs},
+		"g1": {"fine": g1ResourceIDs},
+	}
 
-	assert.Equal(t, map[string]string{"g0": "r0"},
+	assert.Equal(t, map[string]string{"g0": "r0", "g1": "r1"},
 		ResolveAffinityDeviceByAccompanyResource(affinity, []string{"fine"}))
-	assert.Equal(t, machine.DeviceIDs{"r1", "r0"}, resourceIDs)
+	assert.Equal(t, machine.DeviceIDs{"r1", "r0"}, g0ResourceIDs)
+	assert.Equal(t, machine.DeviceIDs{"r1", "r0"}, g1ResourceIDs)
 }
 
 func TestIsSharedDeviceAllocationRequested(t *testing.T) {
