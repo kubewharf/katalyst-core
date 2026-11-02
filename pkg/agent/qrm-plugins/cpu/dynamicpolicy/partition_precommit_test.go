@@ -431,7 +431,7 @@ func TestCommitPendingCPUPartitionValidatesResidualBackfillAfterHooks(t *testing
 		candidate[commonstate.PoolNameShare][commonstate.FakedContainerName].
 			TopologyAwareAssignments = map[int]machine.CPUSet{0: machine.NewCPUSet(4, 5)}
 
-		err = p.validateResidualBackfillCandidate(candidate, machineState, machine.NewCPUSet())
+		err = p.validateResidualBackfillCandidate(candidate, machineState, machine.NewCPUSet(), true)
 		require.ErrorContains(t, err, "topology assignments are inconsistent")
 	})
 }

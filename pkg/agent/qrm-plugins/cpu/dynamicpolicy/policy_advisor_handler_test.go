@@ -52,6 +52,7 @@ import (
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -62,6 +63,36 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
+
+// Test adapters preserve legacy inputs without widening the production entry points.
+func (p *DynamicPolicy) generateBlockCPUSet(
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	hardActive bool,
+) (advisorapi.BlockCPUSet, error) {
+	domains := sets.NewInt()
+	if hardActive {
+		domains.Insert(commonstate.FakedNUMAID)
+	}
+	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+	frozenReclaim := frozenReclaimPlacementConstraint{}
+	blockCPUSet, _, err := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
+		resp, featureGates, domains, dynamicConf, frozenReclaim,
+		defaultShareResidualEnabled(dynamicConf, frozenReclaim, resp))
+	return blockCPUSet, err
+}
+
+func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
+	blockCPUSet advisorapi.BlockCPUSet,
+	resp *advisorapi.ListAndWatchResponse,
+	allowSharedCoresOverlapReclaimedCores bool,
+	hardActive bool,
+	dynamicConf *dynamicconfig.Configuration,
+) (*pendingAdvisorState, error) {
+	return p.applyBlocksWithDefaultShareMode(
+		blockCPUSet, resp, allowSharedCoresOverlapReclaimedCores, hardActive, dynamicConf,
+		dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs)
+}
 
 func TestConvertGetAdviceResponsePropagatesDedicatedReclaimDisjoint(t *testing.T) {
 	t.Parallel()

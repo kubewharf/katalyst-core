@@ -55,6 +55,24 @@ func newFrozenReclaimPlacementConstraint(
 	return constraint
 }
 
+// defaultShareResidualEnabled keeps the explicit backfill mode and also uses
+// the same upper-bound contract when disabled reclaim freezes CPUs that the
+// default share is not allowed to overlap. The frozen constraint is captured
+// once per advisor transaction, so planning and materialization use one view.
+func defaultShareResidualEnabled(
+	dynamicConf *dynamicconfig.Configuration,
+	frozenReclaim frozenReclaimPlacementConstraint,
+	resp *advisorapi.ListAndWatchResponse,
+) bool {
+	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		return true
+	}
+	if resp == nil || resp.Entries[commonstate.PoolNameShare] == nil {
+		return false
+	}
+	return !frozenReclaim.cpus.IsEmpty() && !frozenReclaim.allowSharedOverlap
+}
+
 func reclaimOverlapDisallowed(
 	poolName string,
 	allocationInfo *state.AllocationInfo,

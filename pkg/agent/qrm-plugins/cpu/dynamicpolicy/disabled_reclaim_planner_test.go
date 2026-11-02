@@ -31,6 +31,59 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+func TestDefaultShareResidualEnabled(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		frozen frozenReclaimPlacementConstraint
+		resp   *advisorapi.ListAndWatchResponse
+		want   bool
+	}{
+		{
+			name: "disabled reclaim disjoint frozen placement enables residual",
+			frozen: frozenReclaimPlacementConstraint{
+				cpus: machine.NewCPUSet(2, 6),
+			},
+			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
+				commonstate.PoolNameShare: {},
+			}},
+			want: true,
+		},
+		{
+			name: "overlap allowed keeps exact planning",
+			frozen: frozenReclaimPlacementConstraint{
+				cpus: machine.NewCPUSet(2, 6), allowSharedOverlap: true,
+			},
+			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
+				commonstate.PoolNameShare: {},
+			}},
+		},
+		{
+			name: "active reclaim has no frozen placement",
+			frozen: frozenReclaimPlacementConstraint{
+				cpus: machine.NewCPUSet(),
+			},
+			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
+				commonstate.PoolNameShare: {},
+			}},
+		},
+		{
+			name: "missing default share keeps existing zero-share contract",
+			frozen: frozenReclaimPlacementConstraint{
+				cpus: machine.NewCPUSet(2, 6),
+			},
+			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, defaultShareResidualEnabled(nil, tc.frozen, tc.resp))
+		})
+	}
+}
+
 func TestFrozenReclaimConstraintToDisjointDescriptors(t *testing.T) {
 	t.Parallel()
 
@@ -211,12 +264,169 @@ func TestFrozenReclaimAdvisorAttemptAvoidsDisallowedOwners(t *testing.T) {
 				entries, dynamicConf, false, disjoint)
 
 			planned, _, err := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
-				resp, featureGates, sets.NewInt(), dynamicConf, constraint)
+				resp, featureGates, sets.NewInt(), dynamicConf, constraint, true)
 			require.NoError(t, err)
 			require.True(t, planned["share"].Intersection(frozen).IsEmpty(), "share=%s", planned["share"])
 			require.True(t, planned["isolation"].Intersection(frozen).IsEmpty(), "isolation=%s", planned["isolation"])
 		})
 	}
+}
+
+func TestFrozenReclaimDefaultShareUsesResidualBelowAdvisorUpperBound(t *testing.T) {
+	t.Parallel()
+
+	for _, disjoint := range []bool{false, true} {
+		disjoint := disjoint
+		t.Run(map[bool]string{false: "legacy", true: "disjoint"}[disjoint], func(t *testing.T) {
+			t.Parallel()
+			topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+			require.NoError(t, err)
+			p, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
+			require.NoError(t, err)
+			dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+			dynamicConf.EnableReclaim = false
+			dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs = false
+
+			frozen := machine.NewCPUSet(2, 6)
+			entries := state.PodEntries{
+				commonstate.PoolNameReclaim: {
+					commonstate.FakedContainerName: &state.AllocationInfo{
+						AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+						AllocationResult: frozen,
+					},
+				},
+			}
+			p.state.SetPodEntries(entries, false)
+
+			resp := &advisorapi.ListAndWatchResponse{
+				DisableDedicatedCoresOverlapReclaimedCores: disjoint,
+				Entries: map[string]*advisorapi.CalculationEntries{
+					commonstate.PoolNameShare: {Entries: map[string]*advisorapi.CalculationInfo{
+						commonstate.FakedContainerName: {
+							OwnerPoolName: commonstate.PoolNameShare,
+							CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+								commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "share", Result: 7}}},
+							},
+						},
+					}},
+					commonstate.PoolNameReclaim: {Entries: map[string]*advisorapi.CalculationInfo{
+						commonstate.FakedContainerName: {
+							OwnerPoolName: commonstate.PoolNameReclaim,
+							CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+								commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "reclaim", Result: 2}}},
+							},
+						},
+					}},
+				},
+			}
+			featureGates := map[string]*advisorsvc.FeatureGate{}
+			if disjoint {
+				featureGates[feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition] = &advisorsvc.FeatureGate{
+					Name: feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition,
+				}
+			}
+			constraint := newFrozenReclaimPlacementConstraint(
+				entries, dynamicConf, false, disjoint)
+
+			planned, _, err := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
+				resp, featureGates, sets.NewInt(), dynamicConf, constraint, true)
+			require.NoError(t, err)
+			require.NotContains(t, planned, "share")
+			require.True(t, planned["reclaim"].Equals(frozen), "reclaim=%s", planned["reclaim"])
+
+			pending, err := p.applyBlocksWithDefaultShareMode(
+				planned, resp, false, false, dynamicConf, true)
+			require.NoError(t, err)
+			share := pending.entries[commonstate.PoolNameShare][commonstate.FakedContainerName].AllocationResult
+			reclaim := pending.entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult
+			wantShare := topology.CPUDetails.CPUs().
+				Difference(p.config.reservedCPUs).
+				Difference(frozen)
+			require.True(t, share.Equals(wantShare), "share=%s want=%s", share, wantShare)
+			require.True(t, reclaim.Equals(frozen), "reclaim=%s want=%s", reclaim, frozen)
+			require.True(t, share.Intersection(reclaim).IsEmpty())
+
+			machineState, err := generateMachineStateFromPodEntries(
+				topology, pending.entries, p.state.GetMachineState())
+			require.NoError(t, err)
+			require.NoError(t, p.validateAdvisorPartitionBeforeCommitWithDynamicConfig(
+				pending.entries, machineState, false, disjoint, dynamicConf))
+			require.True(t, pending.validateDefaultShareResidual)
+			prepared, err := p.preparePendingCPUPartition(pendingCPUPartition{
+				expectedRevision:             pending.preCommitRevision,
+				entries:                      pending.entries,
+				allowOverlap:                 pending.allowOverlap,
+				disableDedicated:             pending.disableDedicated,
+				source:                       "test",
+				residualFloor:                pending.residualFloor,
+				dynamicConfig:                pending.dynamicConfig,
+				validateDefaultShareResidual: pending.validateDefaultShareResidual,
+			})
+			require.NoError(t, err)
+			require.True(t, prepared.entries[commonstate.PoolNameShare][commonstate.FakedContainerName].
+				AllocationResult.Equals(wantShare))
+		})
+	}
+}
+
+func TestFrozenReclaimDefaultShareResidualKeepsNamedShareExact(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
+	require.NoError(t, err)
+	p, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+	dynamicConf.EnableReclaim = false
+
+	frozen := machine.NewCPUSet(2, 6)
+	entries := state.PodEntries{
+		commonstate.PoolNameReclaim: {
+			commonstate.FakedContainerName: &state.AllocationInfo{
+				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+				AllocationResult: frozen,
+			},
+		},
+		"named": {
+			commonstate.FakedContainerName: &state.AllocationInfo{
+				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta("named"),
+				AllocationResult: machine.NewCPUSet(1),
+			},
+		},
+	}
+	p.state.SetPodEntries(entries, false)
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
+		commonstate.PoolNameShare: {Entries: map[string]*advisorapi.CalculationInfo{
+			commonstate.FakedContainerName: {
+				OwnerPoolName: commonstate.PoolNameShare,
+				CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "share", Result: 7}}},
+				},
+			},
+		}},
+		"named": {Entries: map[string]*advisorapi.CalculationInfo{
+			commonstate.FakedContainerName: {
+				OwnerPoolName: "named",
+				CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "named", Result: 7}}},
+				},
+			},
+		}},
+		commonstate.PoolNameReclaim: {Entries: map[string]*advisorapi.CalculationInfo{
+			commonstate.FakedContainerName: {
+				OwnerPoolName: commonstate.PoolNameReclaim,
+				CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "reclaim", Result: 2}}},
+				},
+			},
+		}},
+	}}
+	constraint := newFrozenReclaimPlacementConstraint(entries, dynamicConf, false, false)
+
+	_, _, err = p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
+		resp, nil, sets.NewInt(), dynamicConf, constraint, true)
+	require.ErrorContains(t, err, "allocate normal share block: named pool: named")
+	require.ErrorContains(t, err, "not enough cpus available to satisfy request")
 }
 
 func TestFrozenReclaimConstraintFailsAtPlannerCapacity(t *testing.T) {
