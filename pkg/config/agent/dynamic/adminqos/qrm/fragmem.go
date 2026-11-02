@@ -29,6 +29,13 @@ type FragMemConfiguration struct {
 	MemFragScoreAsync          int
 	THPDefaultConfig           apiconfig.THPMode
 	THPHighOrderScoreThreshold int
+	THPStaticEnableConfig      *THPStaticEnableConfiguration
+}
+
+type THPStaticEnableConfiguration struct {
+	Enable bool
+	THP    apiconfig.THPMode
+	THPShm apiconfig.THPShmMode
 }
 
 func NewFragMemConfiguration() *FragMemConfiguration {
@@ -52,6 +59,20 @@ func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		}
 		if config.THPHighOrderScoreThreshold != nil {
 			c.THPHighOrderScoreThreshold = int(*config.THPHighOrderScoreThreshold)
+		}
+		if config.THPStaticEnableConfig != nil {
+			c.THPStaticEnableConfig = &THPStaticEnableConfiguration{}
+			if config.THPStaticEnableConfig.Enable != nil {
+				c.THPStaticEnableConfig.Enable = *config.THPStaticEnableConfig.Enable
+			}
+			if config.THPStaticEnableConfig.THP != nil {
+				c.THPStaticEnableConfig.THP = apiconfig.THPMode(strings.TrimSpace(strings.ToLower(string(*config.THPStaticEnableConfig.THP))))
+			}
+			if config.THPStaticEnableConfig.THPShm != nil {
+				c.THPStaticEnableConfig.THPShm = apiconfig.THPShmMode(strings.TrimSpace(strings.ToLower(string(*config.THPStaticEnableConfig.THPShm))))
+			}
+		} else {
+			c.THPStaticEnableConfig = nil
 		}
 	}
 }

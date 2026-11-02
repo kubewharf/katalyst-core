@@ -99,6 +99,14 @@ func SetMemTHP(conf *coreconfig.Configuration,
 	}
 	general.Infof("SetMemTHP: EnableFragMem enabled")
 
+	if enabled, thpMode, thpShmMode := getStaticTHPModes(fragMemConf); enabled {
+		general.Infof("SetMemTHP: static THP config enabled, thp=%s thpShm=%s", thpMode, thpShmMode)
+		if err := setTHPMode(thpMode, thpShmMode); err != nil {
+			errList = append(errList, err)
+		}
+		return
+	}
+
 	mode := fragMemConf.THPDefaultConfig
 	// If THPDefaultConfig is empty, skip THP tuning entirely.
 	if mode == "" {
@@ -124,6 +132,24 @@ func SetMemTHP(conf *coreconfig.Configuration,
 	if err := doMemTHP(fragMemConf, metaServer, emitter); err != nil {
 		errList = append(errList, err)
 	}
+}
+
+func getStaticTHPModes(conf *dynamicqrm.FragMemConfiguration) (bool, apiconfig.THPMode, apiconfig.THPShmMode) {
+	if conf == nil || conf.THPStaticEnableConfig == nil || !conf.THPStaticEnableConfig.Enable {
+		return false, "", ""
+	}
+
+	thpMode := conf.THPStaticEnableConfig.THP
+	if thpMode == "" {
+		thpMode = apiconfig.THPModeMadvise
+	}
+
+	thpShmMode := conf.THPStaticEnableConfig.THPShm
+	if thpShmMode == "" {
+		thpShmMode = apiconfig.THPShmModeAdvise
+	}
+
+	return true, thpMode, thpShmMode
 }
 
 func doMemTHP(conf *dynamicqrm.FragMemConfiguration, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) error {
@@ -240,11 +266,11 @@ func setTHPModeAtPathIfExists[T ~string](path string, mode T) error {
 func setTHPModeAtPath[T ~string](path string, mode T) (retErr error) {
 	normalizedMode := normalizeTHPMode(mode)
 	normalizedModeStr := string(normalizedMode)
-	switch normalizedMode {
-	case apiconfig.THPMode(apiconfig.THPShmModeAdvise), apiconfig.THPMode(apiconfig.THPShmModeDeny),
-		apiconfig.THPModeMadvise, apiconfig.THPModeAlways, apiconfig.THPModeNever:
-	default:
-		return fmt.Errorf("invalid THP mode %q, expected one of %q/%q/%q/%q/%q", normalizedMode, apiconfig.THPShmModeAdvise, apiconfig.THPShmModeDeny, apiconfig.THPModeMadvise, apiconfig.THPModeAlways, apiconfig.THPModeNever)
+	if !isValidTHPMode(normalizedModeStr) {
+		return fmt.Errorf("invalid THP mode %q, expected one of %q/%q/%q/%q/%q/%q/%q/%q/%q", normalizedMode,
+			apiconfig.THPShmModeAlways, apiconfig.THPShmModeWithinSize, apiconfig.THPShmModeAdvise,
+			apiconfig.THPShmModeNever, apiconfig.THPShmModeDeny, apiconfig.THPShmModeForce,
+			apiconfig.THPModeMadvise, apiconfig.THPModeAlways, apiconfig.THPModeNever)
 	}
 
 	content, err := procfsm.ReadFileNoStat(path)
@@ -317,4 +343,16 @@ func saveMinFreeKbytes() (func() error, error) {
 
 func normalizeTHPMode[T ~string](mode T) apiconfig.THPMode {
 	return apiconfig.THPMode(strings.TrimSpace(strings.ToLower(string(mode))))
+}
+
+func isValidTHPMode(mode string) bool {
+	switch mode {
+	case string(apiconfig.THPShmModeAlways), string(apiconfig.THPShmModeWithinSize),
+		string(apiconfig.THPShmModeAdvise), string(apiconfig.THPShmModeNever),
+		string(apiconfig.THPShmModeDeny), string(apiconfig.THPShmModeForce),
+		string(apiconfig.THPModeMadvise):
+		return true
+	default:
+		return false
+	}
 }

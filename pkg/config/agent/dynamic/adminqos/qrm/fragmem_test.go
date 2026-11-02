@@ -33,6 +33,9 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	score := int64(70)
 	mode := "always"
 	threshold := int64(90)
+	staticEnable := true
+	staticTHP := apiconfig.THPModeAlways
+	staticTHPShm := apiconfig.THPShmModeForce
 
 	conf := NewFragMemConfiguration()
 	conf.ApplyConfiguration(&crd.DynamicConfigCRD{
@@ -42,9 +45,14 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 					QRMPluginConfig: &apiconfig.QRMPluginConfig{
 						MemoryPluginConfig: &apiconfig.MemoryPluginConfig{
 							FragMemConfig: &apiconfig.FragMemConfig{
-								EnableFragMem:              &enable,
-								MemFragScoreAsync:          &score,
-								THPDefaultConfig:           &mode,
+								EnableFragMem:     &enable,
+								MemFragScoreAsync: &score,
+								THPDefaultConfig:  &mode,
+								THPStaticEnableConfig: &apiconfig.THPStaticEnableConfig{
+									Enable: &staticEnable,
+									THP:    &staticTHP,
+									THPShm: &staticTHPShm,
+								},
 								THPHighOrderScoreThreshold: &threshold,
 							},
 						},
@@ -58,4 +66,8 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	as.Equal(70, conf.MemFragScoreAsync)
 	as.Equal(apiconfig.THPModeAlways, conf.THPDefaultConfig)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
+	as.NotNil(conf.THPStaticEnableConfig)
+	as.True(conf.THPStaticEnableConfig.Enable)
+	as.Equal(apiconfig.THPModeAlways, conf.THPStaticEnableConfig.THP)
+	as.Equal(apiconfig.THPShmModeForce, conf.THPStaticEnableConfig.THPShm)
 }

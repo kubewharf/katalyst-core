@@ -194,6 +194,44 @@ func TestSetMemTHP_HotUpdateEnableFragMem(t *testing.T) {
 	assert.Equal(t, "never\n", string(content))
 }
 
+func TestSetMemTHPStaticEnableConfig(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldEnabledPath := thpEnabledPath
+	oldShmemPath := thpShmemEnabledPath
+	defer func() {
+		thpEnabledPath = oldEnabledPath
+		thpShmemEnabledPath = oldShmemPath
+	}()
+
+	thpFile := createTempFile(t, "always [madvise] never\n")
+	shmemFile := createTempFile(t, "always within_size [advise] never deny force\n")
+	defer os.Remove(thpFile)
+	defer os.Remove(shmemFile)
+	thpEnabledPath = thpFile
+	thpShmemEnabledPath = shmemFile
+
+	conf, dynamicConf := makeTHPConf(apiconfig.THPModeMadvise, 85)
+	dynamicConf.GetDynamicConfiguration().FragMemConfiguration.THPStaticEnableConfig = &dynamicqrm.THPStaticEnableConfiguration{
+		Enable: true,
+		THP:    apiconfig.THPModeAlways,
+		THPShm: apiconfig.THPShmModeForce,
+	}
+
+	SetMemTHP(conf, nil, dynamicConf, nil, nil)
+
+	content, err := os.ReadFile(thpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "always\n", string(content))
+
+	content, err = os.ReadFile(shmemFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "force\n", string(content))
+}
+
 func TestSetMemTHPNilConf(t *testing.T) {
 	t.Parallel()
 
@@ -350,6 +388,33 @@ func TestGetHighOrderThreshold(t *testing.T) {
 	assert.InDelta(t, 85.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 0}), 1e-6)
 	assert.InDelta(t, 100.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 150}), 1e-6)
 	assert.InDelta(t, 1.0, getHighOrderThreshold(&dynamicqrm.FragMemConfiguration{THPDefaultConfig: apiconfig.THPModeMadvise, THPHighOrderScoreThreshold: 1}), 1e-6)
+}
+
+func TestGetStaticTHPModes(t *testing.T) {
+	t.Parallel()
+
+	enabled, thpMode, thpShmMode := getStaticTHPModes(nil)
+	assert.False(t, enabled)
+	assert.Empty(t, thpMode)
+	assert.Empty(t, thpShmMode)
+
+	enabled, thpMode, thpShmMode = getStaticTHPModes(&dynamicqrm.FragMemConfiguration{
+		THPStaticEnableConfig: &dynamicqrm.THPStaticEnableConfiguration{Enable: true},
+	})
+	assert.True(t, enabled)
+	assert.Equal(t, apiconfig.THPModeMadvise, thpMode)
+	assert.Equal(t, apiconfig.THPShmModeAdvise, thpShmMode)
+
+	enabled, thpMode, thpShmMode = getStaticTHPModes(&dynamicqrm.FragMemConfiguration{
+		THPStaticEnableConfig: &dynamicqrm.THPStaticEnableConfiguration{
+			Enable: true,
+			THP:    apiconfig.THPModeNever,
+			THPShm: apiconfig.THPShmModeWithinSize,
+		},
+	})
+	assert.True(t, enabled)
+	assert.Equal(t, apiconfig.THPModeNever, thpMode)
+	assert.Equal(t, apiconfig.THPShmModeWithinSize, thpShmMode)
 }
 
 func TestDisableTHPAtPath(t *testing.T) {
@@ -532,6 +597,30 @@ func TestDisableTHPDenyAtPath(t *testing.T) {
 	b, rerr = os.ReadFile(f2)
 	assert.NoError(t, rerr)
 	assert.Equal(t, "deny\n", string(b))
+}
+
+func TestSetTHPModeAtPathSupportsAllShmemModes(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	for _, mode := range []apiconfig.THPShmMode{
+		apiconfig.THPShmModeAlways,
+		apiconfig.THPShmModeWithinSize,
+		apiconfig.THPShmModeAdvise,
+		apiconfig.THPShmModeNever,
+		apiconfig.THPShmModeDeny,
+		apiconfig.THPShmModeForce,
+	} {
+		f := createTempFile(t, "always within_size advise never deny force\n")
+		err := setTHPModeAtPath(f, mode)
+		assert.NoError(t, err, string(mode))
+		b, rerr := os.ReadFile(f)
+		assert.NoError(t, rerr)
+		assert.Equal(t, string(mode)+"\n", string(b))
+		_ = os.Remove(f)
+	}
 }
 
 func TestSetTHPModeAtPathIfExistsMissing(t *testing.T) {
