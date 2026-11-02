@@ -366,7 +366,6 @@ func TestAssembleProvisionPassesCycleRampUpSnapshot(t *testing.T) {
 
 	_, err := advisor.assembleProvision(
 		dynamicConf,
-		true,
 		sets.NewInt(commonstate.FakedNUMAID, 7),
 		cputypes.ReclaimConstraintNone,
 		nil,
@@ -2363,7 +2362,6 @@ func TestCPUAdvisorRampUpDomainsCrossDomain8NUMAs(t *testing.T) {
 		snap := cra.snapshotRegionAssignments()
 		result, err := cra.assembleProvision(
 			cra.conf.GetDynamicConfiguration(),
-			snap.rampUpDomains.Len() > 0,
 			snap.rampUpDomains,
 			cputypes.ReclaimConstraintNone,
 			nil,
