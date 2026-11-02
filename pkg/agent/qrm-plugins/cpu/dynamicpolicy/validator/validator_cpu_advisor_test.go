@@ -176,7 +176,7 @@ func TestCPUAdvisorValidatorValidatesNUMABindingDedicatedQuantityInDisjointMode(
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			v := newValidator(t, machine.NewCPUSet(0, 1), tc.exclusive)
-			err := v.Validate(dedicatedResp(tc.quantity, true))
+			err := v.Validate(dedicatedResp(tc.quantity, true), false)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -196,7 +196,7 @@ func TestCPUAdvisorValidatorValidatesNUMABindingDedicatedQuantityInDisjointMode(
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			v := newValidator(t, machine.NewCPUSet(0, 1), false)
-			require.ErrorContains(t, v.Validate(dedicatedResp(tc.quantity, false)), "calculation result")
+			require.ErrorContains(t, v.Validate(dedicatedResp(tc.quantity, false), false), "calculation result")
 		})
 	}
 
@@ -209,7 +209,7 @@ func TestCPUAdvisorValidatorValidatesNUMABindingDedicatedQuantityInDisjointMode(
 	t.Run("non-exclusive grow from one core passes", func(t *testing.T) {
 		t.Parallel()
 		v := newValidator(t, machine.NewCPUSet(0), false)
-		require.NoError(t, v.Validate(dedicatedResp(4, true)))
+		require.NoError(t, v.Validate(dedicatedResp(4, true), false))
 	})
 }
 
@@ -359,11 +359,11 @@ func TestCPUAdvisorValidatorValidatesDefaultShareUpperBound(t *testing.T) {
 		}
 	}
 
-	require.Error(t, v.Validate(response(6)), "legacy validation must retain exact-block capacity semantics")
-	require.NoError(t, v.ValidateWithDefaultShareUpperBound(response(6)))
-	require.NoError(t, v.ValidateWithDefaultShareUpperBound(response(3)),
+	require.Error(t, v.Validate(response(6), false), "legacy validation must retain exact-block capacity semantics")
+	require.NoError(t, v.Validate(response(6), true))
+	require.NoError(t, v.Validate(response(3), true),
 		"a stale current share must not override the post-plan residual fail-closed check")
-	require.ErrorContains(t, v.ValidateWithDefaultShareUpperBound(response(9)),
+	require.ErrorContains(t, v.Validate(response(9), true),
 		"default share upper bound 9 exceeds total capacity 8")
 }
 
@@ -460,7 +460,7 @@ func TestCPUAdvisorValidatorRejectsIncompleteReclaimNUMAResults(t *testing.T) {
 				},
 			}
 
-			err := validator.Validate(resp)
+			err := validator.Validate(resp, false)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -515,7 +515,7 @@ func TestCPUAdvisorValidatorOverlapModeStillValidatesPhysicalNUMA(t *testing.T) 
 					},
 				},
 			}
-			require.ErrorContains(t, validator.Validate(resp), tc.wantErr)
+			require.ErrorContains(t, validator.Validate(resp, false), tc.wantErr)
 		})
 	}
 }
@@ -568,7 +568,7 @@ func TestCPUAdvisorValidatorUsesIncomingOverlapMode(t *testing.T) {
 				},
 			}
 
-			err := validator.Validate(resp)
+			err := validator.Validate(resp, false)
 			if tc.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), "empty reclaim blocks for NUMA: 0")
