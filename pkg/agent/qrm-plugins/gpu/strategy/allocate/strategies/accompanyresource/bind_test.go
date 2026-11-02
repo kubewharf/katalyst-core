@@ -108,25 +108,78 @@ func TestClassifyResourceOwnership(t *testing.T) {
 func TestResolveAffinityDeviceIDsForAccompanyResources(t *testing.T) {
 	t.Parallel()
 
-	affinity := map[string]map[string]machine.DeviceIDs{
-		"g0": {"fine": {"r1", "r0"}},
-		"g1": {"fine": {"r0"}},
+	groupedAffinity := map[string]map[string]machine.DeviceIDs{
+		"g0": {"pcie": {"r1", "r0"}},
+		"g1": {"pcie": {"r1", "r0"}},
+		"g2": {"pcie": {"r1", "r0"}},
+		"g3": {"pcie": {"r1", "r0"}},
+	}
+	testCases := []struct {
+		name       string
+		affinity   map[string]map[string]machine.DeviceIDs
+		priorities []string
+		gpuIDs     []string
+		expected   sets.String
+		expectErr  bool
+	}{
+		{
+			name: "preserve existing priority resolution",
+			affinity: map[string]map[string]machine.DeviceIDs{
+				"g0": {"fine": {"r1", "r0"}},
+				"g1": {"fine": {"r0"}},
+			},
+			priorities: []string{"fine"},
+			gpuIDs:     []string{"g0", "g1"},
+			expected:   sets.NewString("r0"),
+		},
+		{
+			name:       "first logical group resolves first RDMA",
+			affinity:   groupedAffinity,
+			priorities: []string{"pcie"},
+			gpuIDs:     []string{"g0", "g1"},
+			expected:   sets.NewString("r0"),
+		},
+		{
+			name:       "second logical group resolves second RDMA",
+			affinity:   groupedAffinity,
+			priorities: []string{"pcie"},
+			gpuIDs:     []string{"g2", "g3"},
+			expected:   sets.NewString("r1"),
+		},
+		{
+			name:       "crossing logical groups resolves both RDMAs",
+			affinity:   groupedAffinity,
+			priorities: []string{"pcie"},
+			gpuIDs:     []string{"g1", "g2"},
+			expected:   sets.NewString("r0", "r1"),
+		},
+		{
+			name:       "missing GPU mapping returns error",
+			affinity:   groupedAffinity,
+			priorities: []string{"pcie"},
+			gpuIDs:     []string{"g0", "g4"},
+			expectErr:  true,
+		},
 	}
 
-	affinityDeviceIDs, err := resolveAffinityDeviceIDsForAccompanyResources(
-		[]string{"g0", "g1"},
-		affinity,
-		[]string{"fine"},
-	)
-	assert.NoError(t, err)
-	assert.Equal(t, sets.NewString("r0"), affinityDeviceIDs)
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = resolveAffinityDeviceIDsForAccompanyResources(
-		[]string{"g0", "g2"},
-		affinity,
-		[]string{"fine"},
-	)
-	assert.Error(t, err)
+			actual, err := resolveAffinityDeviceIDsForAccompanyResources(
+				tc.gpuIDs,
+				tc.affinity,
+				tc.priorities,
+			)
+			if tc.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
 }
 
 func TestBindHybridReusesSharedDeviceWhenNoDeviceIsAvailable(t *testing.T) {

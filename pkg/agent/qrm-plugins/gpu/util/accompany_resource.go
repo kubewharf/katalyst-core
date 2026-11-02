@@ -23,10 +23,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// affinityGroup contains accompany devices that share the same target-device
+// candidates in one selected affinity dimension.
+type affinityGroup struct {
+	accompanyResourceIDs []string
+	targetResourceIDs    machine.DeviceIDs
+}
+
 // ResolveAffinityDeviceByAccompanyResource takes the machine-wide topology mapping
-// from accompany-resource devices to target-resource devices. For each accompany
-// device, it selects the first target device with affinity in the highest-priority
-// non-empty dimension. Multiple accompany devices may resolve to the same target.
+// from accompany-resource devices to target-resource devices. Accompany devices
+// sharing the same highest-priority affinity group are distributed evenly across
+// its target devices, while each accompany device resolves to one target device.
 func ResolveAffinityDeviceByAccompanyResource(
 	affinityByAccompanyResource map[string]map[string]machine.DeviceIDs,
 	priorityDimensions []string,
@@ -37,20 +44,85 @@ func ResolveAffinityDeviceByAccompanyResource(
 		priorities = []string{machine.DimensionNuma}
 	}
 
-	affinityDeviceByAccompanyResource := make(map[string]string, len(affinityByAccompanyResource))
-	for accompanyResourceID, affinityByDimension := range affinityByAccompanyResource {
-		for _, dimension := range priorities {
-			resourceIDs := append(machine.DeviceIDs(nil), affinityByDimension[dimension]...)
-			if len(resourceIDs) == 0 {
-				continue
-			}
-			// Sorting makes affinity device selection deterministic.
-			sort.Strings(resourceIDs)
-			affinityDeviceByAccompanyResource[accompanyResourceID] = resourceIDs[0]
-			break
-		}
+	groups := groupAccompanyResourcesByAffinity(affinityByAccompanyResource, priorities)
+	result := make(map[string]string, len(affinityByAccompanyResource))
+	for _, group := range groups {
+		assignAffinityGroup(result, group)
 	}
-	return affinityDeviceByAccompanyResource
+	return result
+}
+
+// groupAccompanyResourcesByAffinity groups accompany devices by their
+// highest-priority affinity dimension and target-device candidates.
+func groupAccompanyResourcesByAffinity(
+	affinityByAccompanyResource map[string]map[string]machine.DeviceIDs,
+	priorityDimensions []string,
+) map[string]*affinityGroup {
+	groups := make(map[string]*affinityGroup)
+	for accompanyResourceID, affinityByDimension := range affinityByAccompanyResource {
+		dimension, targetResourceIDs := getHighestPriorityAffinity(
+			affinityByDimension,
+			priorityDimensions,
+		)
+		if len(targetResourceIDs) == 0 {
+			continue
+		}
+
+		groupKey := dimension + "\x00" + strings.Join(targetResourceIDs, "\x00")
+		group, ok := groups[groupKey]
+		if !ok {
+			group = &affinityGroup{
+				targetResourceIDs: targetResourceIDs,
+			}
+			groups[groupKey] = group
+		}
+		group.accompanyResourceIDs = append(group.accompanyResourceIDs, accompanyResourceID)
+	}
+	return groups
+}
+
+// getHighestPriorityAffinity returns the first non-empty affinity dimension
+// and a sorted copy of its target-device IDs.
+func getHighestPriorityAffinity(
+	affinityByDimension map[string]machine.DeviceIDs,
+	priorityDimensions []string,
+) (string, machine.DeviceIDs) {
+	for _, dimension := range priorityDimensions {
+		targetResourceIDs := append(machine.DeviceIDs(nil), affinityByDimension[dimension]...)
+		if len(targetResourceIDs) == 0 {
+			continue
+		}
+
+		sort.Strings(targetResourceIDs)
+		return dimension, targetResourceIDs
+	}
+	return "", nil
+}
+
+// assignAffinityGroup distributes sorted accompany devices as evenly as
+// possible across the group's sorted target devices.
+// For example, if the group has 5 accompany devices and 3 target devices,
+// the result will be:
+//   - 2 accompany devices to target device 0
+//   - 2 accompany devices to target device 1
+//   - 1 accompany device to target device 2
+func assignAffinityGroup(result map[string]string, group *affinityGroup) {
+	sort.Strings(group.accompanyResourceIDs)
+
+	baseSize := len(group.accompanyResourceIDs) / len(group.targetResourceIDs)
+	remainder := len(group.accompanyResourceIDs) % len(group.targetResourceIDs)
+	offset := 0
+	for i, targetResourceID := range group.targetResourceIDs {
+		groupSize := baseSize
+		if i < remainder {
+			groupSize++
+		}
+
+		for _, accompanyResourceID := range group.accompanyResourceIDs[offset : offset+groupSize] {
+			result[accompanyResourceID] = targetResourceID
+		}
+		offset += groupSize
+	}
 }
 
 // IsSharedDeviceAllocationRequested reports whether the annotation requests

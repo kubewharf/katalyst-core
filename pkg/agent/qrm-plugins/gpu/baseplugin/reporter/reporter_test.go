@@ -2322,16 +2322,18 @@ func TestGpuReporterPlugin_getTargetDeviceByAccompanyResource(t *testing.T) {
 	t.Parallel()
 
 	gpuTopology := &machine.DeviceTopology{
-		PriorityDimensions: []string{"fine", "coarse"},
+		PriorityDimensions: []string{"pcie", "numa"},
 		Devices: map[string]machine.DeviceInfo{
-			"g0": {Dimensions: machine.DeviceDimensions{"fine": "x", "coarse": "n"}},
-			"g1": {Dimensions: machine.DeviceDimensions{"coarse": "n"}},
+			"g0": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g1": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g2": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g3": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
 		},
 	}
 	rdmaTopology := &machine.DeviceTopology{
 		Devices: map[string]machine.DeviceInfo{
-			"r1": {Dimensions: machine.DeviceDimensions{"fine": "x", "coarse": "n"}},
-			"r0": {Dimensions: machine.DeviceDimensions{"fine": "x", "coarse": "n"}},
+			"r1": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"r0": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
 		},
 	}
 	registry := machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{})
@@ -2345,7 +2347,12 @@ func TestGpuReporterPlugin_getTargetDeviceByAccompanyResource(t *testing.T) {
 		deviceTopologyRegistry:                  registry,
 		enableHybridAccompanyResourceAllocation: true,
 	}
-	expected := map[string]string{"g0": "r0", "g1": "r0"}
+	expected := map[string]string{
+		"g0": "r0",
+		"g1": "r0",
+		"g2": "r1",
+		"g3": "r1",
+	}
 
 	assert.Equal(t, expected, reporter.getAffinityDeviceByAccompanyResource(
 		"gpu",
