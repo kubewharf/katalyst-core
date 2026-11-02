@@ -299,13 +299,13 @@ func (cra *cpuResourceAdvisor) update() (*types.CPUAdvice, error) {
 	}
 
 	result, err := cra.updateWithIsolationGuardian(
-		dynamicConf, metadataSnapshot.rampUpDomains.Len() > 0, hardEnabled, metadataSnapshot.steadyExclusiveNUMAs,
+		dynamicConf, hardEnabled, metadataSnapshot.steadyExclusiveNUMAs,
 		metadataSnapshot.rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes, true)
 	if err != nil {
 		if err == errIsolationSafetyCheckFailed {
 			klog.Warningf("[qosaware-cpu] failed to updateWithIsolationGuardian(true): %q", err)
 			result, err = cra.updateWithIsolationGuardian(
-				dynamicConf, metadataSnapshot.rampUpDomains.Len() > 0, hardEnabled, metadataSnapshot.steadyExclusiveNUMAs,
+				dynamicConf, hardEnabled, metadataSnapshot.steadyExclusiveNUMAs,
 				metadataSnapshot.rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes, false)
 		}
 		if err != nil {
@@ -699,7 +699,6 @@ func (cra *cpuResourceAdvisor) restoreRegionAssignments(snapshot regionAssignmen
 // If updateWithIsolationGuardian fails with isolation enabled, we should try again with isolation disabled.
 // todo: we should re-design the mechanism of isolation instead of disabling this functionality
 func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(dynamicConf *dynamic.Configuration,
-	rampUpActive bool,
 	hardActive bool,
 	steadyExclusiveNUMAs sets.Int,
 	rampUpDomains sets.Int,
@@ -773,7 +772,7 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(dynamicConf *dynamic.
 
 	// assemble provision result from each region
 	calculationResult, err := cra.assembleProvision(
-		dynamicConf, rampUpActive, rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes)
+		dynamicConf, rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes)
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %q", err)
 		return nil, fmt.Errorf("failed to assemble provisioner: %q", err)
@@ -1107,7 +1106,6 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials(dynamicConf *dynamic.Conf
 // so the cpu server can gate the live-reclaim floor per domain instead of
 // trusting the node-global RampUpActive flag.
 func (cra *cpuResourceAdvisor) assembleProvision(dynamicConf *dynamic.Configuration,
-	rampUpActive bool,
 	rampUpDomains sets.Int,
 	reclaimConstraint cputypes.ReclaimConstraint,
 	reclaimCeilings map[cputypes.ReclaimConstraintScope]*int,
