@@ -311,6 +311,7 @@ func TestPluginStopWaitsForActiveProviderOperation(t *testing.T) {
 		prepareRelease: make(chan struct{}),
 	}
 	plugin, err := NewStaticPolicy(Options{
+		DriverName: "test.dra.example.com",
 		StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
 			StateFileDirectory: t.TempDir(),
 		},

@@ -33,6 +33,12 @@ type StateReader interface {
 	ListPreparedClaims() map[string]state.PreparedClaim
 }
 
+// CheckpointImporter translates a provider's previous on-disk format. Generic
+// persistence and subsequent lifecycle remain owned by the core state store.
+type CheckpointImporter interface {
+	ImportPreparedClaims(context.Context) (map[string]state.PreparedClaim, error)
+}
+
 // ResourceBackend implements resource-specific inventory collection and claim preparation.
 type ResourceBackend interface {
 	Start(context.Context, StateReader) error
@@ -59,6 +65,9 @@ type ResourceSlicePublisher interface {
 }
 
 type Options struct {
+	// DriverName identifies this instance; empty preserves the legacy NVIDIA driver.
+	DriverName                  string
+	CheckpointName              string
 	StateDirectoryConfiguration *statedirectory.StateDirectoryConfiguration
 	KubeClient                  kubernetes.Interface
 	Backend                     ResourceBackend
