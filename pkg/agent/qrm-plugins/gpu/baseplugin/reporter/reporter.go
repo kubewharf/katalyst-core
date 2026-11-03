@@ -298,15 +298,29 @@ func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentRes
 
 	var reportFields []*v1alpha1.ReportField
 
-	// Report the affinity device for every accompany resource device.
-	// This is a no-op when hybrid allocation is disabled.
+	// Resolve each GPU's healthy RDMA affinity. Once RDMA inventory is initialized,
+	// GPUs without a healthy mapping are omitted from topology-zone reporting.
+	rdmaTopology, rdmaResourceName := p.getRDMADeviceTopology()
 	affinityDeviceByAccompanyResource := p.getAffinityDeviceByAccompanyResource(
 		gpuResourceName,
 		latestDeviceTopology.PriorityDimensions,
+		rdmaResourceName,
+		rdmaTopology,
 	)
+	var reportedGPUTopology *machine.DeviceTopology
+	if rdmaTopology == nil && rdmaResourceName == "" {
+		// No need to filter out GPUs if there is no RDMA topology.
+		reportedGPUTopology = latestDeviceTopology
+	} else {
+		// Filter out the GPUs with no RDMA affinity or with unhealthy RDMA affinity.
+		reportedGPUTopology = filterGPUDeviceTopology(
+			latestDeviceTopology,
+			affinityDeviceByAccompanyResource,
+		)
+	}
 	zoneField, err := p.getTopologyZoneReportField(
 		topologiesMap,
-		latestDeviceTopology,
+		reportedGPUTopology,
 		machineState,
 		affinityDeviceByAccompanyResource,
 	)
@@ -383,35 +397,101 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(
 	}, nil
 }
 
-// getAffinityDeviceByAccompanyResource returns a single affinity device for every accompany resource device.
-// The mapping is omitted when hybrid allocation is disabled.
+// getRDMADeviceTopology returns the latest rdma device topology and the rdma resource name.
+// If enableHybridAccompanyResourceAllocation is false, it returns nil and empty string.
+func (p *gpuReporterPlugin) getRDMADeviceTopology() (*machine.DeviceTopology, string) {
+	if !p.enableHybridAccompanyResourceAllocation {
+		return nil, ""
+	}
+
+	rdmaTopology, rdmaResourceName, err := p.deviceTopologyRegistry.GetLatestDeviceTopology(p.rdmaDeviceNames)
+	if err != nil {
+		general.Warningf("failed to get resource topology for target-device mapping: %v", err)
+		return nil, ""
+	}
+	return rdmaTopology, rdmaResourceName
+}
+
+// getAffinityDeviceByAccompanyResource maps each GPU to one healthy RDMA.
 func (p *gpuReporterPlugin) getAffinityDeviceByAccompanyResource(
 	accompanyResourceName string,
 	priorityDimensions []string,
+	rdmaResourceName string,
+	rdmaTopology *machine.DeviceTopology,
 ) map[string]string {
-	if !p.enableHybridAccompanyResourceAllocation {
-		return nil
-	}
-
-	_, resourceName, err := p.deviceTopologyRegistry.GetLatestDeviceTopology(p.rdmaDeviceNames)
-	if err != nil {
-		general.Warningf("failed to get resource topology for target-device mapping: %v", err)
-		return nil
-	}
-
-	affinityByAccompanyResource, err := p.deviceTopologyRegistry.GetAffinityDevices(
+	rdmaCandidatesByGPU, err := p.deviceTopologyRegistry.GetAffinityDevices(
 		accompanyResourceName,
-		resourceName,
+		rdmaResourceName,
 	)
 	if err != nil {
 		general.Warningf("failed to get resource affinity: %v", err)
-		return nil
+		return map[string]string{}
 	}
 
+	rdmaCandidatesByGPU = filterHealthyRDMACandidates(
+		rdmaCandidatesByGPU,
+		rdmaTopology,
+	)
+
 	return gpuutil.ResolveAffinityDeviceByAccompanyResource(
-		affinityByAccompanyResource,
+		rdmaCandidatesByGPU,
 		priorityDimensions,
 	)
+}
+
+// filterHealthyRDMACandidates copies the GPU-to-RDMA candidates while removing
+// RDMAs that are absent or unhealthy in the latest inventory.
+func filterHealthyRDMACandidates(
+	rdmaCandidatesByGPU map[string]map[string]machine.DeviceIDs,
+	rdmaTopology *machine.DeviceTopology,
+) map[string]map[string]machine.DeviceIDs {
+	healthyCandidatesByGPU := make(map[string]map[string]machine.DeviceIDs)
+	if rdmaTopology == nil {
+		return healthyCandidatesByGPU
+	}
+
+	for gpuID, rdmaCandidatesByDimension := range rdmaCandidatesByGPU {
+		healthyCandidatesByDimension := make(map[string]machine.DeviceIDs, len(rdmaCandidatesByDimension))
+		for dimension, candidateRDMAIDs := range rdmaCandidatesByDimension {
+			healthyRDMAIDs := make(machine.DeviceIDs, 0, len(candidateRDMAIDs))
+			for _, rdmaID := range candidateRDMAIDs {
+				// We only report healthy RDMA candidates.
+				if healthy, found := rdmaTopology.IsDeviceHealthy(rdmaID); found && healthy {
+					healthyRDMAIDs = append(healthyRDMAIDs, rdmaID)
+				}
+			}
+
+			if len(healthyRDMAIDs) > 0 {
+				healthyCandidatesByDimension[dimension] = healthyRDMAIDs
+			}
+		}
+
+		if len(healthyCandidatesByDimension) > 0 {
+			healthyCandidatesByGPU[gpuID] = healthyCandidatesByDimension
+		}
+	}
+
+	return healthyCandidatesByGPU
+}
+
+// filterGPUDeviceTopology returns a cloned topology containing only GPUs with
+// resolved RDMA affinity.
+func filterGPUDeviceTopology(
+	topology *machine.DeviceTopology,
+	rdmaByGPU map[string]string,
+) *machine.DeviceTopology {
+	if topology == nil {
+		return topology
+	}
+
+	filtered := topology.Clone()
+	for gpuID := range filtered.Devices {
+		if _, reportable := rdmaByGPU[gpuID]; !reportable {
+			delete(filtered.Devices, gpuID)
+		}
+	}
+
+	return filtered
 }
 
 func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology *machine.DeviceTopology) (*v1alpha1.ReportField, error) {
