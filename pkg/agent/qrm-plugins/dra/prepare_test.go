@@ -108,6 +108,54 @@ func (p *fakeProvider) Unprepare(context.Context, state.PreparedClaim) error {
 	return nil
 }
 
+type deleteFailureState struct {
+	state.State
+	fail bool
+}
+
+func (s *deleteFailureState) DeletePreparedClaim(uid string, persist bool) error {
+	if !s.fail {
+		return s.State.DeletePreparedClaim(uid, persist)
+	}
+	_ = s.State.DeletePreparedClaim(uid, false)
+	return errors.New("injected checkpoint deletion failure")
+}
+
+type releasingProvider struct {
+	fakeProvider
+	store state.State
+}
+
+func (p *releasingProvider) Unprepare(_ context.Context, c state.PreparedClaim) error {
+	if c.Phase != state.UnprepareStarted {
+		return errors.New("release started before core persisted its phase")
+	}
+	return p.store.SetProviderState(c.UID, json.RawMessage(`{"nativeUnprepared":true}`))
+}
+
+func TestUnprepareDeletionFailureCannotReturnReleasedDevices(t *testing.T) {
+	store := &deleteFailureState{State: state.NewMemoryState(), fail: true}
+	provider := &releasingProvider{store: store}
+	plugin := newOperationTestPlugin(provider)
+	plugin.state = store
+	claim := allocatedDeviceClaim("ns", "claim", "uid", "request", false)
+	_, err := plugin.prepareOne(context.Background(), claim)
+	require.NoError(t, err)
+	ref := claimRefValue(claim.Namespace, claim.Name, string(claim.UID))
+	require.ErrorContains(t, plugin.unprepareOne(context.Background(), ref), "deletion failure")
+	saved, found := store.GetPreparedClaim(string(claim.UID))
+	require.True(t, found)
+	require.Equal(t, state.UnprepareStarted, saved.Phase)
+	require.JSONEq(t, `{"nativeUnprepared":true}`, string(saved.ProviderState))
+	_, err = plugin.prepareOne(context.Background(), claim)
+	require.ErrorContains(t, err, "unfinished unprepare")
+	require.Equal(t, 1, provider.prepareCalls)
+	store.fail = false
+	require.NoError(t, plugin.unprepareOne(context.Background(), ref))
+	_, found = store.GetPreparedClaim(string(claim.UID))
+	require.False(t, found)
+}
+
 func TestPrepareOnePersistsTransitionsAndIsIdempotent(t *testing.T) {
 	provider := &fakeProvider{prepareResults: []PrepareResult{{
 		Devices: []state.PreparedDevice{{

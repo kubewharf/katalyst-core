@@ -29,6 +29,7 @@ type ClaimPhase string
 const (
 	PrepareStarted   ClaimPhase = "PrepareStarted"
 	PrepareCompleted ClaimPhase = "PrepareCompleted"
+	UnprepareStarted ClaimPhase = "UnprepareStarted"
 )
 
 type PreparedDevice struct {

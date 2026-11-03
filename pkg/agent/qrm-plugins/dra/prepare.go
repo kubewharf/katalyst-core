@@ -191,6 +191,9 @@ func (p *StaticPolicy) prepareOne(
 		return nil, err
 	}
 	// Check if the claim has been prepared before.
+	if saved, found := p.state.GetPreparedClaim(string(claim.UID)); found && saved.Phase == state.UnprepareStarted {
+		return nil, fmt.Errorf("claim %s has unfinished unprepare", claim.UID)
+	}
 	if devices, prepared, err := p.completedPrepare(claim.UID); prepared || err != nil {
 		return devices, err
 	}
@@ -342,6 +345,10 @@ func (p *StaticPolicy) unprepareOne(ctx context.Context, ref claimReference) err
 		return err
 	}
 	prepared, err := p.preparedClaimForUnprepare(ref.UID)
+	if err == nil && prepared != nil && prepared.Phase != state.UnprepareStarted {
+		prepared.Phase = state.UnprepareStarted
+		err = p.state.SetPreparedClaim(*prepared, true)
+	}
 	p.operationMu.Unlock()
 	if err != nil || prepared == nil {
 		return err
@@ -351,6 +358,11 @@ func (p *StaticPolicy) unprepareOne(ctx context.Context, ref claimReference) err
 	}
 	p.operationMu.Lock()
 	defer p.operationMu.Unlock()
+	// The backend may have persisted a resource-release tombstone. Preserve
+	// that latest payload if deleting the core checkpoint subsequently fails.
+	if current, found := p.state.GetPreparedClaim(ref.UID); found {
+		prepared = &current
+	}
 	if err := p.state.DeletePreparedClaim(ref.UID, true); err != nil {
 		deleteErr := fmt.Errorf("delete prepared claim checkpoint: %w", err)
 		if restoreErr := p.state.SetPreparedClaim(*prepared, false); restoreErr != nil {
