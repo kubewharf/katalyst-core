@@ -80,3 +80,46 @@ func baseRequestRef(requestRef string) string {
 	request, _, _ := strings.Cut(requestRef, "/")
 	return request
 }
+
+// claimForDriver limits allocation results/configuration before backend dispatch and persistence.
+func (p *StaticPolicy) claimForDriver(claim *resourcev1.ResourceClaim) (*resourcev1.ResourceClaim, error) {
+	if claim == nil || claim.Status.Allocation == nil {
+		return nil, NonRetryable(fmt.Errorf("claim is not allocated"))
+	}
+	out := claim.DeepCopy()
+	devices := &out.Status.Allocation.Devices
+	devices.Results = nil
+	requests := map[string]bool{}
+	for _, result := range claim.Status.Allocation.Devices.Results {
+		if result.Driver == p.Name() {
+			devices.Results = append(devices.Results, result)
+			requests[result.Request] = true
+			requests[baseRequestRef(result.Request)] = true
+		}
+	}
+	if len(devices.Results) == 0 {
+		return nil, NonRetryable(fmt.Errorf("claim %s/%s has no allocation for driver %s", claim.Namespace, claim.Name, p.Name()))
+	}
+	configs := devices.Config
+	devices.Config = nil
+	for _, config := range configs {
+		if config.Opaque != nil && config.Opaque.Driver != p.Name() {
+			continue
+		}
+		if len(config.Requests) == 0 {
+			devices.Config = append(devices.Config, config)
+			continue
+		}
+		selected := []string{}
+		for _, request := range config.Requests {
+			if requests[request] {
+				selected = append(selected, request)
+			}
+		}
+		if len(selected) > 0 {
+			config.Requests = selected
+			devices.Config = append(devices.Config, config)
+		}
+	}
+	return out, nil
+}

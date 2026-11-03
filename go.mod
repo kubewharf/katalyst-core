@@ -193,7 +193,7 @@ require (
 
 replace (
 	github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-securejoin v0.4.1
-	github.com/kubewharf/katalyst-api => github.com/JustinChengLZ/katalyst-api v0.0.0-20261022073038-58f6b654f523
+	github.com/kubewharf/katalyst-api => github.com/JustinChengLZ/katalyst-api v0.0.0-20261022071010-4d684f62c575
 	github.com/opencontainers/runc => github.com/opencontainers/runc v1.2.5
 	github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.11.1
 	k8s.io/api => k8s.io/api v0.35.9

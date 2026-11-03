@@ -78,16 +78,30 @@ func NewCheckpointState(conf *statedirectory.StateDirectoryConfiguration) (State
 	if conf == nil {
 		return nil, fmt.Errorf("state directory configuration is required")
 	}
+	return NewCheckpointStateWithName(conf, "")
+}
+
+// NewCheckpointStateWithName isolates persistent state while retaining the legacy default.
+func NewCheckpointStateWithName(conf *statedirectory.StateDirectoryConfiguration, name string) (State, error) {
+	if conf == nil {
+		return nil, fmt.Errorf("state directory configuration is required")
+	}
+	if name == "" {
+		name = checkpointName
+	}
+	if name == "." || name == ".." || filepath.Base(name) != name {
+		return nil, fmt.Errorf("invalid DRA checkpoint name %q", name)
+	}
 	currentDir, previousDir := conf.GetCurrentAndPreviousStateFileDirectory()
 
 	checkpointState := &stateCheckpoint{
 		cache:          NewMemoryState(),
-		checkpointName: checkpointName,
+		checkpointName: name,
 	}
 	manager, err := customcheckpointmanager.NewCustomCheckpointManager(
 		currentDir,
 		previousDir,
-		checkpointName,
+		name,
 		pluginName,
 		checkpointState,
 		false,
@@ -95,7 +109,7 @@ func NewCheckpointState(conf *statedirectory.StateDirectoryConfiguration) (State
 	if err != nil {
 		return nil, fmt.Errorf(
 			"initialize DRA checkpoint state %q: %w",
-			filepath.Join(currentDir, checkpointName),
+			filepath.Join(currentDir, name),
 			err,
 		)
 	}

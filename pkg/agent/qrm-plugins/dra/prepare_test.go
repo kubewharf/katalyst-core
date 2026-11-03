@@ -44,6 +44,34 @@ type fakeProvider struct {
 	prepareFunc    func(*resourcev1.ResourceClaim) (PrepareResult, error)
 }
 
+func TestCoDependentClaimsDoNotHoldGlobalCheckpointLock(t *testing.T) {
+	entered := make(chan struct{})
+	daemonReady := make(chan struct{})
+	provider := &fakeProvider{prepareFunc: func(c *resourcev1.ResourceClaim) (PrepareResult, error) {
+		if c.Name == "channel" {
+			close(entered)
+			select {
+			case <-daemonReady:
+			case <-time.After(time.Second):
+				return PrepareResult{}, errors.New("daemon claim blocked behind channel")
+			}
+		} else {
+			close(daemonReady)
+		}
+		return PrepareResult{}, nil
+	}}
+	plugin := newOperationTestPlugin(provider)
+	channel := allocatedDeviceClaim("ns", "channel", "channel-uid", "channel", false)
+	daemon := allocatedDeviceClaim("ns", "daemon", "daemon-uid", "daemon", false)
+	daemon.Status.Allocation.Devices.Results[0].Device = "daemon-device"
+	done := make(chan error, 1)
+	go func() { _, err := plugin.prepareOne(context.Background(), channel); done <- err }()
+	<-entered
+	_, err := plugin.prepareOne(context.Background(), daemon)
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+}
+
 func (*fakeProvider) Start(context.Context, StateReader) error { return nil }
 
 func (*fakeProvider) Stop() error { return nil }
@@ -317,6 +345,7 @@ func TestUnprepareOneIsIdempotent(t *testing.T) {
 
 func newOperationTestPlugin(provider ResourceBackend) *StaticPolicy {
 	return &StaticPolicy{
+		driverName:   "test.dra.example.com",
 		backend:      provider,
 		retryTimeout: time.Second,
 		state:        state.NewMemoryState(),

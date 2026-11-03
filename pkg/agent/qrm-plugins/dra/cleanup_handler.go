@@ -44,9 +44,9 @@ var draPeriodicalHandlerGroupName = strings.Join(
 
 func (p *StaticPolicy) registerClearResidualState() error {
 	return periodicalhandler.RegisterPeriodicalHandlerWithHealthz(
-		clearResidualStateHandlerName,
+		p.cleanupHandlerName(),
 		general.HealthzCheckStateNotReady,
-		draPeriodicalHandlerGroupName,
+		p.cleanupGroupName(),
 		p.clearResidualState,
 		stateCheckPeriod,
 		healthCheckTolerationTimes,
@@ -55,13 +55,13 @@ func (p *StaticPolicy) registerClearResidualState() error {
 
 func (p *StaticPolicy) startCleanup() {
 	periodicalhandler.ReadyToStartHandlersByGroup(
-		draPeriodicalHandlerGroupName,
+		p.cleanupGroupName(),
 	)
 }
 
 func (p *StaticPolicy) stopCleanup() {
 	periodicalhandler.StopHandlersByGroup(
-		draPeriodicalHandlerGroupName,
+		p.cleanupGroupName(),
 	)
 }
 
@@ -74,7 +74,20 @@ func (p *StaticPolicy) clearResidualState(
 ) {
 	err := p.cleanupResidualClaims()
 	_ = general.UpdateHealthzStateByError(
-		clearResidualStateHandlerName,
+		p.cleanupHandlerName(),
 		err,
 	)
+}
+
+func (p *StaticPolicy) cleanupHandlerName() string {
+	if p.Name() == DefaultDriverName {
+		return clearResidualStateHandlerName
+	}
+	return "qrm_dra_" + p.Name() + "_clear_residual_state"
+}
+func (p *StaticPolicy) cleanupGroupName() string {
+	if p.Name() == DefaultDriverName {
+		return draPeriodicalHandlerGroupName
+	}
+	return strings.Join([]string{p.cleanupHandlerName(), phconsts.PeriodicalHandlersGroupNameSuffix}, phconsts.GroupNameSeparator)
 }
