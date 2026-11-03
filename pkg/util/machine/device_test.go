@@ -571,6 +571,76 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 	}
 }
 
+func TestGetAffinityDevicesFromTopology(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		topologyA   *DeviceTopology
+		topologyB   *DeviceTopology
+		expected    map[string]map[string]DeviceIDs
+		expectedErr bool
+	}{
+		{
+			name: "dimensions take precedence over NUMA",
+			topologyA: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"g0": {Dimensions: DeviceDimensions{"pcie": "A"}, NumaNodes: []int{0}},
+			}},
+			topologyB: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"rA": {Health: "Unhealthy", Dimensions: DeviceDimensions{"pcie": "A"}, NumaNodes: []int{1}},
+				"rB": {Dimensions: DeviceDimensions{"pcie": "B"}, NumaNodes: []int{0}},
+			}},
+			expected: map[string]map[string]DeviceIDs{"g0": {"pcie": {"rA"}}},
+		},
+		{
+			name: "NUMA fallback",
+			topologyA: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"g0": {NumaNodes: []int{0, 1}},
+			}},
+			topologyB: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"r0": {NumaNodes: []int{1}},
+			}},
+			expected: map[string]map[string]DeviceIDs{"g0": {DimensionNuma: {"r0"}}},
+		},
+		{
+			name: "no affinity",
+			topologyA: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"g0": {NumaNodes: []int{0}},
+			}},
+			topologyB: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"r0": {NumaNodes: []int{1}},
+			}},
+			expected: map[string]map[string]DeviceIDs{},
+		},
+		{
+			name:      "empty inventory",
+			topologyA: &DeviceTopology{},
+			topologyB: &DeviceTopology{},
+			expected:  map[string]map[string]DeviceIDs{},
+		},
+		{name: "nil source", topologyB: &DeviceTopology{}, expectedErr: true},
+		{name: "nil target", topologyA: &DeviceTopology{}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			originalA, originalB := tt.topologyA.Clone(), tt.topologyB.Clone()
+			actual, err := GetAffinityDevicesFromTopology(tt.topologyA, tt.topologyB)
+			if tt.expectedErr {
+				assert.Error(t, err)
+				assert.Nil(t, actual)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, actual)
+			}
+			assert.Equal(t, originalA, tt.topologyA)
+			assert.Equal(t, originalB, tt.topologyB)
+		})
+	}
+}
+
 func evaluateDeviceAffinityMap(t *testing.T, expected map[string]map[string][]string, actual map[string]map[string]DeviceIDs) {
 	if len(actual) != len(expected) {
 		t.Errorf("deviceAffinity lengths don't match, expected %d, got %d", len(expected), len(actual))

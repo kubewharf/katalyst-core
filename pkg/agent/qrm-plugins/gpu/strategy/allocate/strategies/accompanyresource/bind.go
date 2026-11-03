@@ -351,11 +351,21 @@ func (s *AccompanyResourceStrategy) allocateSharedAffinityDevices(
 		return failedAllocationResult(err)
 	}
 
+	resourceTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
+	if err != nil {
+		return failedAllocationResult(fmt.Errorf(
+			"failed to get device topology for resource %s: %w",
+			ctx.ResourceName,
+			err,
+		))
+	}
+
 	// Existing devices that are allocated to other shared pods are preferred over free devices.
 	// This is to maximize bin-packing and reduce resource fragmentation.
 	candidates := getSharedResourceAllocationCandidates(
 		affinityDeviceIDs,
 		ctx.MachineState[v1.ResourceName(resourceNameInState)],
+		resourceTopology,
 		sets.NewString(ctx.DeviceReq.AvailableDevices...),
 		selected,
 		ctx.GPUQRMPluginConfig.AccompanyResourceSharedAnnotationKey,
@@ -410,6 +420,7 @@ func resolveAffinityDeviceIDsForAccompanyResources(
 func getSharedResourceAllocationCandidates(
 	eligible sets.String,
 	resourceState state.AllocationMap,
+	resourceTopology *machine.DeviceTopology,
 	available sets.String,
 	selected sets.String,
 	annotationKey string,
@@ -424,7 +435,10 @@ func getSharedResourceAllocationCandidates(
 
 		switch classifyResourceOwnership(resourceState[resourceID], annotationKey) {
 		case resourceShared:
-			shared.Insert(resourceID)
+			// Skip unhealthy devices.
+			if healthy, ok := resourceTopology.IsDeviceHealthy(resourceID); ok && healthy {
+				shared.Insert(resourceID)
+			}
 		case resourceFree:
 			if available.Has(resourceID) {
 				free.Insert(resourceID)

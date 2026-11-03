@@ -65,13 +65,21 @@ func TestGetSharedResourceAllocationCandidates(t *testing.T) {
 		"r1": nil,
 		"r2": resourceStateWithOwners(annotationKey, "false"),
 		"r3": resourceStateWithOwners(annotationKey, "true", "false"),
+		"r4": resourceStateWithOwners(annotationKey, "true"),
 	}
-	eligible := sets.NewString("r3", "r2", "r1", "r0")
+	resourceTopology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"r0": {Health: v1alpha1.Healthy},
+			"r4": {Health: v1alpha1.Unhealthy},
+		},
+	}
+	eligible := sets.NewString("r4", "r3", "r2", "r1", "r0")
 	available := sets.NewString("r1", "r2", "r3")
 
 	assert.Equal(t, []string{"r0", "r1"}, getSharedResourceAllocationCandidates(
 		eligible,
 		resourceState,
+		resourceTopology,
 		available,
 		sets.NewString(),
 		annotationKey,
@@ -79,6 +87,7 @@ func TestGetSharedResourceAllocationCandidates(t *testing.T) {
 	assert.Equal(t, []string{"r1"}, getSharedResourceAllocationCandidates(
 		eligible,
 		resourceState,
+		resourceTopology,
 		available,
 		sets.NewString("r0"),
 		annotationKey,
@@ -408,6 +417,10 @@ func TestAllocateSharedAffinityDevicesReturnsPartialAllocation(t *testing.T) {
 		},
 		GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{},
 		Emitter:            metrics.DummyMetrics{},
+		DeviceTopologyRegistry: buildNumaAffinityRegistry(
+			map[string][]int{"r0": {0}},
+			map[string][]int{"g0": {0}, "g1": {0}},
+		),
 		MachineState: state.AllocationResourcesMap{
 			gpuconsts.RDMADeviceType: {
 				"r0": nil,
@@ -1471,7 +1484,11 @@ func buildNumaAffinityRegistry(rdmaToNuma map[string][]int, gpuToNuma map[string
 	// RDMA topology (no dimensions, only NUMA nodes and empty PriorityDimensions to trigger default "numa" priority)
 	rdmaTopo := &machine.DeviceTopology{PriorityDimensions: []string{}, Devices: map[string]machine.DeviceInfo{}}
 	for rdmaID, numaNodes := range rdmaToNuma {
-		rdmaTopo.Devices[rdmaID] = machine.DeviceInfo{NumaNodes: numaNodes, Dimensions: map[string]string{}}
+		rdmaTopo.Devices[rdmaID] = machine.DeviceInfo{
+			Health:     v1alpha1.Healthy,
+			NumaNodes:  numaNodes,
+			Dimensions: map[string]string{},
+		}
 	}
 	_ = reg.SetDeviceTopology("rdma", rdmaTopo)
 
