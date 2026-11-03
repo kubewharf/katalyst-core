@@ -731,14 +731,19 @@ func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	// Test error handling for no device request
+	// A nil request remains invalid.
+	resp, err = policy.UpdateAllocatableAssociatedDevices(context.Background(), nil)
+	assert.Error(t, err)
+	assert.Nil(t, resp)
+
+	// An empty device list is a valid inventory update.
 	noDeviceRequest := &pluginapi.UpdateAllocatableAssociatedDevicesRequest{
 		DeviceName: testCustomDevicePluginName,
 	}
 
 	resp, err = policy.UpdateAllocatableAssociatedDevices(context.Background(), noDeviceRequest)
-	assert.Error(t, err)
-	assert.Nil(t, resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 
 	// Test error handling for non-existent custom device plugin
 	invalidReq := &pluginapi.UpdateAllocatableAssociatedDevicesRequest{

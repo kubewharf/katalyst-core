@@ -46,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -2315,6 +2316,80 @@ func TestGpuReporterPlugin_getRDMAResourceProperty(t *testing.T) {
 			assert.Equal(t, tc.expected, got)
 		})
 	}
+}
+
+func TestGpuReporterPlugin_getTargetDeviceByAccompanyResource(t *testing.T) {
+	t.Parallel()
+
+	gpuTopology := &machine.DeviceTopology{
+		PriorityDimensions: []string{"pcie", "numa"},
+		Devices: map[string]machine.DeviceInfo{
+			"g0": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g1": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g2": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g3": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+		},
+	}
+	rdmaTopology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"r1": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"r0": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+		},
+	}
+	registry := machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+	registry.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
+	registry.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	require.NoError(t, registry.SetDeviceTopology("gpu", gpuTopology))
+	require.NoError(t, registry.SetDeviceTopology("rdma", rdmaTopology))
+
+	reporter := &gpuReporterPlugin{
+		rdmaDeviceNames:                         []string{"rdma"},
+		deviceTopologyRegistry:                  registry,
+		enableHybridAccompanyResourceAllocation: true,
+	}
+	expected := map[string]string{
+		"g0": "r0",
+		"g1": "r0",
+		"g2": "r1",
+		"g3": "r1",
+	}
+
+	assert.Equal(t, expected, reporter.getAffinityDeviceByAccompanyResource(
+		"gpu",
+		gpuTopology.PriorityDimensions,
+	))
+	affinity, err := registry.GetAffinityDevices("gpu", "rdma")
+	require.NoError(t, err)
+	assert.Equal(t, expected, gpuutil.ResolveAffinityDeviceByAccompanyResource(
+		affinity,
+		gpuTopology.PriorityDimensions,
+	))
+
+	reporter.enableHybridAccompanyResourceAllocation = false
+	assert.Nil(t, reporter.getAffinityDeviceByAccompanyResource("gpu", gpuTopology.PriorityDimensions))
+}
+
+func TestGpuReporterPlugin_getGPUZoneAttributesWithTargetDevice(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.DeviceTopology{
+		PriorityDimensions: []string{"fine"},
+		Devices: map[string]machine.DeviceInfo{
+			"g0": {Dimensions: machine.DeviceDimensions{"fine": "x"}},
+			"g1": {Dimensions: machine.DeviceDimensions{"fine": "y"}},
+		},
+	}
+	reporter := &gpuReporterPlugin{}
+
+	attributes := reporter.getGPUZoneAttributes(topology, map[string]string{"g0": "r0"})
+
+	assert.Equal(t, util.ZoneAttributes{
+		{Name: "fine", Value: "x"},
+		{Name: "rdma", Value: "r0"},
+	}, attributes[util.GenerateDeviceZoneNode("g0", string(nodev1alpha1.TopologyTypeGPU))])
+	assert.Equal(t, util.ZoneAttributes{
+		{Name: "fine", Value: "y"},
+	}, attributes[util.GenerateDeviceZoneNode("g1", string(nodev1alpha1.TopologyTypeGPU))])
 }
 
 func TestGpuReporterPlugin_getResourcePropertyReportField_RDMAOnly(t *testing.T) {
