@@ -194,6 +194,12 @@ func (s *stateCheckpoint) StoreState() error {
 	return s.storeState()
 }
 
+func (s *stateCheckpoint) SetProviderState(uid string, raw json.RawMessage) error {
+	return s.mutate(true, func() error {
+		return s.cache.SetProviderState(uid, raw)
+	})
+}
+
 func (s *stateCheckpoint) storeState() error {
 	return s.checkpointManager.CreateCheckpoint(
 		s.checkpointName,

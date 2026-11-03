@@ -16,7 +16,11 @@ limitations under the License.
 
 package state
 
-import "sync"
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+)
 
 type stateMemory struct {
 	sync.RWMutex
@@ -68,6 +72,18 @@ func (s *stateMemory) DeletePreparedClaim(uid string, _ bool) error {
 }
 
 func (s *stateMemory) StoreState() error {
+	return nil
+}
+
+func (s *stateMemory) SetProviderState(uid string, raw json.RawMessage) error {
+	s.Lock()
+	defer s.Unlock()
+	claim, ok := s.preparedClaims[uid]
+	if !ok {
+		return fmt.Errorf("provider state has no core claim %s", uid)
+	}
+	claim.ProviderState = append(json.RawMessage(nil), raw...)
+	s.preparedClaims[uid] = claim
 	return nil
 }
 

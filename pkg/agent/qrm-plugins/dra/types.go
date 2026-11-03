@@ -33,6 +33,12 @@ type StateReader interface {
 	ListPreparedClaims() map[string]state.PreparedClaim
 }
 
+// ProviderStateWriter lets an embedded vendor checkpoint update opaque resource
+// state while the core remains responsible for the claim's RPC phase.
+type ProviderStateWriter interface {
+	SetProviderState(uid string, raw json.RawMessage) error
+}
+
 // CheckpointImporter translates a provider's previous on-disk format. Generic
 // persistence and subsequent lifecycle remain owned by the core state store.
 type CheckpointImporter interface {

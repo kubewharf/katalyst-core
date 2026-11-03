@@ -16,6 +16,8 @@ limitations under the License.
 
 package state
 
+import "encoding/json"
+
 type reader interface {
 	GetPreparedClaim(uid string) (PreparedClaim, bool)
 	ListPreparedClaims() map[string]PreparedClaim
@@ -26,6 +28,7 @@ type writer interface {
 	SetPreparedClaim(claim PreparedClaim, persist bool) error
 	DeletePreparedClaim(uid string, persist bool) error
 	StoreState() error
+	SetProviderState(uid string, raw json.RawMessage) error
 }
 
 type ReadonlyState interface {
