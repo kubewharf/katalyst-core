@@ -2903,7 +2903,9 @@ type defaultShareMaterializationPlan struct {
 type defaultShareMaterializationMode uint8
 
 const (
-	defaultShareMaterializationNormal defaultShareMaterializationMode = iota
+	defaultShareMaterializationDisabled defaultShareMaterializationMode = iota
+	defaultShareMaterializationNormal
+	defaultShareMaterializationFrozenResidual
 	defaultShareMaterializationRecovery
 )
 
@@ -3056,12 +3058,13 @@ func hasLiveDefaultShareOwner(entries state.PodEntries) bool {
 
 // materializeDefaultShareCPUSet computes the residual cpuset for the default
 // share pool by subtracting every fixed pool (except the default share pool
-// itself) and every isolated container cpuset from availableCPUs, then fails
-// closed when the expected quantity produced by SysAdvisor is smaller than the
-// residual size.
+// itself) and every isolated container cpuset from availableCPUs. The normal
+// mode implements the explicit SysAdvisor upper-bound contract and fails closed
+// when the residual exceeds that bound. Frozen-reclaim and recovery modes own
+// the residual CPUSet locally, so their advisor quantity is diagnostic only.
 //
-// Mutual-exclusion premise: this residual backfill relies on
-// FillDefaultSharePoolWithNonReclaimCPUs (the backfill gate) and
+// For normal mode, the mutual-exclusion premise relies on
+// FillDefaultSharePoolWithNonReclaimCPUs (the explicit backfill gate) and
 // AllowSharedCoresOverlapReclaimedCores being mutually exclusive. That
 // mutual exclusion is enforced on the SysAdvisor side by
 // validateDefaultShareBackfillConfig (assembler_common.go) at the quantity
@@ -3087,7 +3090,9 @@ func materializeDefaultShareCPUSetForMode(expectedQuantity int, availableCPUs ma
 ) (machine.CPUSet, error) {
 	fixed := unionPoolCPUSet(pools, commonstate.PoolNameShare).Union(unionIsolatedCPUSet(isolated))
 	residual := availableCPUs.Difference(fixed)
-	if residual.Size() > expectedQuantity && mode != defaultShareMaterializationRecovery {
+	quantityIsAdvisory := mode == defaultShareMaterializationFrozenResidual ||
+		mode == defaultShareMaterializationRecovery
+	if residual.Size() > expectedQuantity && !quantityIsAdvisory {
 		return machine.NewCPUSet(), &DefaultShareResidualQuantityError{
 			AdvisedQuantity: expectedQuantity,
 			ResidualSize:    residual.Size(),

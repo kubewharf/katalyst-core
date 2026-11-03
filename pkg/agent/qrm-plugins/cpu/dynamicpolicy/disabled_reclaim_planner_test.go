@@ -31,24 +31,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func TestDefaultShareResidualEnabled(t *testing.T) {
+func TestDefaultShareMaterializationModeFor(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name   string
 		frozen frozenReclaimPlacementConstraint
 		resp   *advisorapi.ListAndWatchResponse
-		want   bool
+		want   defaultShareMaterializationMode
 	}{
 		{
-			name: "disabled reclaim disjoint frozen placement enables residual",
+			name: "disabled reclaim disjoint frozen placement uses local residual",
 			frozen: frozenReclaimPlacementConstraint{
 				cpus: machine.NewCPUSet(2, 6),
 			},
 			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
 				commonstate.PoolNameShare: {},
 			}},
-			want: true,
+			want: defaultShareMaterializationFrozenResidual,
 		},
 		{
 			name: "overlap allowed keeps exact planning",
@@ -58,6 +58,7 @@ func TestDefaultShareResidualEnabled(t *testing.T) {
 			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
 				commonstate.PoolNameShare: {},
 			}},
+			want: defaultShareMaterializationDisabled,
 		},
 		{
 			name: "active reclaim has no frozen placement",
@@ -67,6 +68,7 @@ func TestDefaultShareResidualEnabled(t *testing.T) {
 			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{
 				commonstate.PoolNameShare: {},
 			}},
+			want: defaultShareMaterializationDisabled,
 		},
 		{
 			name: "missing default share keeps existing zero-share contract",
@@ -74,14 +76,28 @@ func TestDefaultShareResidualEnabled(t *testing.T) {
 				cpus: machine.NewCPUSet(2, 6),
 			},
 			resp: &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}},
+			want: defaultShareMaterializationDisabled,
 		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, defaultShareResidualEnabled(nil, tc.frozen, tc.resp))
+			require.Equal(t, tc.want, defaultShareMaterializationModeFor(nil, tc.frozen, tc.resp))
 		})
 	}
+}
+
+func TestDefaultShareMaterializationModeForExplicitBackfill(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(4, 1, 1)
+	require.NoError(t, err)
+	p, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+	conf := p.config.dynamicConfig.GetDynamicConfiguration()
+	conf.FillDefaultSharePoolWithNonReclaimCPUs = true
+	require.Equal(t, defaultShareMaterializationNormal,
+		defaultShareMaterializationModeFor(conf, frozenReclaimPlacementConstraint{}, nil))
 }
 
 func TestFrozenReclaimConstraintToDisjointDescriptors(t *testing.T) {
@@ -272,7 +288,7 @@ func TestFrozenReclaimAdvisorAttemptAvoidsDisallowedOwners(t *testing.T) {
 	}
 }
 
-func TestFrozenReclaimDefaultShareUsesResidualBelowAdvisorUpperBound(t *testing.T) {
+func TestFrozenReclaimDefaultShareIgnoresLegacyQuantity(t *testing.T) {
 	t.Parallel()
 
 	for _, disjoint := range []bool{false, true} {
@@ -305,7 +321,7 @@ func TestFrozenReclaimDefaultShareUsesResidualBelowAdvisorUpperBound(t *testing.
 						commonstate.FakedContainerName: {
 							OwnerPoolName: commonstate.PoolNameShare,
 							CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
-								commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "share", Result: 7}}},
+								commonstate.FakedNUMAID: {Blocks: []*advisorapi.Block{{BlockId: "share", Result: 5}}},
 							},
 						},
 					}},
@@ -335,7 +351,7 @@ func TestFrozenReclaimDefaultShareUsesResidualBelowAdvisorUpperBound(t *testing.
 			require.True(t, planned["reclaim"].Equals(frozen), "reclaim=%s", planned["reclaim"])
 
 			pending, err := p.applyBlocksWithDefaultShareMode(
-				planned, resp, false, false, dynamicConf, true)
+				planned, resp, false, false, dynamicConf, defaultShareMaterializationFrozenResidual)
 			require.NoError(t, err)
 			share := pending.entries[commonstate.PoolNameShare][commonstate.FakedContainerName].AllocationResult
 			reclaim := pending.entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult
