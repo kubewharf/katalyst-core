@@ -709,7 +709,8 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 		currentEntries, dynamicConf,
 		resp.AllowSharedCoresOverlapReclaimedCores,
 		resp.DisableDedicatedCoresOverlapReclaimedCores)
-	defaultShareResidual := defaultShareResidualEnabled(dynamicConf, frozenReclaim, resp)
+	defaultShareMode := defaultShareMaterializationModeFor(dynamicConf, frozenReclaim, resp)
+	defaultShareResidual := defaultShareMode != defaultShareMaterializationDisabled
 
 	// Staleness is checked with the node-global ramp-up observation on both
 	// paths. The advisorapi request side carries no pod annotations, so a
@@ -766,7 +767,7 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 	responseAllowOverlap := resp.AllowSharedCoresOverlapReclaimedCores
 	hardActive := rampUpDomainsToLegacyHardActive(hardActiveDomains)
 	pending, applyErr := p.applyBlocksWithDefaultShareMode(
-		blockToCPUSet, resp, responseAllowOverlap, hardActive, dynamicConf, defaultShareResidual)
+		blockToCPUSet, resp, responseAllowOverlap, hardActive, dynamicConf, defaultShareMode)
 	if applyErr != nil {
 		return fmt.Errorf("prepare applyBlocks failed with error: %w", applyErr)
 	}
@@ -1672,9 +1673,10 @@ func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransition(
 	}
 	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
 	frozenReclaim := frozenReclaimPlacementConstraint{}
+	defaultShareMode := defaultShareMaterializationModeFor(dynamicConf, frozenReclaim, resp)
 	return p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
 		resp, featureGates, domains, dynamicConf, frozenReclaim,
-		defaultShareResidualEnabled(dynamicConf, frozenReclaim, resp))
+		defaultShareMode != defaultShareMaterializationDisabled)
 }
 
 func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransitionForAttempt(
@@ -1698,9 +1700,9 @@ func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransitionForAttempt(
 	}
 	planningResp := resp
 	if defaultShareResidual {
-		// Default share is a synthetic upper-bound block. Preserve it in the
-		// original response for applyBlocks, but never allocate it as an exact
-		// descriptor before QRM materializes the residual.
+		// Default share is materialized from the QRM-owned CPUSet complement.
+		// Preserve its advisor entry for validation and diagnostics, but never
+		// allocate its quantity as an exact descriptor.
 		planningResp = resp.WithoutDefaultShareEntry()
 	}
 	if !planningResp.DisableDedicatedCoresOverlapReclaimedCores {
@@ -2361,9 +2363,13 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 	hardActive bool,
 	dynamicConf *dynamicconfig.Configuration,
 ) (*pendingAdvisorState, error) {
+	defaultShareMode := defaultShareMaterializationDisabled
+	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		defaultShareMode = defaultShareMaterializationNormal
+	}
 	return p.applyBlocksWithDefaultShareMode(
 		blockCPUSet, resp, allowSharedCoresOverlapReclaimedCores, hardActive, dynamicConf,
-		dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs)
+		defaultShareMode)
 }
 
 func (p *DynamicPolicy) applyBlocksWithDefaultShareMode(
@@ -2372,7 +2378,7 @@ func (p *DynamicPolicy) applyBlocksWithDefaultShareMode(
 	allowSharedCoresOverlapReclaimedCores bool,
 	hardActive bool,
 	dynamicConf *dynamicconfig.Configuration,
-	defaultShareResidual bool,
+	defaultShareMode defaultShareMaterializationMode,
 ) (*pendingAdvisorState, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("applyBlocks got nil resp")
@@ -2382,7 +2388,8 @@ func (p *DynamicPolicy) applyBlocksWithDefaultShareMode(
 	curEntries := p.state.GetPodEntries()
 	newEntries := make(state.PodEntries)
 	var dedicatedCPUSet, pooledUnionDedicatedCPUSet machine.CPUSet
-	defaultSharePlan := defaultShareMaterializationPlan{}
+	defaultShareResidual := defaultShareMode != defaultShareMaterializationDisabled
+	defaultSharePlan := defaultShareMaterializationPlan{mode: defaultShareMode}
 	if defaultShareResidual {
 		var err error
 		defaultSharePlan.advisedQuantity, err = defaultShareQuantityFromAdvisorResponse(resp)
@@ -2475,8 +2482,9 @@ func (p *DynamicPolicy) applyBlocksWithDefaultShareMode(
 		}
 		defaultSharePlan.eligibleCPUSet = p.buildDefaultShareEligibleCPUSet(
 			newEntries, currentMachineState, rampUpReclaimFloor)
-		if err := p.finalizeDefaultShareEntry(
-			newEntries, ownershipEntries, defaultSharePlan.advisedQuantity, defaultSharePlan.eligibleCPUSet,
+		if err := p.finalizeDefaultShareEntryForMode(
+			newEntries, ownershipEntries, defaultSharePlan.advisedQuantity,
+			defaultSharePlan.eligibleCPUSet, defaultSharePlan.mode,
 		); err != nil {
 			return nil, err
 		}
@@ -2530,8 +2538,9 @@ func (p *DynamicPolicy) applyBlocksWithDefaultShareMode(
 	if defaultShareResidual {
 		defaultSharePlan.eligibleCPUSet = p.buildDefaultShareEligibleCPUSet(
 			newEntries, currentMachineState, rampUpReclaimFloor)
-		if err := p.finalizeDefaultShareEntry(
-			newEntries, newEntries, defaultSharePlan.advisedQuantity, defaultSharePlan.eligibleCPUSet,
+		if err := p.finalizeDefaultShareEntryForMode(
+			newEntries, newEntries, defaultSharePlan.advisedQuantity,
+			defaultSharePlan.eligibleCPUSet, defaultSharePlan.mode,
 		); err != nil {
 			return nil, err
 		}
