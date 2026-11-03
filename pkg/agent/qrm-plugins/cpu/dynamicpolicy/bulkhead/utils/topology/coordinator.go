@@ -1608,9 +1608,14 @@ func cloneRelSet(in map[string]struct{}) map[string]struct{} {
 }
 
 func (r *coordinatorRound) buildPlan(ctx context.Context, kind PhaseKind, snapshot *CompleteSnapshot) (PhasePlan, error) {
+	desiredByRel := r.targetByRel
+	requiredByRel := r.requiredByRel
+	if r.objective == ConvergenceObjectiveParentSafe {
+		requiredByRel, desiredByRel = r.adjustedReclaimProjection(snapshot)
+	}
 	plan, err := BuildPhasePlan(PhasePlanInput{
 		Context: ctx, Kind: kind, DAG: r.dag, Snapshot: snapshot,
-		DesiredByRel: r.targetByRel, SemanticByRel: r.semanticTargetByRel,
+		DesiredByRel: desiredByRel, SemanticByRel: r.semanticTargetByRel,
 		DynamicByRel: r.dynamicByRel, DesiredMemsByRel: r.desiredMemsByRel(),
 		DormantRels: r.dormantRels,
 		AllowedCPUs: r.allowedCPUs(), AllowEmptyTarget: r.allowEmptyTarget,
@@ -1620,15 +1625,22 @@ func (r *coordinatorRound) buildPlan(ctx context.Context, kind PhaseKind, snapsh
 		Selection: r.selection, Budget: r.budget,
 	})
 	if err == nil && r.objective == ConvergenceObjectiveParentSafe {
+		// requiredByRel/desiredByRel are the immutable adjusted projection derived
+		// above and already fed to BuildPhasePlan. SplitPlan only classifies against
+		// them; publish them onto the round so the frozen ParentSafety evaluation
+		// reads the same projection. A new round re-clones from the frozen input,
+		// so the adjustment never leaks across rounds.
 		required, deferred, splitErr := SplitPlanForAdmission(&plan, AdmissionSafetyInput{
 			PendingCPUSet:        r.admissionSafetyCPUSet(),
 			PendingRequiredByRel: r.pendingRequiredByRel,
 			DeferredCPUSetByRel:  r.deferredByRel,
-			RequiredCPUSetByRel:  r.requiredByRel,
+			RequiredCPUSetByRel:  requiredByRel,
 		})
 		if splitErr != nil {
 			return PhasePlan{}, splitErr
 		}
+		r.requiredByRel = requiredByRel
+		r.targetByRel = desiredByRel
 		for _, operation := range deferred.Operations {
 			r.deferredCleanupRels[operation.Rel] = struct{}{}
 		}
@@ -1638,6 +1650,79 @@ func (r *coordinatorRound) buildPlan(ctx context.Context, kind PhaseKind, snapsh
 		r.planID = plan.PlanID
 	}
 	return plan, err
+}
+
+// adjustedReclaimProjection derives, per buildPlan call, the immutable
+// floor/target projection used by planning, admission split and the frozen
+// evaluation. It narrows reclaim NUMA-bucket required floors (and the reclaim
+// desired targets derived from them) only by the CPUs the primary side currently
+// enforces but does not legitimately desire this round and that are not
+// protected pending. A bucket floor that would hollow out to empty is left
+// untouched, and the desired targets are trimmed only by the CPUs a bucket
+// floor actually shed, so a hollow bucket (and its ancestor root) still demand
+// a required grow instead of stalling on a permanent floor deficit. The second
+// (rebase) buildPlan re-clones from the already-adjusted maps, where the
+// additions set is empty, so the projection is idempotent and stable.
+func (r *coordinatorRound) adjustedReclaimProjection(snap *CompleteSnapshot) (floor, desired map[string]machine.CPUSet) {
+	floor = model.CloneCPUSetMap(r.requiredByRel)
+	desired = model.CloneCPUSetMap(r.targetByRel)
+	if snap == nil {
+		return floor, desired
+	}
+	reclaim := snap.DomainUnion[DomainReclaim]
+	primary := snap.DomainUnion[DomainPrimary]
+	// desiredPrimary is the union of every primary-side legitimate desired this
+	// round, including dynamic primary descendants; a CPU primary legitimately
+	// wants is never deferred.
+	desiredPrimary := machine.NewCPUSet()
+	for rel, d := range desired {
+		if snap.DomainByRel[rel] == DomainPrimary {
+			desiredPrimary = desiredPrimary.Union(d)
+		}
+	}
+	for rel, d := range r.dynamicByRel {
+		if snap.DomainByRel[rel] == DomainPrimary {
+			desiredPrimary = desiredPrimary.Union(d)
+		}
+	}
+	var overshoot machine.CPUSet
+	for rel, f := range floor {
+		if node := r.dag.index[rel]; node == nil || node.Role != TopoNodeRoleReclaimNUMABucket {
+			continue
+		}
+		overshoot = overshoot.Union(f.Difference(reclaim))
+	}
+	overshoot = overshoot.Intersection(primary).Difference(r.protectedPending).Difference(desiredPrimary)
+	if overshoot.IsEmpty() {
+		return floor, desired
+	}
+	// Trim bucket floors fail-closed and record exactly the CPUs each bucket
+	// actually shed. Desired targets are trimmed only by that shed set, so a
+	// hollow bucket that kept its floor keeps demanding its desired CPUs.
+	var shed machine.CPUSet
+	for rel, f := range floor {
+		if node := r.dag.index[rel]; node == nil || node.Role != TopoNodeRoleReclaimNUMABucket {
+			continue
+		}
+		adjusted := f.Difference(overshoot)
+		if adjusted.IsEmpty() {
+			continue
+		}
+		floor[rel] = adjusted
+		shed = shed.Union(f.Difference(adjusted))
+	}
+	if shed.IsEmpty() {
+		return floor, desired
+	}
+	for rel, d := range desired {
+		if snap.DomainByRel[rel] != DomainReclaim {
+			continue
+		}
+		if adjusted := d.Difference(shed); !adjusted.IsEmpty() {
+			desired[rel] = adjusted
+		}
+	}
+	return floor, desired
 }
 
 func (r *coordinatorRound) admissionSafetyCPUSet() machine.CPUSet {
