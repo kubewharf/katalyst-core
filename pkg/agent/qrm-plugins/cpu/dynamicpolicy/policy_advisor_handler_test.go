@@ -76,9 +76,10 @@ func (p *DynamicPolicy) generateBlockCPUSet(
 	}
 	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
 	frozenReclaim := frozenReclaimPlacementConstraint{}
+	defaultShareMode := defaultShareMaterializationModeFor(dynamicConf, frozenReclaim, resp)
 	blockCPUSet, _, err := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
 		resp, featureGates, domains, dynamicConf, frozenReclaim,
-		defaultShareResidualEnabled(dynamicConf, frozenReclaim, resp))
+		defaultShareMode != defaultShareMaterializationDisabled)
 	return blockCPUSet, err
 }
 
@@ -89,9 +90,13 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 	hardActive bool,
 	dynamicConf *dynamicconfig.Configuration,
 ) (*pendingAdvisorState, error) {
+	defaultShareMode := defaultShareMaterializationDisabled
+	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		defaultShareMode = defaultShareMaterializationNormal
+	}
 	return p.applyBlocksWithDefaultShareMode(
 		blockCPUSet, resp, allowSharedCoresOverlapReclaimedCores, hardActive, dynamicConf,
-		dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs)
+		defaultShareMode)
 }
 
 func TestConvertGetAdviceResponsePropagatesDedicatedReclaimDisjoint(t *testing.T) {
