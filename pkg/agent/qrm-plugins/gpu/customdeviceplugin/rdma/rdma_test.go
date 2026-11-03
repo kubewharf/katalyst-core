@@ -783,6 +783,7 @@ func installClassicPluginTopology(t *testing.T, basePlugin *baseplugin.BasePlugi
 		id := fmt.Sprintf("test-rdma-%d", i)
 		numa := i / (rdmaCount / 2)
 		rdmaTopology.Devices[id] = machine.DeviceInfo{
+			Health:    pluginapi.Healthy,
 			NumaNodes: []int{numa},
 			Dimensions: map[string]string{
 				"pcie":                fmt.Sprintf("pcie-%d", i),

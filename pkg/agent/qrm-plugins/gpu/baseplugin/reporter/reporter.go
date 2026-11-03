@@ -284,7 +284,7 @@ func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentRes
 	if !ok {
 		return nil, fmt.Errorf("failed to get any device topology")
 	}
-	latestDeviceTopology, gpuResourceName := machine.PickLatestDeviceTopology(topologiesMap)
+	latestDeviceTopology, _ := machine.PickLatestDeviceTopology(topologiesMap)
 
 	stateImpl := p.stateGetter()
 	if stateImpl == nil {
@@ -298,17 +298,26 @@ func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentRes
 
 	var reportFields []*v1alpha1.ReportField
 
-	// Report the affinity device for every accompany resource device.
-	// This is a no-op when hybrid allocation is disabled.
-	affinityDeviceByAccompanyResource := p.getAffinityDeviceByAccompanyResource(
-		gpuResourceName,
-		latestDeviceTopology.PriorityDimensions,
-	)
+	// Report GPU zones independently of RDMA availability or health.
+	// Resolve affinity from the same snapshots used for this report so registry
+	// replacements cannot mix GPU dimensions with a newer RDMA mapping.
+	rdmaTopology, _ := p.getRDMADeviceTopology()
+	var rdmaByGPU map[string]string
+	if rdmaTopology != nil {
+		var err error
+		rdmaByGPU, err = p.getAffinityDeviceByAccompanyResource(
+			latestDeviceTopology,
+			rdmaTopology,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 	zoneField, err := p.getTopologyZoneReportField(
 		topologiesMap,
 		latestDeviceTopology,
 		machineState,
-		affinityDeviceByAccompanyResource,
+		rdmaByGPU,
 	)
 	if err != nil {
 		return nil, err
@@ -340,7 +349,7 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(
 	topologiesMap map[string]*machine.DeviceTopology,
 	latestDeviceTopology *machine.DeviceTopology,
 	machineState state.AllocationResourcesMap,
-	affinityDeviceByAccompanyResource map[string]string,
+	rdmaByGPU map[string]string,
 ) (*v1alpha1.ReportField, error) {
 	// generate the zones for numa and socket in machine
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
@@ -353,7 +362,7 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(
 		return nil, err
 	}
 
-	zoneAttributes := p.getGPUZoneAttributes(latestDeviceTopology, affinityDeviceByAccompanyResource)
+	zoneAttributes := p.getGPUZoneAttributes(latestDeviceTopology, rdmaByGPU)
 	if zoneAttributes == nil {
 		return nil, fmt.Errorf("no zone attributes found for device topology")
 	}
@@ -383,35 +392,36 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(
 	}, nil
 }
 
-// getAffinityDeviceByAccompanyResource returns a single affinity device for every accompany resource device.
-// The mapping is omitted when hybrid allocation is disabled.
-func (p *gpuReporterPlugin) getAffinityDeviceByAccompanyResource(
-	accompanyResourceName string,
-	priorityDimensions []string,
-) map[string]string {
+// getRDMADeviceTopology returns the latest rdma device topology and the rdma resource name.
+// If enableHybridAccompanyResourceAllocation is false, it returns nil and empty string.
+func (p *gpuReporterPlugin) getRDMADeviceTopology() (*machine.DeviceTopology, string) {
 	if !p.enableHybridAccompanyResourceAllocation {
-		return nil
+		return nil, ""
 	}
 
-	_, resourceName, err := p.deviceTopologyRegistry.GetLatestDeviceTopology(p.rdmaDeviceNames)
+	rdmaTopology, rdmaResourceName, err := p.deviceTopologyRegistry.GetLatestDeviceTopology(p.rdmaDeviceNames)
 	if err != nil {
 		general.Warningf("failed to get resource topology for target-device mapping: %v", err)
-		return nil
+		return nil, ""
 	}
+	return rdmaTopology, rdmaResourceName
+}
 
-	affinityByAccompanyResource, err := p.deviceTopologyRegistry.GetAffinityDevices(
-		accompanyResourceName,
-		resourceName,
-	)
+// getAffinityDeviceByAccompanyResource maps each GPU to one RDMA from the
+// supplied topology snapshots, without filtering candidates by health.
+func (p *gpuReporterPlugin) getAffinityDeviceByAccompanyResource(
+	gpuTopology, rdmaTopology *machine.DeviceTopology,
+) (map[string]string, error) {
+	rdmaCandidatesByGPU, err := machine.GetAffinityDevicesFromTopology(gpuTopology, rdmaTopology)
 	if err != nil {
-		general.Warningf("failed to get resource affinity: %v", err)
-		return nil
+		general.Errorf("failed to get resource affinity: %v", err)
+		return nil, err
 	}
 
 	return gpuutil.ResolveAffinityDeviceByAccompanyResource(
-		affinityByAccompanyResource,
-		priorityDimensions,
-	)
+		rdmaCandidatesByGPU,
+		gpuTopology.PriorityDimensions,
+	), nil
 }
 
 func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology *machine.DeviceTopology) (*v1alpha1.ReportField, error) {
@@ -473,7 +483,7 @@ func (p *gpuReporterPlugin) getRDMAResourceProperty() *nodev1alpha1.Property {
 // getGPUZoneAttributes returns the map of gpu zone nodes to their attributes
 func (p *gpuReporterPlugin) getGPUZoneAttributes(
 	deviceTopology *machine.DeviceTopology,
-	affinityDeviceByAccompanyResource map[string]string,
+	rdmaByGPU map[string]string,
 ) map[util.ZoneNode]util.ZoneAttributes {
 	if deviceTopology == nil {
 		return nil
@@ -499,7 +509,7 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(
 			})
 		}
 		// Expose the RDMA device with affinity on the corresponding GPU zone.
-		if resourceID, ok := affinityDeviceByAccompanyResource[id]; ok {
+		if resourceID, ok := rdmaByGPU[id]; ok {
 			attributes = append(attributes, nodev1alpha1.Attribute{
 				Name:  "rdma",
 				Value: resourceID,
