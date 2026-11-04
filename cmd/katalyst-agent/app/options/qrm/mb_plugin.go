@@ -28,6 +28,7 @@ const (
 	defaultMaxCCDMB = 40_000 // 40GB
 
 	defaultCCDCapKp = 0.1
+	defaultCCDCapKq = 0.0
 
 	// defaultMaxIncomingRemoteMB is that each mb domain is allowed to have traffic from other domains by default;
 	// 15GB is the heuristic value based on prior experiences
@@ -50,6 +51,7 @@ type MBOptions struct {
 	MBCapLimitPercent              int
 	ActiveTrafficMBThreshold       int
 	CCDCapKp                       float64
+	CCDCapKq                       float64
 	CCDCapGroups                   map[string]int
 	DomainGroupAwareCapacityPCT    map[string]int
 	NoThrottleGroups               []string
@@ -65,6 +67,7 @@ func NewMBOptions() *MBOptions {
 		MinCCDMB:                 defaultMinCCDMB,
 		MaxCCDMB:                 defaultMaxCCDMB,
 		CCDCapKp:                 defaultCCDCapKp,
+		CCDCapKq:                 defaultCCDCapKq,
 		MBCapLimitPercent:        defaultMBCapLimitPercent,
 		ActiveTrafficMBThreshold: defaultMinActiveMB,
 		MaxIncomingRemoteMB:      defaultMaxIncomingRemoteMB,
@@ -80,7 +83,9 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&o.MaxCCDMB, "mb-ccd-max",
 		o.MaxCCDMB, "max mb per ccd; saturation point of mb resource control")
 	fs.Float64Var(&o.CCDCapKp, "mb-ccd-cap-kp",
-		o.CCDCapKp, "proportional gain for ccd cap governance")
+		o.CCDCapKp, "proportional gain for ccd cap governance (throttle-down)")
+	fs.Float64Var(&o.CCDCapKq, "mb-ccd-cap-kq",
+		o.CCDCapKq, "proportional gain for ccd cap governance (relax-up); defaults to Kp if not specified")
 	fs.StringToIntVar(&o.CCDCapGroups, "mb-ccd-cap-groups",
 		o.CCDCapGroups, "per-group target actual mb per ccd (e.g. dedicated=20000,shared-50=24000)")
 	fs.IntVar(&o.MaxIncomingRemoteMB, "mb-remote-limit",
@@ -108,6 +113,7 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.MinCCDMB = o.MinCCDMB
 	conf.MaxCCDMB = o.MaxCCDMB
 	conf.CCDCapKp = o.CCDCapKp
+	conf.CCDCapKq = o.CCDCapKq
 	conf.CCDCapGroups = o.CCDCapGroups
 	conf.MaxIncomingRemoteMB = o.MaxIncomingRemoteMB
 	conf.MBCapLimitPercent = o.MBCapLimitPercent
