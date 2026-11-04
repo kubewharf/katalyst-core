@@ -85,3 +85,9 @@ func EmitErrorCode(emitter metrics.MetricEmitter, cause ErrorCause) {
 func EmitGetAdviceCalled(emitter metrics.MetricEmitter) {
 	_ = emitter.StoreInt64(metricGetAdviceCalled, 1, metrics.MetricTypeNameCount)
 }
+
+func EmitPowerAdvisorHealth(emitter metrics.MetricEmitter, statuses map[string]string) {
+	_ = emitter.StoreInt64(metricPowerAdvisorHealth, 1, metrics.MetricTypeNameRaw,
+		metrics.ConvertMapToTags(statuses)...,
+	)
+}

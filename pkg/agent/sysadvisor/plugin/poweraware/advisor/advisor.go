@@ -18,6 +18,7 @@ package advisor
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -46,6 +47,18 @@ type PowerAwareAdvisor interface {
 	Run(ctx context.Context)
 	// Init initializes components
 	Init() error
+	// HealthStatus returns the health status of the advisor
+	HealthStatus() map[string]string
+}
+
+// healthState groups fields that provide input to HealthStatus().
+// All fields are safe to read from the healthMonitor goroutine while
+// being written from the main advisor goroutine.
+type healthState struct {
+	enteredMainLoop  uint32
+	errorCounters    map[string]*int64
+	cappingDisabled  bool
+	evictionDisabled bool
 }
 
 type powerAwareAdvisor struct {
@@ -59,6 +72,8 @@ type powerAwareAdvisor struct {
 	// inFreqCap is flag whether node is state of power capping via CPU frequency adjustment
 	// it is checked for power capping reset when alert is gone
 	inFreqCap bool
+
+	state *healthState
 }
 
 func (p *powerAwareAdvisor) Init() error {
@@ -107,6 +122,8 @@ func (p *powerAwareAdvisor) Run(ctx context.Context) {
 	defer p.cleanup()
 	defer p.powerCapper.Reset()
 
+	atomic.StoreUint32(&p.state.enteredMainLoop, 1)
+
 	wait.Until(func() { p.run(ctx) }, intervalSpecFetch, ctx.Done())
 
 	general.Infof("pap: advisor Run exited")
@@ -125,6 +142,7 @@ func (p *powerAwareAdvisor) cleanup() {
 func (p *powerAwareAdvisor) run(ctx context.Context) {
 	powerSpec, err := p.specFetcher.GetPowerSpec(ctx)
 	if err != nil {
+		atomic.AddInt64(p.state.errorCounters[powermetric.TagHealthSpecRead], 1)
 		p.emitErrorCode(powermetric.ErrorCodePowerSpecFormat)
 		klog.Errorf("pap: getting power spec failed: %#v", err)
 		return
@@ -150,6 +168,7 @@ func (p *powerAwareAdvisor) run(ctx context.Context) {
 
 	currentWatts, err := p.powerReader.Get(ctx)
 	if err != nil {
+		atomic.AddInt64(p.state.errorCounters[powermetric.TagHealthPowerRead], 1)
 		p.emitErrorCode(powermetric.ErrorCodePowerGetCurrentUsage)
 		klog.Errorf("pap: reading power failed: %#v", err)
 		return
@@ -163,6 +182,7 @@ func (p *powerAwareAdvisor) run(ctx context.Context) {
 
 	freqCapped, err := p.reconciler.Reconcile(ctx, powerSpec, currentWatts)
 	if err != nil {
+		atomic.AddInt64(p.state.errorCounters[powermetric.TagHealthReconcile], 1)
 		p.emitErrorCode(powermetric.ErrorCodeRecoverable)
 		general.Errorf("pap: reconcile error: %v", err)
 		return
@@ -173,6 +193,46 @@ func (p *powerAwareAdvisor) run(ctx context.Context) {
 	}
 }
 
+// healthStatus returns the health status of the advisor.
+// Called from the healthMonitor goroutine.
+func (s *healthState) healthStatus() map[string]string {
+	result := make(map[string]string, 6)
+
+	result[powermetric.TagHealthRunning] = statusOK(atomic.LoadUint32(&s.enteredMainLoop) != 0, powermetric.StatusNOK)
+
+	for dim, counter := range s.errorCounters {
+		result[dim] = errorCounterStatus(counter)
+	}
+
+	result[powermetric.TagHealthCapping] = statusOK(!s.cappingDisabled, powermetric.StatusNA)
+	result[powermetric.TagHealthEviction] = statusOK(!s.evictionDisabled, powermetric.StatusNA)
+
+	return result
+}
+
+func (p *powerAwareAdvisor) HealthStatus() map[string]string {
+	return p.state.healthStatus()
+}
+
+// errorCounterStatus atomically reads and resets the error counter.
+// Swap(0) returns errors accumulated over the past 30s window, then clears
+// the counter. Errors that occur in subsequent windows will still be
+// detected — this is a continuous rolling window, not a one-time heal.
+func errorCounterStatus(counter *int64) string {
+	if atomic.SwapInt64(counter, 0) > 0 {
+		return powermetric.StatusNOK
+	}
+	return powermetric.StatusOK
+}
+
+// statusOK returns "ok" if ok is true, otherwise returns failValue.
+func statusOK(ok bool, failValue string) string {
+	if ok {
+		return powermetric.StatusOK
+	}
+	return failValue
+}
+
 func NewAdvisor(dryRun bool,
 	annotationKeyPrefix string,
 	podEvictor evictor.PodEvictor,
@@ -181,6 +241,8 @@ func NewAdvisor(dryRun bool,
 	reader reader.PowerReader,
 	capper capper.PowerCapper,
 	reconciler PowerReconciler,
+	disableCapping bool,
+	disableEviction bool,
 ) PowerAwareAdvisor {
 	return &powerAwareAdvisor{
 		emitter:     emitter,
@@ -190,5 +252,14 @@ func NewAdvisor(dryRun bool,
 		powerCapper: capper,
 		reconciler:  reconciler,
 		inFreqCap:   false,
+		state: &healthState{
+			errorCounters: map[string]*int64{
+				powermetric.TagHealthSpecRead:  new(int64),
+				powermetric.TagHealthPowerRead: new(int64),
+				powermetric.TagHealthReconcile: new(int64),
+			},
+			cappingDisabled:  disableCapping,
+			evictionDisabled: disableEviction,
+		},
 	}
 }
