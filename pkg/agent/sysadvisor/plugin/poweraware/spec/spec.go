@@ -37,6 +37,7 @@ const (
 	PowerAlertP0 PowerAlert = "p0"
 	PowerAlertP1 PowerAlert = "p1"
 	PowerAlertP2 PowerAlert = "p2"
+	PowerAlertP3 PowerAlert = "p3"
 
 	// PowerAlertOK is derivative power alert code which corresponds to NON-existent power alert annotation
 	PowerAlertOK PowerAlert = "ok"
