@@ -70,6 +70,94 @@ func TestGetContainerAbsCgroupPath(t *testing.T) {
 	as.NotNil(err)
 }
 
+func TestGetContainerAbsCgroupPathSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []AbsoluteCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+		{
+			Name: "success",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "/sys/fs/cgroup/cpu/pod/container", false, nil
+			},
+		},
+	}
+
+	cgroupPath, err := resolveContainerAbsCgroupPath(handlers, "cpu", "pod", "container")
+	as.NoError(err)
+	as.Equal("/sys/fs/cgroup/cpu/pod/container", cgroupPath)
+}
+
+func TestGetContainerAbsCgroupPathReturnsErrorIfAllHandlersSkip(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []AbsoluteCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+	}
+
+	_, err := resolveContainerAbsCgroupPath(handlers, "cpu", "pod", "container")
+	as.Error(err)
+	as.Contains(err.Error(), "all absolute cgroup path handlers skipped")
+}
+
+func TestGetContainerRelativeCgroupPathSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []RelativeCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+		{
+			Name: "success",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "/kubepods/pod/container", false, nil
+			},
+		},
+	}
+
+	cgroupPath, err := resolveContainerRelativeCgroupPath(handlers, "pod", "container")
+	as.NoError(err)
+	as.Equal("/kubepods/pod/container", cgroupPath)
+}
+
+func TestGetContainerRelativeCgroupPathReturnsErrorIfAllHandlersSkip(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []RelativeCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+	}
+
+	_, err := resolveContainerRelativeCgroupPath(handlers, "pod", "container")
+	as.Error(err)
+	as.Contains(err.Error(), "all relative cgroup path handlers skipped")
+}
+
 func TestIsContainerCgroupExist(t *testing.T) {
 	t.Parallel()
 
