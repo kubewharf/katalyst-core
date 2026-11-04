@@ -17,6 +17,8 @@ limitations under the License.
 package options
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -28,12 +30,17 @@ import (
 type KCCOptions struct {
 	ValidAPIGroupSet []string
 	DefaultGVRs      []string
+	CNCUpdateQPS     int
+	CNCUpdateBurst   int
 }
 
 // NewKCCOptions creates a new Options with a default config.
 func NewKCCOptions() *KCCOptions {
+	config := controller.NewKCCConfig()
 	return &KCCOptions{
 		ValidAPIGroupSet: []string{v1alpha1.SchemeGroupVersion.Group},
+		CNCUpdateQPS:     config.CNCUpdateQPS,
+		CNCUpdateBurst:   config.CNCUpdateBurst,
 	}
 }
 
@@ -43,17 +50,30 @@ func (o *KCCOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.ValidAPIGroupSet, "kcc-valid-api-group-set", o.ValidAPIGroupSet, "which Groups is allowed")
 	fs.StringSliceVar(&o.DefaultGVRs, "kcc-default-gvrs", o.DefaultGVRs, "which need to watch by default")
+	fs.IntVar(&o.CNCUpdateQPS, "kcc-cnc-update-qps", o.CNCUpdateQPS, "maximum CNC status updates per second for each GVR")
+	fs.IntVar(&o.CNCUpdateBurst, "kcc-cnc-update-burst", o.CNCUpdateBurst, "maximum burst of CNC status updates for each GVR")
 }
 
 // ApplyTo fills up config with options
 func (o *KCCOptions) ApplyTo(c *controller.KCCConfig) error {
+	// Keep validating here even though the controller constructor also rejects
+	// invalid values. This gives CLI users an early error while keeping the
+	// controller safe for callers that construct KCCConfig directly.
+	if o.CNCUpdateQPS <= 0 {
+		return fmt.Errorf("kcc-cnc-update-qps must be greater than 0")
+	}
+	if o.CNCUpdateBurst <= 0 {
+		return fmt.Errorf("kcc-cnc-update-burst must be greater than 0")
+	}
 	c.ValidAPIGroupSet = sets.NewString(o.ValidAPIGroupSet...)
 	c.DefaultGVRs = o.DefaultGVRs
+	c.CNCUpdateQPS = o.CNCUpdateQPS
+	c.CNCUpdateBurst = o.CNCUpdateBurst
 	return nil
 }
 
 func (o *KCCOptions) Config() (*controller.KCCConfig, error) {
-	c := &controller.KCCConfig{}
+	c := controller.NewKCCConfig()
 	if err := o.ApplyTo(c); err != nil {
 		return nil, err
 	}

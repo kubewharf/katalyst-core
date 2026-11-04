@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -32,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	controllerconfig "github.com/kubewharf/katalyst-core/pkg/config/controller"
 	kccutil "github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -483,8 +485,7 @@ func Test_getCNCUpdateScope(t *testing.T) {
 		{
 			name: "config list reordered",
 			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
-				cnc.Status.KatalystCustomConfigList[0], cnc.Status.KatalystCustomConfigList[1] =
-					cnc.Status.KatalystCustomConfigList[1], cnc.Status.KatalystCustomConfigList[0]
+				cnc.Status.KatalystCustomConfigList[0], cnc.Status.KatalystCustomConfigList[1] = cnc.Status.KatalystCustomConfigList[1], cnc.Status.KatalystCustomConfigList[0]
 			},
 		},
 		{
@@ -508,6 +509,14 @@ func Test_getCNCUpdateScope(t *testing.T) {
 			name: "labels changed",
 			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
 				cnc.Labels["zone"] = "b"
+			},
+			wantAll: true,
+		},
+		{
+			name: "deletion timestamp set",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				now := metav1.Now()
+				cnc.DeletionTimestamp = &now
 			},
 			wantAll: true,
 		},
@@ -720,12 +729,77 @@ func BenchmarkTargetStatusCalculation(b *testing.B) {
 	})
 }
 
+func TestNewKatalystCustomConfigTargetControllerRejectsInvalidRateLimit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("QPS", func(t *testing.T) {
+		t.Parallel()
+
+		config := controllerconfig.NewKCCConfig()
+		config.CNCUpdateQPS = 0
+		_, err := NewKatalystCustomConfigTargetController(
+			context.Background(), nil, nil, config, nil, nil, nil, nil, nil,
+		)
+		assert.EqualError(t, err, "CNC update QPS must be greater than 0")
+	})
+
+	t.Run("burst", func(t *testing.T) {
+		t.Parallel()
+
+		config := controllerconfig.NewKCCConfig()
+		config.CNCUpdateBurst = 0
+		_, err := NewKatalystCustomConfigTargetController(
+			context.Background(), nil, nil, config, nil, nil, nil, nil, nil,
+		)
+		assert.EqualError(t, err, "CNC update burst must be greater than 0")
+	})
+}
+
+func Test_rateLimitedRequeueDelay(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, time.Second, rateLimitedRequeueDelay(100, 50))
+	assert.Equal(t, 500*time.Millisecond, rateLimitedRequeueDelay(100, 100))
+}
+
 type failingCNCControl struct {
 	control.DummyCNCControl
 }
 
 func (f failingCNCControl) PatchCNCStatus(_ context.Context, _ string, _, _ *v1alpha1.CustomNodeConfig) (*v1alpha1.CustomNodeConfig, error) {
 	return nil, errors.New("patch failed")
+}
+
+func Test_updateCNCsRefreshesAppliedStateOnPatchSuccess(t *testing.T) {
+	t.Parallel()
+
+	target := util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "global"},
+	}))
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	cnc := &v1alpha1.CustomNodeConfig{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	appliedStates := []cncAppliedState{{namespace: "default", name: "global", hash: "old", found: true}}
+	controller := &KatalystCustomConfigTargetController{
+		ctx:            context.Background(),
+		cncControl:     control.DummyCNCControl{},
+		metricsEmitter: metrics.DummyMetrics{},
+		cncUpdateQPS:   controllerconfig.NewKCCConfig().CNCUpdateQPS,
+		cncUpdateBurst: controllerconfig.NewKCCConfig().CNCUpdateBurst,
+	}
+
+	rateLimited, gotErrors := controller.updateCNCs(
+		crd.AdminQoSConfigurationGVR,
+		[]util.KCCTargetResource{target},
+		map[string]string{targetKey: "new"},
+		map[string]int{targetKey: 1},
+		map[string][]int{targetKey: {0}},
+		[]*v1alpha1.CustomNodeConfig{cnc},
+		appliedStates,
+	)
+
+	assert.False(t, rateLimited)
+	assert.Empty(t, gotErrors)
+	assert.Equal(t, "new", appliedStates[0].hash)
 }
 
 func Test_updateCNCsPreservesAppliedStateOnPatchFailure(t *testing.T) {
@@ -741,8 +815,8 @@ func Test_updateCNCsPreservesAppliedStateOnPatchFailure(t *testing.T) {
 		ctx:            context.Background(),
 		cncControl:     failingCNCControl{},
 		metricsEmitter: metrics.DummyMetrics{},
-		cncUpdateQPS:   defaultCNCUpdateQPS,
-		cncUpdateBurst: defaultCNCUpdateBurst,
+		cncUpdateQPS:   controllerconfig.NewKCCConfig().CNCUpdateQPS,
+		cncUpdateBurst: controllerconfig.NewKCCConfig().CNCUpdateBurst,
 	}
 
 	rateLimited, gotErrors := controller.updateCNCs(

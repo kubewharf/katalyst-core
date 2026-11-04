@@ -62,6 +62,8 @@ const (
 )
 
 const (
+	// Keep a single GVR reconciler: CNC status stores all GVR entries in one
+	// list, so concurrent reconcilers could overwrite each other's list patch.
 	kcctWorkerCount = 1
 	cncWorkerCount  = 16
 )
@@ -69,11 +71,6 @@ const (
 const (
 	defaultCNCEnqueueDelay  = 20 * time.Second
 	defaultKCCTEnqueueDelay = 10 * time.Second
-)
-
-const (
-	defaultCNCUpdateQPS   = 10
-	defaultCNCUpdateBurst = 100
 )
 
 const (
@@ -162,6 +159,13 @@ func NewKatalystCustomConfigTargetController(
 	metricsEmitter metrics.MetricEmitter,
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler,
 ) (*KatalystCustomConfigTargetController, error) {
+	if kccConfig.CNCUpdateQPS <= 0 {
+		return nil, fmt.Errorf("CNC update QPS must be greater than 0")
+	}
+	if kccConfig.CNCUpdateBurst <= 0 {
+		return nil, fmt.Errorf("CNC update burst must be greater than 0")
+	}
+
 	k := &KatalystCustomConfigTargetController{
 		ctx:                        ctx,
 		client:                     client,
@@ -179,8 +183,8 @@ func NewKatalystCustomConfigTargetController(
 		rateLimiters:     sync.Map{},
 		cncEnqueueDelay:  defaultCNCEnqueueDelay,
 		kcctEnqueueDelay: defaultKCCTEnqueueDelay,
-		cncUpdateQPS:     defaultCNCUpdateQPS,
-		cncUpdateBurst:   defaultCNCUpdateBurst,
+		cncUpdateQPS:     kccConfig.CNCUpdateQPS,
+		cncUpdateBurst:   kccConfig.CNCUpdateBurst,
 	}
 
 	if metricsEmitter == nil {
@@ -268,12 +272,16 @@ func getCNCUpdateScope(
 	oldCNC, newCNC *configapis.CustomNodeConfig,
 	isGVRRegistered func(metav1.GroupVersionResource) bool,
 ) (bool, []metav1.GroupVersionResource) {
+	// Metadata changes can alter target matching for every registered GVR, so
+	// keep this path conservative. Status-only changes are scoped below.
 	if oldCNC.GetName() != newCNC.GetName() ||
 		!apiequality.Semantic.DeepEqual(oldCNC.GetLabels(), newCNC.GetLabels()) ||
 		!apiequality.Semantic.DeepEqual(oldCNC.GetDeletionTimestamp(), newCNC.GetDeletionTimestamp()) {
 		return true, nil
 	}
 
+	// Compare each GVR as a multiset. List order and unrelated status fields do
+	// not affect reconciliation, while duplicate entries remain observable.
 	oldConfigs := make(map[metav1.GroupVersionResource]map[configapis.TargetConfig]int)
 	newConfigs := make(map[metav1.GroupVersionResource]map[configapis.TargetConfig]int)
 	for _, targetConfig := range oldCNC.Status.KatalystCustomConfigList {
@@ -519,6 +527,9 @@ func (k *KatalystCustomConfigTargetController) validateKCCTs(
 }
 
 func getCNCAppliedState(cnc *configapis.CustomNodeConfig, gvr metav1.GroupVersionResource) cncAppliedState {
+	// The normal shape has at most one entry per GVR. Record duplicate entries
+	// so the caller can fall back to the legacy full scan without changing the
+	// behavior for malformed existing objects.
 	state := cncAppliedState{}
 	for _, targetConfig := range cnc.Status.KatalystCustomConfigList {
 		if targetConfig.ConfigType != gvr {
@@ -612,6 +623,13 @@ func calculateTargetStatusCounts(
 	return counts
 }
 
+func rateLimitedRequeueDelay(burst, qps int) time.Duration {
+	// Retry after half a bucket can refill. Duration arithmetic preserves
+	// sub-second delays when QPS exceeds the burst.
+	halfRefill := time.Duration(burst) * time.Second / 2
+	return halfRefill / time.Duration(qps)
+}
+
 func (k *KatalystCustomConfigTargetController) manageCNCs(
 	gvr metav1.GroupVersionResource,
 	targetResources []util.KCCTargetResource,
@@ -651,9 +669,9 @@ func (k *KatalystCustomConfigTargetController) manageCNCs(
 	if len(errs) > 0 {
 		errors = append(errors, errs...)
 	}
-	// If cnc updates are rate limited, requeue the GVR for later reconciliation
+	// If cnc updates are rate limited, requeue the GVR after half the burst has been refilled.
 	if rateLimited {
-		k.enqueueGVR(gvr, time.Duration(k.cncUpdateBurst/k.cncUpdateQPS/2)*time.Second, kcctEnqueueReasonRateLimited)
+		k.enqueueGVR(gvr, rateLimitedRequeueDelay(k.cncUpdateBurst, k.cncUpdateQPS), kcctEnqueueReasonRateLimited)
 	}
 
 	statusStartTime := time.Now()
@@ -799,6 +817,8 @@ func (k *KatalystCustomConfigTargetController) updateCNCs(
 ) (bool, []error) {
 	var errors []error
 
+	// Each GVR has an independent token bucket. This prevents one large rollout
+	// from consuming the update budget of unrelated configuration types.
 	rateLimiterRaw, _ := k.rateLimiters.LoadOrStore(gvr, rate.NewLimiter(rate.Limit(k.cncUpdateQPS), k.cncUpdateBurst))
 	rateLimiter := rateLimiterRaw.(*rate.Limiter)
 	rateLimited := false
@@ -838,9 +858,9 @@ kcctLoop:
 		metrics.MetricTag{Key: "gvr", Val: gvr.String()})
 
 	patchStartTime := time.Now()
-	// update the CNCs
-	mu := sync.Mutex{}
+	var mu sync.Mutex
 	failedCount := 0
+	succeededCount := 0
 	workqueue.ParallelizeUntil(k.ctx, cncWorkerCount, len(updateTasks), func(i int) {
 		task := updateTasks[i]
 		oldCNC := allCNCs[task.cncIndex]
@@ -848,20 +868,22 @@ kcctLoop:
 		kcctName := native.GenerateUniqObjectNameKey(task.targetResource)
 		kccutil.ApplyKCCTargetConfigToCNC(newCNC, gvr, task.targetResource, hashes[kcctName])
 		newCNC, err := k.cncControl.PatchCNCStatus(k.ctx, oldCNC.GetName(), oldCNC, newCNC)
-
 		if err != nil {
 			mu.Lock()
-			defer mu.Unlock()
 			errors = append(errors, fmt.Errorf("update CNC %s status failed: %w", oldCNC.GetName(), err))
 			failedCount++
-		} else {
-			// Use the server response as the source of truth for status calculation.
-			allCNCs[task.cncIndex] = newCNC
-			appliedStates[task.cncIndex] = getCNCAppliedState(newCNC, gvr)
+			mu.Unlock()
+			return
 		}
+
+		mu.Lock()
+		succeededCount++
+		mu.Unlock()
+		// Use the server response as the source of truth for status calculation.
+		allCNCs[task.cncIndex] = newCNC
+		appliedStates[task.cncIndex] = getCNCAppliedState(newCNC, gvr)
 	})
 
-	succeededCount := len(updateTasks) - failedCount
 	_ = k.metricsEmitter.StoreInt64(metricNameKCCTPatch, int64(succeededCount), metrics.MetricTypeNameCount,
 		metrics.MetricTag{Key: "gvr", Val: gvr.String()},
 		metrics.MetricTag{Key: "result", Val: "succeeded"})

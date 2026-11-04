@@ -20,14 +20,28 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
+const (
+	defaultKCCCNCUpdateQPS   = 50
+	defaultKCCCNCUpdateBurst = 100
+)
+
 type KCCConfig struct {
 	// ValidAPIGroupSet indicates the api-groups that kcc allows.
 	ValidAPIGroupSet sets.String
 	// DefaultGVRs indicates the gvr that need to watch by default.
 	// value is gvr string, e.g. "nodeprofiledescriptors.v1alpha1.node.katalyst.kubewharf.io"
 	DefaultGVRs []string
+	// CNCUpdateQPS is the sustained CNC status update rate for each GVR.
+	CNCUpdateQPS int
+	// CNCUpdateBurst is the token-bucket capacity for each GVR. It bounds the
+	// number of CNC status updates that can be selected immediately after the
+	// bucket has refilled.
+	CNCUpdateBurst int
 }
 
 func NewKCCConfig() *KCCConfig {
-	return &KCCConfig{}
+	return &KCCConfig{
+		CNCUpdateQPS:   defaultKCCCNCUpdateQPS,
+		CNCUpdateBurst: defaultKCCCNCUpdateBurst,
+	}
 }
