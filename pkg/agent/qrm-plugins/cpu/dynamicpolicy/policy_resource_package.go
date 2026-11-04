@@ -138,6 +138,7 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 	stateChanged := false
 	newResourcePackageState := make(map[string]*state.ResourcePackageState)
 	pinnedPackages := sets.NewString()
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	for _, containerEntries := range numaState.PodEntries {
 		if containerEntries.IsPoolEntry() {
@@ -173,7 +174,7 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 		}
 	}
 
-	availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
+	availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(reservedCPUs)
 	// exclude interrupt cpuset from available cpuset
 	if interruptAllocationInfo != nil {
 		availableCPUs = availableCPUs.Difference(interruptAllocationInfo.AllocationResult)

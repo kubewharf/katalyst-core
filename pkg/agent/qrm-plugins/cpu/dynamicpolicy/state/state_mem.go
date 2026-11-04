@@ -31,7 +31,8 @@ import (
 type cpuPluginState struct {
 	sync.RWMutex
 
-	cpuTopology *machine.CPUTopology
+	cpuTopology  *machine.CPUTopology
+	reservedCPUs machine.CPUSet
 
 	podEntries                            PodEntries
 	machineState                          NUMANodeMap
@@ -59,11 +60,26 @@ func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 	klog.InfoS("[cpu_plugin] initializing new cpu plugin in-memory state store")
 	return &cpuPluginState{
+		reservedCPUs:   machine.NewCPUSet(),
 		podEntries:     make(PodEntries),
 		machineState:   GetDefaultMachineState(topology),
 		socketTopology: topology.GetSocketTopology(),
 		cpuTopology:    topology,
 	}
+}
+
+func (s *cpuPluginState) GetReservedCPUs() machine.CPUSet {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.reservedCPUs.Clone()
+}
+
+func (s *cpuPluginState) SetReservedCPUs(reservedCPUs machine.CPUSet) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.reservedCPUs = reservedCPUs.Clone()
 }
 
 func (s *cpuPluginState) GetMachineState() NUMANodeMap {

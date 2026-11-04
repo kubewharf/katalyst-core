@@ -1512,6 +1512,68 @@ func TestNewCheckpointState(t *testing.T) {
 	}
 }
 
+func TestCPUPluginStateReservedCPUsCloneIsolation(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	stateImpl := NewCPUPluginState(topology)
+	input := machine.NewCPUSet(0, 2)
+	stateImpl.SetReservedCPUs(input)
+
+	input.Add(4)
+	assert.True(t, stateImpl.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+
+	got := stateImpl.GetReservedCPUs()
+	got.Add(6)
+	assert.True(t, stateImpl.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+}
+
+func TestCPUPluginStateReservedCPUsSurvivesClearState(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	stateImpl := NewCPUPluginState(topology)
+	stateImpl.SetReservedCPUs(machine.NewCPUSet(0, 2))
+	stateImpl.ClearState()
+	assert.True(t, stateImpl.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+
+	stateImpl.SetReservedCPUs(machine.NewCPUSet())
+	stateImpl.ClearState()
+	assert.True(t, stateImpl.GetReservedCPUs().IsEmpty())
+}
+
+func TestCheckpointStateReservedCPUs(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+	stateImpl, err := NewCheckpointState(
+		&statedirectory.StateDirectoryConfiguration{StateFileDirectory: t.TempDir()},
+		"test-checkpoint",
+		"test-policy",
+		topology,
+		false,
+		GenerateMachineStateFromPodEntries,
+		metrics.DummyMetrics{},
+	)
+	require.NoError(t, err)
+
+	stateImpl.SetReservedCPUs(machine.NewCPUSet(0, 2))
+	got := stateImpl.GetReservedCPUs()
+	got.Add(4)
+	assert.True(t, stateImpl.GetReservedCPUs().Equals(machine.NewCPUSet(0, 2)))
+	require.NoError(t, stateImpl.StoreState())
+
+	checkpoint := stateImpl.(*stateCheckpoint).InitNewCheckpoint(false)
+	blob, err := checkpoint.MarshalCheckpoint()
+	require.NoError(t, err)
+	assert.NotContains(t, string(blob), "reservedCPUs")
+}
+
 func TestClearState(t *testing.T) {
 	t.Parallel()
 

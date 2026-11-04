@@ -159,7 +159,7 @@ func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
 	// get irq forbidden cores from cpu plugin checkpoint
-	forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
+	forbiddenCores = forbiddenCores.Union(p.state.GetReservedCPUs())
 	forbiddenCores = forbiddenCores.Union(state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), commonstate.IsSystemPool))
 
 	// get irq forbidden cores from pinned resource package
@@ -171,7 +171,7 @@ func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 }
 
 func (p *DynamicPolicy) GetStepExpandableCPUsMax() int {
-	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs).Size()
+	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(p.state.GetReservedCPUs()).Size()
 	res := int(math.Ceil(irqutil.DefaultIRQExclusiveMaxStepExpansionRate * float64(availableTotalCPUSetSize)))
 
 	return res
@@ -194,6 +194,7 @@ func (p *DynamicPolicy) GetExclusiveIRQCPUSet() (machine.CPUSet, error) {
 // SetExclusiveIRQCPUSet sets the exclusive cpu set for Interrupt.
 func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 	general.Infof("set the current irq exclusive cpu set: %v", irqCPUSet)
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	forbidden, err := p.GetIRQForbiddenCores()
 	if err != nil {
@@ -203,7 +204,7 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 
 	// 1. check cpuSet nums（max）
 	irqCPUSetSize := irqCPUSet.Size()
-	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs).Size()
+	availableTotalCPUSetSize := p.state.GetMachineState().GetAvailableCPUSet(reservedCPUs).Size()
 	maxExpandableSize := int(math.Ceil(float64(availableTotalCPUSetSize) * irqutil.DefaultIRQExclusiveMaxExpansionRate))
 	if irqCPUSetSize >= maxExpandableSize {
 		general.Errorf("the specified number of cpusets %v exceeds the max amount %v", irqCPUSetSize, maxExpandableSize)

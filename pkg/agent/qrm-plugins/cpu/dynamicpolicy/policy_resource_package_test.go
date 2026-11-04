@@ -146,13 +146,13 @@ func TestSyncResourcePackageStates(t *testing.T) {
 			name: "Shrink Pinned CPUSet with Shared Cores Constraint",
 			initialState: func(dp *DynamicPolicy) {
 				// Ensure deterministic reserved CPUs and clear existing pool
-				dp.reservedCPUs = machine.NewCPUSet(0, 1)
+				dp.state.SetReservedCPUs(machine.NewCPUSet(0, 1))
 				podEntries := dp.state.GetPodEntries()
 				delete(podEntries, commonstate.PoolNameReserve)
 				dp.state.SetPodEntries(podEntries, false)
 
 				// Calculate valid CPUSet for pkg-b on NUMA 0 (need 4 CPUs)
-				cpus0 := dp.machineInfo.CPUDetails.CPUsInNUMANodes(0).Difference(dp.reservedCPUs)
+				cpus0 := dp.machineInfo.CPUDetails.CPUsInNUMANodes(0).Difference(dp.state.GetReservedCPUs())
 				pkgBCPUSet := machine.NewCPUSet(cpus0.ToSliceInt()[:4]...)
 
 				// Pod constraint: Shared pod requesting 1 CPUs
@@ -355,7 +355,7 @@ func TestSyncResourcePackageStates(t *testing.T) {
 				// We must use actual NUMA 0 CPUs from machineInfo because GenerateDummyCPUTopology might be interleaved.
 				cpusInNuma0 := dp.machineInfo.CPUDetails.CPUsInNUMANodes(0)
 				// Exclude reserved (if any) and current pinned
-				available := cpusInNuma0.Difference(dp.reservedCPUs).Difference(machine.NewCPUSet(0, 1))
+				available := cpusInNuma0.Difference(dp.state.GetReservedCPUs()).Difference(machine.NewCPUSet(0, 1))
 
 				// Set AllocatedCPUSet to occupy ALL available CPUs
 				ms[0].AllocatedCPUSet = available
