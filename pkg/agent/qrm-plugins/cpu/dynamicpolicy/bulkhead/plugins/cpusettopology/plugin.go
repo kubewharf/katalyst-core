@@ -974,7 +974,32 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		if coversProtectedView {
 			effectiveReclaim = shadow.ReclaimEffective
 		}
-		p.reclassifyAdmissionDeferredLeaves(ctx, in, effectiveReclaim, expectedRes)
+		handoffs := p.reclassifyAdmissionDeferredLeaves(ctx, in, effectiveReclaim, expectedRes)
+		if len(handoffs) != 0 {
+			handoffUnion := unionCPUSetByRel(handoffs)
+			shadow.NonReclaimPool = shadow.NonReclaimPool.Union(handoffUnion)
+			shadow.ReclaimEffective = shadow.ReclaimEffective.Difference(handoffUnion)
+			for numaID, cpus := range shadow.ReclaimEffectivePerNUMA {
+				shadow.ReclaimEffectivePerNUMA[numaID] = cpus.Difference(handoffUnion)
+			}
+			shadowView := shadow.AsPartitionView(&in.DesiredView.CPUSetPartitionView)
+			specs, err = bulkheadutils.BuildTopologyNodeSpecsFromView(p.cfg, shadowView, cpuDetails, siblings, relExists)
+			if err != nil {
+				return fmt.Errorf("build handoff shadow bulkhead topology inputs: %w", err)
+			}
+			dag, err = topology.BuildDAG(specs)
+			if err != nil {
+				return fmt.Errorf("build handoff shadow bulkhead topology dag: %w", err)
+			}
+			for rel, cpus := range handoffs {
+				protections = append(protections, topology.PendingProtection{
+					ScopeRel: path.Dir(rel),
+					CPUs:     cpus.Clone(),
+					Source:   topology.PendingProtectionSourceExistingPod,
+				})
+				protectedPending = protectedPending.Union(cpus)
+			}
+		}
 	}
 	requiredCPUSetByRel := topology.RequiredCPUSetByRelFromNodeSpecs(specs)
 	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s protected_rel_count=%d",
@@ -1064,8 +1089,12 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		// current agent process instead of matching fragile free text. Read-only:
 		// it selects no hold, mutates nothing, and the return path is unchanged.
 		if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
+			publishedLevel := model.AppliedViewLevelFull
+			if res.ParentSafe {
+				publishedLevel = model.AppliedViewLevelParentSafe
+			}
 			p.logs().Infof("cpuset_topology: admission view applied pid=%d level=%s attempted=%d applied=%d converged=%t parent_safe=%t final_snapshot_current=%t state=%s applied_reclaim_effective=%s applied_reclaim_per_numa=%s",
-				os.Getpid(), finalAppliedView.Level, res.Attempted, res.Applied,
+				os.Getpid(), publishedLevel, res.Attempted, res.Applied,
 				res.Converged, res.ParentSafe, res.FinalSnapshotCurrent, res.State,
 				finalAppliedView.ReclaimEffective.String(), renderReclaimPerNUMA(finalAppliedView.ReclaimEffectivePerNUMA))
 		}
@@ -3236,15 +3265,19 @@ func (p *CPUSetTopologyPlugin) allowedPendingPodScopeCandidates(podUID string) m
 // reclassifyAdmissionDeferredLeaves removes only owner-proven leaf mismatches
 // from the synchronous admission objective. Admission performs no leaf writes;
 // the existing Full retry converges exact targets through TopologyCoordinator.
+// The returned rel-scoped CPUs are the reclaim-to-primary ingress proven by
+// the same authority checks, so the caller can plan the matching source drain
+// and ancestor closure without duplicating ownership logic.
 func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 	ctx context.Context,
 	in bulkheadapi.HandlerContext,
 	shadowReclaim machine.CPUSet,
 	expectedRes *expectedCPUSetBuildResult,
-) {
+) map[string]machine.CPUSet {
+	var handoffs map[string]machine.CPUSet
 	if expectedRes == nil || len(expectedRes.ExpectedByRel) == 0 ||
 		in.State == nil || in.DesiredView == nil {
-		return
+		return handoffs
 	}
 	proofByRel := make(map[string]containerLifecycleProof, len(expectedRes.LifecycleProofs.OrderedProofs))
 	for _, proof := range expectedRes.LifecycleProofs.OrderedProofs {
@@ -3308,6 +3341,17 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 			continue
 		}
 		conflict := false
+		if !handoff.IsEmpty() {
+			for otherOwner, owner := range in.DesiredView.PoolOwners {
+				if otherOwner != ownerID && !handoff.Intersection(owner.ExpectedCPUSet).IsEmpty() {
+					conflict = true
+					break
+				}
+			}
+			if conflict {
+				continue
+			}
+		}
 		for otherOwner, cpus := range projection.CPUSetByIdentity {
 			if otherOwner == ownerID {
 				continue
@@ -3342,7 +3386,14 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 		}
 		expectedRes.DeferredLeafByRel[rel] = target.Clone()
 		delete(expectedRes.ExpectedByRel, rel)
+		if !handoff.IsEmpty() {
+			if handoffs == nil {
+				handoffs = make(map[string]machine.CPUSet)
+			}
+			handoffs[rel] = handoff.Clone()
+		}
 	}
+	return handoffs
 }
 
 func topologyCoversProtectedView(topology *machine.CPUTopology, view *model.DesiredView, protected machine.CPUSet) bool {
@@ -3599,7 +3650,7 @@ func pendingProtectedCPUSetByResolvedScopes(protections []topology.PendingProtec
 func unionCPUSetByRel(byRel map[string]machine.CPUSet) machine.CPUSet {
 	union := machine.NewCPUSet()
 	for _, cpus := range byRel {
-		union = union.Union(cpus)
+		union.AddSet(cpus)
 	}
 	return union
 }
@@ -3607,7 +3658,7 @@ func unionCPUSetByRel(byRel map[string]machine.CPUSet) machine.CPUSet {
 func pendingProtectionCPUSetUnion(protections []topology.PendingProtection) machine.CPUSet {
 	union := machine.NewCPUSet()
 	for _, protection := range protections {
-		union = union.Union(protection.CPUs)
+		union.AddSet(protection.CPUs)
 	}
 	return union
 }
