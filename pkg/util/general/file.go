@@ -31,6 +31,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -107,6 +108,60 @@ func RegisterFileEventWatcher(stop <-chan struct{}, fileWatcherInfo FileWatcherI
 	}()
 
 	return watcherCh, nil
+}
+
+// RegisterMultipleFileEventWatchers registers a watcher for each FileWatcherInfo
+// by delegating to RegisterFileEventWatcher, and merges the per-watcher signals
+// into a single returned channel. The returned channel receives a signal
+// whenever any of the underlying watchers fires, and is closed once all
+// underlying watchers have stopped (typically after stop is closed).
+func RegisterMultipleFileEventWatchers(stop <-chan struct{}, fileWatcherInfos ...FileWatcherInfo) (<-chan struct{}, error) {
+	aggregatedCh := make(chan struct{})
+
+	// register each underlying watcher up-front so any setup error is returned synchronously.
+	subChs := make([]<-chan struct{}, 0, len(fileWatcherInfos))
+	for _, info := range fileWatcherInfos {
+		ch, err := RegisterFileEventWatcher(stop, info)
+		if err != nil {
+			return nil, fmt.Errorf("register file event watcher for %v failed: %w", info, err)
+		}
+		subChs = append(subChs, ch)
+	}
+
+	// one forwarder goroutine per sub-channel fans signals into aggregatedCh.
+	var wg sync.WaitGroup
+	for _, ch := range subChs {
+		wg.Add(1)
+		go func(c <-chan struct{}) {
+			defer wg.Done()
+			for {
+				select {
+				case _, ok := <-c:
+					if !ok {
+						return
+					}
+					// inner <-stop is required: aggregatedCh is unbuffered, so
+					// without it a slow/absent consumer would deadlock the forwarder
+					// after stop is closed.
+					select {
+					case aggregatedCh <- struct{}{}:
+					case <-stop:
+						return
+					}
+				case <-stop:
+					return
+				}
+			}
+		}(ch)
+	}
+
+	// close aggregatedCh only after every forwarder has exited so callers can range over it safely.
+	go func() {
+		wg.Wait()
+		close(aggregatedCh)
+	}()
+
+	return aggregatedCh, nil
 }
 
 // SubDirWatcherInfo describes a directory tree (root + first-level children) to watch.
