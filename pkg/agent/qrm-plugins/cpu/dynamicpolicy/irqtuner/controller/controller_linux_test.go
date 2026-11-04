@@ -554,4 +554,7 @@ func Test_controller_linux(t *testing.T) {
 			So(ic.LowThroughputNics, ShouldResemble, []*NicIrqTuningManager(nil))
 		})
 	})
+
+	// Run function-patching scenarios sequentially within the same mock suite.
+	t.Run("periodicTuningRateLimitsNicSyncFailures", testPeriodicTuningRateLimitsNicSyncFailures)
 }
