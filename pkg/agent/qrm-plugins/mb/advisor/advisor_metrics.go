@@ -51,7 +51,7 @@ func (a *uniqPriorityAdvisor) emitDomIncomingStatSummaryMetrics(domLimits map[in
 	}
 }
 
-func (a *uniqPriorityAdvisor) emitStatsMtrics(domainsMon *monitor.DomainStats) {
+func (a *uniqPriorityAdvisor) emitStatsMetrics(domainsMon *monitor.DomainStats) {
 	a.emitOutgoingStats(domainsMon.Outgoings)
 	a.emitIncomingStats(domainsMon.Incomings)
 }
