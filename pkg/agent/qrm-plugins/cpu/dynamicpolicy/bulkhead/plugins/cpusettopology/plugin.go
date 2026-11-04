@@ -1089,8 +1089,12 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		// current agent process instead of matching fragile free text. Read-only:
 		// it selects no hold, mutates nothing, and the return path is unchanged.
 		if in.Mode.OrFullDefault() == cpusetutil.CPUSetAdjustmentModeAdmission {
+			publishedLevel := model.AppliedViewLevelFull
+			if res.ParentSafe {
+				publishedLevel = model.AppliedViewLevelParentSafe
+			}
 			p.logs().Infof("cpuset_topology: admission view applied pid=%d level=%s attempted=%d applied=%d converged=%t parent_safe=%t final_snapshot_current=%t state=%s applied_reclaim_effective=%s applied_reclaim_per_numa=%s",
-				os.Getpid(), finalAppliedView.Level, res.Attempted, res.Applied,
+				os.Getpid(), publishedLevel, res.Attempted, res.Applied,
 				res.Converged, res.ParentSafe, res.FinalSnapshotCurrent, res.State,
 				finalAppliedView.ReclaimEffective.String(), renderReclaimPerNUMA(finalAppliedView.ReclaimEffectivePerNUMA))
 		}
@@ -3337,6 +3341,17 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 			continue
 		}
 		conflict := false
+		if !handoff.IsEmpty() {
+			for otherOwner, owner := range in.DesiredView.PoolOwners {
+				if otherOwner != ownerID && !handoff.Intersection(owner.ExpectedCPUSet).IsEmpty() {
+					conflict = true
+					break
+				}
+			}
+			if conflict {
+				continue
+			}
+		}
 		for otherOwner, cpus := range projection.CPUSetByIdentity {
 			if otherOwner == ownerID {
 				continue
