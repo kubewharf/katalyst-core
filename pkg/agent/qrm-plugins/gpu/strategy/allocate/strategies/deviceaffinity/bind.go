@@ -249,20 +249,23 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 		return allocatedDevices, nil
 	}
 
+	// Pre-calculate groupInfos for all priority levels
+	groupInfosByPriority := make([][]groupInfo, len(affinityGroupsByPriority))
+	for p, affinityGroups := range affinityGroupsByPriority {
+		groupInfosByPriority[p] = s.prepareGroupInfos(affinityGroups, candidateDevicesSet, allocatedDevices)
+	}
+
 	// Process affinity groups from highest to lowest priority
 	for priority, affinityGroups := range affinityGroupsByPriority {
 		if len(affinityGroups) == 0 {
 			continue
 		}
 
-		// Prepare group information for evaluation
-		groupInfos := s.prepareGroupInfos(affinityGroups, candidateDevicesSet, allocatedDevices)
+		// Sort groups by allocation suitability
+		groupInfos := s.sortGroupsByPriority(groupInfosByPriority, priority, remainingDevicesToAllocate)
 		if len(groupInfos) == 0 {
 			continue
 		}
-
-		// Sort groups by allocation suitability
-		s.sortGroupsByPriority(groupInfos, remainingDevicesToAllocate)
 
 		// Try to allocate from the best matching groups
 		if result, fullyAllocated := s.tryAllocateFromGroups(
@@ -329,9 +332,15 @@ func (s *DeviceAffinityStrategy) prepareGroupInfos(
 // 2. Total unallocated devices (smaller is better to minimize fragmentation)
 // 3. Already allocated devices (larger is better to maintain consistency)
 func (s *DeviceAffinityStrategy) sortGroupsByPriority(
-	groupInfos []groupInfo,
+	groupInfosByPriority [][]groupInfo,
+	currentPriority int,
 	remainingDevicesToAllocate int,
-) {
+) []groupInfo {
+	groupInfos := groupInfosByPriority[currentPriority]
+	if len(groupInfos) == 0 {
+		return groupInfos
+	}
+
 	sort.Slice(groupInfos, func(i, j int) bool {
 		// Calculate absolute difference from needed devices
 		diffI := abs(groupInfos[i].candidates.Len() - remainingDevicesToAllocate)
@@ -347,6 +356,22 @@ func (s *DeviceAffinityStrategy) sortGroupsByPriority(
 			return groupInfos[i].unallocated.Len() < groupInfos[j].unallocated.Len()
 		}
 
+		// Check lower priority levels (larger groups) for fewer unallocated devices
+		for p := currentPriority + 1; p < len(groupInfosByPriority); p++ {
+			var unallocI, unallocJ int
+			for _, g := range groupInfosByPriority[p] {
+				if g.group.unallocatedDevices.HasAll(groupInfos[i].unallocated.UnsortedList()...) {
+					unallocI = g.unallocated.Len()
+				}
+				if g.group.unallocatedDevices.HasAll(groupInfos[j].unallocated.UnsortedList()...) {
+					unallocJ = g.unallocated.Len()
+				}
+			}
+			if unallocI != unallocJ {
+				return unallocI < unallocJ
+			}
+		}
+
 		// Prefer groups with more already allocated devices for consistency
 		if groupInfos[i].allocated.Len() != groupInfos[j].allocated.Len() {
 			return groupInfos[i].allocated.Len() > groupInfos[j].allocated.Len()
@@ -354,6 +379,8 @@ func (s *DeviceAffinityStrategy) sortGroupsByPriority(
 
 		return groupInfos[i].group.id < groupInfos[j].group.id
 	})
+
+	return groupInfos
 }
 
 // tryAllocateFromGroups attempts to allocate devices from the prioritized groups.
