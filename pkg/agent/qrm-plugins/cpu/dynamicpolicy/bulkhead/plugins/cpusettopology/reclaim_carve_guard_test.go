@@ -433,18 +433,19 @@ func TestReclassifyAdmissionDeferredLeavesAllowsReclaimToPrimaryHandoff(t *testi
 	ownerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "shared-pool"}
 
 	for _, tc := range []struct {
-		name           string
-		current        machine.CPUSet
-		target         machine.CPUSet
-		shadowReclaim  machine.CPUSet
-		desiredReclaim machine.CPUSet
-		appliedReclaim machine.CPUSet
-		historical     machine.CPUSet
-		uncovered      machine.CPUSet
-		otherOwner     machine.CPUSet
-		reclaimOwner   machine.CPUSet
-		ambiguous      machine.CPUSet
-		wantDeferred   bool
+		name              string
+		current           machine.CPUSet
+		target            machine.CPUSet
+		shadowReclaim     machine.CPUSet
+		desiredReclaim    machine.CPUSet
+		appliedReclaim    machine.CPUSet
+		historical        machine.CPUSet
+		uncovered         machine.CPUSet
+		otherOwner        machine.CPUSet
+		desiredOtherOwner machine.CPUSet
+		reclaimOwner      machine.CPUSet
+		ambiguous         machine.CPUSet
+		wantDeferred      bool
 	}{
 		{
 			name:           "canonical handoff leaves old applied view",
@@ -521,6 +522,17 @@ func TestReclassifyAdmissionDeferredLeavesAllowsReclaimToPrimaryHandoff(t *testi
 			otherOwner:     machine.NewCPUSet(5),
 		},
 		{
+			name:              "handoff has another desired owner",
+			current:           machine.NewCPUSet(2),
+			target:            machine.NewCPUSet(2, 3, 5),
+			shadowReclaim:     machine.NewCPUSet(3, 5, 100),
+			desiredReclaim:    machine.NewCPUSet(100),
+			appliedReclaim:    machine.NewCPUSet(3, 5, 100),
+			historical:        machine.NewCPUSet(2),
+			uncovered:         machine.NewCPUSet(3, 5),
+			desiredOtherOwner: machine.NewCPUSet(5),
+		},
+		{
 			name:           "handoff ownership is ambiguous",
 			current:        machine.NewCPUSet(2),
 			target:         machine.NewCPUSet(2, 3, 5),
@@ -560,6 +572,9 @@ func TestReclassifyAdmissionDeferredLeavesAllowsReclaimToPrimaryHandoff(t *testi
 			desired.DesiredReclaimEffective = tc.desiredReclaim.Clone()
 			desired.PoolOwners[ownerID] = model.DesiredPoolOwner{ExpectedCPUSet: tc.target.Clone()}
 			otherOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "other-pool"}
+			if !tc.desiredOtherOwner.IsEmpty() {
+				desired.PoolOwners[otherOwnerID] = model.DesiredPoolOwner{ExpectedCPUSet: tc.desiredOtherOwner.Clone()}
+			}
 			reclaimOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindReclaim}
 
 			applied := &model.AppliedView{
