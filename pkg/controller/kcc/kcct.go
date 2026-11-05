@@ -62,6 +62,8 @@ const (
 )
 
 const (
+	// Keep a single GVR reconciler: CNC status stores all GVR entries in one
+	// list, so concurrent reconcilers could overwrite each other's list patch.
 	kcctWorkerCount = 1
 	cncWorkerCount  = 16
 )
@@ -72,8 +74,23 @@ const (
 )
 
 const (
-	defaultCNCUpdateQPS   = 10
-	defaultCNCUpdateBurst = 100
+	metricNameKCCTReconcileCost  = "kcct_reconcile_cost"
+	metricNameKCCTPlanCost       = "kcct_plan_cost"
+	metricNameKCCTPatchBatchCost = "kcct_patch_batch_cost"
+	metricNameKCCTStatusCost     = "kcct_status_cost"
+	metricNameKCCTPatch          = "kcct_patch"
+	metricNameKCCTUpdateTasks    = "kcct_update_tasks"
+	metricNameKCCTEnqueue        = "kcct_enqueue"
+)
+
+const (
+	kcctEnqueueReasonCNCAdd      = "cnc_add"
+	kcctEnqueueReasonCNCDelete   = "cnc_delete"
+	kcctEnqueueReasonCNCMetadata = "cnc_metadata"
+	kcctEnqueueReasonCNCConfig   = "cnc_config"
+	kcctEnqueueReasonTarget      = "target"
+	kcctEnqueueReasonExpiry      = "expiry"
+	kcctEnqueueReasonRateLimited = "rate_limited"
 )
 
 const (
@@ -83,6 +100,21 @@ const (
 	kccTargetConditionReasonValidateFailed              = "ValidateFailed"
 	kccTargetConditionReasonCalculateCanaryCutoffFailed = "CalculateCanaryCutoffFailed"
 )
+
+type cncAppliedState struct {
+	namespace string
+	name      string
+	hash      string
+	found     bool
+	duplicate bool
+}
+
+type targetStatusCounts struct {
+	targetNodes        int32
+	canaryNodes        int32
+	updatedTargetNodes int32
+	updatedNodes       int32
+}
 
 type KatalystCustomConfigTargetController struct {
 	ctx       context.Context
@@ -127,6 +159,13 @@ func NewKatalystCustomConfigTargetController(
 	metricsEmitter metrics.MetricEmitter,
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler,
 ) (*KatalystCustomConfigTargetController, error) {
+	if kccConfig.CNCUpdateQPS <= 0 {
+		return nil, fmt.Errorf("CNC update QPS must be greater than 0")
+	}
+	if kccConfig.CNCUpdateBurst <= 0 {
+		return nil, fmt.Errorf("CNC update burst must be greater than 0")
+	}
+
 	k := &KatalystCustomConfigTargetController{
 		ctx:                        ctx,
 		client:                     client,
@@ -144,8 +183,8 @@ func NewKatalystCustomConfigTargetController(
 		rateLimiters:     sync.Map{},
 		cncEnqueueDelay:  defaultCNCEnqueueDelay,
 		kcctEnqueueDelay: defaultKCCTEnqueueDelay,
-		cncUpdateQPS:     defaultCNCUpdateQPS,
-		cncUpdateBurst:   defaultCNCUpdateBurst,
+		cncUpdateQPS:     kccConfig.CNCUpdateQPS,
+		cncUpdateBurst:   kccConfig.CNCUpdateBurst,
 	}
 
 	if metricsEmitter == nil {
@@ -196,8 +235,8 @@ func (k *KatalystCustomConfigTargetController) Run() {
 	<-k.ctx.Done()
 }
 
-func (k *KatalystCustomConfigTargetController) handleCNCAdd(obj interface{}) {
-	k.handleCNCStatusUpdate()
+func (k *KatalystCustomConfigTargetController) handleCNCAdd(_ interface{}) {
+	k.enqueueAllGVRs(kcctEnqueueReasonCNCAdd)
 }
 
 func (k *KatalystCustomConfigTargetController) handleCNCUpdate(old, new interface{}) {
@@ -212,28 +251,86 @@ func (k *KatalystCustomConfigTargetController) handleCNCUpdate(old, new interfac
 		return
 	}
 
-	if !apiequality.Semantic.DeepEqual(oldCNC, newCNC) {
-		k.handleCNCStatusUpdate()
+	enqueueAll, gvrs := getCNCUpdateScope(oldCNC, newCNC, func(gvr metav1.GroupVersionResource) bool {
+		_, ok := k.targetHandler.GetTargetAccessorByGVR(gvr)
+		return ok
+	})
+	if enqueueAll {
+		k.enqueueAllGVRs(kcctEnqueueReasonCNCMetadata)
+		return
+	}
+	for _, gvr := range gvrs {
+		k.enqueueGVR(gvr, k.cncEnqueueDelay, kcctEnqueueReasonCNCConfig)
 	}
 }
 
-func (k *KatalystCustomConfigTargetController) handleCNCDelete(obj interface{}) {
-	k.handleCNCStatusUpdate()
+func (k *KatalystCustomConfigTargetController) handleCNCDelete(_ interface{}) {
+	k.enqueueAllGVRs(kcctEnqueueReasonCNCDelete)
 }
 
-// Enqueue all kcc target gvr to correct any accidentally changed CNC status and update the KCCT status.
-func (k *KatalystCustomConfigTargetController) handleCNCStatusUpdate() {
-	// enqueue all kcct gvr
-	k.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, accessor kcctarget.KatalystCustomConfigTargetAccessor) bool {
-		// enqueue gvr with delay to frequent reconciles caused by many CNC events
-		general.InfofV(4, "handleCNCStatusUpdate: enqueue %s", gvr.String())
-		k.queue.AddAfter(gvr, k.cncEnqueueDelay)
+func getCNCUpdateScope(
+	oldCNC, newCNC *configapis.CustomNodeConfig,
+	isGVRRegistered func(metav1.GroupVersionResource) bool,
+) (bool, []metav1.GroupVersionResource) {
+	// Metadata changes can alter target matching for every registered GVR, so
+	// keep this path conservative. Status-only changes are scoped below.
+	if oldCNC.GetName() != newCNC.GetName() ||
+		!apiequality.Semantic.DeepEqual(oldCNC.GetLabels(), newCNC.GetLabels()) ||
+		!apiequality.Semantic.DeepEqual(oldCNC.GetDeletionTimestamp(), newCNC.GetDeletionTimestamp()) {
+		return true, nil
+	}
+
+	// Compare each GVR as a multiset. List order and unrelated status fields do
+	// not affect reconciliation, while duplicate entries remain observable.
+	oldConfigs := make(map[metav1.GroupVersionResource]map[configapis.TargetConfig]int)
+	newConfigs := make(map[metav1.GroupVersionResource]map[configapis.TargetConfig]int)
+	for _, targetConfig := range oldCNC.Status.KatalystCustomConfigList {
+		if oldConfigs[targetConfig.ConfigType] == nil {
+			oldConfigs[targetConfig.ConfigType] = make(map[configapis.TargetConfig]int)
+		}
+		oldConfigs[targetConfig.ConfigType][targetConfig]++
+	}
+	for _, targetConfig := range newCNC.Status.KatalystCustomConfigList {
+		if newConfigs[targetConfig.ConfigType] == nil {
+			newConfigs[targetConfig.ConfigType] = make(map[configapis.TargetConfig]int)
+		}
+		newConfigs[targetConfig.ConfigType][targetConfig]++
+	}
+
+	changedGVRSet := make(map[metav1.GroupVersionResource]struct{})
+	for gvr, configs := range oldConfigs {
+		if isGVRRegistered(gvr) && !apiequality.Semantic.DeepEqual(configs, newConfigs[gvr]) {
+			changedGVRSet[gvr] = struct{}{}
+		}
+	}
+	for gvr, configs := range newConfigs {
+		if isGVRRegistered(gvr) && !apiequality.Semantic.DeepEqual(configs, oldConfigs[gvr]) {
+			changedGVRSet[gvr] = struct{}{}
+		}
+	}
+	changedGVRs := make([]metav1.GroupVersionResource, 0, len(changedGVRSet))
+	for gvr := range changedGVRSet {
+		changedGVRs = append(changedGVRs, gvr)
+	}
+	return false, changedGVRs
+}
+
+func (k *KatalystCustomConfigTargetController) enqueueAllGVRs(reason string) {
+	k.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, _ kcctarget.KatalystCustomConfigTargetAccessor) bool {
+		k.enqueueGVR(gvr, k.cncEnqueueDelay, reason)
 		return true
 	})
 }
 
+func (k *KatalystCustomConfigTargetController) enqueueGVR(gvr metav1.GroupVersionResource, delay time.Duration, reason string) {
+	general.InfofV(4, "enqueue KCCT GVR %s due to %s", gvr.String(), reason)
+	k.queue.AddAfter(gvr, delay)
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTEnqueue, 1, metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: "reason", Val: reason})
+}
+
 func (k *KatalystCustomConfigTargetController) handleTargetEvent(gvr metav1.GroupVersionResource, _ *unstructured.Unstructured) error {
-	k.queue.AddAfter(gvr, k.kcctEnqueueDelay)
+	k.enqueueGVR(gvr, k.kcctEnqueueDelay, kcctEnqueueReasonTarget)
 	return nil
 }
 
@@ -288,7 +385,10 @@ func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersion
 	reconcileStartTime := time.Now()
 	general.InfofV(4, "reconcile KCCT GVR %s", gvr.String())
 	defer func() {
-		general.InfofV(4, "reconcile KCCT GVR %s finished in %v", gvr.String(), time.Since(reconcileStartTime))
+		reconcileCost := time.Since(reconcileStartTime)
+		general.InfofV(4, "reconcile KCCT GVR %s finished in %v", gvr.String(), reconcileCost)
+		_ = k.metricsEmitter.StoreInt64(metricNameKCCTReconcileCost, reconcileCost.Microseconds(), metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "gvr", Val: gvr.String()})
 	}()
 
 	// Since each KCC target can affect the validity and scope of other KCC targets,
@@ -328,7 +428,7 @@ func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersion
 				continue
 			} else {
 				// enqueue the yet-to-expire kcc target for cleanup at its expiry
-				k.queue.AddAfter(gvr, untilExpiry)
+				k.enqueueGVR(gvr, untilExpiry, kcctEnqueueReasonExpiry)
 			}
 		}
 
@@ -426,6 +526,110 @@ func (k *KatalystCustomConfigTargetController) validateKCCTs(
 	return invalidKCCTs, errors
 }
 
+func getCNCAppliedState(cnc *configapis.CustomNodeConfig, gvr metav1.GroupVersionResource) cncAppliedState {
+	// The normal shape has at most one entry per GVR. Record duplicate entries
+	// so the caller can fall back to the legacy full scan without changing the
+	// behavior for malformed existing objects.
+	state := cncAppliedState{}
+	for _, targetConfig := range cnc.Status.KatalystCustomConfigList {
+		if targetConfig.ConfigType != gvr {
+			continue
+		}
+		if state.found {
+			state.duplicate = true
+			continue
+		}
+		state.namespace = targetConfig.ConfigNamespace
+		state.name = targetConfig.ConfigName
+		state.hash = targetConfig.Hash
+		state.found = true
+	}
+	return state
+}
+
+func isCNCAppliedToTarget(
+	cnc *configapis.CustomNodeConfig,
+	gvr metav1.GroupVersionResource,
+	appliedState cncAppliedState,
+	targetResource util.KCCTargetResource,
+	hash string,
+) bool {
+	if appliedState.duplicate {
+		return kccutil.IsCNCUpdated(cnc, gvr, targetResource, hash)
+	}
+	return appliedState.found &&
+		appliedState.namespace == targetResource.GetNamespace() &&
+		appliedState.name == targetResource.GetName() &&
+		appliedState.hash == hash
+}
+
+func calculateTargetStatusCounts(
+	gvr metav1.GroupVersionResource,
+	allCNCs []*configapis.CustomNodeConfig,
+	targetResources []util.KCCTargetResource,
+	hashes map[string]string,
+	canaryCutoffPoints map[string]int,
+	targetCNCIndexes map[string][]int,
+	appliedStates []cncAppliedState,
+) map[string]targetStatusCounts {
+	counts := make(map[string]targetStatusCounts, len(targetResources))
+	targetKeysByNamespaceName := make(map[string]map[string]string, len(targetResources))
+	for _, targetResource := range targetResources {
+		targetKey := native.GenerateUniqObjectNameKey(targetResource)
+		counts[targetKey] = targetStatusCounts{
+			targetNodes: int32(len(targetCNCIndexes[targetKey])),
+			canaryNodes: int32(canaryCutoffPoints[targetKey]),
+		}
+		if targetKeysByNamespaceName[targetResource.GetNamespace()] == nil {
+			targetKeysByNamespaceName[targetResource.GetNamespace()] = make(map[string]string)
+		}
+		targetKeysByNamespaceName[targetResource.GetNamespace()][targetResource.GetName()] = targetKey
+	}
+
+	for i, appliedState := range appliedStates {
+		if !appliedState.found {
+			continue
+		}
+		if appliedState.duplicate {
+			for _, targetResource := range targetResources {
+				targetKey := native.GenerateUniqObjectNameKey(targetResource)
+				if isCNCAppliedToTarget(allCNCs[i], gvr, appliedState, targetResource, hashes[targetKey]) {
+					statusCounts := counts[targetKey]
+					statusCounts.updatedNodes++
+					counts[targetKey] = statusCounts
+				}
+			}
+			continue
+		}
+		targetKey := targetKeysByNamespaceName[appliedState.namespace][appliedState.name]
+		if targetKey == "" || appliedState.hash != hashes[targetKey] {
+			continue
+		}
+		statusCounts := counts[targetKey]
+		statusCounts.updatedNodes++
+		counts[targetKey] = statusCounts
+	}
+
+	for _, targetResource := range targetResources {
+		targetKey := native.GenerateUniqObjectNameKey(targetResource)
+		statusCounts := counts[targetKey]
+		for _, cncIndex := range targetCNCIndexes[targetKey] {
+			if isCNCAppliedToTarget(allCNCs[cncIndex], gvr, appliedStates[cncIndex], targetResource, hashes[targetKey]) {
+				statusCounts.updatedTargetNodes++
+			}
+		}
+		counts[targetKey] = statusCounts
+	}
+	return counts
+}
+
+func rateLimitedRequeueDelay(burst, qps int) time.Duration {
+	// Retry after half a bucket can refill. Duration arithmetic preserves
+	// sub-second delays when QPS exceeds the burst.
+	halfRefill := time.Duration(burst) * time.Second / 2
+	return halfRefill / time.Duration(qps)
+}
+
 func (k *KatalystCustomConfigTargetController) manageCNCs(
 	gvr metav1.GroupVersionResource,
 	targetResources []util.KCCTargetResource,
@@ -442,8 +646,9 @@ func (k *KatalystCustomConfigTargetController) manageCNCs(
 	// any errors encountered from this point onwards should not result in immediate return
 	var errors []error
 
-	// group the CNCs by KCCT
-	targetCNCIndexes, errs := k.groupCNCsByKCCT(allCNCs, targetResources)
+	planStartTime := time.Now()
+	// group the CNCs by KCCT and extract the current GVR state once per CNC
+	targetCNCIndexes, appliedStates, errs := k.groupCNCsByKCCT(gvr, allCNCs, targetResources)
 	if len(errs) > 0 {
 		errors = append(errors, errs...)
 	}
@@ -457,17 +662,23 @@ func (k *KatalystCustomConfigTargetController) manageCNCs(
 	if len(errs) > 0 {
 		errors = append(errors, errs...)
 	}
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTPlanCost, time.Since(planStartTime).Microseconds(), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "gvr", Val: gvr.String()})
 
-	rateLimited, errs := k.updateCNCs(gvr, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, allCNCs)
+	rateLimited, errs := k.updateCNCs(gvr, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, allCNCs, appliedStates)
 	if len(errs) > 0 {
 		errors = append(errors, errs...)
 	}
-	// If cnc updates are rate limited, requeue the GVR for later reconciliation
+	// If cnc updates are rate limited, requeue the GVR after half the burst has been refilled.
 	if rateLimited {
-		k.queue.AddAfter(gvr, time.Duration(k.cncUpdateBurst/k.cncUpdateQPS/2)*time.Second)
+		k.enqueueGVR(gvr, rateLimitedRequeueDelay(k.cncUpdateBurst, k.cncUpdateQPS), kcctEnqueueReasonRateLimited)
 	}
 
-	errs = k.updateTargetStatuses(gvr, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, allCNCs)
+	statusStartTime := time.Now()
+	statusCounts := calculateTargetStatusCounts(gvr, allCNCs, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, appliedStates)
+	errs = k.updateTargetStatuses(gvr, targetResources, hashes, statusCounts)
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTStatusCost, time.Since(statusStartTime).Microseconds(), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "gvr", Val: gvr.String()})
 	if len(errs) > 0 {
 		errors = append(errors, errs...)
 	}
@@ -476,13 +687,16 @@ func (k *KatalystCustomConfigTargetController) manageCNCs(
 }
 
 func (k *KatalystCustomConfigTargetController) groupCNCsByKCCT(
+	gvr metav1.GroupVersionResource,
 	allCNCs []*configapis.CustomNodeConfig,
 	targetResources []util.KCCTargetResource,
-) (map[string][]int, []error) {
+) (map[string][]int, []cncAppliedState, []error) {
 	var errors []error
 	targetCNCIndexes := make(map[string][]int)
+	appliedStates := make([]cncAppliedState, len(allCNCs))
 
 	for i, cnc := range allCNCs {
+		appliedStates[i] = getCNCAppliedState(cnc, gvr)
 		if cnc.GetDeletionTimestamp() != nil {
 			continue
 		}
@@ -505,7 +719,7 @@ func (k *KatalystCustomConfigTargetController) groupCNCsByKCCT(
 		targetCNCIndexes[kcctName] = append(targetCNCIndexes[kcctName], i)
 	}
 
-	return targetCNCIndexes, errors
+	return targetCNCIndexes, appliedStates, errors
 }
 
 func (k *KatalystCustomConfigTargetController) generateConfigHashesAndMaybeUpdateStatus(
@@ -599,9 +813,12 @@ func (k *KatalystCustomConfigTargetController) updateCNCs(
 	canaryCutoffPoints map[string]int,
 	targetCNCIndexes map[string][]int,
 	allCNCs []*configapis.CustomNodeConfig,
+	appliedStates []cncAppliedState,
 ) (bool, []error) {
 	var errors []error
 
+	// Each GVR has an independent token bucket. This prevents one large rollout
+	// from consuming the update budget of unrelated configuration types.
 	rateLimiterRaw, _ := k.rateLimiters.LoadOrStore(gvr, rate.NewLimiter(rate.Limit(k.cncUpdateQPS), k.cncUpdateBurst))
 	rateLimiter := rateLimiterRaw.(*rate.Limiter)
 	rateLimited := false
@@ -622,7 +839,7 @@ kcctLoop:
 		kcctName := native.GenerateUniqObjectNameKey(targetResource)
 		cutoffPoint := canaryCutoffPoints[kcctName]
 		for _, cncIndex := range targetCNCIndexes[kcctName][:cutoffPoint] {
-			if !kccutil.IsCNCUpdated(allCNCs[cncIndex], gvr, targetResource, hashes[kcctName]) {
+			if !isCNCAppliedToTarget(allCNCs[cncIndex], gvr, appliedStates[cncIndex], targetResource, hashes[kcctName]) {
 				if !rateLimiter.Allow() {
 					rateLimited = true
 					break kcctLoop
@@ -637,10 +854,13 @@ kcctLoop:
 	}
 
 	general.Infof("updating %d CNCs for GVR %s", len(updateTasks), gvr.String())
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTUpdateTasks, int64(len(updateTasks)), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "gvr", Val: gvr.String()})
 
-	// update the CNCs
-	mu := sync.Mutex{}
+	patchStartTime := time.Now()
+	var mu sync.Mutex
 	failedCount := 0
+	succeededCount := 0
 	workqueue.ParallelizeUntil(k.ctx, cncWorkerCount, len(updateTasks), func(i int) {
 		task := updateTasks[i]
 		oldCNC := allCNCs[task.cncIndex]
@@ -648,19 +868,31 @@ kcctLoop:
 		kcctName := native.GenerateUniqObjectNameKey(task.targetResource)
 		kccutil.ApplyKCCTargetConfigToCNC(newCNC, gvr, task.targetResource, hashes[kcctName])
 		newCNC, err := k.cncControl.PatchCNCStatus(k.ctx, oldCNC.GetName(), oldCNC, newCNC)
-
 		if err != nil {
 			mu.Lock()
-			defer mu.Unlock()
 			errors = append(errors, fmt.Errorf("update CNC %s status failed: %w", oldCNC.GetName(), err))
 			failedCount++
-		} else {
-			// also update the CNC in the cache for kcct status calculation
-			allCNCs[task.cncIndex] = newCNC
+			mu.Unlock()
+			return
 		}
+
+		mu.Lock()
+		succeededCount++
+		mu.Unlock()
+		// Use the server response as the source of truth for status calculation.
+		allCNCs[task.cncIndex] = newCNC
+		appliedStates[task.cncIndex] = getCNCAppliedState(newCNC, gvr)
 	})
 
-	general.Infof("updated %d CNCs for GVR %s, %d failed", len(updateTasks)-failedCount, gvr.String(), failedCount)
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTPatch, int64(succeededCount), metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: "gvr", Val: gvr.String()},
+		metrics.MetricTag{Key: "result", Val: "succeeded"})
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTPatch, int64(failedCount), metrics.MetricTypeNameCount,
+		metrics.MetricTag{Key: "gvr", Val: gvr.String()},
+		metrics.MetricTag{Key: "result", Val: "failed"})
+	_ = k.metricsEmitter.StoreInt64(metricNameKCCTPatchBatchCost, time.Since(patchStartTime).Microseconds(), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "gvr", Val: gvr.String()})
+	general.Infof("updated %d CNCs for GVR %s, %d failed", succeededCount, gvr.String(), failedCount)
 	return rateLimited, errors
 }
 
@@ -668,40 +900,21 @@ func (k *KatalystCustomConfigTargetController) updateTargetStatuses(
 	gvr metav1.GroupVersionResource,
 	targetResources []util.KCCTargetResource,
 	hashes map[string]string,
-	canaryCutoffPoints map[string]int,
-	targetCNCIndexes map[string][]int,
-	allCNCs []*configapis.CustomNodeConfig,
+	statusCounts map[string]targetStatusCounts,
 ) []error {
 	var errors []error
 
 	for _, targetResource := range targetResources {
 		kcctName := native.GenerateUniqObjectNameKey(targetResource)
-		cutoffPoint := canaryCutoffPoints[kcctName]
-		targets := targetCNCIndexes[kcctName]
-		targetIndexSet := sets.NewInt(targets...)
-
-		var (
-			targetNodes        = int32(len(targets))
-			canaryNodes        = int32(cutoffPoint)
-			updatedTargetNodes int32
-			updatedNodes       int32
-			hash               = hashes[kcctName]
-		)
-		for i, cnc := range allCNCs {
-			if kccutil.IsCNCUpdated(cnc, gvr, targetResource, hashes[kcctName]) {
-				updatedNodes++
-				if targetIndexSet.Has(i) {
-					updatedTargetNodes++
-				}
-			}
-		}
+		counts := statusCounts[kcctName]
+		hash := hashes[kcctName]
 
 		newTargetResource := targetResource.DeepCopy()
-		updateValidTargetResourceStatus(newTargetResource, targetNodes, canaryNodes, updatedTargetNodes, updatedNodes, hash)
+		updateValidTargetResourceStatus(newTargetResource, counts.targetNodes, counts.canaryNodes, counts.updatedTargetNodes, counts.updatedNodes, hash)
 		if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
 			general.Infof(
 				"kcct %s %s update status targetNodes=%d canaryNodes=%d updatedTargetNodes=%d updatedNodes=%d hash=%s",
-				gvr.String(), kcctName, targetNodes, canaryNodes, updatedTargetNodes, updatedNodes, hash)
+				gvr.String(), kcctName, counts.targetNodes, counts.canaryNodes, counts.updatedTargetNodes, counts.updatedNodes, hash)
 			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.GetUnstructured(), metav1.UpdateOptions{})
 			if err != nil {
 				errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
