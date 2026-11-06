@@ -746,12 +746,18 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 		m.metricStore.SetByStringIndex(consts.MetricCPUCodeName, systemComputeData.CPUCodeName)
 	}
 	var cpiTotal, cpiCount float64
+	// livingCPUSet tracks every cpuID successfully observed in this snapshot.
+	// processSystemCPUComputeData is only reached on the success path of
+	// updateSystemStats (GetSystemComputeStats returned no error), so this set
+	// is an authoritative snapshot-valid result and we may GC against it.
+	livingCPUSet := make(map[int]bool)
 	for _, cpu := range systemComputeData.CPU {
 		cpuID, err := strconv.Atoi(cpu.Name[3:])
 		if err != nil {
 			klog.Errorf("[malachite] parse cpu name %v with err: %v", cpu.Name, err)
 			continue
 		}
+		livingCPUSet[cpuID] = true
 
 		// todo it's kind of confusing but the `cpu-usage` in `system-level` actually represents `ratio`,
 		//  we will always rename metric in local store to replenish `ratio` to avoid ambiguity.
@@ -785,6 +791,13 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 			m.metricStore.DeleteCPUMetric(cpuID, consts.MetricCPUL3Misses)
 		}
 	}
+
+	// GC the whole per-CPU subtree of any cpuID absent from this successful
+	// snapshot. Runs only on the success path, so a failed fetch preserves the
+	// previous values instead of wiping them. An empty livingCPUSet is a valid
+	// empty snapshot and is passed through unchanged.
+	m.metricStore.GCCPUMetric(livingCPUSet)
+
 	m.metricStore.SetNodeMetric(consts.MetricCPUUsageRatio,
 		utilmetric.MetricData{Value: systemComputeData.GlobalCPU.CPUUsage / 100.0, Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricCPUSysUsageRatio,
