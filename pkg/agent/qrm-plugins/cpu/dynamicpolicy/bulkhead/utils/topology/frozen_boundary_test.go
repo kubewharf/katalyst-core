@@ -182,6 +182,58 @@ func TestEvaluateFrozenBoundaryRejectsControlledRelDrift(t *testing.T) {
 	require.ErrorIs(t, err, ErrCoordinatorPlanStale)
 }
 
+func TestEvaluateFrozenBoundaryRejectsControlledRelMemsDrift(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	driver.nodes["root"].configuredMems = "0-1"
+	driver.nodes["root"].mems = "0-1"
+
+	_, err = EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrCoordinatorPlanStale)
+}
+
+func TestEvaluateFrozenBoundaryRejectsShrinkDirectChildConfiguredMemsDrift(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	driver.nodes["root/direct"].configuredMems = "0-1"
+
+	_, err = EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrCoordinatorPlanStale)
+}
+
+func TestEvaluateFrozenBoundaryRejectsUnrelatedShrinkDirectChildConfiguredMemsDrift(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	addFrozenBoundaryDirectChild(
+		snapshot, "unrelated-direct", CgroupIdentity{Device: 1, Inode: 9}, machine.NewCPUSet(9))
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	require.NotContains(t, boundary.RelevantCPUHolders, "root/unrelated-direct")
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	driver.nodes["root/unrelated-direct"].configuredMems = "0-1"
+
+	_, err = EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrCoordinatorPlanStale)
+}
+
 func TestEvaluateFrozenBoundaryRejectsShrinkDirectChildAdditionOutsideTarget(t *testing.T) {
 	t.Parallel()
 	snapshot, input, phases := frozenBoundaryFixture()
@@ -253,6 +305,96 @@ func TestEvaluateFrozenBoundaryRejectsDirectChildStateDrift(t *testing.T) {
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrCoordinatorPlanStale)
+}
+
+func TestEvaluateFrozenBoundaryAllowsRelevantCPUHolderMemsDrift(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		configuredMems string
+		effectiveMems  string
+	}{
+		{name: "configured and effective", configuredMems: "0-1", effectiveMems: "0-1"},
+		{name: "configured only", configuredMems: "0-1", effectiveMems: "0"},
+		{name: "effective only", configuredMems: "0", effectiveMems: "0-1"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			snapshot, input, phases := frozenBoundaryFixture()
+			boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+			require.NoError(t, err)
+			driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+			driver.nodes["root/direct/holder"].configuredMems = tc.configuredMems
+			driver.nodes["root/direct/holder"].mems = tc.effectiveMems
+
+			evaluation, err := EvaluateFrozenBoundary(
+				context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+				boundary, snapshot)
+
+			require.NoError(t, err)
+			require.NotNil(t, evaluation.Snapshot)
+			require.Equal(t, tc.configuredMems, evaluation.Snapshot.Entries["root/direct/holder"].ConfiguredMems)
+			require.Equal(t, tc.effectiveMems, evaluation.Snapshot.Entries["root/direct/holder"].Mems)
+		})
+	}
+}
+
+func TestEvaluateFrozenBoundaryRejectsRelevantCPUHolderInvalidMems(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	driver.nodes["root/direct/holder"].configuredMems = "invalid"
+	driver.nodes["root/direct/holder"].mems = "invalid"
+
+	_, err = EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrCoordinatorPlanStale)
+	require.ErrorContains(t, err, "invalid mems state")
+}
+
+func TestEvaluateFrozenBoundaryAllowsRelevantCPUHolderEmptyMems(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	driver.nodes["root/direct/holder"].configuredMems = ""
+	driver.nodes["root/direct/holder"].mems = ""
+
+	evaluation, err := EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.NoError(t, err)
+	require.NotNil(t, evaluation.Snapshot)
+	require.Empty(t, evaluation.Snapshot.Entries["root/direct/holder"].ConfiguredMems)
+	require.Empty(t, evaluation.Snapshot.Entries["root/direct/holder"].Mems)
+}
+
+func TestEvaluateFrozenBoundaryAllowsRelevantCPUHolderV2InheritedConfiguredMems(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	driver.nodes["root/direct/holder"].configuredMems = ""
+	driver.nodes["root/direct/holder"].mems = "0-1"
+
+	evaluation, err := EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.NoError(t, err)
+	require.NotNil(t, evaluation.Snapshot)
+	require.Empty(t, evaluation.Snapshot.Entries["root/direct/holder"].ConfiguredMems)
+	require.Equal(t, "0-1", evaluation.Snapshot.Entries["root/direct/holder"].Mems)
 }
 
 func TestEvaluateFrozenBoundaryRejectsRelevantCPUHolderDrift(t *testing.T) {
@@ -433,6 +575,78 @@ func TestEvaluateFrozenBoundaryRejectsReferencedHolderRetirementDuringSnapshot(t
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, syscall.ENOENT)
+}
+
+func TestPendingScopePinsItselfButAllowsDynamicDescendantRetirement(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	input.PendingRequiredByRel = map[string]machine.CPUSet{
+		"root/direct": machine.NewCPUSet(2),
+	}
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	require.NotContains(t, boundary.RetirableCPUHolders, "root/direct")
+	require.Contains(t, boundary.RetirableCPUHolders, "root/direct/holder")
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	deleteHolderAfterParentListing(driver, "root/direct", "root/direct/holder")
+
+	evaluation, err := EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.NoError(t, err)
+	require.Contains(t, evaluation.Snapshot.Entries, "root/direct")
+	assertSnapshotExcludesSubtree(t, evaluation.Snapshot, "root/direct/holder")
+}
+
+func TestExactSemanticRelOverridesPendingAncestorRetirement(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	input.PendingRequiredByRel = map[string]machine.CPUSet{
+		"root/direct": machine.NewCPUSet(2),
+	}
+	input.ExpectedByRel = map[string]machine.CPUSet{
+		"root/direct/holder": machine.NewCPUSet(2),
+	}
+
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+
+	require.NoError(t, err)
+	require.NotContains(t, boundary.RetirableCPUHolders, "root/direct")
+	require.NotContains(t, boundary.RetirableCPUHolders, "root/direct/holder")
+}
+
+func TestPendingScopeItselfCannotRetire(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	input.PendingRequiredByRel = map[string]machine.CPUSet{
+		"root/direct": machine.NewCPUSet(2),
+	}
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+	require.NoError(t, err)
+	driver, dag := frozenBoundaryDriver(t, snapshot, input.DAGSpecs)
+	deleteHolderAfterParentListing(driver, "root", "root/direct")
+
+	_, err = EvaluateFrozenBoundary(
+		context.Background(), driver, dag, NewBudgetTracker(ConvergenceBudget{}),
+		boundary, snapshot)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, syscall.ENOENT)
+}
+
+func TestPendingScopePinsDynamicAncestorPath(t *testing.T) {
+	t.Parallel()
+	snapshot, input, phases := frozenBoundaryFixture()
+	input.PendingRequiredByRel = map[string]machine.CPUSet{
+		"root/direct/holder/not-yet-materialized": machine.NewCPUSet(2),
+	}
+
+	boundary, err := compileFrozenBoundaryV1(snapshot, input, phases)
+
+	require.NoError(t, err)
+	require.NotContains(t, boundary.RetirableCPUHolders, "root/direct")
+	require.NotContains(t, boundary.RetirableCPUHolders, "root/direct/holder")
 }
 
 func TestCompileFrozenBoundaryDoesNotRetireTargetOnlyHolder(t *testing.T) {

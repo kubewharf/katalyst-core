@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"math"
 	"sort"
@@ -25,7 +26,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/errors"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -41,8 +42,8 @@ import (
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -57,6 +58,36 @@ const (
 	defaultSystemExclusivePoolShrinkMin   = 2
 	defaultSystemExclusivePoolShrinkMax   = 8
 )
+
+// cpuSetHealthOps groups the per-instance cgroup reads used by checkCPUSet.
+// A nil pointer lazily binds to the production functions. Tests install a fake
+// so the health check can run under t.Parallel without monkey patching.
+type cpuSetHealthOps struct {
+	getContainerAbsCgroupPath func(subsys, podUID, containerID string) (string, error)
+	getCPUSetWithAbsolutePath func(absPath string) (*cgroupcm.CPUSetStats, error)
+	updateHealthzState        func(state general.HealthzCheckState, message string) error
+	updateHealthzStateByError func(err error) error
+}
+
+func defaultCPUSetHealthOps() *cpuSetHealthOps {
+	return &cpuSetHealthOps{
+		getContainerAbsCgroupPath: cgroupcm.GetContainerAbsCgroupPath,
+		getCPUSetWithAbsolutePath: cgroupcmutils.GetCPUSetWithAbsolutePath,
+		updateHealthzState: func(state general.HealthzCheckState, message string) error {
+			return general.UpdateHealthzState(cpuconsts.CheckCPUSet, state, message)
+		},
+		updateHealthzStateByError: func(err error) error {
+			return general.UpdateHealthzStateByError(cpuconsts.CheckCPUSet, err)
+		},
+	}
+}
+
+func (p *DynamicPolicy) cpuHealthOps() *cpuSetHealthOps {
+	if p.cpuSetHealthOps == nil {
+		p.cpuSetHealthOps = defaultCPUSetHealthOps()
+	}
+	return p.cpuSetHealthOps
+}
 
 // checkCPUSet emit errors if the memory allocation falls into unexpected results
 func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
@@ -73,14 +104,15 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 	)
 
 	defer func() {
+		healthOps := p.cpuHealthOps()
 		if len(errList) > 0 {
-			_ = general.UpdateHealthzStateByError(cpuconsts.CheckCPUSet, errors.NewAggregate(errList))
+			_ = healthOps.updateHealthzStateByError(utilerrors.NewAggregate(errList))
 		} else if invalidCPUSet {
-			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady, "invalid cpuset exists")
+			_ = healthOps.updateHealthzState(general.HealthzCheckStateNotReady, "invalid cpuset exists")
 		} else if cpuSetOverlap {
-			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady, "cpuset overlap")
+			_ = healthOps.updateHealthzState(general.HealthzCheckStateNotReady, "cpuset overlap")
 		} else {
-			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateReady, "")
+			_ = healthOps.updateHealthzState(general.HealthzCheckStateReady, "")
 		}
 	}()
 
@@ -110,24 +142,24 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				cpuSetStats *cgroupcm.CPUSetStats
 			)
 
-			containerId, err := p.metaServer.GetContainerID(podUID, containerName)
+			containerId, err := p.meta.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
 			}
 
-			cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId)
+			cpusetAbsCGPath, err := p.cpuHealthOps().getContainerAbsCgroupPath(cgroupcm.CgroupSubsysCPUSet, podUID, containerId)
 			if err != nil {
 				general.Errorf("get container abs cgroup path of pod: %s container: %s failed with error: %v", podUID, containerName, err)
-				_ = p.emitter.StoreInt64(util.MetricNameCgroupPathNotFound, 1, metrics.MetricTypeNameRaw, tags...)
+				_ = p.emitter.emitter.StoreInt64(util.MetricNameCgroupPathNotFound, 1, metrics.MetricTypeNameRaw, tags...)
 				continue
 			}
 
-			cpuSetStats, err = cgroupcmutils.GetCPUSetWithAbsolutePath(cpusetAbsCGPath)
+			cpuSetStats, err = p.cpuHealthOps().getCPUSetWithAbsolutePath(cpusetAbsCGPath)
 			if err != nil {
 				general.Errorf("GetCPUSet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerId, err)
-				_ = p.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
+				_ = p.emitter.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
 				errList = append(errList, err)
 				continue
 			}
@@ -150,7 +182,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				invalidCPUSet = true
 				general.Errorf("pod: %s/%s, container: %s, cpuset invalid",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				_ = p.emitter.StoreInt64(util.MetricNameCPUSetInvalid, 1, metrics.MetricTypeNameRaw, tags...)
+				_ = p.emitter.emitter.StoreInt64(util.MetricNameCPUSetInvalid, 1, metrics.MetricTypeNameRaw, tags...)
 			}
 		}
 	}
@@ -164,7 +196,6 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 			if allocationInfo == nil {
 				continue
 			}
-
 			switch allocationInfo.QoSLevel {
 			case consts.PodAnnotationQoSLevelDedicatedCores:
 				if !cpuSetOverlap && cset.Intersection(unionDedicatedCPUSet).Size() != 0 {
@@ -190,7 +221,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 	}
 	if cpuSetOverlap {
 		general.Errorf("found cpuset overlap. actualCPUSets: %+v", actualCPUSets)
-		_ = p.emitter.StoreInt64(util.MetricNameCPUSetOverlap, 1, metrics.MetricTypeNameRaw)
+		_ = p.emitter.emitter.StoreInt64(util.MetricNameCPUSetOverlap, 1, metrics.MetricTypeNameRaw)
 	}
 
 	p.checkCPUSetWithPodTotalRequest(podEntries, actualCPUSets)
@@ -242,13 +273,24 @@ func (p *DynamicPolicy) buildCPUSetPodStateMap(ctx context.Context, podEntries s
 		totalMilliCPURequest := int64(0)
 
 		for _, podUID := range cs.podUIDs.List() {
-			pod, err := p.metaServer.GetPod(ctx, podUID)
+			pod, err := p.meta.metaServer.GetPod(ctx, podUID)
 			if err != nil {
+				if metapod.IsPodNotFound(err) {
+					general.Infof("pod: %s is already gone, skip cpuset async check", podUID)
+					cs.podUIDs.Delete(podUID)
+					continue
+				}
 				general.Errorf("get pod: %s failed with error: %v", podUID, err)
+				continue
+			}
+			if pod == nil {
+				general.Infof("pod: %s is nil, skip cpuset async check", podUID)
+				cs.podUIDs.Delete(podUID)
 				continue
 			}
 
 			if !native.PodIsActive(pod) {
+				cs.podUIDs.Delete(podUID)
 				continue
 			}
 
@@ -306,7 +348,11 @@ func (p *DynamicPolicy) emitExceededMetrics(
 	exceededRatio float64,
 	allowSharedCoresOverlapReclaimedCores bool,
 ) {
-	enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
+	enableReclaim := false
+	dynamicConfiguration := p.config.dynamicConfig.GetDynamicConfiguration()
+	if dynamicConfiguration != nil && dynamicConfiguration.AdminQoSConfiguration != nil {
+		enableReclaim = dynamicConfiguration.EnableReclaim
+	}
 	for podUID, pod := range cs.podMap {
 		mainContainerEntry := podEntries[podUID].GetMainContainerEntry()
 		if mainContainerEntry == nil ||
@@ -321,7 +367,7 @@ func (p *DynamicPolicy) emitExceededMetrics(
 			pod.Namespace, pod.Name, mainContainerEntry.OwnerPoolName, mainContainerEntry.QoSLevel, cpuset, cs.cpuset.Size(),
 			float64(cs.totalMilliCPURequest)/1000, exceededRatio, outOfTolerance)
 
-		_ = p.emitter.StoreFloat64(metricsNamePodTotalRequestLargerThanBindingCPUSet, exceededRatio, metrics.MetricTypeNameRaw, []metrics.MetricTag{
+		_ = p.emitter.emitter.StoreFloat64(metricsNamePodTotalRequestLargerThanBindingCPUSet, exceededRatio, metrics.MetricTypeNameRaw, []metrics.MetricTag{
 			{Key: "podNamespace", Val: pod.Namespace},
 			{Key: "podName", Val: pod.Name},
 			{Key: "qosLevel", Val: mainContainerEntry.QoSLevel},
@@ -345,32 +391,107 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 		err     error
 		podList []*v1.Pod
 	)
-	residualSet := make(map[string]bool)
 
 	defer func() {
 		_ = general.UpdateHealthzStateByError(cpuconsts.ClearResidualState, err)
 	}()
 
-	if p.metaServer == nil {
+	if p.meta.metaServer == nil {
 		general.Errorf("nil metaServer")
 		return
 	}
 
-	ctx := context.Background()
-	podList, err = p.metaServer.GetPodList(ctx, nil)
+	ctx := context.WithValue(context.Background(), metapod.BypassCacheKey, metapod.BypassCacheTrue)
+	podList, err = p.meta.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		general.Errorf("get pod list failed: %v", err)
 		return
 	}
 
+	err = p.clearResidualStateAfterPodList(ctx, podList)
+	if err != nil {
+		general.ErrorS(err, "clear residual state failed")
+	}
+}
+
+func advisorPostCommitStuckThreshold(conf *coreconfig.Configuration) time.Duration {
+	threshold := 2 * cpuSetAdjustmentHandlerTimeout(conf)
+	healthWindow := time.Duration(healthCheckTolerationTimes) * stateCheckPeriod
+	maxThreshold := healthWindow - stateCheckPeriod
+	if threshold <= 0 || threshold > maxThreshold {
+		return maxThreshold
+	}
+	return threshold
+}
+
+func advisorPostCommitCleanupWait(conf *coreconfig.Configuration) time.Duration {
+	wait := cpuSetAdjustmentHandlerTimeout(conf) / 2
+	maxWait := stateCheckPeriod / 4
+	if wait <= 0 || wait > maxWait {
+		return maxWait
+	}
+	return wait
+}
+
+// clearResidualStateAfterPodList performs at most two cleanup observations
+// around an in-flight advisor target. It defers residual mutation while the
+// post-commit fence can still advance, then retries against the latest
+// canonical revision so cleanup cannot overwrite a committed advisor delta.
+func (p *DynamicPolicy) clearResidualStateAfterPodList(
+	ctx context.Context,
+	podList []*v1.Pod,
+) error {
 	podSet := sets.NewString()
 	for _, pod := range podList {
 		podSet.Insert(fmt.Sprintf("%v", pod.UID))
 	}
 
-	p.Lock()
-	defer p.Unlock()
+	wait := advisorPostCommitCleanupWait(p.config.conf)
+	aged := make(map[string]struct{})
+	for attempt := 0; attempt < 2; attempt++ {
+		p.Lock()
+		progress, err := p.clearResidualStateAttempt(ctx, podSet, aged)
+		p.Unlock()
+		if err != nil {
+			return err
+		}
+		if progress.target == nil {
+			return nil
+		}
+		if attempt == 1 {
+			return nil
+		}
 
+		timer := time.NewTimer(wait)
+		select {
+		case <-progress.changed:
+		case <-timer.C:
+		case <-ctx.Done():
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}
+	return nil
+}
+
+// clearResidualStateAttempt observes and ages residuals before consulting the
+// post-commit fence. Canonical state mutation remains behind the final writer
+// fence and revision CAS.
+func (p *DynamicPolicy) clearResidualStateAttempt(
+	ctx context.Context,
+	podSet sets.String,
+	aged map[string]struct{},
+) (advisorPostCommitProgress, error) {
+	if p.residualHitMap == nil {
+		p.residualHitMap = make(map[string]int64)
+	}
+
+	residualSet := make(map[string]bool)
+	expectedRevision := p.state.GetRevision()
 	podEntries := p.state.GetPodEntries()
 	for podUID, containerEntries := range podEntries {
 		if containerEntries.IsPoolEntry() {
@@ -379,7 +500,10 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 
 		if !podSet.Has(podUID) {
 			residualSet[podUID] = true
-			p.residualHitMap[podUID] += 1
+			if _, alreadyAged := aged[podUID]; !alreadyAged {
+				p.residualHitMap[podUID]++
+				aged[podUID] = struct{}{}
+			}
 			general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
 		}
 	}
@@ -397,7 +521,46 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 		}
 	}
 
+	progress := p.currentAdvisorPostCommitProgress()
+	if progress.target != nil {
+		sinceProgress := time.Since(progress.lastProgressAt)
+		if p.advisorPostCommitProgressStuck(progress) {
+			// Release an aged physical-apply fence only when mature residuals
+			// need the writer. The target WAL remains the retry owner until all
+			// physical side effects converge.
+			if podsToDelete.Len() == 0 {
+				return progress, fmt.Errorf(
+					"advisor post-commit target stuck: revision=%d phase=%s generation=%d target_age=%s since_progress=%s",
+					progress.revision, progress.phase, progress.generation,
+					time.Since(progress.createdAt), sinceProgress)
+			}
+			released, err := p.recoverStuckAdvisorPostCommitTargetLocked(ctx, progress.target)
+			if err != nil {
+				return progress, fmt.Errorf("recover stuck advisor post-commit target: %w", err)
+			}
+			if !released {
+				return p.currentAdvisorPostCommitProgress(), nil
+			}
+			// The WAL remains durable while the released fence lets this
+			// revision-CAS cleanup supersede the blocked canonical state.
+		} else {
+			general.InfoS("defer residual state cleanup while advisor post-commit target is progressing",
+				"revision", progress.revision,
+				"phase", progress.phase,
+				"generation", progress.generation,
+				"targetAge", time.Since(progress.createdAt),
+				"sinceProgress", sinceProgress)
+			return progress, nil
+		}
+	}
+
 	if podsToDelete.Len() > 0 {
+		// This is the final gate before external RemovePod side effects and the
+		// revision-CAS-protected canonical state commit.
+		if err := p.ensureCPUStateWriterAllowed(
+			expectedRevision, "clearResidualState", nil); err != nil {
+			return p.currentAdvisorPostCommitProgress(), nil
+		}
 		for {
 			podUID, found := podsToDelete.PopAny()
 			if !found {
@@ -405,12 +568,12 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 			}
 
 			var rErr error
-			if p.enableCPUAdvisor {
-				if p.advisorClient == nil {
+			if p.config.enableCPUAdvisor {
+				if p.advisor.advisorClient == nil {
 					general.Errorf("remove residual pod: %s in sys advisor failed due to nil cpu advisor client, remain it in state", podUID)
 					continue
 				}
-				_, rErr = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
+				_, rErr = p.advisor.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
 					PodUid: podUID,
 				})
 			}
@@ -423,21 +586,29 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 			delete(podEntries, podUID)
 		}
 
-		var updatedMachineState state.NUMANodeMap
-		updatedMachineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
-		if err != nil {
-			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
-			return
+		updatedMachineState, generateErr := generateMachineStateFromPodEntries(
+			p.machine.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
+		if generateErr != nil {
+			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", generateErr)
+			return advisorPostCommitProgress{}, generateErr
 		}
 
-		err = p.adjustAllocationEntries(podEntries, updatedMachineState, false)
-		if err != nil {
-			general.ErrorS(err, "adjustAllocationEntries failed")
-		}
-		if err := p.state.StoreState(); err != nil {
-			general.ErrorS(err, "store state failed")
+		adjustErr := p.adjustAllocationEntriesAfterDeletionAtRevision(
+			podEntries, updatedMachineState, true, expectedRevision)
+		if adjustErr != nil {
+			general.ErrorS(adjustErr, "adjustAllocationEntries failed")
+			return advisorPostCommitProgress{}, adjustErr
 		}
 	}
+	return advisorPostCommitProgress{}, nil
+}
+
+func isDefaultShareResidualQuantityGateError(err error) bool {
+	if stderrors.Is(err, ErrDefaultShareResidualQuantityMismatch) {
+		return true
+	}
+	var quantityErr *DefaultShareResidualQuantityError
+	return stderrors.As(err, &quantityErr)
 }
 
 // syncCPUIdle is used to set cpu idle for reclaimed cores
@@ -458,22 +629,22 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 		return
 	}
 
-	err = cgroupcmutils.ApplyCPUWithRelativePath(p.reclaimRelativeRootCgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
+	existingPaths := cgroupcm.GetExistingRelativeCgroupPaths(p.config.reclaimRelativeRootCgroupPaths...)
+	err = cgroupcmutils.ApplyCPUWithRelativePaths(existingPaths, &cgroupcm.CPUData{CpuIdlePtr: &p.config.enableCPUIdle})
 	if err != nil {
-		general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
-			p.reclaimRelativeRootCgroupPath, p.enableCPUIdle, err)
+		general.Errorf("ApplyCPUWithRelativePaths in %v with enableCPUIdle: %v failed with error: %v",
+			existingPaths, p.config.enableCPUIdle, err)
 	}
 
 	// sync numa binding reclaim cgroup
-	for _, cgroupPath := range p.numaBindingReclaimRelativeRootCgroupPaths {
-		if !general.IsPathExists(cgroupcm.GetAbsCgroupPath(cgroupcm.DefaultSelectedSubsys, cgroupPath)) {
+	for numaID, paths := range p.config.numaBindingReclaimRelativeRootCgroupPaths {
+		existingNUMAPaths := cgroupcm.GetExistingRelativeCgroupPaths(paths...)
+		if len(existingNUMAPaths) == 0 {
 			continue
 		}
-
-		err = cgroupcmutils.ApplyCPUWithRelativePath(cgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
-		if err != nil {
-			general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
-				cgroupPath, p.enableCPUIdle, err)
+		if err := cgroupcmutils.ApplyCPUWithRelativePaths(existingNUMAPaths, &cgroupcm.CPUData{CpuIdlePtr: &p.config.enableCPUIdle}); err != nil {
+			general.Errorf("ApplyCPUWithRelativePaths in %v (numa %d) with enableCPUIdle: %v failed with error: %v",
+				existingNUMAPaths, numaID, p.config.enableCPUIdle, err)
 		}
 	}
 }
@@ -493,8 +664,8 @@ func (p *DynamicPolicy) syncCPUBurst(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncCPUBurst, err)
 	}()
 
-	cpuBurstManager := cpuburst.GetManager(p.metaServer)
-	err = cpuBurstManager.UpdateCPUBurst(p.conf, p.dynamicConfig)
+	cpuBurstManager := cpuburst.GetManager(p.meta.metaServer)
+	err = cpuBurstManager.UpdateCPUBurst(p.config.conf, p.config.dynamicConfig)
 }
 
 // syncContainerCPUIdle is used to periodically set cpu idle for containers selected by pod annotations.
@@ -512,8 +683,8 @@ func (p *DynamicPolicy) syncContainerCPUIdle(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncContainerCPUIdle, err)
 	}()
 
-	cpuIdleManager := cpuidle.GetManager(p.metaServer)
-	err = cpuIdleManager.UpdateContainerCPUIdle(p.conf)
+	cpuIdleManager := cpuidle.GetManager(p.meta.metaServer)
+	err = cpuIdleManager.UpdateContainerCPUIdle(p.config.conf)
 }
 
 func (p *DynamicPolicy) syncSystemExclusivePool(_ *coreconfig.Configuration,
@@ -536,7 +707,7 @@ func (p *DynamicPolicy) syncSystemExclusivePool(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncSystemExclusivePool, err)
 	}()
 
-	if !p.conf.EnableSystemExclusivePool {
+	if !p.config.conf.EnableSystemExclusivePool {
 		general.Infof("[SystemExclusivePool] disabled")
 		return
 	}
@@ -574,7 +745,7 @@ func (p *DynamicPolicy) listCurrentSystemExclusivePools() map[string]*state.Allo
 }
 
 func (p *DynamicPolicy) getExpectedSystemExclusivePools() map[string]int {
-	dynamicConfig := p.dynamicConfig.GetDynamicConfiguration()
+	dynamicConfig := p.config.dynamicConfig.GetDynamicConfiguration()
 	configuredPools := dynamicConfig.SystemExclusivePool
 
 	expectedPools := make(map[string]int)
@@ -590,7 +761,7 @@ func (p *DynamicPolicy) getExpectedSystemExclusivePools() map[string]int {
 }
 
 func (p *DynamicPolicy) emitSystemExclusivePoolSizes(currentPools map[string]*state.AllocationInfo, expectedPools map[string]int) {
-	if p.emitter == nil {
+	if p.emitter.emitter == nil {
 		return
 	}
 
@@ -604,7 +775,7 @@ func (p *DynamicPolicy) emitSystemExclusivePoolSizes(currentPools map[string]*st
 
 	for _, poolName := range poolNames.List() {
 		poolSize, poolStatus := getSystemExclusivePoolMetricValueAndStatus(currentPools, expectedPools, poolName)
-		_ = p.emitter.StoreInt64(util.MetricNameSystemExclusivePoolSize, poolSize, metrics.MetricTypeNameRaw,
+		_ = p.emitter.emitter.StoreInt64(util.MetricNameSystemExclusivePoolSize, poolSize, metrics.MetricTypeNameRaw,
 			metrics.MetricTag{Key: "pool_name", Val: poolName},
 			metrics.MetricTag{Key: "status", Val: poolStatus})
 	}
@@ -643,7 +814,7 @@ func (p *DynamicPolicy) calculateSystemExclusivePoolChanges(
 	shrinkRatio := defaultSystemExclusivePoolShrinkRatio
 	shrinkMin := defaultSystemExclusivePoolShrinkMin
 	shrinkMax := defaultSystemExclusivePoolShrinkMax
-	dynamicConfig := p.dynamicConfig.GetDynamicConfiguration()
+	dynamicConfig := p.config.dynamicConfig.GetDynamicConfiguration()
 	if dynamicConfig.SystemExclusivePoolShrinkRatio != nil {
 		shrinkRatio = *dynamicConfig.SystemExclusivePoolShrinkRatio
 	}
@@ -710,11 +881,15 @@ func (p *DynamicPolicy) calculateSystemExclusivePoolChanges(
 
 	// only create pool used by pod
 	systemPoolsWithPod := sets.NewString()
-	for _, entry := range p.state.GetPodEntries() {
+	for podUID, entry := range p.state.GetPodEntries() {
 		if entry.IsPoolEntry() {
 			continue
 		}
-		for _, allocationInfo := range entry {
+		for containerName, allocationInfo := range entry {
+			if allocationInfo == nil {
+				general.Warningf("[SystemExclusivePool] pod %s container %s allocation info is nil during pool change calculation, skip it", podUID, containerName)
+				continue
+			}
 			if !allocationInfo.CheckSystem() {
 				continue
 			}
@@ -731,54 +906,83 @@ func (p *DynamicPolicy) calculateSystemExclusivePoolChanges(
 }
 
 func (p *DynamicPolicy) applySystemExclusivePoolChanges(toCreate, toUpdate map[string]int, toDelete sets.String) error {
-	availableCPUs := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.reservedCPUs,
+	revision := p.state.GetRevision()
+	podEntries := p.state.GetPodEntries()
+	machineState := p.state.GetMachineState()
+	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
+	if currentRevision := p.state.GetRevision(); currentRevision != revision {
+		return fmt.Errorf("%w while snapshotting system exclusive pool state: expected=%d actual=%d",
+			state.ErrStaleStateRevision, revision, currentRevision)
+	}
+	candidateState := state.NewTransientState(p.machine.machineInfo.CPUTopology)
+	if err := candidateState.CommitAdvisorState(
+		podEntries, machineState, allowOverlap, disableDedicatedOverlap, false); err != nil {
+		return fmt.Errorf("initialize system exclusive pool candidate state: %w", err)
+	}
+
+	availableCPUs := candidateState.GetMachineState().GetFilteredAvailableCPUSet(p.config.reservedCPUs,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
-	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(p.state.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
+	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(
+		candidateState.GetPodEntries(), state.IsForbiddenPool, commonstate.IsSystemPool)
 	availableCPUs = availableCPUs.Difference(notAllocatablePoolsCPUs)
 
-	availableCPUs, err := p.deleteSystemExclusivePool(toDelete, availableCPUs)
+	availableCPUs, err := p.deleteSystemExclusivePoolFromState(candidateState, toDelete, availableCPUs)
 	if err != nil {
 		return fmt.Errorf("delete system exclusive pool failed with error: %v", err)
 	}
 
-	availableCPUs, err = p.updateSystemExclusivePool(toUpdate, availableCPUs)
+	availableCPUs, err = p.updateSystemExclusivePoolInState(candidateState, toUpdate, availableCPUs)
 	if err != nil {
 		return fmt.Errorf("shrink system exclusive pool failed with error: %v", err)
 	}
 
-	_, err = p.createSystemExclusivePool(toCreate, availableCPUs)
+	_, err = p.createSystemExclusivePoolInState(candidateState, toCreate, availableCPUs)
 	if err != nil {
 		return fmt.Errorf("create system exclusive pool failed with error: %v", err)
 	}
 
-	if err := p.adjustSystemCoresPodAllocation(); err != nil {
+	if err := p.adjustSystemCoresPodAllocationInState(candidateState); err != nil {
 		return fmt.Errorf("adjust system exclusive pool failed with error: %v", err)
 	}
 
-	// update machine state and save
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, p.state.GetPodEntries(), p.state.GetMachineState())
+	candidateEntries := candidateState.GetPodEntries()
+	updatedMachineState, err := generateMachineStateFromPodEntries(
+		p.machine.machineInfo.CPUTopology, candidateEntries, candidateState.GetMachineState())
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed: %v", err)
 	}
-	p.state.SetMachineState(updatedMachineState, false)
-	if err := p.state.StoreState(); err != nil {
-		return fmt.Errorf("store state failed: %v", err)
+	if err := p.state.CommitAdvisorStateIfRevision(
+		revision,
+		candidateEntries,
+		updatedMachineState,
+		allowOverlap,
+		disableDedicatedOverlap,
+		true,
+	); err != nil {
+		return fmt.Errorf("commit system exclusive pool state: %w", err)
 	}
 
 	return nil
 }
 
-func (p *DynamicPolicy) deleteSystemExclusivePool(toDelete sets.String, availableCPUs machine.CPUSet) (machine.CPUSet, error) {
+func (p *DynamicPolicy) deleteSystemExclusivePoolFromState(
+	stateStore state.State,
+	toDelete sets.String,
+	availableCPUs machine.CPUSet,
+) (machine.CPUSet, error) {
 	for _, name := range toDelete.List() {
-		allocationInfo := p.state.GetAllocationInfo(name, commonstate.FakedContainerName)
+		allocationInfo := stateStore.GetAllocationInfo(name, commonstate.FakedContainerName)
 		if allocationInfo == nil {
 			general.Warningf("[SystemExclusivePool] get nil allocationInfo for pool %s, skip.", name)
 			continue
 		}
 
 		general.Infof("[SystemExclusivePool] delete pool %s", name)
-		p.state.Delete(name, commonstate.FakedContainerName, false)
+		if err := stateStore.Delete(name, commonstate.FakedContainerName, false); err != nil {
+			return machine.CPUSet{}, fmt.Errorf("delete system exclusive pool %s state: %w", name, err)
+		}
 		availableCPUs = availableCPUs.Union(allocationInfo.AllocationResult)
 	}
 
@@ -786,6 +990,14 @@ func (p *DynamicPolicy) deleteSystemExclusivePool(toDelete sets.String, availabl
 }
 
 func (p *DynamicPolicy) updateSystemExclusivePool(toShrink map[string]int, availableCPUs machine.CPUSet) (machine.CPUSet, error) {
+	return p.updateSystemExclusivePoolInState(p.state, toShrink, availableCPUs)
+}
+
+func (p *DynamicPolicy) updateSystemExclusivePoolInState(
+	stateStore state.State,
+	toShrink map[string]int,
+	availableCPUs machine.CPUSet,
+) (machine.CPUSet, error) {
 	sortedPool := make([]string, 0, len(toShrink))
 	for poolName := range toShrink {
 		sortedPool = append(sortedPool, poolName)
@@ -795,7 +1007,7 @@ func (p *DynamicPolicy) updateSystemExclusivePool(toShrink map[string]int, avail
 	})
 	for _, name := range sortedPool {
 		delta := toShrink[name]
-		allocationInfo := p.state.GetAllocationInfo(name, commonstate.FakedContainerName)
+		allocationInfo := stateStore.GetAllocationInfo(name, commonstate.FakedContainerName)
 		if allocationInfo == nil {
 			general.Warningf("[SystemExclusivePool] get nil allocationInfo for pool %s, skip.", name)
 			continue
@@ -803,14 +1015,14 @@ func (p *DynamicPolicy) updateSystemExclusivePool(toShrink map[string]int, avail
 
 		var allocationResult machine.CPUSet
 		if delta > 0 {
-			deltaCPUs, _, err := calculator.TakeByNUMABalance(p.machineInfo, availableCPUs, delta)
+			deltaCPUs, _, err := calculator.TakeByNUMABalance(p.machine.machineInfo, availableCPUs, delta)
 			if err != nil {
 				return machine.CPUSet{}, fmt.Errorf("take HT by NUMABalace failed for pool %s with error: %v", name, err)
 			}
 			allocationResult = allocationInfo.AllocationResult.Union(deltaCPUs)
 			availableCPUs = availableCPUs.Difference(deltaCPUs)
 		} else {
-			deltaCPUs, _, err := calculator.TakeByNUMABalanceReversely(p.machineInfo, allocationInfo.AllocationResult, -delta)
+			deltaCPUs, _, err := calculator.TakeByNUMABalanceReversely(p.machine.machineInfo, allocationInfo.AllocationResult, -delta)
 			if err != nil {
 				return machine.CPUSet{}, fmt.Errorf("take HT by NUMABalace failed for pool %s with error: %v", name, err)
 			}
@@ -818,7 +1030,7 @@ func (p *DynamicPolicy) updateSystemExclusivePool(toShrink map[string]int, avail
 			availableCPUs = availableCPUs.Union(deltaCPUs)
 		}
 
-		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, allocationResult)
+		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, allocationResult)
 		if err != nil {
 			return machine.CPUSet{}, fmt.Errorf("failed to get numa aware assignments for pool %s: %v", name, err)
 		}
@@ -830,20 +1042,31 @@ func (p *DynamicPolicy) updateSystemExclusivePool(toShrink map[string]int, avail
 		allocationInfo.OriginalAllocationResult = allocationResult
 		allocationInfo.TopologyAwareAssignments = topologyAwareAssignments
 		allocationInfo.OriginalTopologyAwareAssignments = topologyAwareAssignments
-		p.state.SetAllocationInfo(name, commonstate.FakedContainerName, allocationInfo, false)
+		if err := stateStore.SetAllocationInfo(
+			name, commonstate.FakedContainerName, allocationInfo, false); err != nil {
+			return machine.CPUSet{}, fmt.Errorf("update system exclusive pool %s state: %w", name, err)
+		}
 	}
 
 	return availableCPUs, nil
 }
 
 func (p *DynamicPolicy) createSystemExclusivePool(toCreate map[string]int, availableCPUs machine.CPUSet) (machine.CPUSet, error) {
+	return p.createSystemExclusivePoolInState(p.state, toCreate, availableCPUs)
+}
+
+func (p *DynamicPolicy) createSystemExclusivePoolInState(
+	stateStore state.State,
+	toCreate map[string]int,
+	availableCPUs machine.CPUSet,
+) (machine.CPUSet, error) {
 	for name, size := range toCreate {
-		allocationResult, _, err := calculator.TakeByNUMABalance(p.machineInfo, availableCPUs, size)
+		allocationResult, _, err := calculator.TakeByNUMABalance(p.machine.machineInfo, availableCPUs, size)
 		if err != nil {
 			return machine.CPUSet{}, fmt.Errorf("failed to allocate CPUs for system exclusive pool %s: %v", name, err)
 		}
 
-		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, allocationResult)
+		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, allocationResult)
 		if err != nil {
 			return machine.CPUSet{}, fmt.Errorf("failed to get numa aware assignments for system exclusive pool %s: %v", name, err)
 		}
@@ -858,7 +1081,10 @@ func (p *DynamicPolicy) createSystemExclusivePool(toCreate map[string]int, avail
 
 		general.Infof("[SystemExclusivePool] creating pool %s with size %d, cpuset: %s", name, size, allocationResult)
 
-		p.state.SetAllocationInfo(name, commonstate.FakedContainerName, poolAllocationInfo, false)
+		if err := stateStore.SetAllocationInfo(
+			name, commonstate.FakedContainerName, poolAllocationInfo, false); err != nil {
+			return machine.CPUSet{}, fmt.Errorf("create system exclusive pool %s state: %w", name, err)
+		}
 		availableCPUs = availableCPUs.Difference(allocationResult)
 	}
 
@@ -866,18 +1092,26 @@ func (p *DynamicPolicy) createSystemExclusivePool(toCreate map[string]int, avail
 }
 
 func (p *DynamicPolicy) adjustSystemCoresPodAllocation() error {
-	defaultSystemCoresCPUSet := p.machineInfo.CPUDetails.CPUs()
-	defaultSystemCoresTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, defaultSystemCoresCPUSet)
+	return p.adjustSystemCoresPodAllocationInState(p.state)
+}
+
+func (p *DynamicPolicy) adjustSystemCoresPodAllocationInState(stateStore state.State) error {
+	defaultSystemCoresCPUSet := p.machine.machineInfo.CPUDetails.CPUs()
+	defaultSystemCoresTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machine.machineInfo.CPUTopology, defaultSystemCoresCPUSet)
 	if err != nil {
 		return fmt.Errorf("failed to get numa aware assignments for default system cores: %v", err)
 	}
 
-	for podUID, entry := range p.state.GetPodEntries() {
+	for podUID, entry := range stateStore.GetPodEntries() {
 		if entry.IsPoolEntry() {
 			continue
 		}
 
 		for containerName, allocationInfo := range entry {
+			if allocationInfo == nil {
+				general.Warningf("[SystemExclusivePool] pod %s container %s allocation info is nil during system cores pod adjustment, skip it", podUID, containerName)
+				continue
+			}
 			if !allocationInfo.CheckSystem() {
 				continue
 			}
@@ -887,7 +1121,7 @@ func (p *DynamicPolicy) adjustSystemCoresPodAllocation() error {
 				continue
 			}
 
-			poolAllocationInfo := p.state.GetAllocationInfo(poolName, commonstate.FakedContainerName)
+			poolAllocationInfo := stateStore.GetAllocationInfo(poolName, commonstate.FakedContainerName)
 			if poolAllocationInfo == nil {
 				// pool not found, use default system cores
 				if !allocationInfo.AllocationResult.Equals(defaultSystemCoresCPUSet) {
@@ -898,7 +1132,9 @@ func (p *DynamicPolicy) adjustSystemCoresPodAllocation() error {
 					allocationInfo.OriginalAllocationResult = defaultSystemCoresCPUSet
 					allocationInfo.TopologyAwareAssignments = defaultSystemCoresTopologyAwareAssignments
 					allocationInfo.OriginalTopologyAwareAssignments = defaultSystemCoresTopologyAwareAssignments
-					p.state.SetAllocationInfo(podUID, containerName, allocationInfo, false)
+					if err := stateStore.SetAllocationInfo(podUID, containerName, allocationInfo, false); err != nil {
+						return fmt.Errorf("reset system pod %s/%s allocation: %w", podUID, containerName, err)
+					}
 				}
 				continue
 			}
@@ -914,7 +1150,9 @@ func (p *DynamicPolicy) adjustSystemCoresPodAllocation() error {
 			allocationInfo.OriginalAllocationResult = poolAllocationInfo.OriginalAllocationResult.Clone()
 			allocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolAllocationInfo.TopologyAwareAssignments)
 			allocationInfo.OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolAllocationInfo.OriginalTopologyAwareAssignments)
-			p.state.SetAllocationInfo(podUID, containerName, allocationInfo, false)
+			if err := stateStore.SetAllocationInfo(podUID, containerName, allocationInfo, false); err != nil {
+				return fmt.Errorf("update system pod %s/%s allocation: %w", podUID, containerName, err)
+			}
 		}
 	}
 
@@ -939,6 +1177,6 @@ func (p *DynamicPolicy) syncCPUWeight(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncCPUWeight, err)
 	}()
 
-	cpuWeightManager := cpuweight.GetManager(p.metaServer, p.emitter)
-	err = cpuWeightManager.UpdateCPUWeight(p.dynamicConfig)
+	cpuWeightManager := cpuweight.GetManager(p.meta.metaServer, p.emitter.emitter)
+	err = cpuWeightManager.UpdateCPUWeight(p.config.dynamicConfig)
 }
