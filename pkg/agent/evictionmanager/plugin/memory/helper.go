@@ -54,12 +54,24 @@ const (
 	metricsNameThresholdMet       = "threshold_met_count"
 	metricsNameNumaMetric         = "numa_metric_raw"
 	metricsNameSystemMetric       = "system_metric_raw"
+	// metricsNameReclaimedMemorySafeZoneGateDecision is the dedicated, bounded
+	// metric for the reclaimed-memory NUMA safe-zone gate. It records every gate
+	// decision (skip vs. fall back to regular eviction) including its own fetch /
+	// QoS failures, so gate errors are NOT routed to the shared generic
+	// fetch_metric_error_count. gate_state, gate_decision and gate_reason are
+	// drawn from fixed small sets to keep tag cardinality low. The metric only
+	// describes the safe-zone gate's own decision; it never means the whole
+	// eviction is suppressed.
+	metricsNameReclaimedMemorySafeZoneGateDecision = "reclaimed_memory_safe_zone_gate_decision_count"
 
 	metricsTagKeyEvictionScope  = "eviction_scope"
 	metricsTagKeyDetectionLevel = "detection_level"
 	metricsTagKeyNumaID         = "numa_id"
 	metricsTagKeyAction         = "action"
 	metricsTagKeyMetricName     = "metric_name"
+	metricsTagKeyGateState      = "gate_state"
+	metricsTagKeyGateDecision   = "gate_decision"
+	metricsTagKeyGateReason     = "gate_reason"
 
 	metricsTagValueDetectionLevelNuma             = "numa"
 	metricsTagValueDetectionLevelSystem           = "system"
@@ -68,6 +80,17 @@ const (
 	metricsTagValueNumaFreeBelowWatermarkTimes    = "numa_free_below_watermark_times"
 	metricsTagValueSystemKswapdDiff               = "system_kswapd_diff"
 	metricsTagValueSystemKswapdRateExceedDuration = "system_kswapd_rate_exceed_duration"
+
+	// Fixed low-cardinality safe-zone gate states, derived from the
+	// (EnableReclaimedMemorySafeZoneGate bool, ReclaimedMemoryUsageRatioThreshold)
+	// state machine rather than from raw config strings.
+	metricsTagValueGateStateClosed     = "closed"
+	metricsTagValueGateStateAutoShadow = "auto_shadow"
+	metricsTagValueGateStateEnabled    = "enabled"
+
+	// Fixed low-cardinality safe-zone gate decisions.
+	metricsTagValueGateDecisionSkip  = "skip"
+	metricsTagValueGateDecisionEvict = "evict"
 )
 
 const (
