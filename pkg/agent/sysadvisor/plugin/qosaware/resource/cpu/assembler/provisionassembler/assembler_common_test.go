@@ -4227,6 +4227,18 @@ func nonExclusiveTestMetaServer(numaAvailable map[int]int, cpusPerCore int) *met
 	return newTestMetaServer(numaAvailable, cpusPerCore)
 }
 
+func TestAssembleWithoutNUMAExclusivePool_SteadyBaselineJointTargets(t *testing.T) {
+	t.Parallel()
+	res, err := runOrdinaryOverlapAssemblerCase(t, ordinaryOverlapAssemblerCase{
+		capacity: 24, reserved: 2, disableDedicatedOverlap: true,
+		dedicatedRequest: 21, dedicatedRequirement: 24, cpusPerCore: 2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, res.PoolEntries[commonstate.PoolNameReclaim][0].Size)
+	require.Equal(t, 22, res.PoolEntries["dedicated-pod"][0].Size)
+	require.Equal(t, 24, res.PoolEntries[commonstate.PoolNameReclaim][0].Size+res.PoolEntries["dedicated-pod"][0].Size)
+}
+
 // TestAssembleWithoutNUMAExclusivePool_NormalizesOddReclaimWithDedicatedHeadroom
 // is the call-chain proof for the real-NUMA non-exclusive path: under the three
 // hard-partition gates on SMT2, odd non-overlap reclaim is rounded to a whole-core

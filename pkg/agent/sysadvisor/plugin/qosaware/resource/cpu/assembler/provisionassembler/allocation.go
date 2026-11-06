@@ -93,15 +93,46 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	}
 
 	// While ramp-up hard partition is active, publish the canonical target even
-	// when this NUMA has no workload region.
+	// when this NUMA has no workload region. This branch used to emit the raw
+	// RampUpReclaimCPUSetCap verbatim, bypassing both ApplyReclaimConstraint (so a
+	// rate-limited per-scope ceiling was ignored and the pool published above the
+	// ceiling) and RecordReclaimConstraintTarget (so the guard commit saw no
+	// descriptive contract for the scope and could neither ACK nor drain it next
+	// round). Route the canonical publish through the same single quantity
+	// boundary as the populated path: clamp to the optional ceiling, then record
+	// the Desired/Floor/SteadyCap/Ceiling/MemberNUMAs contract the guard consumes.
 	if len(shareRegions) == 0 && len(isolationRegions) == 0 && len(dedicatedRegions) == 0 && numaID != commonstate.FakedNUMAID {
 		if effectiveHard {
-			result.SetPoolEntry(
-				commonstate.PoolNameReclaim,
-				numaID,
-				getNUMAsResource(ctx.RampUpReclaimCPUSetCap, numaSet),
+			constraintScope := NewNonExclusiveReclaimConstraintScope(numaID)
+			reservedForReclaim := pa.effectiveReservedForReclaim(ctx, numaSet)
+			rawSize := getNUMAsResource(ctx.RampUpReclaimCPUSetCap, numaSet)
+			domainTarget := ctx.ReclaimDomainTargets[constraintScope]
+			desiredReclaimed := domainTarget.Desired
+			if desiredReclaimed == 0 {
+				desiredReclaimed = rawSize
+			}
+			memberNUMAs := numaSet.ToSliceInt()
+			if domainTarget.MemberNUMAs != nil {
+				memberNUMAs = domainTarget.MemberNUMAs
+			}
+			size, _, constraintExcess := ApplyReclaimConstraint(
+				constraintScope,
+				rawSize,
 				-1,
+				reservedForReclaim,
+				ctx.ReclaimConstraint,
+				ctx.ReclaimCeilings,
+				ctx.ReclaimActiveScopes,
 			)
+			RecordReclaimConstraintTarget(result, ctx.ReclaimConstraint,
+				constraintScope, types.ReclaimConstraintTarget{
+					Desired:     desiredReclaimed,
+					Floor:       reservedForReclaim,
+					SteadyCap:   rawSize,
+					Ceiling:     ctx.ReclaimCeilings[constraintScope],
+					MemberNUMAs: memberNUMAs,
+				}, constraintExcess)
+			result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, size, -1)
 		}
 		return nil
 	}
@@ -552,23 +583,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	// joint normalization below, so logging them now would reproduce the stale-snapshot
 	// / "log prints 8, pool lands 4" observation split. The terminal log after the
 	// quantity decision is the only authoritative record.
-	// Jointly align the non-overlap reclaim target to a whole-core value before
-	// publication. Real NUMA scopes keep the original gate (three hard-partition
-	// conditions). The global FakeNUMA scope is normalized whenever the dedicated
-	// overlap gate is closed, in BOTH steady and hard mode: QRM materializes that
-	// aggregate through a whole-core quota planner (steady
-	// expandSteadyFakeNUMAReclaimPhase / hard expandHardPartitionReclaimPhase) that
-	// rejects any odd residual, so an odd global quantity always fails Allocate.
-	// The adjustment keeps the controlled partition size-conserved: released CPUs
-	// go to the single dedicated pool when one exists, otherwise to the single
-	// unpinned share pool (FakeNUMA only). Ambiguous recipients pass through.
+	// Real and fake scopes both enter QRM's whole-core solver in steady mode.
+	// Reuse the joint adjustment after all clamps, never reopen a ceiling.
 	cpusPerCore := 0
 	if pa.metaServer != nil && pa.metaServer.CPUTopology != nil {
 		cpusPerCore = pa.metaServer.CPUTopology.CPUsPerCore()
 	}
 	globalScope := numaID == commonstate.FakedNUMAID
 	jointGate := cpusPerCore > 0 && ctx.DisableDedicatedCoresOverlapReclaimedCores &&
-		(globalScope || (nodeEnableReclaim && effectiveHard))
+		(globalScope || nodeEnableReclaim)
 	if jointGate {
 		joint := jointlyNormalizeNonExclusiveTargets(nonExclusiveJointInput{
 			CPUsPerCore:        cpusPerCore,
@@ -691,7 +714,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	general.InfoS("assemble reclaim pool entry",
 		"numaID", numaID,
 		"desired", desiredReclaimed,
-		"effectiveTarget", reclaimedCoresSize,
+		"effectiveTarget", publishedEffectiveTarget,
 		"ceiling", ceiling,
 		"floor", reservedForReclaim,
 		"overlapReclaimedCoresSize", overlapReclaimedCoresSize,
