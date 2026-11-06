@@ -20,13 +20,23 @@ limitations under the License.
 package common
 
 import (
+	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+// cgroupMountTestMu serializes tests that override the process-global
+// CgroupFSMountPoint so they cannot race with tests that assert on the real
+// /sys/fs/cgroup mount root.
+var cgroupMountTestMu sync.Mutex
+
 func TestAbsCgroupPathWithSuffix(t *testing.T) {
 	t.Parallel()
+
+	cgroupMountTestMu.Lock()
+	defer cgroupMountTestMu.Unlock()
 
 	as := require.New(t)
 	path := GetAbsCgroupPath("cpuset", "abc")
@@ -42,7 +52,15 @@ func TestGetAbsCgroupPath(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
-	_, err := GetKubernetesAnyExistAbsCgroupPath("cpuset", "")
+	// Probe with a stat that reports every candidate absent. This exercises the
+	// all-candidates-missing error path without overriding the process-global
+	// CgroupFSMountPoint, so the test is safe to run concurrently with the other
+	// path tests that read the real mount root.
+	_, err := getKubernetesAnyExistAbsCgroupPath(
+		func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+		[]string{"kubepods"},
+		"cpuset", "",
+	)
 	as.NotNil(err)
 }
 
@@ -68,6 +86,94 @@ func TestGetContainerAbsCgroupPath(t *testing.T) {
 	as := require.New(t)
 	_, err := GetContainerAbsCgroupPath("cpuset", "", "")
 	as.NotNil(err)
+}
+
+func TestGetContainerAbsCgroupPathSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []AbsoluteCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+		{
+			Name: "success",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "/sys/fs/cgroup/cpu/pod/container", false, nil
+			},
+		},
+	}
+
+	cgroupPath, err := resolveContainerAbsCgroupPath(handlers, "cpu", "pod", "container")
+	as.NoError(err)
+	as.Equal("/sys/fs/cgroup/cpu/pod/container", cgroupPath)
+}
+
+func TestGetContainerAbsCgroupPathReturnsErrorIfAllHandlersSkip(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []AbsoluteCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(subsys, podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+	}
+
+	_, err := resolveContainerAbsCgroupPath(handlers, "cpu", "pod", "container")
+	as.Error(err)
+	as.Contains(err.Error(), "all absolute cgroup path handlers skipped")
+}
+
+func TestGetContainerRelativeCgroupPathSkipsHandlers(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []RelativeCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+		{
+			Name: "success",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "/kubepods/pod/container", false, nil
+			},
+		},
+	}
+
+	cgroupPath, err := resolveContainerRelativeCgroupPath(handlers, "pod", "container")
+	as.NoError(err)
+	as.Equal("/kubepods/pod/container", cgroupPath)
+}
+
+func TestGetContainerRelativeCgroupPathReturnsErrorIfAllHandlersSkip(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	handlers := []RelativeCgroupPathHandler{
+		{
+			Name: "skip",
+			Handler: func(podUID, containerId string) (string, bool, error) {
+				return "", true, nil
+			},
+		},
+	}
+
+	_, err := resolveContainerRelativeCgroupPath(handlers, "pod", "container")
+	as.Error(err)
+	as.Contains(err.Error(), "all relative cgroup path handlers skipped")
 }
 
 func TestIsContainerCgroupExist(t *testing.T) {

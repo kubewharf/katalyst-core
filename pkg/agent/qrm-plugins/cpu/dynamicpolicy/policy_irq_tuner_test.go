@@ -45,12 +45,64 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-var irqTunerTestMutex = advisorTestMutex
-
 type dummyIRQTuner struct{}
 
 func (t *dummyIRQTuner) Run(_ <-chan struct{}) {}
 func (t *dummyIRQTuner) Stop()                 {}
+
+type irqStateMutationRecorder struct {
+	state.State
+
+	mu                   sync.Mutex
+	setPodEntriesCalls   int
+	setMachineStateCalls int
+	commitCalls          int
+	commitPersist        bool
+	afterSnapshot        func()
+}
+
+func (s *irqStateMutationRecorder) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	entries, machineState, revision := s.State.GetAdvisorStateSnapshot()
+	if s.afterSnapshot != nil {
+		s.afterSnapshot()
+	}
+	return entries, machineState, revision
+}
+
+func (s *irqStateMutationRecorder) SetPodEntries(entries state.PodEntries, persist bool) error {
+	s.mu.Lock()
+	s.setPodEntriesCalls++
+	s.mu.Unlock()
+	return s.State.SetPodEntries(entries, persist)
+}
+
+func (s *irqStateMutationRecorder) SetMachineState(machineState state.NUMANodeMap, persist bool) error {
+	s.mu.Lock()
+	s.setMachineStateCalls++
+	s.mu.Unlock()
+	return s.State.SetMachineState(machineState, persist)
+}
+
+func (s *irqStateMutationRecorder) CommitAdvisorStateIfRevision(
+	expectedRevision uint64,
+	entries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowOverlap, disableDedicatedOverlap, persist bool,
+	permits ...*state.WritePermit,
+) error {
+	s.mu.Lock()
+	s.commitCalls++
+	s.commitPersist = persist
+	s.mu.Unlock()
+	return s.State.CommitAdvisorStateIfRevision(
+		expectedRevision, entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+}
+
+func (s *irqStateMutationRecorder) mutationCalls() (int, int, int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.setPodEntriesCalls, s.setMachineStateCalls, s.commitCalls, s.commitPersist
+}
 
 func newTestDynamicPolicy(t *testing.T, name string) *DynamicPolicy {
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -65,23 +117,20 @@ func newTestDynamicPolicy(t *testing.T, name string) *DynamicPolicy {
 	return policyImpl
 }
 
-var registerRelativeCgroupPathHandlerOnce sync.Once
-
-func registerRelativeCgroupPathHandler(podUID string) {
-	registerRelativeCgroupPathHandlerOnce.Do(func() {
-		cgroupcommon.RegisterRelativeCgroupPathHandler(cgroupcommon.RelativeCgroupPathHandler{
-			Name: "unit_test",
-			Handler: func(pUID, containerID string) (string, error) {
-				if pUID != podUID {
-					return "", fmt.Errorf("pod uid mismatch")
-				}
-				if containerID != "cid0" && containerID != "cid1" {
-					return "", fmt.Errorf("container id mismatch")
-				}
-				return fmt.Sprintf("/unit-test/%s/%s", pUID, containerID), nil
-			},
-		})
-	})
+func registerRelativeCgroupPathHandler(t *testing.T, podUID string) {
+	t.Helper()
+	t.Cleanup(cgroupcommon.RegisterRelativeCgroupPathHandlerWithUnregister(cgroupcommon.RelativeCgroupPathHandler{
+		Name: "unit_test",
+		Handler: func(pUID, containerID string) (string, bool, error) {
+			if pUID != podUID {
+				return "", true, nil
+			}
+			if containerID != "cid0" && containerID != "cid1" {
+				return "", false, fmt.Errorf("container id mismatch")
+			}
+			return fmt.Sprintf("/unit-test/%s/%s", pUID, containerID), false, nil
+		},
+	}))
 }
 
 func TestDynamicPolicy_SetIRQTuner(t *testing.T) {
@@ -103,7 +152,7 @@ func TestDynamicPolicy_getPodContainerInfos(t *testing.T) {
 	policyImpl := newTestDynamicPolicy(t, "get-pod-container-infos")
 
 	podUID := "test-pod-uid"
-	registerRelativeCgroupPathHandler(podUID)
+	registerRelativeCgroupPathHandler(t, podUID)
 
 	runtimeClassName := "kata"
 	startedAt := metav1.NewTime(time.Now())
@@ -143,7 +192,7 @@ func TestDynamicPolicy_getPodContainerInfos(t *testing.T) {
 		},
 	}
 
-	policyImpl.metaServer.MetaAgent.PodFetcher = &podagent.PodFetcherStub{PodList: []*v1.Pod{pod}}
+	policyImpl.meta.metaServer.MetaAgent.PodFetcher = &podagent.PodFetcherStub{PodList: []*v1.Pod{pod}}
 
 	allocationInfo0 := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
@@ -185,9 +234,6 @@ func TestDynamicPolicy_getPodContainerInfos(t *testing.T) {
 		"c3": nil,
 	}
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-
 	cis, err := policyImpl.getPodContainerInfos(podUID, entry)
 	as.NoError(err)
 	as.Len(cis, 1)
@@ -212,7 +258,7 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 	policyImpl := newTestDynamicPolicy(t, "list-containers")
 
 	podUID := "test-pod-uid"
-	registerRelativeCgroupPathHandler(podUID)
+	registerRelativeCgroupPathHandler(t, podUID)
 
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -234,7 +280,7 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 		},
 	}
 
-	policyImpl.metaServer.MetaAgent.PodFetcher = &podagent.PodFetcherStub{PodList: []*v1.Pod{pod}}
+	policyImpl.meta.metaServer.MetaAgent.PodFetcher = &podagent.PodFetcherStub{PodList: []*v1.Pod{pod}}
 
 	podEntries := state.PodEntries{
 		podUID: {
@@ -266,8 +312,6 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 
 func TestDynamicPolicy_GetIRQForbiddenCores(t *testing.T) {
 	t.Parallel()
-	irqTunerTestMutex.Lock()
-	defer irqTunerTestMutex.Unlock()
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetIRQForbiddenCores")
 	require.NoError(t, err)
@@ -280,7 +324,7 @@ func TestDynamicPolicy_GetIRQForbiddenCores(t *testing.T) {
 	require.NoError(t, err)
 
 	// Mock reserved CPUs
-	policy.reservedCPUs = machine.NewCPUSet(0, 1)
+	policy.config.reservedCPUs = machine.NewCPUSet(0, 1)
 
 	// Prepare resource packages in NPD
 	npdFetcher := &npd.DummyNPDFetcher{
@@ -359,7 +403,7 @@ func TestDynamicPolicy_GetIRQForbiddenCores(t *testing.T) {
 	// Configure attribute selector
 	selector, err := labels.Parse("type=forbidden")
 	require.NoError(t, err)
-	policy.conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
+	policy.config.conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
 
 	// Run the test
 	forbiddenCores, err := policy.GetIRQForbiddenCores()
@@ -402,7 +446,7 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 		as := require.New(t)
 		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-1")
 
-		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.reservedCPUs)
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
 		maxExpandableSize := int(math.Ceil(float64(available.Size()) * irqutil.DefaultIRQExclusiveMaxExpansionRate))
 		as.Greater(maxExpandableSize, 0)
 
@@ -417,7 +461,7 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 		as := require.New(t)
 		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-2")
 
-		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.reservedCPUs)
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
 		maxExpandableSize := int(math.Ceil(float64(available.Size()) * irqutil.DefaultIRQExclusiveMaxExpansionRate))
 		maxStepExpandableSize := policyImpl.GetStepExpandableCPUsMax()
 		as.Greater(maxExpandableSize, maxStepExpandableSize+1)
@@ -434,10 +478,10 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-3")
 
 		reservedCPU := []int{2, 4}
-		policyImpl.reservedCPUs = machine.NewCPUSet(reservedCPU...)
+		policyImpl.config.reservedCPUs = machine.NewCPUSet(reservedCPU...)
 		forbidden, err := policyImpl.GetIRQForbiddenCores()
 		as.NoError(err)
-		as.True(forbidden.Equals(policyImpl.reservedCPUs))
+		as.True(forbidden.Equals(policyImpl.config.reservedCPUs))
 
 		irqCPUSet := machine.NewCPUSet(forbidden.ToSliceInt()[0])
 		err = policyImpl.SetExclusiveIRQCPUSet(irqCPUSet)
@@ -468,7 +512,7 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 		as := require.New(t)
 		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-4")
 
-		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.reservedCPUs)
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
 		as.Greater(available.Size(), 0)
 
 		irqCPUSet := machine.NewCPUSet(available.ToSliceInt()[0])
@@ -483,4 +527,270 @@ func TestDynamicPolicy_SetExclusiveIRQCPUSet(t *testing.T) {
 		as.NotNil(podEntries[commonstate.PoolNameInterrupt][commonstate.FakedContainerName])
 		as.True(podEntries[commonstate.PoolNameInterrupt][commonstate.FakedContainerName].AllocationResult.Equals(irqCPUSet))
 	})
+
+	t.Run("waits for policy lock", func(t *testing.T) {
+		t.Parallel()
+
+		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-policy-lock")
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
+		irqCPUSet := machine.NewCPUSet(available.ToSliceInt()[0])
+
+		policyImpl.Lock()
+		started := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			close(started)
+			done <- policyImpl.SetExclusiveIRQCPUSet(irqCPUSet)
+		}()
+		<-started
+
+		select {
+		case err := <-done:
+			policyImpl.Unlock()
+			t.Fatalf("SetExclusiveIRQCPUSet completed while policy lock was held: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		policyImpl.Unlock()
+		require.NoError(t, <-done)
+	})
+
+	t.Run("waits for cpuset adjustment execution lease", func(t *testing.T) {
+		t.Parallel()
+
+		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-execution-lease")
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
+		irqCPUSet := machine.NewCPUSet(available.ToSliceInt()[0])
+		policyImpl.adjustment.cpuSetAdjustmentExecution = make(chan struct{}, 1)
+		policyImpl.adjustment.cpuSetAdjustmentExecution <- struct{}{}
+
+		started := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			close(started)
+			done <- policyImpl.SetExclusiveIRQCPUSet(irqCPUSet)
+		}()
+		<-started
+
+		select {
+		case err := <-done:
+			<-policyImpl.adjustment.cpuSetAdjustmentExecution
+			t.Fatalf("SetExclusiveIRQCPUSet completed while execution lease was held: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		<-policyImpl.adjustment.cpuSetAdjustmentExecution
+		require.NoError(t, <-done)
+	})
+
+	t.Run("commits irq and machine state atomically", func(t *testing.T) {
+		t.Parallel()
+
+		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-atomic")
+		recorder := &irqStateMutationRecorder{State: policyImpl.state}
+		policyImpl.state = recorder
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
+		irqCPUSet := machine.NewCPUSet(available.ToSliceInt()[0])
+
+		require.NoError(t, policyImpl.SetExclusiveIRQCPUSet(irqCPUSet))
+		setEntries, setMachine, commits, persisted := recorder.mutationCalls()
+		require.Zero(t, setEntries, "must not persist pod entries separately")
+		require.Zero(t, setMachine, "must not persist machine state separately")
+		require.Equal(t, 1, commits, "must commit the candidate exactly once")
+		require.True(t, persisted, "the atomic commit must persist the complete candidate")
+	})
+
+	t.Run("rejects a stale snapshot without dropping the concurrent update", func(t *testing.T) {
+		t.Parallel()
+
+		policyImpl := newTestDynamicPolicy(t, "set-exclusive-irq-cpuset-stale")
+		recorder := &irqStateMutationRecorder{State: policyImpl.state}
+		recorder.afterSnapshot = func() {
+			require.NoError(t, recorder.State.SetAllocationInfo("concurrent-pod", "main", &state.AllocationInfo{
+				AllocationResult: machine.NewCPUSet(15),
+			}, true))
+		}
+		policyImpl.state = recorder
+		available := policyImpl.state.GetMachineState().GetAvailableCPUSet(policyImpl.config.reservedCPUs)
+		irqCPUSet := machine.NewCPUSet(available.ToSliceInt()[0])
+
+		err := policyImpl.SetExclusiveIRQCPUSet(irqCPUSet)
+		require.ErrorIs(t, err, state.ErrStaleStateRevision)
+		require.NotNil(t, policyImpl.state.GetAllocationInfo("concurrent-pod", "main"))
+		require.Nil(t, policyImpl.state.GetAllocationInfo(
+			commonstate.PoolNameInterrupt, commonstate.FakedContainerName))
+	})
+}
+
+// setupPolicyForBindReclaimTest builds a DynamicPolicy fixture for the BindIRQToReclaimedPool tests.
+// It seeds reservedCPUs (0,1), a system pool (4,5) and optionally a reclaimed pool.
+func setupPolicyForBindReclaimTest(t *testing.T, _ string, reclaimCPUs *machine.CPUSet) *DynamicPolicy {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+
+	policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	policy.config.reservedCPUs = machine.NewCPUSet(0, 1)
+
+	systemPoolName := commonstate.GetSystemPoolName("latency")
+	systemPoolCPUSet := machine.NewCPUSet(4, 5)
+	policy.state.SetAllocationInfo(systemPoolName, commonstate.FakedContainerName, &state.AllocationInfo{
+		AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(systemPoolName),
+		AllocationResult:         systemPoolCPUSet,
+		OriginalAllocationResult: systemPoolCPUSet,
+	}, true)
+
+	if reclaimCPUs != nil {
+		policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:         reclaimCPUs.Clone(),
+			OriginalAllocationResult: reclaimCPUs.Clone(),
+		}, true)
+	}
+
+	return policy
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_Enabled(t *testing.T) {
+	t.Parallel()
+
+	reclaim := machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-enabled", &reclaim)
+
+	dyn := policy.config.dynamicConfig.GetDynamicConfiguration()
+	require.NotNil(t, dyn)
+	require.NotNil(t, dyn.CPUPluginConfiguration)
+	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = true
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// machine (0..15) - reclaim (6..15) = 0..5; unioned with reserved (0,1) and system (4,5) = 0..5
+	expected := machine.NewCPUSet(0, 1, 2, 3, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+	assert.True(t, reclaim.Intersection(forbidden).IsEmpty(), "reclaim %v should not overlap forbidden %v", reclaim, forbidden)
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_EmptyReclaim(t *testing.T) {
+	t.Parallel()
+
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-empty", nil)
+
+	dyn := policy.config.dynamicConfig.GetDynamicConfiguration()
+	require.NotNil(t, dyn)
+	require.NotNil(t, dyn.CPUPluginConfiguration)
+	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = true
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.Error(t, err, "exclusion enabled with an empty reclaimed pool must surface an explicit error")
+	assert.True(t, forbidden.IsEmpty(), "no forbidden cores may be reported when the exclusion cannot be applied")
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_Disabled(t *testing.T) {
+	t.Parallel()
+
+	reclaim := machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-disabled", &reclaim)
+
+	dyn := policy.config.dynamicConfig.GetDynamicConfiguration()
+	require.NotNil(t, dyn)
+	require.NotNil(t, dyn.CPUPluginConfiguration)
+	dyn.CPUPluginConfiguration.BindIRQToReclaimedPool = false
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// knob off -> reclaim ignored: reserved (0,1) ∪ system (4,5)
+	expected := machine.NewCPUSet(0, 1, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+func TestDynamicPolicy_GetIRQForbiddenCores_BindReclaimedPool_NilDynamicConfig(t *testing.T) {
+	t.Parallel()
+
+	reclaim := machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+	policy := setupPolicyForBindReclaimTest(t, "bind-reclaim-nil-dyn", &reclaim)
+	policy.config.dynamicConfig = nil
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	// nil dynamicConfig -> fall back: reserved (0,1) ∪ system (4,5)
+	expected := machine.NewCPUSet(0, 1, 4, 5)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+// setupIRQBindPolicy builds a DynamicPolicy with an explicit reserved/system/reclaim
+// layout on a 16-CPU SMT topology (CPU k and k+8 share CoreID k).
+func setupIRQBindPolicy(t *testing.T, reserved, system, reclaim machine.CPUSet) *DynamicPolicy {
+	t.Helper()
+	tmpDir := t.TempDir()
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	require.NoError(t, err)
+	policy, err := getTestDynamicPolicyWithoutInitialization(cpuTopology, tmpDir)
+	require.NoError(t, err)
+
+	policy.config.reservedCPUs = reserved.Clone()
+	if !system.IsEmpty() {
+		systemPoolName := commonstate.GetSystemPoolName("latency")
+		require.NoError(t, policy.state.SetAllocationInfo(systemPoolName, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(systemPoolName),
+			AllocationResult:         system.Clone(),
+			OriginalAllocationResult: system.Clone(),
+		}, true))
+	}
+	if !reclaim.IsEmpty() {
+		require.NoError(t, policy.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, &state.AllocationInfo{
+			AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+			AllocationResult:         reclaim.Clone(),
+			OriginalAllocationResult: reclaim.Clone(),
+		}, true))
+	}
+	require.NotNil(t, policy.config.dynamicConfig.GetDynamicConfiguration().CPUPluginConfiguration)
+	policy.config.dynamicConfig.GetDynamicConfiguration().CPUPluginConfiguration.BindIRQToReclaimedPool = true
+	return policy
+}
+
+func TestGetIRQForbiddenCores_SMTIncludesLogicalSiblings(t *testing.T) {
+	t.Parallel()
+	// On the SMT topology CPU 4 and CPU 12 share CoreID 4; CPU 5 and CPU 13
+	// share CoreID 5. reclaim = {4,5,12,13}. The forbidden set must include
+	// every logical CPU outside reclaim, including SMT siblings 8-11 and 14-15
+	// whose CoreIDs are not in the reclaim range. Using CoreIDs (Cores())
+	// instead of logical CPU IDs would drop those siblings.
+	policy := setupIRQBindPolicy(t,
+		machine.NewCPUSet(0, 1),
+		machine.NewCPUSet(2, 3),
+		machine.NewCPUSet(4, 5, 12, 13),
+	)
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	expected := machine.NewCPUSet(0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 14, 15)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+}
+
+func TestGetIRQForbiddenCores_UnionKeepsReservedInsideReclaim(t *testing.T) {
+	t.Parallel()
+	// reserved CPU 6 also belongs to the reclaim pool {6..15}. It must remain
+	// forbidden: the base forbidden set (reserved ∪ system) is preserved and
+	// unioned with the non-reclaim CPUs, rather than replaced by
+	// allCPUs-minus-reclaim which would drop CPU 6.
+	policy := setupIRQBindPolicy(t,
+		machine.NewCPUSet(6),
+		machine.NewCPUSet(4, 5),
+		machine.NewCPUSet(6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
+	)
+
+	forbidden, err := policy.GetIRQForbiddenCores()
+	require.NoError(t, err)
+
+	expected := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6)
+	assert.True(t, expected.Equals(forbidden), "expected %v, got %v", expected, forbidden)
+	assert.True(t, forbidden.Contains(6), "reserved CPU 6 inside reclaim must stay forbidden, got %v", forbidden)
 }

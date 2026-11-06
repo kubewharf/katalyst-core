@@ -16,11 +16,18 @@ limitations under the License.
 
 package qrm
 
-import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+)
 
 type QRMPluginConfiguration struct {
 	*CPUPluginConfiguration
 	*MemoryPluginConfiguration
+	RDTConfig DynamicRDTConfiguration
+}
+
+type DynamicRDTConfiguration struct {
+	DisableRDT bool
 }
 
 func NewQRMPluginConfiguration() *QRMPluginConfiguration {
@@ -33,4 +40,9 @@ func NewQRMPluginConfiguration() *QRMPluginConfiguration {
 func (c *QRMPluginConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.CPUPluginConfiguration.ApplyConfiguration(conf)
 	c.MemoryPluginConfiguration.ApplyConfiguration(conf)
+	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
+		aqc.Spec.Config.QRMPluginConfig != nil && aqc.Spec.Config.QRMPluginConfig.RDTConfig != nil &&
+		aqc.Spec.Config.QRMPluginConfig.RDTConfig.DisableRDT != nil {
+		c.RDTConfig.DisableRDT = *aqc.Spec.Config.QRMPluginConfig.RDTConfig.DisableRDT
+	}
 }

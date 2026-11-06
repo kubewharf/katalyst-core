@@ -18,6 +18,8 @@ package resource
 
 import (
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
@@ -27,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type cpuHeadroomManagerImpl struct {
@@ -47,6 +50,7 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver
 		generateReclaimCPUOptionsFunc(conf.DynamicAgentConfiguration),
 		metaServer,
 		metaCache,
+		WithNUMAResultApportioner(newCPUNUMAResultApportioner(metaServer)),
 	)
 
 	cm := &cpuHeadroomManagerImpl{
@@ -54,6 +58,41 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver
 	}
 
 	return cm, nil
+}
+
+func newCPUNUMAResultApportioner(metaServer *metaserver.MetaServer) NUMAResultApportioner {
+	return func(target resource.Quantity, current map[int]resource.Quantity) (
+		resource.Quantity, map[int]resource.Quantity, error,
+	) {
+		weights := make(map[int]int64, len(current))
+		limits := make(map[int]int64, len(current))
+		for numaID, quantity := range current {
+			value := quantity.MilliValue() / 1000
+			weights[numaID] = value
+			limits[numaID] = value
+		}
+
+		// distribute per single logical CPU (quantum=1): reclaim headroom is a
+		// capacity hint and must not be rounded down to a whole-core multiple,
+		// otherwise the sub-core remainder is silently lost on every report.
+		allocations, effective, err := machine.ApportionNUMACPU(
+			target.MilliValue()/1000,
+			weights,
+			limits,
+			1,
+		)
+		if err != nil {
+			return resource.Quantity{}, nil, err
+		}
+		klog.V(4).Infof("apportion cpu numa result: requested=%d, weights=%v, limits=%v, allocations=%v, effective=%d",
+			target.MilliValue()/1000, weights, limits, allocations, effective)
+
+		result := make(map[int]resource.Quantity, len(allocations))
+		for numaID, allocation := range allocations {
+			result[numaID] = *resource.NewQuantity(allocation, resource.DecimalSI)
+		}
+		return *resource.NewQuantity(effective, resource.DecimalSI), result, nil
+	}
 }
 
 func generateCPUWindowOptions(conf *reporter.HeadroomReporterConfiguration) GenericSlidingWindowOptions {

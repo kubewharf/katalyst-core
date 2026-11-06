@@ -23,8 +23,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/opencontainers/runc/libcontainer/cgroups"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -34,7 +32,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -53,13 +50,13 @@ func (p *DynamicPolicy) handleAdvisorMemoryHigh(
 		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyMemoryHigh, memoryHighStr, err)
 	}
 
-	if !cgroups.IsCgroup2UnifiedMode() {
+	if !p.cgroupOps.isCgroup2UnifiedMode() {
 		general.Infof("memory.high is not supported in cgroupv1 mode")
 		return nil
 	}
 
 	if calculationInfo.CgroupPath != "" {
-		if err = cgroupmgr.ApplyMemoryWithRelativePath(calculationInfo.CgroupPath, &common.MemoryData{
+		if err = p.cgroupOps.applyMemory(calculationInfo.CgroupPath, &common.MemoryData{
 			HighInBytes: memoryHigh,
 		}); err != nil {
 			return fmt.Errorf("apply memory.high failed with error: %v", err)

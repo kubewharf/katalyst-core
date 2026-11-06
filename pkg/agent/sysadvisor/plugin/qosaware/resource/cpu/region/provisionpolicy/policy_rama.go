@@ -148,7 +148,17 @@ func (p *PolicyRama) Update() error {
 
 	general.Infof("rama update ret: %s, %v", knobName, cpuAdjustedRaw)
 
+	// No PID controller produced an adjustment (e.g. none of the reported
+	// indicators have PID parameters configured, so every iteration `continue`d).
+	// cpuAdjustedRaw still holds its ±Inf sentinel; leaking that into the control
+	// knob would publish an infinite requirement. Fall back to the current knob
+	// value, i.e. no adjustment. A real PID result is always clamped to
+	// [ResourceLowerBound, ResourceUpperBound] by the controller, so IsInf here
+	// unambiguously means "no adjustment".
 	cpuAdjustedRestricted := cpuAdjustedRaw
+	if math.IsInf(cpuAdjustedRaw, 0) {
+		cpuAdjustedRestricted = knobValue
+	}
 
 	p.controlKnobAdjusted = types.ControlKnob{
 		knobName: types.ControlKnobItem{
@@ -166,10 +176,8 @@ func (p *PolicyRama) sanityCheck() error {
 		errList []error
 	)
 
-	enableReclaim := p.conf.GetDynamicConfiguration().EnableReclaim
-
 	// 1. check if enable reclaim
-	if !enableReclaim {
+	if p.DynamicConfiguration == nil || !p.DynamicConfiguration.EnableReclaim {
 		errList = append(errList, fmt.Errorf("reclaim disabled"))
 	}
 
@@ -199,7 +207,7 @@ func (p *PolicyRama) sanityCheck() error {
 	}
 
 	// 4. check indicators legality
-	if p.Indicators == nil {
+	if len(p.Indicators) == 0 {
 		errList = append(errList, fmt.Errorf("illegal indicators"))
 	}
 

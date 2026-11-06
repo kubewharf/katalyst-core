@@ -18,6 +18,7 @@ package nativepolicy
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -34,9 +35,79 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+type nativeResidualCommitFailureState struct {
+	state.State
+	attempts int
+	err      error
+}
+
+type nativeAllocationCommitFailureState struct {
+	state.State
+	err      error
+	attempts int
+}
+
+func (s *nativeAllocationCommitFailureState) CommitAdvisorState(
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	persist bool,
+	permits ...*state.WritePermit,
+) error {
+	s.attempts++
+	return s.err
+}
+
+func (s *nativeAllocationCommitFailureState) CommitAdvisorStateIfRevision(
+	expectedRevision uint64,
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	persist bool,
+	permits ...*state.WritePermit,
+) error {
+	s.attempts++
+	return s.err
+}
+
+func (s *nativeResidualCommitFailureState) StoreState() error {
+	s.attempts++
+	if s.attempts == 1 {
+		return s.err
+	}
+	return s.State.StoreState()
+}
+
+func (s *nativeResidualCommitFailureState) CommitAdvisorState(
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores bool,
+	disableDedicatedCoresOverlapReclaimedCores bool,
+	persist bool,
+	permits ...*state.WritePermit,
+) error {
+	s.attempts++
+	if s.attempts == 1 {
+		return s.err
+	}
+	return s.State.CommitAdvisorState(
+		podEntries,
+		machineState,
+		allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores,
+		persist,
+		permits...,
+	)
+}
 
 const (
 	podDebugAnnoKey = "qrm.katalyst.kubewharf.io/debug_pod"
@@ -150,6 +221,85 @@ func TestRemovePod(t *testing.T) {
 	})
 	as.NotNil(err)
 	as.True(strings.Contains(err.Error(), "is not show up in cpu plugin state"))
+}
+
+func TestRemovePodPreservesAllocationWhenAtomicCommitFails(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	policy, err := getTestNativePolicy(topology, t.TempDir())
+	require.NoError(t, err)
+	req := &pluginapi.ResourceRequest{
+		PodUid:        "pod",
+		PodNamespace:  "namespace",
+		PodName:       "pod",
+		ContainerName: "main",
+		ContainerType: pluginapi.ContainerType_MAIN,
+		ResourceName:  string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 1,
+		},
+		NativeQosClass: string(v1.PodQOSGuaranteed),
+	}
+	_, err = policy.Allocate(context.Background(), req)
+	require.NoError(t, err)
+	oldAllocation := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	oldMachineState := policy.state.GetMachineState()
+	commitErr := errors.New("atomic remove commit failed")
+	failingState := &nativeAllocationCommitFailureState{
+		State: policy.state,
+		err:   commitErr,
+	}
+	policy.state = failingState
+
+	_, err = policy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{PodUid: req.PodUid})
+
+	require.ErrorIs(t, err, commitErr)
+	require.Equal(t, 1, failingState.attempts)
+	require.Equal(t, oldAllocation, policy.state.GetAllocationInfo(req.PodUid, req.ContainerName))
+	require.Equal(t, oldMachineState, policy.state.GetMachineState())
+}
+
+func TestAllocatePreservesExistingAllocationWhenAtomicCommitFails(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(4, 1, 1)
+	require.NoError(t, err)
+	policy, err := getTestNativePolicy(topology, t.TempDir())
+	require.NoError(t, err)
+	req := &pluginapi.ResourceRequest{
+		PodUid:        "pod",
+		PodNamespace:  "namespace",
+		PodName:       "pod",
+		ContainerName: "main",
+		ContainerType: pluginapi.ContainerType_MAIN,
+		ResourceName:  string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 1,
+		},
+		NativeQosClass: string(v1.PodQOSGuaranteed),
+	}
+	_, err = policy.Allocate(context.Background(), req)
+	require.NoError(t, err)
+	oldAllocation := policy.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	require.NotNil(t, oldAllocation)
+	oldMachineState := policy.state.GetMachineState()
+
+	commitErr := errors.New("atomic allocation commit failed")
+	failingState := &nativeAllocationCommitFailureState{
+		State: policy.state,
+		err:   commitErr,
+	}
+	policy.state = failingState
+	req.ResourceRequests[string(v1.ResourceCPU)] = 2
+
+	_, err = policy.Allocate(context.Background(), req)
+
+	require.ErrorIs(t, err, commitErr)
+	require.Equal(t, 1, failingState.attempts)
+	require.Equal(t, oldAllocation, policy.state.GetAllocationInfo(req.PodUid, req.ContainerName))
+	require.Equal(t, oldMachineState, policy.state.GetMachineState())
 }
 
 func TestGetTopologyHints(t *testing.T) {
@@ -320,6 +470,7 @@ func TestGetTopologyHints(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints")
 		as.Nil(err)
 
@@ -410,6 +561,36 @@ func TestClearResidualState(t *testing.T) {
 	as.Nil(err)
 
 	dynamicPolicy.clearResidualState()
+}
+
+func TestClearResidualStateRetriesFailedDurableCommit(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	policy, err := getTestNativePolicy(topology, t.TempDir())
+	require.NoError(t, err)
+	policy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{PodFetcher: &metapod.PodFetcherStub{}},
+	}
+	const podUID = "residual-pod"
+	require.NoError(t, policy.state.SetAllocationInfo(podUID, "main", &state.AllocationInfo{
+		AllocationResult: machine.NewCPUSet(0),
+	}, true))
+	policy.residualHitMap[podUID] = int64(maxResidualTime/stateCheckPeriod) - 1
+	failingState := &nativeResidualCommitFailureState{
+		State: policy.state,
+		err:   errors.New("store failed"),
+	}
+	policy.state = failingState
+
+	policy.clearResidualState()
+	require.NotNil(t, policy.state.GetAllocationInfo(podUID, "main"),
+		"failed durable cleanup must keep residual state for retry")
+
+	policy.clearResidualState()
+	require.Nil(t, policy.state.GetAllocationInfo(podUID, "main"))
+	require.Equal(t, 2, failingState.attempts)
 }
 
 func TestStart(t *testing.T) {

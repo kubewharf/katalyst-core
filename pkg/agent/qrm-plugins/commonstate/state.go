@@ -25,6 +25,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resctrlutil "github.com/kubewharf/katalyst-core/pkg/util/resctrl"
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
@@ -42,6 +43,16 @@ type AllocationMeta struct {
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	QoSLevel    string            `json:"qosLevel"`
+	// NativeQOSClass preserves the kubelet request's Kubernetes QoS class even
+	// before the Pod appears in the metaserver cache.
+	NativeQOSClass string `json:"native_qos_class,omitempty"`
+}
+
+func (am AllocationMeta) ToClosAssignmentMeta() resctrlutil.ClosAssignmentMeta {
+	return resctrlutil.ClosAssignmentMeta{
+		QoSLevel:  am.QoSLevel,
+		OwnerPool: am.OwnerPoolName,
+	}
 }
 
 func (am *AllocationMeta) GetPodUid() string {
@@ -100,6 +111,7 @@ func (am *AllocationMeta) Clone() *AllocationMeta {
 		PodRole:        am.PodRole,
 		PodType:        am.PodType,
 		QoSLevel:       am.QoSLevel,
+		NativeQOSClass: am.NativeQOSClass,
 		Labels:         general.DeepCopyMap(am.Labels),
 		Annotations:    general.DeepCopyMap(am.Annotations),
 	}

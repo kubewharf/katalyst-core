@@ -87,6 +87,12 @@ type RegulatorOptions struct {
 	// so make latency-critical pods require at least a core's-worth of CPUs.
 	NeedHTAligned func() bool
 
+	// CPUsPerCore reports the number of logical cpus per physical core for the
+	// running topology. it drives whole-core alignment in round() instead of a
+	// hard-coded smt2 assumption, so the regulator stays correct on smt4 and
+	// non-smt hardware.
+	CPUsPerCore func() int
+
 	// MinRampDownPeriod is the min time gap between two consecutive cpu requirement ramp down
 	MinRampDownPeriod time.Duration
 }
@@ -159,17 +165,33 @@ func (c *CPURegulator) slowdown(cpuRequirement int, effectiveControlKnobItem *ty
 }
 
 func (c *CPURegulator) round(cpuRequirement float64) int {
+	cpuRequirementRounded := int(math.Ceil(cpuRequirement))
 	if !c.NeedHTAligned() {
-		return int(math.Ceil(cpuRequirement))
+		return cpuRequirementRounded
 	}
 	// Never share cores between latency-critical pods and best-effort pods
-	// so make latency-critical pods require at least a core's-worth of CPUs.
+	// so make latency-critical pods require whole physical cores. Align the
+	// rounded requirement UP to a CPUsPerCore() multiple instead of assuming
+	// smt2 (+1 when odd), so this stays correct on smt4 and non-smt hardware.
 	// This rule can be broken by clamp.
-	cpuRequirementRounded := int(math.Ceil(cpuRequirement))
-	if cpuRequirementRounded%2 == 1 {
-		cpuRequirementRounded += 1
+	cpusPerCore := c.cpusPerCore()
+	if remainder := cpuRequirementRounded % cpusPerCore; remainder != 0 {
+		cpuRequirementRounded += cpusPerCore - remainder
 	}
 	return cpuRequirementRounded
+}
+
+// cpusPerCore returns the logical cpus per physical core, defaulting to the
+// legacy smt2 assumption when the topology provider is not wired up (e.g. in
+// unit tests that only exercise the non-aligned path).
+func (c *CPURegulator) cpusPerCore() int {
+	if c.CPUsPerCore == nil {
+		return 2
+	}
+	if cpusPerCore := c.CPUsPerCore(); cpusPerCore > 1 {
+		return cpusPerCore
+	}
+	return 2
 }
 
 func (c *CPURegulator) clamp(cpuRequirement int) int {

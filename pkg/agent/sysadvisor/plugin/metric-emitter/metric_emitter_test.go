@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -47,34 +46,64 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return testConfiguration
 }
 
-// todo: change to dummy malachite implementation instead of fake testing
+// Test_noneExistMetricsFetcher exercises the emitter lifecycle when the
+// MetaServer exists but exposes no MetricsFetcher. The fixture is built
+// explicitly (a valid MetaServer with a nil MetricsFetcher) rather than
+// relying on MetaServer construction failing, and it does not touch the host
+// checkpoint directory. The emitter must surface the missing dependency as an
+// observable error and shut down cleanly instead of panicking inside a
+// background goroutine.
 func Test_noneExistMetricsFetcher(t *testing.T) {
 	t.Parallel()
 
-	client := &client.GenericClientSet{
+	conf := generateTestConfiguration(t)
+	// MetaCache persists advisor state through StateFileDirectory, while
+	// CheckpointManagerDir belongs to MetaServer. Isolate both so this lifecycle
+	// test never depends on host-writable production paths.
+	conf.CheckpointManagerDir = t.TempDir()
+	conf.GenericSysAdvisorConfiguration.StateFileDirectory = t.TempDir()
+
+	conf.EnableMetricsFetcher = false
+
+	genericClient := &client.GenericClientSet{
 		KubeClient:     fake.NewSimpleClientset(),
 		InternalClient: internalfake.NewSimpleClientset(),
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 	}
-
-	conf := generateTestConfiguration(t)
-	meta, err := metaserver.NewMetaServer(client, metrics.DummyMetrics{}, conf)
-	if err == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		go meta.Run(ctx)
-		time.Sleep(10 * time.Millisecond)
-		cancel()
-	}
+	metaServer, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
+	require.NoError(t, err)
+	require.NotNil(t, metaServer)
+	// Construct all production defaults successfully, then remove only the
+	// dependency this test is intended to exercise.
+	metaServer.MetricsFetcher = nil
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, nil)
-	assert.NoError(t, err, nil)
+	require.NoError(t, err)
 
-	f, err := NewCustomMetricEmitter(PluginNameCustomMetricEmitter, conf, struct{}{}, metricspool.DummyMetricsEmitterPool{}, meta, metaCache)
-	assert.NoError(t, err)
+	f, err := NewCustomMetricEmitter(PluginNameCustomMetricEmitter, conf, struct{}{}, metricspool.DummyMetricsEmitterPool{}, metaServer, metaCache)
+	require.NoError(t, err)
+	require.NoError(t, f.Init())
 
-	err = f.Init()
-	assert.NoError(t, err)
+	// Do NOT cancel this context: the emitter must return on its own because a
+	// syncer reports the missing MetricsFetcher as an error, which triggers the
+	// emitter's cleanup. If the lifecycle regressed to a nil-deref panic inside a
+	// detached goroutine, this test binary would crash.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	go f.Run(context.Background())
-	time.Sleep(time.Millisecond * 30)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.Run(ctx)
+	}()
+
+	select {
+	case <-done:
+		// Run returns only after CustomMetricEmitter has canceled its shared
+		// context and waited for every syncer goroutine. This emitter-owned join is
+		// the deterministic leak check; process-wide goroutine counts are polluted
+		// by unrelated parallel tests under make test.
+	case <-time.After(2 * time.Second):
+		t.Fatalf("emitter.Run should have returned after syncer dependency error, but it is still blocking")
+	}
 }

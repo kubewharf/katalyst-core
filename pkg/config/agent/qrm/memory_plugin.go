@@ -20,7 +20,6 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type MemoryQRMPluginConfig struct {
@@ -59,8 +58,6 @@ type MemoryQRMPluginConfig struct {
 	LogCacheQRMPluginConfig
 	// NumaMemCompactConfig: the configuration for proactively compacting memory on idle NUMA nodes
 	NumaMemCompactConfig
-	// ResctrlConfig: the configuration for resctrl FS related hints
-	ResctrlConfig
 }
 
 // NumaMemCompactConfig holds the static configuration for the numacompact idle-NUMA compaction
@@ -112,27 +109,6 @@ type LogCacheQRMPluginConfig struct {
 	PathList []string
 	// Keywords for recognizing log files
 	FileFilters []string
-}
-
-type ResctrlConfig struct {
-	// EnableResctrlHint is the flag that enable/disable resctrl option related pod admission
-	EnableResctrlHint bool
-	// EnableResctrlGroupLifecycleManagement is the flag that enable/disable resctrl group lifecycle management
-	EnableResctrlGroupLifecycleManagement bool
-
-	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
-	// based on its cpu set pool annotation
-	CPUSetPoolToSharedSubgroup map[string]int
-	DefaultSharedSubgroup      int
-	EnabledQoS                 []string
-
-	// MonGroupEnabledClosIDs is about mon_group layout hint policy
-	MonGroupEnabledClosIDs []string
-	// MonGroupMaxCountRatio is the ratio of mon_groups max count in info/L3_MON/num_rmids
-	MonGroupMaxCountRatio float64
-
-	// SkipCleanupClosIDs is a list of resctrl closID directories to skip cleaning
-	SkipCleanupClosIDs sets.String
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {

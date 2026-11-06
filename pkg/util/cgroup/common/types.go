@@ -20,9 +20,12 @@ import (
 	"fmt"
 )
 
+// CgroupFSMountPoint is the default cgroupfs mount point. It is a var (not a
+// const) so tests can redirect the path helpers at a fixture root; production
+// leaves it at the default below.
+var CgroupFSMountPoint = "/sys/fs/cgroup"
+
 const (
-	// CgroupFSMountPoint default cgroup mount point
-	CgroupFSMountPoint = "/sys/fs/cgroup"
 	// DefaultSelectedSubsys cgroupv1 default select subsys
 	DefaultSelectedSubsys = "cpu"
 	// CgroupTasksFileV1 thread id file for cgroupv1
@@ -105,9 +108,11 @@ type CPUData struct {
 
 // CPUSetData set cgroup cpuset data
 type CPUSetData struct {
-	CPUs    string
-	Mems    string
-	Migrate string
+	CPUs           string
+	Mems           string
+	Migrate        string
+	WriteEmptyCPUs bool
+	WriteEmptyMems bool
 }
 
 // NetClsData is the net class data.
@@ -254,10 +259,10 @@ type CgroupResources struct {
 
 type AbsoluteCgroupPathHandler struct {
 	Name    string
-	Handler func(subsys, podUID, containerId string) (string, error)
+	Handler func(subsys, podUID, containerId string) (string, bool, error)
 }
 
 type RelativeCgroupPathHandler struct {
 	Name    string
-	Handler func(podUID, containerId string) (string, error)
+	Handler func(podUID, containerId string) (string, bool, error)
 }

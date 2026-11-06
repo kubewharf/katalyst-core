@@ -43,6 +43,11 @@ func CheckCgroup2UnifiedMode() bool {
 	return false
 }
 
+// SetCgroup2UnifiedModeOverride is a no-op on platforms without cgroup support.
+func SetCgroup2UnifiedModeOverride(unified bool) (undo func()) {
+	return func() {}
+}
+
 func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
 	return nil
 }
