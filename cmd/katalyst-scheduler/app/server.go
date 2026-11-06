@@ -46,6 +46,7 @@ import (
 	"k8s.io/component-base/cli/globalflag"
 	"k8s.io/component-base/configz"
 	"k8s.io/component-base/logs"
+	logsapi "k8s.io/component-base/logs/api/v1"
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/component-base/term"
 	"k8s.io/component-base/version"
@@ -66,7 +67,7 @@ import (
 )
 
 func init() {
-	utilruntime.Must(logs.AddFeatureGates(utilfeature.DefaultMutableFeatureGate))
+	utilruntime.Must(logsapi.AddFeatureGates(utilfeature.DefaultMutableFeatureGate))
 }
 
 // Option configures a framework.Registry.
@@ -123,7 +124,7 @@ func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Op
 
 	// Activate logging as soon as possible, after that
 	// show flags with the final logging configuration.
-	if err := opts.Logs.ValidateAndApply(utilfeature.DefaultFeatureGate); err != nil {
+	if err := logsapi.ValidateAndApply(opts.Logs, utilfeature.DefaultFeatureGate); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -247,7 +248,7 @@ func buildHandlerChain(handler http.Handler, authn authenticator.Request, authz 
 	failedHandler := genericapifilters.Unauthorized(scheme.Codecs)
 
 	handler = genericapifilters.WithAuthorization(handler, authz, scheme.Codecs)
-	handler = genericapifilters.WithAuthentication(handler, authn, failedHandler, nil)
+	handler = genericapifilters.WithAuthentication(handler, authn, failedHandler, nil, nil)
 	handler = genericapifilters.WithRequestInfo(handler, requestInfoResolver)
 	handler = genericapifilters.WithCacheControl(handler)
 	handler = genericfilters.WithHTTPLogging(handler)
@@ -311,7 +312,7 @@ func Setup(ctx context.Context, opts *options.Options, outOfTreeRegistryOptions 
 		return nil, nil, utilerrors.NewAggregate(errs)
 	}
 
-	c, qosConfig, err := opts.Config()
+	c, qosConfig, err := opts.Config(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -330,11 +331,11 @@ func Setup(ctx context.Context, opts *options.Options, outOfTreeRegistryOptions 
 	recorderFactory := getRecorderFactory(&cc)
 	completedProfiles := make([]kubeschedulerconfig.KubeSchedulerProfile, 0)
 	// Create the scheduler.
-	sched, err := scheduler.New(cc.Client,
+	sched, err := scheduler.New(ctx,
+		cc.Client,
 		cc.InformerFactory,
 		cc.DynInformerFactory,
 		recorderFactory,
-		ctx.Done(),
 		scheduler.WithComponentConfigVersion(cc.ComponentConfig.TypeMeta.APIVersion),
 		scheduler.WithKubeConfig(cc.KubeConfig),
 		scheduler.WithProfiles(cc.ComponentConfig.Profiles...),
@@ -353,7 +354,7 @@ func Setup(ctx context.Context, opts *options.Options, outOfTreeRegistryOptions 
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := scheduleroptions.LogOrWriteConfig(opts.WriteConfigTo, &cc.ComponentConfig, completedProfiles); err != nil {
+	if err := scheduleroptions.LogOrWriteConfig(klog.FromContext(ctx), opts.WriteConfigTo, &cc.ComponentConfig, completedProfiles); err != nil {
 		return nil, nil, err
 	}
 

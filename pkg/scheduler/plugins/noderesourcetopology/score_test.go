@@ -25,8 +25,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -539,15 +539,18 @@ func TestScore(t *testing.T) {
 			n.SetName(node)
 			nodes = append(nodes, n)
 		}
-		f, err := runtime.NewFramework(nil, nil,
-			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		sharedLister := newTestSharedLister(pods, nodes)
+		f, err := runtime.NewFramework(context.Background(), nil, nil,
+			runtime.WithSnapshotSharedLister(sharedLister))
 		assert.NoError(t, err)
 		tm, err := MakeTestTm(MakeTestArgs(tc.strategy, tc.alignedResource, "native"), f)
 		assert.NoError(t, err)
 
 		nodeToScore := make(map[string]int64)
 		for _, node := range nodeNames {
-			score, status := tm.(*TopologyMatch).Score(context.TODO(), nil, tc.pod, node)
+			nodeInfo, err := sharedLister.Get(node)
+			assert.NoError(t, err)
+			score, status := tm.(*TopologyMatch).Score(context.TODO(), nil, tc.pod, nodeInfo)
 			assert.True(t, reflect.DeepEqual(status, tc.wantStatus), tc.name)
 
 			nodeToScore[node] = score
@@ -575,14 +578,17 @@ func TestScore(t *testing.T) {
 			n.SetName(node)
 			nodes = append(nodes, n)
 		}
-		f, err := runtime.NewFramework(nil, nil,
-			runtime.WithSnapshotSharedLister(newTestSharedLister(pods, nodes)))
+		sharedLister := newTestSharedLister(pods, nodes)
+		f, err := runtime.NewFramework(context.Background(), nil, nil,
+			runtime.WithSnapshotSharedLister(sharedLister))
 		assert.NoError(t, err)
 		tm, err := MakeTestTm(MakeTestArgs(tc.strategy, tc.alignedResource, "dynamic"), f)
 		assert.NoError(t, err)
 		nodeToScore := make(map[string]int64)
 		for _, node := range nodeNames {
-			score, status := tm.(*TopologyMatch).Score(context.TODO(), nil, tc.pod, node)
+			nodeInfo, err := sharedLister.Get(node)
+			assert.NoError(t, err)
+			score, status := tm.(*TopologyMatch).Score(context.TODO(), nil, tc.pod, nodeInfo)
 			assert.True(t, reflect.DeepEqual(status, tc.wantStatus), tc.name)
 
 			nodeToScore[node] = score

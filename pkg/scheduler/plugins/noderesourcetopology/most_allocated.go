@@ -20,7 +20,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	schedulerframework "k8s.io/kube-scheduler/framework"
 )
 
 // allocatable can be aggregated resource for multi numa,
@@ -56,5 +56,5 @@ func mostAllocatedScore(requested, capacity resource.Quantity) int64 {
 		return 0
 	}
 
-	return requested.Value() * framework.MaxNodeScore / capacity.Value()
+	return requested.Value() * schedulerframework.MaxNodeScore / capacity.Value()
 }

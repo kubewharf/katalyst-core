@@ -17,6 +17,7 @@ limitations under the License.
 package options
 
 import (
+	"context"
 	"fmt"
 
 	scheduleroptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
@@ -44,8 +45,8 @@ func NewOptions() *Options {
 }
 
 // Config return a scheduler config object
-func (o *Options) Config() (*schedulerappconfig.Config, *generic.QoSConfiguration, error) {
-	config, err := o.Options.Config()
+func (o *Options) Config(ctx context.Context) (*schedulerappconfig.Config, *generic.QoSConfiguration, error) {
+	config, err := o.Options.Config(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

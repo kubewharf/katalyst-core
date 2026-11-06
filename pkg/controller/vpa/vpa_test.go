@@ -19,6 +19,7 @@ package vpa
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clientfeatures "k8s.io/client-go/features"
 	"k8s.io/client-go/tools/cache"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/utils/pointer"
@@ -42,6 +44,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/controller/vpa/util"
 )
+
+func TestMain(m *testing.M) {
+	featureGates := clientfeatures.FeatureGates()
+	mutableFeatureGates := featureGates.(interface {
+		Set(clientfeatures.Feature, bool) error
+	})
+	watchListClientEnabled := featureGates.Enabled(clientfeatures.WatchListClient)
+	if err := mutableFeatureGates.Set(clientfeatures.WatchListClient, false); err != nil {
+		panic(err)
+	}
+
+	code := m.Run()
+
+	if err := mutableFeatureGates.Set(clientfeatures.WatchListClient, watchListClientEnabled); err != nil {
+		panic(err)
+	}
+	os.Exit(code)
+}
 
 var makePod = func(name string, annotations, labels map[string]string, owners []metav1.OwnerReference) *v1.Pod {
 	pod := &v1.Pod{

@@ -206,7 +206,7 @@ func TestNewKubeletReporterPlugin(t *testing.T) {
 							Memory: []*podresv1.ContainerMemory{
 								{
 									MemoryType: "test",
-									Size_:      100,
+									Size:       100,
 									Topology: &podresv1.TopologyInfo{
 										Nodes: []*podresv1.NUMANode{
 											{
@@ -255,7 +255,7 @@ func TestNewKubeletReporterPlugin(t *testing.T) {
 			Memory: []*podresv1.ContainerMemory{
 				{
 					MemoryType: "test",
-					Size_:      100,
+					Size:       100,
 					Topology: &podresv1.TopologyInfo{
 						Nodes: []*podresv1.NUMANode{
 							{

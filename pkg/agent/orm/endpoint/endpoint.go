@@ -34,6 +34,7 @@ import (
 // for managing gRPC communications with the resource plugin and caching
 // resource states reported by the resource plugin.
 type Endpoint interface {
+	GetSocketPath() string
 	Stop()
 	Allocate(c context.Context, resourceRequest *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
 	AllocateForPod(c context.Context, resourceRequest *pluginapi.PodResourceRequest) (*pluginapi.PodResourceAllocationResponse, error)
@@ -84,6 +85,10 @@ func NewEndpointImpl(socketPath, resourceName string) (*EndpointImpl, error) {
 
 func (e *EndpointImpl) Client() pluginapi.ResourcePluginClient {
 	return e.client
+}
+
+func (e *EndpointImpl) GetSocketPath() string {
+	return e.socketPath
 }
 
 // NewStoppedEndpointImpl creates a new endpoint for the given resourceName with stopTime set.
