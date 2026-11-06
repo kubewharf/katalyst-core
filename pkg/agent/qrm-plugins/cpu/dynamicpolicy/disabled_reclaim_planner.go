@@ -55,6 +55,27 @@ func newFrozenReclaimPlacementConstraint(
 	return constraint
 }
 
+// defaultShareMaterializationModeFor keeps the explicit upper-bound contract
+// separate from the QRM-owned frozen-reclaim residual. Both modes materialize
+// the default share as a CPUSet complement, but only the explicit contract may
+// treat the advisor quantity as an upper bound.
+func defaultShareMaterializationModeFor(
+	dynamicConf *dynamicconfig.Configuration,
+	frozenReclaim frozenReclaimPlacementConstraint,
+	resp *advisorapi.ListAndWatchResponse,
+) defaultShareMaterializationMode {
+	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		return defaultShareMaterializationNormal
+	}
+	if resp == nil || resp.Entries[commonstate.PoolNameShare] == nil {
+		return defaultShareMaterializationDisabled
+	}
+	if !frozenReclaim.cpus.IsEmpty() && !frozenReclaim.allowSharedOverlap {
+		return defaultShareMaterializationFrozenResidual
+	}
+	return defaultShareMaterializationDisabled
+}
+
 func reclaimOverlapDisallowed(
 	poolName string,
 	allocationInfo *state.AllocationInfo,

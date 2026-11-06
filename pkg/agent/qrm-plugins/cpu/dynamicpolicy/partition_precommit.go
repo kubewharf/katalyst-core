@@ -28,18 +28,19 @@ import (
 )
 
 type pendingCPUPartition struct {
-	expectedRevision          uint64
-	entries                   state.PodEntries
-	baseMachineState          state.NUMANodeMap
-	allowOverlap              bool
-	disableDedicated          bool
-	persist                   bool
-	source                    string
-	validate                  func(state.PodEntries, state.NUMANodeMap, bool, bool) error
-	requireCoreAlignedReclaim bool
-	enforceSteadyReclaim      bool
-	residualFloor             machine.CPUSet
-	dynamicConfig             *dynamicconfig.Configuration
+	expectedRevision             uint64
+	entries                      state.PodEntries
+	baseMachineState             state.NUMANodeMap
+	allowOverlap                 bool
+	disableDedicated             bool
+	persist                      bool
+	source                       string
+	validate                     func(state.PodEntries, state.NUMANodeMap, bool, bool) error
+	requireCoreAlignedReclaim    bool
+	enforceSteadyReclaim         bool
+	residualFloor                machine.CPUSet
+	dynamicConfig                *dynamicconfig.Configuration
+	validateDefaultShareResidual bool
 }
 
 type preparedCPUPartition struct {
@@ -197,8 +198,10 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 			return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "rebuild machine state", err)
 		}
 	}
-	if err := p.validateResidualBackfillCandidateWithDynamicConfig(
-		candidate, machineState, pending.residualFloor, pending.dynamicConfig); err != nil {
+	validateDefaultShareResidual := pending.validateDefaultShareResidual ||
+		(pending.dynamicConfig != nil && pending.dynamicConfig.FillDefaultSharePoolWithNonReclaimCPUs)
+	if err := p.validateResidualBackfillCandidate(
+		candidate, machineState, pending.residualFloor, validateDefaultShareResidual); err != nil {
 		return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "validate residual backfill candidate", err)
 	}
 	if err := validatePendingPoolOwnershipWithView(candidate, ownershipView); err != nil {
@@ -298,22 +301,9 @@ func (p *DynamicPolicy) validateResidualBackfillCandidate(
 	entries state.PodEntries,
 	machineState state.NUMANodeMap,
 	residualFloor machine.CPUSet,
+	validateDefaultShareResidual bool,
 ) error {
-	var dynamicConfig *dynamicconfig.Configuration
-	if p != nil && p.config.dynamicConfig != nil {
-		dynamicConfig = p.config.dynamicConfig.GetDynamicConfiguration()
-	}
-	return p.validateResidualBackfillCandidateWithDynamicConfig(
-		entries, machineState, residualFloor, dynamicConfig)
-}
-
-func (p *DynamicPolicy) validateResidualBackfillCandidateWithDynamicConfig(
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	residualFloor machine.CPUSet,
-	dynamicConfig *dynamicconfig.Configuration,
-) error {
-	if dynamicConfig == nil || !dynamicConfig.FillDefaultSharePoolWithNonReclaimCPUs {
+	if !validateDefaultShareResidual {
 		return nil
 	}
 	if p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
