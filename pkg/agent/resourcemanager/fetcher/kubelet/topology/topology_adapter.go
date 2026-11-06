@@ -52,6 +52,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -161,6 +162,22 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
 	numaCacheGroupZoneNodeMap := util.GenerateNumaCacheGroupZone(numaInfo)
+	reservedCPUs := agentConf.ReservedCPUList
+	if metaServer.KubeletConfigFetcher != nil {
+		kubeletConfig, err := metaServer.GetKubeletConfig(context.Background())
+		if err != nil {
+			return nil, errors.Wrap(err, "get kubelet config failed")
+		}
+
+		kubeletReservedCPUs, err := utilkubeconfig.GetReservedSystemCPUList(kubeletConfig)
+		if err != nil {
+			return nil, errors.Wrap(err, "get reserved system CPU list failed")
+		}
+		if kubeletReservedCPUs != "" {
+			reservedCPUs = kubeletReservedCPUs
+		}
+	}
+
 	adapter := &topologyAdapterImpl{
 		endpoints:                      endpoints,
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
@@ -179,7 +196,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
 		needAggregateReportingDevices:  agentConf.NeedAggregateReportingDevices,
-		reservedCPUs:                   agentConf.ReservedCPUList,
+		reservedCPUs:                   reservedCPUs,
 	}
 
 	return adapter, nil
