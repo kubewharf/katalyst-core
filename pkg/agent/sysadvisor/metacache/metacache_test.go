@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
@@ -33,6 +34,30 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+func TestMetaCacheImp_RangeAndUpdatePool(t *testing.T) {
+	t.Parallel()
+
+	mc := NewDummyMetaCacheImp()
+	require.NoError(t, mc.SetPoolInfo("share", &types.PoolInfo{
+		PoolName:                         "share",
+		TopologyAwareAssignments:         map[int]machine.CPUSet{0: machine.MustParse("0-3")},
+		OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: machine.MustParse("0-7")},
+		RegionNames:                      sets.NewString("old"),
+	}))
+
+	require.NoError(t, mc.RangeAndUpdatePool(func(poolName string, poolInfo *types.PoolInfo) bool {
+		require.Equal(t, "share", poolName)
+		poolInfo.RegionNames = sets.NewString("restored")
+		return true
+	}))
+
+	got, ok := mc.GetPoolInfo("share")
+	require.True(t, ok)
+	require.Equal(t, sets.NewString("restored"), got.RegionNames)
+	require.Equal(t, types.TopologyAwareAssignment{0: machine.MustParse("0-3")}, got.TopologyAwareAssignments)
+	require.Equal(t, types.TopologyAwareAssignment{0: machine.MustParse("0-7")}, got.OriginalTopologyAwareAssignments)
+}
 
 func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 	t.Parallel()

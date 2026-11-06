@@ -120,6 +120,12 @@ func InfoSPath(pkg LoggingPKG, message string, params ...interface{}) {
 	klog.InfoSDepth(1, loggingPath(pkg, message), params...)
 }
 
+func InfoSV(level int, message string, params ...interface{}) {
+	if klog.V(klog.Level(level)).Enabled() {
+		klog.InfoSDepth(1, logging(message), params...)
+	}
+}
+
 func Infof(message string, params ...interface{}) {
 	klog.InfofDepth(1, logging(message, params...))
 }

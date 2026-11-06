@@ -34,6 +34,7 @@ type PIDController struct {
 	controlKnobPrev    float64
 	errorValue         float64
 	errorValuePrev     float64
+	resetDerivative    bool
 }
 
 func NewPIDController(variableName string, params types.FirstOrderPIDParams, msg string) *PIDController {
@@ -60,14 +61,25 @@ func (c *PIDController) Adjust(controlKnob, target, current float64, direct bool
 		adjustment             float64 = 0
 	)
 
-	c.errorValuePrev = c.errorValue
-	c.errorValue = math.Log(current) - math.Log(target)
-
 	errorRaw := current - target
-	errorRate := math.Abs(c.errorValue) - math.Abs(c.errorValuePrev)
+	errorRate := 0.0
+	if current == 0 {
+		adjustment = c.params.AdjustmentLowerBound
+		c.resetDerivative = true
+	} else {
+		c.errorValuePrev = c.errorValue
+		c.errorValue = math.Log(current) - math.Log(target)
+		if c.resetDerivative {
+			c.errorValuePrev = c.errorValue
+			c.resetDerivative = false
+		}
+		errorRate = math.Abs(c.errorValue) - math.Abs(c.errorValuePrev)
+	}
 
-	// apply adjustment when current is out of deadband
-	if (errorRaw > 0 && errorRaw/target > c.params.DeadbandUpperPct) || (errorRaw < 0 && errorRaw/target < -c.params.DeadbandLowerPct) {
+	// apply adjustment when current is non-zero and out of deadband
+	if current != 0 &&
+		((errorRaw > 0 && errorRaw/target > c.params.DeadbandUpperPct) ||
+			(errorRaw < 0 && errorRaw/target < -c.params.DeadbandLowerPct)) {
 		if c.errorValue >= 0 {
 			kp = c.params.Kpp
 			kpSign = 1

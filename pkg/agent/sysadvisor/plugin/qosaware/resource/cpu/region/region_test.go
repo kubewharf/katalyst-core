@@ -17,10 +17,12 @@ limitations under the License.
 package region
 
 import (
+	"fmt"
+	"math"
 	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,11 +35,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestGetRegionNameFromMetaCache(t *testing.T) {
@@ -144,29 +149,52 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 	}
 }
 
+// isolatedReclaimConsumer re-points the test's MetaServer bootstrap at a
+// private, uniquely-named reclaim consumer instead of the process-wide
+// GenericConsumerName, and backs the state/checkpoint directories with
+// t.TempDir().
+//
+// NewMetaServer -> NewMetaAgent -> reclaim.SetupConsumers otherwise registers
+// the shared "generic" consumer into the process-global registry. Cleaning that
+// up afterwards via reclaim.UnregisterConsumer(GenericConsumerName) tears down
+// an entry that a parallel sibling test still owns, which is exactly why the
+// tests had to drop t.Parallel. Giving each test its own consumer name (and an
+// empty reclaim cgroup path so the reverse index stays empty) keeps the
+// bootstrap side-effect fully local, so the tests can run concurrently without
+// a mutex.
+func isolatedReclaimConsumer(t *testing.T, conf *config.Configuration) {
+	t.Helper()
+
+	// t.Name() is unique per top-level test and per subtest, so the consumer
+	// never collides with a parallel sibling's entry.
+	consumerName := "region-test/" + t.Name()
+	reclaim.RegisterFactory(consumerName, reclaim.NewGenericConsumer)
+	conf.ReclaimConsumers = []string{consumerName}
+	// No reclaim cgroup subtree to publish: keep the reverse index empty so
+	// parallel consumers never share a path entry.
+	conf.BaseConfiguration.ReclaimRelativeRootCgroupPath = ""
+
+	stateDir := t.TempDir()
+	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateDir
+	conf.MetaServerConfiguration.CheckpointManagerDir = filepath.Join(stateDir, "checkpoint")
+
+	t.Cleanup(func() { reclaim.UnregisterConsumer(consumerName) })
+}
+
 func TestIsNumaBinding(t *testing.T) {
 	t.Parallel()
-
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, conf)
 
-	stateFileDir := "stateFileDir"
-	checkpointDir := "checkpointDir"
-
-	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
-	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 	conf.RestrictRefPolicy = nil
+	isolatedReclaimConsumer(t, conf)
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
 
 	metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
 	require.NoError(t, err)
-	defer func() {
-		os.RemoveAll(stateFileDir)
-		os.RemoveAll(checkpointDir)
-	}()
 
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 	require.NoError(t, err)
@@ -203,7 +231,6 @@ func TestIsNumaBinding(t *testing.T) {
 
 func TestRestrictProvisionControlKnob(t *testing.T) {
 	t.Parallel()
-
 	tests := []struct {
 		name              string
 		originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob
@@ -225,27 +252,18 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
 			conf, err := options.NewOptions().Config()
 			require.NoError(t, err)
 			require.NotNil(t, conf)
 
-			stateFileDir := "stateFileDir" + uuid.New().String()
-			checkpointDir := "checkpointDir" + uuid.New().String()
-
-			conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
-			conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
 			conf.RestrictRefPolicy = map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName{"p1": "p2"}
+			isolatedReclaimConsumer(t, conf)
 
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 			require.NoError(t, err)
 
 			metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
 			require.NoError(t, err)
-			defer func() {
-				os.RemoveAll(stateFileDir)
-				os.RemoveAll(checkpointDir)
-			}()
 
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			require.NoError(t, err)
@@ -256,6 +274,313 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 			share := NewQoSRegionShare(&ci, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
 			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
+		})
+	}
+}
+
+func TestGetEffectiveReclaimResource(t *testing.T) {
+	t.Parallel()
+	consumerNames := []string{
+		reclaim.GenericConsumerName,
+		"region-test-a",
+		"region-test-b",
+	}
+	for _, name := range consumerNames {
+		reclaim.UnregisterConsumer(name)
+	}
+	t.Cleanup(func() {
+		for _, name := range consumerNames {
+			reclaim.UnregisterConsumer(name)
+		}
+	})
+
+	machineInfo := &machine.KatalystMachineInfo{
+		CPUTopology: &machine.CPUTopology{
+			CPUDetails: machine.CPUDetails{
+				0: machine.CPUTopoInfo{NUMANodeID: 1},
+			},
+		},
+	}
+	reg := func(name, path string, pct float64) {
+		c := config.NewConfiguration()
+		c.BaseConfiguration.ReclaimRelativeRootCgroupPath = path
+		c.BaseConfiguration.GenericReclaimedResourcePercentage = pct
+		require.NoError(t, reclaim.RegisterNamedGenericConsumer(name, c, machineInfo))
+	}
+	reg("region-test-a", "/kubepods/besteffort", 0)
+	reg("region-test-b", "/kubesandbox", 0)
+
+	period := uint64(100000)
+	stats := func(cores float64) *common.CPUStats {
+		return &common.CPUStats{CpuPeriod: period, CpuQuota: int64(cores * float64(period))}
+	}
+	unlimited := &common.CPUStats{CpuPeriod: period, CpuQuota: common.CPUQuotaUnlimit}
+	maxInt := &common.CPUStats{CpuPeriod: period, CpuQuota: math.MaxInt}
+
+	tests := []struct {
+		name          string
+		isNumaBinding bool
+		bindingNumas  machine.CPUSet
+		gateEnabled   bool
+		// cpuStats maps a reclaim cgroup path to its stats; a missing key makes
+		// the mocked GetCPUWithRelativePath return an error for that path.
+		cpuStats     map[string]*common.CPUStats
+		reclaimPool  *types.PoolInfo
+		expectQuota  float64
+		expectCpuset int
+	}{
+		{
+			name:         "non-binding sums finite quotas across consumers",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": stats(1.0), "/kubesandbox": stats(2.0)},
+			expectQuota:  3.0,
+			expectCpuset: 0,
+		},
+		{
+			name:         "non-binding any unlimited path makes whole scope unlimited",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": stats(1.0), "/kubesandbox": unlimited},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "non-binding math.MaxInt is treated as unlimited",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": maxInt, "/kubesandbox": stats(2.0)},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "gate disabled yields unlimited regardless of cgroup values",
+			gateEnabled:  false,
+			cpuStats:     map[string]*common.CPUStats{"/kubepods/besteffort": stats(1.0), "/kubesandbox": stats(2.0)},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "all paths missing yields unlimited",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{},
+			expectQuota:  common.CPUQuotaUnlimit,
+			expectCpuset: 0,
+		},
+		{
+			name:         "missing path is skipped and the remainder is summed",
+			gateEnabled:  true,
+			cpuStats:     map[string]*common.CPUStats{"/kubesandbox": stats(2.0)},
+			expectQuota:  2.0,
+			expectCpuset: 0,
+		},
+		{
+			name:          "numa-binding resolves per-numa paths, sums quota and reads cpuset",
+			isNumaBinding: true,
+			bindingNumas:  machine.NewCPUSet(1),
+			gateEnabled:   true,
+			cpuStats:      map[string]*common.CPUStats{"/kubepods/besteffort-1": stats(1.0), "/kubesandbox-1": stats(1.5)},
+			reclaimPool: &types.PoolInfo{
+				PoolName: commonstate.PoolNameReclaim,
+				TopologyAwareAssignments: types.TopologyAwareAssignment{
+					1: machine.NewCPUSet(10, 11, 12),
+				},
+			},
+			expectQuota:  2.5,
+			expectCpuset: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			metaCache := metacache.NewDummyMetaCacheImp()
+			if tt.reclaimPool != nil {
+				require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameReclaim, tt.reclaimPool))
+			}
+
+			r := &QoSRegionBase{
+				isNumaBinding: tt.isNumaBinding,
+				bindingNumas:  tt.bindingNumas,
+				metaReader:    metaCache,
+				isQuotaCtrlKnobEnabled: func(metacache.MetaReader) (bool, error) {
+					return tt.gateEnabled, nil
+				},
+				getCPUWithRelativePath: func(path string) (*common.CPUStats, error) {
+					if s, ok := tt.cpuStats[path]; ok {
+						return s, nil
+					}
+					return nil, fmt.Errorf("cgroup not found: %s", path)
+				},
+			}
+
+			quota, cpusetSize, err := r.getEffectiveReclaimResource()
+			require.NoError(t, err)
+			assert.InDelta(t, tt.expectQuota, quota, 1e-9)
+			assert.Equal(t, tt.expectCpuset, cpusetSize)
+		})
+	}
+}
+
+func TestQoSRegionShareBootstrapEffectiveControlKnobWhenDefaultShareBackfillEnabled(t *testing.T) {
+	t.Parallel()
+
+	conf, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	dynamicConf := conf.GetDynamicConfiguration()
+	dynamicConf.EnableReclaim = true
+	dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs = true
+	dynamicConf.AllowSharedCoresOverlapReclaimedCores = false
+	dynamicConf.DisableDedicatedCoresOverlapReclaimedCores = true
+
+	metaCache := metacache.NewDummyMetaCacheImp()
+	require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameShare, &types.PoolInfo{
+		PoolName: commonstate.PoolNameShare,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(),
+		},
+	}))
+	require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameReserve, &types.PoolInfo{
+		PoolName: commonstate.PoolNameReserve,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(0),
+		},
+	}))
+	require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+		PoolName: commonstate.PoolNameReclaim,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(1, 2),
+		},
+	}))
+
+	share := &QoSRegionShare{
+		QoSRegionBase: &QoSRegionBase{
+			ownerPoolName: commonstate.PoolNameShare,
+			conf:          conf,
+			metaReader:    metaCache,
+			isQuotaCtrlKnobEnabled: func(metacache.MetaReader) (bool, error) {
+				return false, nil
+			},
+			ResourceEssentials: types.ResourceEssentials{
+				DynamicConfiguration: dynamicConf,
+				ResourceUpperBound:   5,
+			},
+		},
+	}
+
+	controlKnobs := share.getEffectiveControlKnobs()
+	require.NotNil(t, controlKnobs)
+	require.Contains(t, controlKnobs, configapi.ControlKnobNonReclaimedCPURequirement)
+	require.Equal(t, float64(5), controlKnobs[configapi.ControlKnobNonReclaimedCPURequirement].Value)
+}
+
+func TestQoSRegionShareBootstrapUsesStaticReclaimReserveWhenReclaimDisabled(t *testing.T) {
+	t.Parallel()
+
+	conf, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	dynamicConf := conf.GetDynamicConfiguration()
+	dynamicConf.EnableReclaim = false
+	dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs = true
+	dynamicConf.AllowSharedCoresOverlapReclaimedCores = false
+	dynamicConf.DisableDedicatedCoresOverlapReclaimedCores = true
+
+	metaCache := metacache.NewDummyMetaCacheImp()
+	require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameShare, &types.PoolInfo{
+		PoolName: commonstate.PoolNameShare,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(),
+		},
+	}))
+	require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameReserve, &types.PoolInfo{
+		PoolName: commonstate.PoolNameReserve,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(0),
+		},
+	}))
+	require.NoError(t, metaCache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+		PoolName: commonstate.PoolNameReclaim,
+		TopologyAwareAssignments: types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(1, 2, 3, 4, 5, 6),
+		},
+	}))
+
+	share := &QoSRegionShare{
+		QoSRegionBase: &QoSRegionBase{
+			ownerPoolName: commonstate.PoolNameShare,
+			conf:          conf,
+			metaReader:    metaCache,
+			isQuotaCtrlKnobEnabled: func(metacache.MetaReader) (bool, error) {
+				return false, nil
+			},
+			ResourceEssentials: types.ResourceEssentials{
+				DynamicConfiguration: dynamicConf,
+				ResourceUpperBound:   5,
+				ReservedForReclaim:   2,
+			},
+		},
+	}
+
+	controlKnobs := share.getEffectiveControlKnobs()
+	require.NotNil(t, controlKnobs)
+	require.Contains(t, controlKnobs, configapi.ControlKnobNonReclaimedCPURequirement)
+	require.Equal(t, float64(5), controlKnobs[configapi.ControlKnobNonReclaimedCPURequirement].Value)
+}
+
+func TestQoSRegionShareDoesNotBootstrapNonDefaultSharePools(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		ownerPoolName string
+		isNumaBinding bool
+	}{
+		{
+			name:          "custom share",
+			ownerPoolName: "custom-share",
+		},
+		{
+			name:          "share numa binding",
+			ownerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+			isNumaBinding: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf, err := options.NewOptions().Config()
+			require.NoError(t, err)
+			dynamicConf := conf.GetDynamicConfiguration()
+			dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs = true
+			dynamicConf.AllowSharedCoresOverlapReclaimedCores = false
+
+			metaCache := metacache.NewDummyMetaCacheImp()
+			require.NoError(t, metaCache.SetPoolInfo(tt.ownerPoolName, &types.PoolInfo{
+				PoolName: tt.ownerPoolName,
+				TopologyAwareAssignments: types.TopologyAwareAssignment{
+					0: machine.NewCPUSet(),
+				},
+			}))
+
+			share := &QoSRegionShare{
+				QoSRegionBase: &QoSRegionBase{
+					ownerPoolName: tt.ownerPoolName,
+					conf:          conf,
+					metaReader:    metaCache,
+					isNumaBinding: tt.isNumaBinding,
+					bindingNumas:  machine.NewCPUSet(0),
+					isQuotaCtrlKnobEnabled: func(metacache.MetaReader) (bool, error) {
+						return false, nil
+					},
+					ResourceEssentials: types.ResourceEssentials{
+						DynamicConfiguration: dynamicConf,
+						ResourceUpperBound:   5,
+					},
+				},
+			}
+
+			require.Nil(t, share.getEffectiveControlKnobs())
 		})
 	}
 }

@@ -36,6 +36,7 @@ message ListAndWatchResponse {
   map<string, CalculationEntries> entries = 1; // keyed by pool name or podUID
   bool allow_shared_cores_overlap_reclaimed_cores = 2; // if set to true, cpuset of shared_cores may overlap with reclaimed_cores
   repeated advisorsvc.CalculationInfo extra_entries = 3; // for non-pool and non-container level adjustment (eg. cpu_numa_headroom)
+  bool disable_dedicated_cores_overlap_reclaimed_cores = 4; // if set to true, cpuset of dedicated_cores may not overlap with reclaimed_cores
 }
 
 message CalculationEntries {
@@ -145,6 +146,7 @@ message GetAdviceResponse {
   bool allow_shared_cores_overlap_reclaimed_cores = 2; // if set to true, cpuset of shared_cores may overlap with reclaimed_cores
   repeated advisorsvc.CalculationInfo extra_entries = 3; // for non-pool and non-container level adjustment (eg. cpu_numa_headroom)
   map<string, advisorsvc.FeatureGate> supported_feature_gates = 4; // keyed by feature gate name
+  bool disable_dedicated_cores_overlap_reclaimed_cores = 5; // if set to true, cpuset of dedicated_cores may not overlap with reclaimed_cores
 }
 
 
