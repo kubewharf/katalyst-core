@@ -43,6 +43,8 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -136,11 +138,11 @@ type topologyAdapterImpl struct {
 	needAggregateReportingDevices []string
 
 	// reservedCPUs is the cpus reserved
-	reservedCPUs string
+	reservedCPUs machine.CPUSet
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
-func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration, agentConf *agent.AgentConfiguration,
+func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, conf *config.Configuration,
 	endpoints []string, kubeletResourcePluginPaths []string, kubeletResourcePluginStateFile string, resourceNameToZoneTypeMap map[string]string,
 	skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter,
 	getClientFunc podresources.GetClientFunc, needValidationResources []string,
@@ -161,12 +163,23 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
 	numaCacheGroupZoneNodeMap := util.GenerateNumaCacheGroupZone(numaInfo)
+
+	allCPUs := machine.NewCPUSet()
+	if metaServer.CPUTopology != nil {
+		allCPUs = metaServer.CPUDetails.CPUs().Clone()
+		general.Infof("get machine allCPUs: %v", allCPUs.String())
+	}
+	reservedCPUSet, err := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, allCPUs)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cores reserved for system failed")
+	}
+
 	adapter := &topologyAdapterImpl{
 		endpoints:                      endpoints,
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
 		kubeletResourcePluginStateFile: kubeletResourcePluginStateFile,
-		qosConf:                        qosConf,
-		agentConf:                      agentConf,
+		qosConf:                        conf.QoSConfiguration,
+		agentConf:                      conf.AgentConfiguration,
 		metaServer:                     metaServer,
 		numaSocketZoneNodeMap:          numaSocketZoneNodeMap,
 		numaCacheGroupZoneNodeMap:      numaCacheGroupZoneNodeMap,
@@ -178,8 +191,8 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		podResourcesFilter:             podResourcesFilter,
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
-		needAggregateReportingDevices:  agentConf.NeedAggregateReportingDevices,
-		reservedCPUs:                   agentConf.ReservedCPUList,
+		needAggregateReportingDevices:  conf.NeedAggregateReportingDevices,
+		reservedCPUs:                   reservedCPUSet,
 	}
 
 	return adapter, nil
@@ -534,7 +547,6 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 
 	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
 		// process cache group zone node resources
-		reservedCPUs := machine.MustParse(p.reservedCPUs)
 		for cacheID, cpusets := range p.cacheGroupCPUsMap {
 			cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
 			// calculate capacity by the sum of cache group cpus
@@ -544,7 +556,7 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 			}
 			// calculate the allocatable amount by deducting the reserved cpus
 			cacheGroupCPUSets := machine.NewCPUSet(cpusets.List()...)
-			allocatableCPUSets := cacheGroupCPUSets.Difference(reservedCPUs)
+			allocatableCPUSets := cacheGroupCPUSets.Difference(p.reservedCPUs)
 			allocatable, err := resource.ParseQuantity(fmt.Sprintf("%d", allocatableCPUSets.Size()))
 			if err != nil {
 				errList = append(errList, err)
@@ -814,7 +826,7 @@ func (p *topologyAdapterImpl) generateNumaNodeResourceReservedAttr(node util.Zon
 	}
 
 	numaCapacity := p.metaServer.KatalystMachineInfo.NUMAToCPUs[numaID]
-	numaReserved := numaCapacity.Intersection(machine.MustParse(p.reservedCPUs))
+	numaReserved := numaCapacity.Intersection(p.reservedCPUs)
 	if numaReserved.IsEmpty() {
 		return attrs
 	}
