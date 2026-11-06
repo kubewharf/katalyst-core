@@ -170,3 +170,68 @@ func TestStore_SetAndGetByStringIndex(t *testing.T) {
 	value := store.GetByStringIndex("podUID")
 	assert.Equal(t, "volumeName", value)
 }
+
+// TestStore_GCCPUMetricDropsStaleCPUSubtree is the RED regression for stale
+// per-CPU metrics: a successful snapshot only writes the CPUs it observed this
+// round, so a CPU that dropped out of the snapshot must have its whole subtree
+// removed. Without GCCPUMetric the old value keeps being readable.
+func TestStore_GCCPUMetricDropsStaleCPUSubtree(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	mk := func(v float64) MetricData { return MetricData{Value: v, Time: &now} }
+
+	store := NewMetricStore()
+
+	// round snapshot0: CPUs 0,1,2 all alive
+	for _, cpu := range []int{0, 1, 2} {
+		store.SetCPUMetric(cpu, consts.MetricCPUUsageRatio, mk(0.1))
+		store.SetCPUMetric(cpu, consts.MetricCPUSchedwait, mk(1.0))
+	}
+
+	// round snapshot1: only CPUs 0,2 are alive. The successful snapshot builds
+	// livingCPUSet={0,2} and GC's the whole subtree of every absent CPU.
+	for _, cpu := range []int{0, 2} {
+		store.SetCPUMetric(cpu, consts.MetricCPUUsageRatio, mk(0.2))
+	}
+	store.GCCPUMetric(map[int]bool{0: true, 2: true})
+
+	// living CPUs remain readable
+	for _, cpu := range []int{0, 2} {
+		_, err := store.GetCPUMetric(cpu, consts.MetricCPUUsageRatio)
+		assert.NoError(t, err)
+	}
+
+	// dropped CPU1: old usage AND schedwait are no longer readable
+	_, err := store.GetCPUMetric(1, consts.MetricCPUUsageRatio)
+	assert.Error(t, err)
+	_, err = store.GetCPUMetric(1, consts.MetricCPUSchedwait)
+	assert.Error(t, err)
+
+	// the empty per-CPU entry is pruned from the map entirely
+	store.mutex.RLock()
+	_, ok := store.cpuMetricMap[1]
+	store.mutex.RUnlock()
+	assert.False(t, ok, "cpu1 entry should be removed by whole-subtree GC")
+}
+
+// TestStore_GCCPUMetricEmptyLivingIsValidSnapshot pins the contract that an
+// empty living set is a valid snapshot-valid empty result (not a "did not
+// run" signal): it must drop every per-CPU entry. An early return on empty
+// would mask this. The protection against a *failed* snapshot wiping data lives
+// at the caller (provisioner only invokes this after a successful fetch).
+func TestStore_GCCPUMetricEmptyLivingIsValidSnapshot(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	store := NewMetricStore()
+	store.SetCPUMetric(0, consts.MetricCPUUsageRatio, MetricData{Value: 0.1, Time: &now})
+	store.SetCPUMetric(1, consts.MetricCPUUsageRatio, MetricData{Value: 0.2, Time: &now})
+
+	store.GCCPUMetric(map[int]bool{})
+
+	_, err := store.GetCPUMetric(0, consts.MetricCPUUsageRatio)
+	assert.Error(t, err)
+	_, err = store.GetCPUMetric(1, consts.MetricCPUUsageRatio)
+	assert.Error(t, err)
+}
