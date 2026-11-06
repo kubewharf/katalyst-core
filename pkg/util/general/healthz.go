@@ -146,6 +146,18 @@ func UnregisterTemporaryHeartbeatCheck(name string) {
 	unregisterHealthCheck(name, HealthzCheckModeHeartBeat)
 }
 
+// UnregisterHealthCheck removes a healthz check entry unconditionally. Unlike
+// UnregisterTemporaryHeartbeatCheck it does not require the entry to be
+// temporary and does not refuse non-temporary registrations. It is the explicit
+// undo handle for RegisterHeartbeatCheck / RegisterReportCheck so that tests
+// can restore a clean registry and let the next Register apply its initState
+// (first-registration-wins no longer leaks across -count=N or parallel tests).
+func UnregisterHealthCheck(name string) {
+	healthzCheckLock.Lock()
+	defer healthzCheckLock.Unlock()
+	delete(healthzCheckMap, HealthzCheckName(name))
+}
+
 func RegisterReportCheck(name string, timeout time.Duration, initState HealthzCheckState) {
 	healthzCheckLock.Lock()
 	defer healthzCheckLock.Unlock()

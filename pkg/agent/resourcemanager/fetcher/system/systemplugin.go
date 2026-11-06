@@ -72,6 +72,16 @@ type systemPlugin struct {
 func NewSystemReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, _ plugin.ListAndWatchCallback, cache *v1alpha1.GetReportContentResponse,
 ) (plugin.ReporterPlugin, error) {
+	if emitter == nil {
+		return nil, errors.New("emitter is required for system reporter plugin")
+	}
+	if metaServer == nil {
+		return nil, errors.New("metaServer is required for system reporter plugin")
+	}
+	if conf == nil {
+		return nil, errors.New("conf is required for system reporter plugin")
+	}
+
 	p := &systemPlugin{
 		conf:                        conf,
 		emitter:                     emitter,
