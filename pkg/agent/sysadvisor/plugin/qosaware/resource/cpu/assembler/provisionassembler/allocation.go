@@ -93,15 +93,46 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	}
 
 	// While ramp-up hard partition is active, publish the canonical target even
-	// when this NUMA has no workload region.
+	// when this NUMA has no workload region. This branch used to emit the raw
+	// RampUpReclaimCPUSetCap verbatim, bypassing both ApplyReclaimConstraint (so a
+	// rate-limited per-scope ceiling was ignored and the pool published above the
+	// ceiling) and RecordReclaimConstraintTarget (so the guard commit saw no
+	// descriptive contract for the scope and could neither ACK nor drain it next
+	// round). Route the canonical publish through the same single quantity
+	// boundary as the populated path: clamp to the optional ceiling, then record
+	// the Desired/Floor/SteadyCap/Ceiling/MemberNUMAs contract the guard consumes.
 	if len(shareRegions) == 0 && len(isolationRegions) == 0 && len(dedicatedRegions) == 0 && numaID != commonstate.FakedNUMAID {
 		if effectiveHard {
-			result.SetPoolEntry(
-				commonstate.PoolNameReclaim,
-				numaID,
-				getNUMAsResource(ctx.RampUpReclaimCPUSetCap, numaSet),
+			constraintScope := NewNonExclusiveReclaimConstraintScope(numaID)
+			reservedForReclaim := pa.effectiveReservedForReclaim(ctx, numaSet)
+			rawSize := getNUMAsResource(ctx.RampUpReclaimCPUSetCap, numaSet)
+			domainTarget := ctx.ReclaimDomainTargets[constraintScope]
+			desiredReclaimed := domainTarget.Desired
+			if desiredReclaimed == 0 {
+				desiredReclaimed = rawSize
+			}
+			memberNUMAs := numaSet.ToSliceInt()
+			if domainTarget.MemberNUMAs != nil {
+				memberNUMAs = domainTarget.MemberNUMAs
+			}
+			size, _, constraintExcess := ApplyReclaimConstraint(
+				constraintScope,
+				rawSize,
 				-1,
+				reservedForReclaim,
+				ctx.ReclaimConstraint,
+				ctx.ReclaimCeilings,
+				ctx.ReclaimActiveScopes,
 			)
+			RecordReclaimConstraintTarget(result, ctx.ReclaimConstraint,
+				constraintScope, types.ReclaimConstraintTarget{
+					Desired:     desiredReclaimed,
+					Floor:       reservedForReclaim,
+					SteadyCap:   rawSize,
+					Ceiling:     ctx.ReclaimCeilings[constraintScope],
+					MemberNUMAs: memberNUMAs,
+				}, constraintExcess)
+			result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, size, -1)
 		}
 		return nil
 	}
