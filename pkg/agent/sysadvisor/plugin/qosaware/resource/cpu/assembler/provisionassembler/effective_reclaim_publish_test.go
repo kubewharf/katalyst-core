@@ -560,3 +560,88 @@ func TestRealNUMANormalizedPublishDeltaIsZero(t *testing.T) {
 	require.Equal(t, 0, int(emitter.values[metricReclaimPublishDelta]),
 		"publish_delta must be 0 against the normalized baseline, not 2-3=-1")
 }
+
+// TestEmptyRegionHardCapClampsToCeilingAndRecordsTarget is the P3-B RED probe:
+// a real NUMA hosting no workload region at all, with ramp-up hard partition
+// active, must still route its canonical reclaim publish through the per-scope
+// constraint boundary. The early-return branch used to publish the raw
+// RampUpReclaimCPUSetCap verbatim (8) without ever calling ApplyReclaimConstraint
+// (so the rate-limited ceiling of 3 was ignored) and without calling
+// RecordReclaimConstraintTarget (so the guard commit saw no descriptive contract
+// for the scope and could not ACK / drain it next round).
+//
+// Inputs are the real assembler path: a Snapshot built by NewSnapshot, the real
+// ProvisionContext, and the real assembleWithoutNUMAExclusivePool. The asserted
+// ReclaimConstraintTargets map is exactly the structure
+// reclaimConstraintGuard.commit() consumes (advisor.go hands it
+// result.ReclaimConstraintTargets), so the "next round" guard input is the real
+// published chain, not a hand-built stand-in.
+func TestEmptyRegionHardCapClampsToCeilingAndRecordsTarget(t *testing.T) {
+	t.Parallel()
+
+	conf, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	conf.GetDynamicConfiguration().EnableReclaim = true
+	conf.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
+	conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = 0
+
+	// Real NUMA 0 with no share / isolation / dedicated region at all.
+	regionMap := map[string]region.QoSRegion{}
+	reservedForReclaim := map[int]int{0: 0}
+	rampUpReclaimCPUSetCap := map[int]int{0: 8}
+	numaAvailable := map[int]int{0: 24}
+	nonBindingNUMAs := machine.NewCPUSet()
+
+	metaReader := metacache.NewDummyMetaCacheImp()
+	require.NoError(t, metaReader.SetResourcePackageConfig(types.ResourcePackageConfig{}))
+	// cpusPerCore=1 keeps the whole-core joint normalization out of scope: the
+	// bug being pinned is the constraint clamp, not SMT rounding.
+	metaServer := nonExclusiveTestMetaServer(numaAvailable, 1)
+	pa := NewProvisionAssemblerCommon(conf, nil, metaReader, metaServer, metrics.DummyMetrics{}).(*ProvisionAssemblerCommon)
+
+	scope := NewNonExclusiveReclaimConstraintScope(0)
+	fx := &provisionTestFixture{
+		ProvisionAssemblerCommon: pa,
+		conf:                     conf,
+		dynamicConf:              conf.GetDynamicConfiguration(),
+		regionMap:                regionMap,
+		reservedForReclaim:       reservedForReclaim,
+		rampUpReclaimCPUSetCap:   rampUpReclaimCPUSetCap,
+		numaAvailable:            numaAvailable,
+		nonBindingNumas:          nonBindingNUMAs,
+		allowShared:              false,
+		disableDedicated:         true,
+		RampUpDomains:            []int{0},
+		ReclaimConstraint:        cputypes.ReclaimConstraintReservedFloor,
+		ReclaimActiveScopes:      map[ReclaimConstraintScope]bool{scope: true},
+		ReclaimCeilings:          map[ReclaimConstraintScope]*int{scope: ptrToInt(3)},
+		// No ReclaimDomainTargets entry for this scope: this is the "no target"
+		// round. The early-return must still clamp to the ceiling and record a
+		// coherent descriptive contract rather than publishing the cap raw.
+	}
+
+	result := &types.InternalCPUCalculationResult{
+		PoolEntries:                 map[string]map[int]types.CPUResource{},
+		PoolOverlapInfo:             map[string]map[int]map[string]int{},
+		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{},
+	}
+	require.NoError(t, pa.assembleWithoutNUMAExclusivePool(fx.ctx(), NewRegionMapHelper(regionMap), 0, result))
+
+	// Quantity boundary: the ceiling of 3 must clamp the raw cap of 8. Before the
+	// fix the early-return published 8 verbatim.
+	require.Equal(t, 3, result.PoolEntries[commonstate.PoolNameReclaim][0].Size,
+		"empty-region hard publish must clamp the raw cap to the rate-limited ceiling")
+
+	// Descriptive contract the guard commit consumes. The canonical scope key is
+	// the same string ApplyReclaimConstraint keys on.
+	rec, ok := result.ReclaimConstraintTargets[string(scope)]
+	require.True(t, ok, "guard commit must see a recorded target for %q", string(scope))
+	require.Equal(t, 8, rec.Desired,
+		"with no domain descriptor the desired ramp-up target is the raw cap")
+	require.Equal(t, 0, rec.Floor, "floor is the member-NUMA steady reservation")
+	require.Equal(t, 8, rec.SteadyCap,
+		"steady upper bound in the no-region branch is the canonical cap")
+	require.NotNil(t, rec.Ceiling)
+	require.Equal(t, 3, *rec.Ceiling, "ceiling is the rate-limited bound decided this cycle")
+	require.Equal(t, []int{0}, rec.MemberNUMAs, "member NUMAs is the scope's backing NUMA set")
+}
