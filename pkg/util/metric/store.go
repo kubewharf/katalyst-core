@@ -138,6 +138,29 @@ func (c *MetricStore) DeleteCPUMetric(cpuID int, metricName string) {
 	}
 }
 
+// GCCPUMetric drops the whole per-CPU subtree of every cpuID not present in
+// livingCPUSet. It is the per-CPU analog of GCPodsMetric: a successful
+// snapshot passes exactly the cpuIDs written this round, so a CPU that
+// disappeared from the snapshot is removed wholesale (its entire metric map and
+// the cpuID entry itself). The diff runs under the store lock.
+//
+// livingCPUSet is taken as an authoritative, snapshot-valid result: an empty set
+// is a legitimate "no living CPU" snapshot and removes all per-CPU entries, so
+// there is deliberately no early return on emptiness (that would mask a valid
+// empty snapshot). Callers MUST only invoke this after a successful snapshot —
+// a failed/skipped snapshot must not call it, so stale data is preserved rather
+// than wiped. No read-side filtering, no previous-set tracking, no per-metric
+// deletion, and no key enumeration is exposed.
+func (c *MetricStore) GCCPUMetric(livingCPUSet map[int]bool) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	for cpuID := range c.cpuMetricMap {
+		if _, ok := livingCPUSet[cpuID]; !ok {
+			delete(c.cpuMetricMap, cpuID)
+		}
+	}
+}
+
 func (c *MetricStore) SetContainerMetric(podUID, containerName, metricName string, data MetricData) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
