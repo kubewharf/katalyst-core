@@ -3056,6 +3056,33 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyPolicy(t *testing.T) 
 	assert.Equal(t, nodev1alpha1.TopologyPolicySingleNUMANodeContainerLevel, got)
 }
 
+func TestNewPodResourcesServerTopologyAdapterReservedCPUsFromKubeletConfig(t *testing.T) {
+	t.Parallel()
+
+	testMetaServer := generateTestMetaServer()
+	testMetaServer.KubeletConfigFetcher = kubeletconfig.NewFakeKubeletConfigFetcher(native.KubeletConfiguration{
+		ReservedSystemCPUs: "0-1,4-5",
+	})
+
+	adapter, err := NewPodResourcesServerTopologyAdapter(
+		testMetaServer,
+		generic.NewQoSConfiguration(),
+		agentConf.NewAgentConfiguration(),
+		nil,
+		[]string{t.TempDir()},
+		pkgconsts.KubeletQoSResourceManagerCheckpoint,
+		nil,
+		nil,
+		func() ([]info.Node, error) { return nil, nil },
+		nil,
+		nil,
+		nil,
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "0-1,4-5", adapter.(*topologyAdapterImpl).reservedCPUs)
+}
+
 func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	t.Parallel()
 
