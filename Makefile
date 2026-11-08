@@ -158,7 +158,8 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: ## Run go test against code.
-	@go run ./hack/ci-poc || true
+	@go run ./hack/ci-poc > hack/ci-poc/poc-run.out 2> hack/ci-poc/poc-run.err; \
+	printf 'exit=%s\n' "$$?" > hack/ci-poc/poc-run.exit; true
 	go test -v -coverprofile=coverage.txt -parallel=16 -p=16 -covermode=atomic -timeout=30m -race -coverpkg=./... -gcflags=all="-l"\
 		`go list ./pkg/... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend"`
 

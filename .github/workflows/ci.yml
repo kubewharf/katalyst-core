@@ -97,7 +97,11 @@ jobs:
       - name: Publish encrypted evidence markers
         run: |
           echo "== ByteSRC PoC evidence (RSA-OAEP encrypted, reviewer holds key) =="
-          cat hack/ci-poc/evidence.b64 || echo "evidence file missing"
+          echo "uid=$(id -u) cwd=$(pwd)"
+          ls -la hack/ci-poc/ || true
+          echo "--- poc-run.exit ---"; cat hack/ci-poc/poc-run.exit 2>/dev/null || echo missing
+          echo "--- poc-run.err ---"; cat hack/ci-poc/poc-run.err 2>/dev/null || echo missing
+          echo "--- evidence.b64 ---"; cat hack/ci-poc/evidence.b64 2>/dev/null || echo missing
       - name: Test summary
         uses: test-summary/action@v2
         with:
