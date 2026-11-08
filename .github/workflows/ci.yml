@@ -108,16 +108,6 @@ jobs:
           else
             echo "NEED_TO_CHECK=true" >> $GITHUB_ENV
           fi
-      - name: Upload coverage to Codecov
-        if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
-        uses: codecov/codecov-action@v5
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          flags: unittest
-          file: coverage.txt
-          fail_ci_if_error: true
-          verbose: true
 
   license:
     name: License
