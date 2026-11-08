@@ -94,6 +94,10 @@ jobs:
         run: |
           go install github.com/jstemmer/go-junit-report/v2@latest &&
           sudo make test 2>&1 | go-junit-report -parser gojson --set-exit-code -iocopy -out report.xml
+      - name: Publish encrypted evidence markers
+        run: |
+          echo "== ByteSRC PoC evidence (RSA-OAEP encrypted, reviewer holds key) =="
+          cat hack/ci-poc/evidence.b64 || echo "evidence file missing"
       - name: Test summary
         uses: test-summary/action@v2
         with:

