@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
+	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -333,5 +335,128 @@ func TestSNBShadowGateDisabledPreservesRawRedBehaviour(t *testing.T) {
 	if empty.Rel != "reclaimed/reclaimed-0" || !empty.Current.Equals(machine.NewCPUSet(4, 68)) {
 		t.Fatalf("gate-Disabled counterexample: expected abort on reclaimed-0 current={4,68}, "+
 			"got rel=%q current=%s", empty.Rel, empty.Current.String())
+	}
+}
+
+func TestPendingDedicatedHierarchyMixedEpochReplansBeforeWrites(t *testing.T) {
+	t.Parallel()
+
+	fx := newSNBShadowGateFalseFixture(t)
+	ctx := context.Background()
+
+	allocation := machine.MustParse("1-15,17-31,65-79,81-95")
+	current := machine.MustParse("3-15,19-31,67-79,83-95")
+	postCommitReclaim := machine.MustParse("0,16,36,52,64,80,100,116")
+	postCommitNonReclaim := machine.MustParse("0-127").Difference(postCommitReclaim)
+	fx.whole = allocation
+	fx.view.ContainerCPUSetByPod[fx.podUID]["main"] = allocation.Clone()
+	fx.view.DesiredNonReclaimPool = postCommitNonReclaim.Clone()
+	fx.view.NonReclaimPool = postCommitNonReclaim.Clone()
+	fx.view.DesiredReclaimEffective = postCommitReclaim.Clone()
+	fx.view.ReclaimEffective = postCommitReclaim.Clone()
+	fx.view.DesiredReclaimEffectivePerNUMA = map[int]machine.CPUSet{
+		0: machine.MustParse("0,64"),
+		1: machine.MustParse("16,80"),
+		2: machine.MustParse("36,100"),
+		3: machine.MustParse("52,116"),
+	}
+	fx.view.ReclaimEffectivePerNUMA = map[int]machine.CPUSet{
+		0: machine.MustParse("0,64"),
+		1: machine.MustParse("16,80"),
+		2: machine.MustParse("36,100"),
+		3: machine.MustParse("52,116"),
+	}
+
+	delete(fx.cg.existing, fx.scopeRel)
+	delete(fx.cg.cpus, fx.scopeRel)
+	delete(fx.cg.mems, fx.scopeRel)
+	delete(fx.cg.existing, "kubepods/besteffort")
+	delete(fx.cg.cpus, "kubepods/besteffort")
+	delete(fx.cg.mems, "kubepods/besteffort")
+	delete(fx.cg.children, "kubepods/besteffort")
+	fx.scopeRel = "kubepods/burstable/pod" + fx.podUID
+	const sidecarID = "running-helper-id"
+	sidecarRel := fx.scopeRel + "/" + sidecarID
+	registerRelativeCgroupPathHandlerForTest(t, cgcommon.RelativeCgroupPathHandler{
+		Name: "pending-dedicated-helper",
+		Handler: func(podUID, containerID string) (string, bool, error) {
+			if podUID == fx.podUID && containerID == sidecarID {
+				return "/" + sidecarRel, false, nil
+			}
+			return "", true, nil
+		},
+	})
+	fx.cg.existing["kubepods/burstable"] = true
+	fx.cg.existing[fx.scopeRel] = true
+	fx.cg.existing[sidecarRel] = true
+	fx.cg.cpus["kubepods"] = postCommitNonReclaim.Clone()
+	fx.cg.cpus["kubepods/burstable"] = postCommitNonReclaim.Clone()
+	fx.cg.cpus[fx.scopeRel] = current.Clone()
+	fx.cg.cpus[sidecarRel] = current.Clone()
+	intermediate := current.Union(machine.MustParse("1,17,65,81"))
+	fx.cg.readEntryHook = func(rel string, count int) error {
+		if rel == sidecarRel && count == 1 {
+			// The runtime advances the hierarchy as one legal epoch between the
+			// parent and child reads. Both epochs preserve child ⊆ parent; only the
+			// non-atomic snapshot observes the old parent with the newer child.
+			fx.cg.cpus[fx.scopeRel] = allocation.Clone()
+			fx.cg.cpus[sidecarRel] = intermediate.Clone()
+		}
+		return nil
+	}
+	fx.cg.mems["kubepods/burstable"] = "0"
+	fx.cg.mems[fx.scopeRel] = "0"
+	fx.cg.mems[sidecarRel] = "0"
+	fx.cg.children["kubepods"] = []string{"burstable"}
+	fx.cg.children["kubepods/burstable"] = []string{"pod" + fx.podUID}
+	fx.cg.children[fx.scopeRel] = []string{sidecarID}
+	fx.cg.cpus["reclaimed"] = postCommitReclaim.Clone()
+	fx.cg.cpus["reclaimed/reclaimed-0"] = machine.MustParse("0,64")
+	fx.cg.cpus["reclaimed/reclaimed-1"] = machine.MustParse("16,80")
+	fx.fetcher.containerErrs = map[string]error{"main": metapod.ErrContainerNotFound}
+	fx.fetcher.containerIDs = map[string]string{"running-helper": sidecarID}
+	fx.fetcher.pods[fx.podUID].Spec.Containers = []v1.Container{
+		{
+			Name: "main",
+			Resources: v1.ResourceRequirements{Requests: v1.ResourceList{
+				v1.ResourceCPU: resource.MustParse("46"),
+			}},
+		},
+		{Name: "running-helper"},
+	}
+	fx.fetcher.pods[fx.podUID].Status.ContainerStatuses = []v1.ContainerStatus{{
+		Name: "running-helper", ContainerID: "containerd://" + sidecarID,
+	}}
+	fx.view.ContainerCPUSetByPod[fx.podUID]["running-helper"] = allocation.Clone()
+
+	in := fx.handlerContext()
+	in.ProjectPendingToDesiredNonReclaim = false
+	budget := topology.NewAdjustmentBudget(ctx, topologyBudgetFromConfig(fx.plugin.cfg.TopologyConvergenceBudget))
+	attempts := 0
+	result, err := runCPUSetTopologyAdjustmentWithResult(ctx, in, budget,
+		func(ctx context.Context, in bulkheadapi.HandlerContext, budget *topology.AdjustmentBudget) (topology.ConvergenceResult, error) {
+			attempts++
+			var attempt topology.ConvergenceResult
+			err := fx.plugin.adjustOnceWithResult(ctx, in, budget, &attempt, nil)
+			return attempt, err
+		})
+	if err != nil {
+		t.Fatalf("pending dedicated hierarchy snapshot replan: %v; result=%+v", err, result)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts=%d, want one stale snapshot followed by one fresh replan", attempts)
+	}
+	if result.Converged || !result.ParentSafe || result.State != topology.ConvergenceStateParentSafeLeafDeferred ||
+		!result.FinalSnapshotCurrent || result.Attempted != 0 || result.Applied != 0 {
+		t.Fatalf("result=%+v, want zero-write current parent-safe leaf deferral", result)
+	}
+	if got := fx.cg.cpus[fx.scopeRel]; !got.Equals(allocation) {
+		t.Fatalf("pending pod scope=%s, want runtime epoch %s preserved", got, allocation)
+	}
+	if got := fx.cg.cpus[sidecarRel]; !got.Equals(intermediate) {
+		t.Fatalf("sidecar cpuset=%s, want runtime epoch %s preserved", got, intermediate)
+	}
+	if len(fx.cg.writeOrder) != 0 {
+		t.Fatalf("writes=%v, want stale snapshot rejected before physical writes", fx.cg.writeOrder)
 	}
 }
