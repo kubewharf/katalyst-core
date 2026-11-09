@@ -19,7 +19,9 @@ package cpusettopology
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -92,7 +94,6 @@ func enforcementAppliedFloorWholeNUMA0() machine.CPUSet {
 //     applied NUMA0 reclaim bucket {4,68}. ProjectPendingToDesiredNonReclaim clips
 //     it to the validated 30 = whole NUMA0 minus {4,68}.
 type enforcementAppliedFloorFixture struct {
-	t        *testing.T
 	plugin   *CPUSetTopologyPlugin
 	desired  *model.DesiredView
 	applied  *model.AppliedView
@@ -220,7 +221,7 @@ func newEnforcementAppliedFloorFixture(t *testing.T) *enforcementAppliedFloorFix
 	p := &CPUSetTopologyPlugin{cfg: *cfg, cgroup: cg}
 
 	return &enforcementAppliedFloorFixture{
-		t: t, plugin: p, desired: desired, applied: applied, cg: cg, fetcher: fetcher,
+		plugin: p, desired: desired, applied: applied, cg: cg, fetcher: fetcher,
 		details: details, reclaim8: reclaim8, reclaim6: reclaim6, whole: whole,
 		podUID: podUID, scopeRel: scopeRel,
 	}
@@ -255,12 +256,6 @@ func (f *enforcementAppliedFloorFixture) enforcementAppliedFloorProtected30() ma
 // folded onto the non-reclaim side. That keeps reclaimed-0={4,68} in the spec /
 // required floor, leaves the business desired allocation (32) untouched, and emits
 // a real dynamic leaf shrink (the pending leaf 32 -> 30).
-//
-// RED today: the shadow partition derives its non-reclaim/reclaim from the
-// self-expanded business DesiredNonReclaimPool (122) / DesiredReclaimEffective (6),
-// which already absorbed {4,68} into the primary and dropped the NUMA0 bucket. The
-// reclaimed-0 spec / required floor is empty, {4,68} lands in the primary target,
-// and Converge stalls at a bare no-progress with zero writes.
 func TestEnforcementAppliedFloorRetainsReclaimed0(t *testing.T) {
 	t.Parallel()
 
@@ -268,10 +263,14 @@ func TestEnforcementAppliedFloorRetainsReclaimed0(t *testing.T) {
 	ctx := context.Background()
 
 	in := fx.handlerContext()
+	desiredBefore, err := json.Marshal(fx.desired.CPUSetPartitionView)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	budget := topology.NewAdjustmentBudget(ctx, topologyBudgetFromConfig(fx.plugin.cfg.TopologyConvergenceBudget))
 	var result topology.ConvergenceResult
-	err := fx.plugin.adjustOnceWithResult(ctx, in, budget, &result, nil)
+	err = fx.plugin.adjustOnceWithResult(ctx, in, budget, &result, nil)
 
 	t.Logf("adjustOnceWithResult err=%v", err)
 	t.Logf("convergence state=%s converged=%t parentSafe=%t deferred=%d attempted=%d applied=%d finalCurrent=%t",
@@ -320,8 +319,12 @@ func TestEnforcementAppliedFloorRetainsReclaimed0(t *testing.T) {
 
 	// The business DesiredView is never mutated: the business desired allocation
 	// (DesiredNonReclaimPool=122) stays business truth.
-	if !fx.desired.DesiredNonReclaimPool.Equals(fx.desired.DesiredNonReclaimPool) {
-		t.Fatalf("business DesiredNonReclaimPool was mutated")
+	desiredAfter, err := json.Marshal(fx.desired.CPUSetPartitionView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(desiredAfter) != string(desiredBefore) {
+		t.Fatal("business DesiredView was mutated")
 	}
 	if got := fx.desired.DesiredNonReclaimPool.Size(); got != 122 {
 		t.Fatalf("business desired allocation pool must stay 122; got %d", got)
@@ -335,192 +338,205 @@ func TestEnforcementAppliedFloorRetainsReclaimed0(t *testing.T) {
 func TestOwnerProvenReclaimHandoffAdmissionDrainsSourceBeforeRetryGrowsLeaf(t *testing.T) {
 	t.Parallel()
 
-	fx := newEnforcementAppliedFloorFixture(t)
-	ctx := context.Background()
-	all := machine.MustParse("0-127")
-	handoff := machine.MustParse("4,68")
-	// Keep one whole core in NUMA0 reclaim so this test exercises the successful
-	// handoff path. Draining the last v1 source CPU stays zero-write fail-closed;
-	// that planner boundary is locked by TestV1PlannerRejectsExplicitOrControlledEmptyTargets.
-	retainedReclaim := machine.MustParse("5,69")
-	oldReclaim := fx.reclaim8.Union(retainedReclaim)
-	newReclaim := fx.reclaim6.Union(retainedReclaim)
-	oldNonReclaim := all.Difference(oldReclaim)
-	newNonReclaim := all.Difference(newReclaim)
-	current := machine.MustParse("0,64")
-	target := current.Union(handoff)
-	const runningPodUID = "running-handoff"
-	runningPodRel := "kubepods/besteffort/pod" + runningPodUID
-	leafRel := runningPodRel + "/container-id"
-	ownerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "shared-pool"}
-	reclaimOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindReclaim}
+	for _, pendingScope := range []bool{true, false} {
+		pendingScope := pendingScope
+		t.Run(fmt.Sprintf("pending_scope=%t", pendingScope), func(t *testing.T) {
+			t.Parallel()
+			fx := newEnforcementAppliedFloorFixture(t)
+			ctx := context.Background()
+			all := machine.MustParse("0-127")
+			handoff := machine.MustParse("4,68")
+			// Keep one whole core in NUMA0 reclaim so this test exercises the successful
+			// handoff path. Draining the last v1 source CPU stays zero-write fail-closed;
+			// that planner boundary is locked by TestV1PlannerRejectsExplicitOrControlledEmptyTargets.
+			retainedReclaim := machine.MustParse("5,69")
+			oldReclaim := fx.reclaim8.Union(retainedReclaim)
+			newReclaim := fx.reclaim6.Union(retainedReclaim)
+			oldNonReclaim := all.Difference(oldReclaim)
+			newNonReclaim := all.Difference(newReclaim)
+			current := machine.MustParse("0,64")
+			target := current.Union(handoff)
+			const runningPodUID = "running-handoff"
+			runningPodRel := "kubepods/besteffort/pod" + runningPodUID
+			leafRel := runningPodRel + "/container-id"
+			ownerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "shared-pool"}
+			reclaimOwnerID := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindReclaim}
 
-	fx.cg.existing[runningPodRel] = true
-	fx.cg.existing[leafRel] = true
-	fx.cg.cpus["kubepods"] = oldNonReclaim.Clone()
-	fx.cg.cpus["kubepods/besteffort"] = oldNonReclaim.Clone()
-	fx.cg.cpus[fx.scopeRel] = oldNonReclaim.Clone()
-	fx.cg.cpus[runningPodRel] = oldNonReclaim.Clone()
-	fx.cg.cpus[leafRel] = current.Clone()
-	fx.cg.cpus["reclaimed"] = oldReclaim.Clone()
-	fx.cg.cpus["reclaimed/reclaimed-0"] = machine.MustParse("4-5,68-69")
-	fx.cg.children["kubepods/besteffort"] = []string{"pod" + fx.podUID, "pod" + runningPodUID}
-	fx.cg.children[runningPodRel] = []string{"container-id"}
-	fx.cg.mems[runningPodRel] = "0"
+			fx.cg.existing[runningPodRel] = true
+			fx.cg.existing[leafRel] = true
+			fx.cg.cpus["kubepods"] = oldNonReclaim.Clone()
+			fx.cg.cpus["kubepods/besteffort"] = oldNonReclaim.Clone()
+			fx.cg.cpus[fx.scopeRel] = oldNonReclaim.Clone()
+			fx.cg.cpus[runningPodRel] = oldNonReclaim.Clone()
+			fx.cg.cpus[leafRel] = current.Clone()
+			fx.cg.cpus["reclaimed"] = oldReclaim.Clone()
+			fx.cg.cpus["reclaimed/reclaimed-0"] = machine.MustParse("4-5,68-69")
+			fx.cg.children["kubepods/besteffort"] = []string{"pod" + fx.podUID, "pod" + runningPodUID}
+			fx.cg.children[runningPodRel] = []string{"container-id"}
+			fx.cg.mems[runningPodRel] = "0"
 
-	runningPod := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{UID: types.UID(runningPodUID)},
-		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
-		Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
-			Name: "main", ContainerID: "containerd://container-id",
-			State: v1.ContainerState{Running: &v1.ContainerStateRunning{}},
-		}}},
-	}
-	fx.fetcher.containerErr = nil
-	fx.fetcher.containerErrs = map[string]error{"pending": metapod.ErrContainerNotFound}
-	fx.fetcher.containerIDs = map[string]string{"main": "container-id"}
-	fx.fetcher.pods[fx.podUID] = &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{UID: types.UID(fx.podUID)},
-		Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "pending"}}},
-	}
-	fx.fetcher.pods[runningPodUID] = runningPod
+			runningPod := &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(runningPodUID)},
+				Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+				Status: v1.PodStatus{ContainerStatuses: []v1.ContainerStatus{{
+					Name: "main", ContainerID: "containerd://container-id",
+					State: v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+				}}},
+			}
+			fx.fetcher.containerErr = nil
+			fx.fetcher.containerErrs = map[string]error{"pending": metapod.ErrContainerNotFound}
+			fx.fetcher.containerIDs = map[string]string{"main": "container-id"}
+			fx.fetcher.pods[fx.podUID] = &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{UID: types.UID(fx.podUID)},
+				Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "pending"}}},
+			}
+			fx.fetcher.pods[runningPodUID] = runningPod
 
-	state := cpustate.NewCPUPluginState(&machine.CPUTopology{CPUDetails: fx.details})
-	if err := state.SetAllocationInfo(runningPodUID, "main", &cpustate.AllocationInfo{
-		AllocationMeta: commonstate.AllocationMeta{
-			PodUid: runningPodUID, ContainerName: "main",
-			OwnerPoolName: ownerID.Name, QoSLevel: commonstate.PoolNameShare,
-		},
-		AllocationResult: target.Clone(),
-	}); err != nil {
-		t.Fatalf("seed allocation: %v", err)
-	}
+			state := cpustate.NewCPUPluginState(&machine.CPUTopology{CPUDetails: fx.details})
+			if err := state.SetAllocationInfo(runningPodUID, "main", &cpustate.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid: runningPodUID, ContainerName: "main",
+					OwnerPoolName: ownerID.Name, QoSLevel: commonstate.PoolNameShare,
+				},
+				AllocationResult: target.Clone(),
+			}); err != nil {
+				t.Fatalf("seed allocation: %v", err)
+			}
 
-	fx.desired.NonReclaimPool = newNonReclaim.Clone()
-	fx.desired.ReclaimEffective = newReclaim.Clone()
-	fx.desired.ReclaimEffectivePerNUMA[0] = retainedReclaim.Clone()
-	fx.desired.DesiredNonReclaimPool = newNonReclaim.Clone()
-	fx.desired.DesiredReclaimEffective = newReclaim.Clone()
-	fx.desired.DesiredReclaimEffectivePerNUMA[0] = retainedReclaim.Clone()
-	fx.desired.ContainerCPUSetByPod = map[string]map[string]machine.CPUSet{
-		fx.podUID:     {"pending": fx.whole.Clone()},
-		runningPodUID: {"main": target.Clone()},
-	}
-	fx.desired.PoolOwners = map[model.CPUSetPoolIdentity]model.DesiredPoolOwner{
-		ownerID: {
-			ExpectedCPUSet:        target.Clone(),
-			ContainerCPUSetByName: map[string]machine.CPUSet{},
-		},
-	}
+			fx.desired.NonReclaimPool = newNonReclaim.Clone()
+			fx.desired.ReclaimEffective = newReclaim.Clone()
+			fx.desired.ReclaimEffectivePerNUMA[0] = retainedReclaim.Clone()
+			fx.desired.DesiredNonReclaimPool = newNonReclaim.Clone()
+			fx.desired.DesiredReclaimEffective = newReclaim.Clone()
+			fx.desired.DesiredReclaimEffectivePerNUMA[0] = retainedReclaim.Clone()
+			fx.desired.ContainerCPUSetByPod = map[string]map[string]machine.CPUSet{
+				fx.podUID:     {"pending": fx.whole.Clone()},
+				runningPodUID: {"main": target.Clone()},
+			}
+			fx.desired.PoolOwners = map[model.CPUSetPoolIdentity]model.DesiredPoolOwner{
+				ownerID: {
+					ExpectedCPUSet:        target.Clone(),
+					ContainerCPUSetByName: map[string]machine.CPUSet{},
+				},
+			}
 
-	fx.applied.NonReclaimPool = oldNonReclaim.Clone()
-	fx.applied.ReclaimEffective = oldReclaim.Clone()
-	fx.applied.ReclaimEffectivePerNUMA[0] = machine.MustParse("4-5,68-69")
-	fx.applied.PoolProjection = model.NewAppliedPoolProjection()
-	fx.applied.PoolProjection.CPUSetByIdentity[ownerID] = current.Clone()
-	fx.applied.PoolProjection.CPUSetByIdentity[reclaimOwnerID] = oldReclaim.Clone()
-	fx.applied.PoolProjection.UncoveredCPUs = handoff.Clone()
+			fx.applied.NonReclaimPool = oldNonReclaim.Clone()
+			fx.applied.ReclaimEffective = oldReclaim.Clone()
+			fx.applied.ReclaimEffectivePerNUMA[0] = machine.MustParse("4-5,68-69")
+			fx.applied.PoolProjection = model.NewAppliedPoolProjection()
+			fx.applied.PoolProjection.CPUSetByIdentity[ownerID] = current.Clone()
+			fx.applied.PoolProjection.CPUSetByIdentity[reclaimOwnerID] = oldReclaim.Clone()
+			fx.applied.PoolProjection.UncoveredCPUs = handoff.Clone()
 
-	fx.plugin.resolveContainerRel = func(podUID, containerID string) (string, error) {
-		if podUID != runningPodUID || containerID != "container-id" {
-			t.Fatalf("unexpected resolver input pod=%q container=%q", podUID, containerID)
-		}
-		return leafRel, nil
-	}
+			fx.plugin.resolveContainerRel = func(podUID, containerID string) (string, error) {
+				if podUID != runningPodUID || containerID != "container-id" {
+					t.Fatalf("unexpected resolver input pod=%q container=%q", podUID, containerID)
+				}
+				return leafRel, nil
+			}
 
-	desiredBefore := fx.desired.DeepCopy()
-	appliedBefore := fx.applied.DeepCopy()
-	in := fx.handlerContext()
-	in.State = state
+			if !pendingScope {
+				delete(fx.desired.ContainerCPUSetByPod, fx.podUID)
+			}
+			desiredBefore := fx.desired.DeepCopy()
+			appliedBefore := fx.applied.DeepCopy()
+			in := fx.handlerContext()
+			in.State = state
 
-	budget := topology.NewAdjustmentBudget(ctx, topologyBudgetFromConfig(fx.plugin.cfg.TopologyConvergenceBudget))
-	var admission topology.ConvergenceResult
-	var publishedAdmission bulkheadapi.TopologyResult
-	err := fx.plugin.adjustOnceWithResult(ctx, in, budget, &admission, func(result bulkheadapi.TopologyResult) {
-		publishedAdmission = result
-	})
-	if err != nil {
-		t.Fatalf("Admission handoff error = %v; result=%+v", err, admission)
-	}
-	if !admission.ParentSafe || admission.Converged {
-		t.Fatalf("Admission must publish ParentSafe but not Full before leaf grow; result=%+v", admission)
-	}
-	if fx.cg.applyCounts[leafRel] != 0 {
-		t.Fatalf("Admission wrote deferred leaf %q %d times", leafRel, fx.cg.applyCounts[leafRel])
-	}
-	if got := fx.cg.cpus[leafRel]; !got.Equals(current) {
-		t.Fatalf("Admission leaf=%s, want unchanged current=%s", got.String(), current.String())
-	}
-	if got := fx.cg.cpus["reclaimed/reclaimed-0"]; !got.Equals(retainedReclaim) {
-		t.Fatalf("Admission reclaim source=%s, want retained=%s", got.String(), retainedReclaim.String())
-	}
-	if got := fx.cg.cpus["reclaimed"]; !got.Equals(newReclaim) {
-		t.Fatalf("Admission reclaim root=%s, want carved=%s", got.String(), newReclaim.String())
-	}
-	if got := fx.cg.cpus["kubepods"]; !got.Equals(newNonReclaim) {
-		t.Fatalf("Admission controlled primary=%s, want closure=%s", got.String(), newNonReclaim.String())
-	}
-	if got := fx.cg.cpus["kubepods/besteffort"]; !got.Equals(oldNonReclaim) {
-		t.Fatalf("Admission widened dynamic ancestor early: got=%s want=%s", got.String(), oldNonReclaim.String())
-	}
-	bucketWrite := indexOfString(fx.cg.writeOrder, "reclaimed/reclaimed-0")
-	reclaimWrite := indexOfString(fx.cg.writeOrder, "reclaimed")
-	primaryWrite := indexOfString(fx.cg.writeOrder, "kubepods")
-	if bucketWrite < 0 || reclaimWrite < 0 || primaryWrite < 0 ||
-		bucketWrite >= primaryWrite || reclaimWrite >= primaryWrite {
-		t.Fatalf("Admission write order=%v, want reclaim source/root before controlled primary", fx.cg.writeOrder)
-	}
-	if !model.EqualDesiredView(fx.desired.DeepCopy(), desiredBefore) {
-		t.Fatal("Admission mutated canonical DesiredView content")
-	}
-	if !model.EqualAppliedView(fx.applied.DeepCopy(), appliedBefore) {
-		t.Fatal("Admission mutated canonical AppliedView content")
-	}
+			budget := topology.NewAdjustmentBudget(ctx, topologyBudgetFromConfig(fx.plugin.cfg.TopologyConvergenceBudget))
+			var admission topology.ConvergenceResult
+			var publishedAdmission bulkheadapi.TopologyResult
+			err := fx.plugin.adjustOnceWithResult(ctx, in, budget, &admission, func(result bulkheadapi.TopologyResult) {
+				publishedAdmission = result
+			})
+			if err != nil {
+				t.Fatalf("Admission handoff error = %v; result=%+v", err, admission)
+			}
+			if !admission.ParentSafe || admission.Converged {
+				t.Fatalf("Admission must publish ParentSafe but not Full before leaf grow; result=%+v", admission)
+			}
+			if fx.cg.applyCounts[leafRel] != 0 {
+				t.Fatalf("Admission wrote deferred leaf %q %d times", leafRel, fx.cg.applyCounts[leafRel])
+			}
+			if got := fx.cg.cpus[leafRel]; !got.Equals(current) {
+				t.Fatalf("Admission leaf=%s, want unchanged current=%s", got.String(), current.String())
+			}
+			if got := fx.cg.cpus["reclaimed/reclaimed-0"]; !got.Equals(retainedReclaim) {
+				t.Fatalf("Admission reclaim source=%s, want retained=%s", got.String(), retainedReclaim.String())
+			}
+			if got := fx.cg.cpus["reclaimed"]; !got.Equals(newReclaim) {
+				t.Fatalf("Admission reclaim root=%s, want carved=%s", got.String(), newReclaim.String())
+			}
+			wantPrimary := newNonReclaim
+			if !pendingScope {
+				wantPrimary = oldNonReclaim // Admission requires no primary grow without pending CPUs.
+			}
+			if got := fx.cg.cpus["kubepods"]; !got.Equals(wantPrimary) {
+				t.Fatalf("Admission controlled primary=%s, want closure=%s", got.String(), wantPrimary.String())
+			}
+			if got := fx.cg.cpus["kubepods/besteffort"]; !got.Equals(oldNonReclaim) {
+				t.Fatalf("Admission widened dynamic ancestor early: got=%s want=%s", got.String(), oldNonReclaim.String())
+			}
+			bucketWrite := indexOfString(fx.cg.writeOrder, "reclaimed/reclaimed-0")
+			reclaimWrite := indexOfString(fx.cg.writeOrder, "reclaimed")
+			primaryWrite := indexOfString(fx.cg.writeOrder, "kubepods")
+			if bucketWrite < 0 || reclaimWrite < 0 ||
+				(pendingScope && (primaryWrite < 0 || bucketWrite >= primaryWrite || reclaimWrite >= primaryWrite)) {
+				t.Fatalf("Admission write order=%v, want reclaim source/root before any required primary grow", fx.cg.writeOrder)
+			}
+			if !model.EqualDesiredView(fx.desired.DeepCopy(), desiredBefore) {
+				t.Fatal("Admission mutated canonical DesiredView content")
+			}
+			if !model.EqualAppliedView(fx.applied.DeepCopy(), appliedBefore) {
+				t.Fatal("Admission mutated canonical AppliedView content")
+			}
 
-	if publishedAdmission.AppliedView == nil {
-		t.Fatal("Admission did not publish its ParentSafe AppliedView")
-	}
-	if publishedAdmission.AppliedView.Level != model.AppliedViewLevelParentSafe {
-		t.Fatalf("Admission published level=%s, want ParentSafe", publishedAdmission.AppliedView.Level)
-	}
-	if got := publishedAdmission.AppliedView.ReclaimEffective; !got.Equals(newReclaim) {
-		t.Fatalf("Admission published reclaim=%s, want carved=%s", got.String(), newReclaim.String())
-	}
-	if got := publishedAdmission.AppliedView.ReclaimEffectivePerNUMA[0]; !got.Equals(retainedReclaim) {
-		t.Fatalf("Admission published NUMA0 reclaim=%s, want retained=%s", got.String(), retainedReclaim.String())
-	}
-	in.AppliedView = publishedAdmission.AppliedView.DeepCopy()
-	in.Mode = cpusetutil.CPUSetAdjustmentModeRetry
+			if publishedAdmission.AppliedView == nil {
+				t.Fatal("Admission did not publish its ParentSafe AppliedView")
+			}
+			if publishedAdmission.AppliedView.Level != model.AppliedViewLevelParentSafe {
+				t.Fatalf("Admission published level=%s, want ParentSafe", publishedAdmission.AppliedView.Level)
+			}
+			if got := publishedAdmission.AppliedView.ReclaimEffective; !got.Equals(newReclaim) {
+				t.Fatalf("Admission published reclaim=%s, want carved=%s", got.String(), newReclaim.String())
+			}
+			if got := publishedAdmission.AppliedView.ReclaimEffectivePerNUMA[0]; !got.Equals(retainedReclaim) {
+				t.Fatalf("Admission published NUMA0 reclaim=%s, want retained=%s", got.String(), retainedReclaim.String())
+			}
+			in.AppliedView = publishedAdmission.AppliedView.DeepCopy()
+			in.Mode = cpusetutil.CPUSetAdjustmentModeRetry
 
-	beforeRetryLeafWrites := fx.cg.applyCounts[leafRel]
-	beforeRetryWrites := len(fx.cg.writeOrder)
-	budget = topology.NewAdjustmentBudget(ctx, topologyBudgetFromConfig(fx.plugin.cfg.TopologyConvergenceBudget))
-	var retry topology.ConvergenceResult
-	if err := fx.plugin.adjustOnceWithResult(ctx, in, budget, &retry, nil); err != nil {
-		t.Fatalf("Retry handoff error = %v; result=%+v", err, retry)
-	}
-	if !retry.Converged {
-		t.Fatalf("Retry must converge exact leaf target; result=%+v", retry)
-	}
-	if got := fx.cg.applyCounts[leafRel] - beforeRetryLeafWrites; got != 1 {
-		t.Fatalf("Retry leaf writes=%d, want exactly 1", got)
-	}
-	if got := fx.cg.cpus[leafRel]; !got.Equals(target) {
-		t.Fatalf("Retry leaf=%s, want target=%s", got.String(), target.String())
-	}
-	if got := fx.cg.cpus["kubepods/besteffort"]; !got.Equals(newNonReclaim) {
-		t.Fatalf("Retry dynamic ancestor=%s, want closure=%s", got.String(), newNonReclaim.String())
-	}
-	if got := fx.cg.cpus[runningPodRel]; !got.Equals(newNonReclaim) {
-		t.Fatalf("Retry pod ancestor=%s, want closure=%s", got.String(), newNonReclaim.String())
-	}
-	retryWrites := fx.cg.writeOrder[beforeRetryWrites:]
-	qosWrite := indexOfString(retryWrites, "kubepods/besteffort")
-	podWrite := indexOfString(retryWrites, runningPodRel)
-	leafWrite := indexOfString(retryWrites, leafRel)
-	if qosWrite < 0 || podWrite < 0 || leafWrite < 0 ||
-		qosWrite >= leafWrite || podWrite >= leafWrite {
-		t.Fatalf("Retry write order=%v, want dynamic ancestors before leaf", retryWrites)
+			beforeRetryLeafWrites := fx.cg.applyCounts[leafRel]
+			beforeRetryWrites := len(fx.cg.writeOrder)
+			budget = topology.NewAdjustmentBudget(ctx, topologyBudgetFromConfig(fx.plugin.cfg.TopologyConvergenceBudget))
+			var retry topology.ConvergenceResult
+			if err := fx.plugin.adjustOnceWithResult(ctx, in, budget, &retry, nil); err != nil {
+				t.Fatalf("Retry handoff error = %v; result=%+v", err, retry)
+			}
+			if !retry.Converged {
+				t.Fatalf("Retry must converge exact leaf target; result=%+v", retry)
+			}
+			if got := fx.cg.applyCounts[leafRel] - beforeRetryLeafWrites; got != 1 {
+				t.Fatalf("Retry leaf writes=%d, want exactly 1", got)
+			}
+			if got := fx.cg.cpus[leafRel]; !got.Equals(target) {
+				t.Fatalf("Retry leaf=%s, want target=%s", got.String(), target.String())
+			}
+			if got := fx.cg.cpus["kubepods/besteffort"]; !got.Equals(newNonReclaim) {
+				t.Fatalf("Retry dynamic ancestor=%s, want closure=%s", got.String(), newNonReclaim.String())
+			}
+			if got := fx.cg.cpus[runningPodRel]; !got.Equals(newNonReclaim) {
+				t.Fatalf("Retry pod ancestor=%s, want closure=%s", got.String(), newNonReclaim.String())
+			}
+			retryWrites := fx.cg.writeOrder[beforeRetryWrites:]
+			qosWrite := indexOfString(retryWrites, "kubepods/besteffort")
+			podWrite := indexOfString(retryWrites, runningPodRel)
+			leafWrite := indexOfString(retryWrites, leafRel)
+			if qosWrite < 0 || podWrite < 0 || leafWrite < 0 ||
+				qosWrite >= leafWrite || podWrite >= leafWrite {
+				t.Fatalf("Retry write order=%v, want dynamic ancestors before leaf", retryWrites)
+			}
+		})
 	}
 }
 

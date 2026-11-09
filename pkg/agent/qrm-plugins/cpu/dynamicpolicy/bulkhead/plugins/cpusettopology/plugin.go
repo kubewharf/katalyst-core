@@ -3650,7 +3650,7 @@ func pendingProtectedCPUSetByResolvedScopes(protections []topology.PendingProtec
 func unionCPUSetByRel(byRel map[string]machine.CPUSet) machine.CPUSet {
 	union := machine.NewCPUSet()
 	for _, cpus := range byRel {
-		union = union.Union(cpus)
+		union.AddSet(cpus)
 	}
 	return union
 }
@@ -3658,7 +3658,7 @@ func unionCPUSetByRel(byRel map[string]machine.CPUSet) machine.CPUSet {
 func pendingProtectionCPUSetUnion(protections []topology.PendingProtection) machine.CPUSet {
 	union := machine.NewCPUSet()
 	for _, protection := range protections {
-		union = union.Union(protection.CPUs)
+		union.AddSet(protection.CPUs)
 	}
 	return union
 }
