@@ -42,20 +42,15 @@ func shouldUseNumaBindingAllocationPreference(allocationInfo *state.AllocationIn
 	return allocationInfo != nil && allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
 }
 
-func existingAllocationSatisfiesRequest(
-	allocationInfo *state.AllocationInfo,
-	reqInt int,
-	allowShortNUMABindingAllocation bool,
-) bool {
+func existingAllocationSatisfiesRequest(allocationInfo *state.AllocationInfo, reqInt int) bool {
 	if allocationInfo == nil {
 		return false
 	}
 	if allocationInfo.OriginalAllocationResult.Size() >= reqInt {
 		return true
 	}
-	if !allowShortNUMABindingAllocation {
-		return false
-	}
+	// The live hard-partition switch governs creation, not the identity of an
+	// already committed short NUMA-binding allocation.
 	if !allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.OriginalAllocationResult.IsEmpty() {
 		return false
 	}
