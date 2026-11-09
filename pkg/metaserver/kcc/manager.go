@@ -18,6 +18,8 @@ package kcc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
@@ -264,6 +266,14 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 		klog.V(4).Infof("dynamic config is not changed")
 		return nil
 	}
+	// Registered before the publish unlocks: logging runs without mux, but
+	// updateMu still orders successful publications and their acknowledgements.
+	var committedConfig *dynamic.Configuration
+	defer func() {
+		if committedConfig != nil {
+			c.logCommittedConfiguration(committedConfig, dynamicConfigCRD)
+		}
+	}()
 
 	currentConfig := deepCopy(c.defaultConfig)
 	applyDynamicConfig(currentConfig, dynamicConfigCRD)
@@ -281,6 +291,7 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 			return fmt.Errorf("dynamic config changed while metadata was being refreshed")
 		}
 		c.lastDynamicConfigCRD = deepCopyDynamicConfigCRD(dynamicConfigCRD)
+		committedConfig = oldConfig
 		return nil
 	}
 
@@ -298,6 +309,8 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 		return errors.NewAggregate(errList)
 	}
 
+	// Freeze the published snapshot outside mux; log selection belongs only to the sink.
+	auditConfig := deepCopy(currentConfig)
 	c.mux.Lock()
 	defer c.mux.Unlock()
 	if !apiequality.Semantic.DeepEqual(c.lastDynamicConfigCRD, lastDynamicConfigCRD) {
@@ -312,7 +325,55 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 	}
 	c.conf.SetDynamicConfiguration(currentConfig)
 	c.lastDynamicConfigCRD = deepCopyDynamicConfigCRD(dynamicConfigCRD)
+	committedConfig = auditConfig
 	return err
+}
+
+// Record the adopted sources and reviewed effective value domains, not a full
+// configuration dump. Authentication gets metadata only, without a credential hash.
+func (c *DynamicConfigManager) logCommittedConfiguration(values *dynamic.Configuration, source *crd.DynamicConfigCRD) {
+	sources := make(map[string]interface{})
+	// Only reviewed domains are eligible for value logging; new domains are metadata-only.
+	effectiveValues := map[string]interface{}{
+		crd.ResourceKindAdminQoSConfiguration:                    values.AdminQoSConfiguration,
+		crd.ResourceKindTransparentMemoryOffloadingConfiguration: values.TransparentMemoryOffloadingConfiguration,
+		crd.ResourceKindStrategyGroup:                            values.StrategyGroupConfiguration,
+		crd.ResourceKindIRQTuningConfiguration:                   values.IRQTuningConfiguration,
+	}
+	fields := reflect.ValueOf(source).Elem()
+	for i := 0; i < fields.NumField(); i++ {
+		field := fields.Field(i)
+		kind := fields.Type().Field(i).Name
+		if field.IsNil() {
+			delete(effectiveValues, kind)
+			continue
+		}
+		object := field.Interface().(metav1.Object)
+		metadata := map[string]interface{}{
+			"namespace": object.GetNamespace(), "name": object.GetName(), "uid": object.GetUID(),
+			"generation": object.GetGeneration(), "resource_version": object.GetResourceVersion(),
+		}
+		if _, logValues := effectiveValues[kind]; logValues {
+			// Spec excludes volatile status; effective values below capture status-derived settings.
+			spec, err := json.Marshal(field.Elem().FieldByName("Spec").Interface())
+			if err != nil {
+				klog.Errorf("failed to encode committed %s spec: %v", kind, err)
+				return
+			}
+			metadata["spec_sha256"] = fmt.Sprintf("%x", sha256.Sum256(spec))
+		}
+		sources[kind] = metadata
+	}
+	record, err := json.Marshal(map[string]interface{}{
+		"node":    c.conf.NodeName,
+		"sources": sources,
+		"values":  effectiveValues,
+	})
+	if err != nil {
+		klog.Errorf("failed to encode committed configuration: %v", err)
+		return
+	}
+	klog.Infof("dynamic configuration committed: %s", record)
 }
 
 func (c *DynamicConfigManager) writeCheckpoint(kind string, configData reflect.Value) {
