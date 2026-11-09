@@ -22,9 +22,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -83,9 +87,73 @@ func smt4Topology(t *testing.T, numCores int) *machine.CPUTopology {
 	return topology
 }
 
-// TestNormalizeSteadyRealNUMATargets_RoundDownOddAdviceToCommitted reproduces the node
-// symptom: SMT2, NUMA2 advice mandatory-reclaim=3 / dedicated=29, committed reclaim=1
-// core (2 CPUs), committed dedicated=15 cores (30 CPUs), free=0.
+func TestNormalizeSteadyRealNUMATargets_ShrinkBounds(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name                    string
+		enabled                 bool
+		floor, minimum, ceiling int
+		multi, fragmented       bool
+		want                    int
+	}{
+		{name: "enabled", enabled: true, minimum: 21, ceiling: 24, want: 2},
+		{name: "disabled", minimum: 21, ceiling: 24, want: 3},
+		{name: "configured-floor", enabled: true, floor: 4, minimum: 21, ceiling: 24, want: 3},
+		{name: "minimum", enabled: true, minimum: 23, ceiling: 24, want: 3},
+		{name: "eligibility", enabled: true, minimum: 21, ceiling: 21, want: 3},
+		{name: "multiple-sources", enabled: true, minimum: 21, ceiling: 24, multi: true, want: 3},
+		{name: "fragmented-reclaim", enabled: true, minimum: 21, ceiling: 24, fragmented: true, want: 3},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			topology, err := machine.GenerateDummyCPUTopology(192, 2, 8)
+			require.NoError(t, err)
+			descriptors := steadyFixture(topology, 0, 3, 21, 3, 3)
+			descriptors[1].Owners = []string{"dedicated\x00pod\x00main\x00"}
+			descriptors[1].Eligible = machine.NewCPUSet(topology.CPUDetails.CPUsInNUMANodes(0).ToSliceInt()[:tc.ceiling]...)
+			if tc.multi {
+				descriptors = append(descriptors, descriptors[1])
+			}
+			if tc.fragmented {
+				descriptors[0].Committed = machine.NewCPUSet(0, 1, 2)
+			}
+			conf := dynamicconfig.NewConfiguration()
+			conf.EnableReclaim = tc.enabled
+			conf.MinReclaimedResourceForAllocate = v1.ResourceList{v1.ResourceCPU: resource.MustParse("16")}
+			if tc.floor > 0 {
+				conf.MinReclaimedResourceForAllocate = v1.ResourceList{v1.ResourceCPU: resource.MustParse("32")}
+			}
+			entries := state.PodEntries{"pod": {"main": &state.AllocationInfo{RequestQuantity: float64(tc.minimum)}}}
+			got, _, err := normalizeSteadyRealNUMATargets(descriptors, topology.CPUDetails.CPUs(), topology, nil, conf, entries, false)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got[0].Quantity)
+			require.Equal(t, descriptors[0].Quantity+descriptors[1].Quantity, got[0].Quantity+got[1].Quantity)
+			require.Equal(t, 3, descriptors[0].Quantity, "input response descriptors must remain immutable")
+		})
+	}
+}
+
+func TestNormalizeSteadyRealNUMATargets_RespectsOwnerMinimumOnRoundUp(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(192, 2, 8)
+	require.NoError(t, err)
+	conf := dynamicconfig.NewConfiguration()
+	conf.EnableReclaim = true
+	conf.MinReclaimedResourceForAllocate = v1.ResourceList{v1.ResourceCPU: resource.MustParse("32")}
+	descriptors := steadyFixture(topology, 0, 3, 21, 3, 3)
+	descriptors[1].Owners = []string{"dedicated\x00pod\x00main\x00"}
+	entries := state.PodEntries{"pod": {"main": &state.AllocationInfo{RequestQuantity: 20}}}
+	got, _, err := normalizeSteadyRealNUMATargets(descriptors, topology.CPUDetails.CPUs(), topology, nil, conf, entries, false)
+	require.NoError(t, err)
+	require.Equal(t, 4, got[0].Quantity)
+	require.Equal(t, 20, got[1].Quantity)
+	delete(entries["pod"], "main")
+	got, _, err = normalizeSteadyRealNUMATargets(descriptors, topology.CPUDetails.CPUs(), topology, nil, conf, entries, false)
+	require.NoError(t, err)
+	require.Equal(t, descriptors, got, "missing owner must not authorize quantity adjustment")
+}
+
 func TestNormalizeSteadyRealNUMATargets_RoundDownOddAdviceToCommitted(t *testing.T) {
 	t.Parallel()
 
@@ -96,7 +164,7 @@ func TestNormalizeSteadyRealNUMATargets_RoundDownOddAdviceToCommitted(t *testing
 	descriptors := steadyFixture(topology, 2, 3, 29, 1, 15)
 	available := topology.CPUDetails.CPUsInNUMANodes(2)
 
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.True(t, report.HadOddAdvice)
 
@@ -132,7 +200,7 @@ func TestNormalizeSteadyRealNUMATargets_AlignedAdviceUnchanged(t *testing.T) {
 	descriptors := steadyFixture(topology, 0, 8, 24, 4, 12)
 	available := topology.CPUDetails.CPUsInNUMANodes(0)
 
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.False(t, report.HadOddAdvice)
 	rec, ok := recordByNUMA(report, 0)
@@ -160,7 +228,7 @@ func TestNormalizeSteadyRealNUMATargets_SMT1PassThrough(t *testing.T) {
 			Quantity: 5, ComponentKey: "ded", Eligible: numa.Clone(),
 		},
 	}
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, numa, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, numa, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.False(t, report.HadOddAdvice)
 	require.Empty(t, report.Records)
@@ -178,7 +246,7 @@ func TestNormalizeSteadyRealNUMATargets_SMT4WholeCoreGrid(t *testing.T) {
 	// -> infeasible passthrough.
 	descriptors := steadyFixture(topology, 0, 13, 51, 1, 14)
 	available := topology.CPUDetails.CPUsInNUMANodes(0)
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	rec, _ := recordByNUMA(report, 0)
 	require.Equal(t, steadyReclaimDecisionInfeasible, rec.Decision)
@@ -186,7 +254,7 @@ func TestNormalizeSteadyRealNUMATargets_SMT4WholeCoreGrid(t *testing.T) {
 
 	// Enough free cores to cover growth to lower=12 (growth 8 <= 16) -> round down.
 	descriptors2 := steadyFixture(topology, 0, 13, 35, 1, 11)
-	normalized2, report2, err2 := normalizeSteadyRealNUMATargets(descriptors2, available, topology, nil)
+	normalized2, report2, err2 := normalizeSteadyRealNUMATargets(descriptors2, available, topology, nil, nil, nil, false)
 	require.NoError(t, err2)
 	rec2, _ := recordByNUMA(report2, 0)
 	require.Equal(t, steadyReclaimDecisionRoundDown, rec2.Decision)
@@ -204,7 +272,7 @@ func TestNormalizeSteadyRealNUMATargets_FakeNUMAUntouched(t *testing.T) {
 		Quantity: 3, ComponentKey: "fake", Eligible: topology.CPUDetails.CPUs().Clone(),
 	}
 	normalized, report, err := normalizeSteadyRealNUMATargets([]advisorBlockDescriptor{fake},
-		topology.CPUDetails.CPUs(), topology, nil)
+		topology.CPUDetails.CPUs(), topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.False(t, report.HadOddAdvice)
 	require.Empty(t, report.Records)
@@ -218,7 +286,7 @@ func TestNormalizeSteadyRealNUMATargets_SkippedNUMAUntouched(t *testing.T) {
 	require.NoError(t, err)
 	descriptors := steadyFixture(topology, 0, 3, 29, 1, 15)
 	available := topology.CPUDetails.CPUsInNUMANodes(0)
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, sets.NewInt(0))
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, available, topology, sets.NewInt(0), nil, nil, false)
 	require.NoError(t, err)
 	require.False(t, report.HadOddAdvice)
 	require.Empty(t, report.Records)
@@ -255,7 +323,7 @@ func TestNormalizeSteadyRealNUMATargets_SMT4RollsBackPartialDedicatedAbsorb(t *t
 	}
 	beforeTotal := 14 + 3 + 4
 
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, all, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, all, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.True(t, report.HadOddAdvice)
 	rec, ok := recordByNUMA(report, 0)
@@ -350,7 +418,7 @@ func TestNormalizeSteadyRealNUMATargets_NonExclusiveNoDedicatedPassthrough(t *te
 		},
 	}
 
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, numa, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, numa, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.True(t, report.HadOddAdvice)
 	rec, ok := recordByNUMA(report, 0)
@@ -385,7 +453,7 @@ func TestNormalizeSteadyRealNUMATargets_NonExclusiveWithDedicatedAbsorbs(t *test
 		},
 	}
 
-	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, numa, topology, nil)
+	normalized, report, err := normalizeSteadyRealNUMATargets(descriptors, numa, topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	rec, ok := recordByNUMA(report, 0)
 	require.True(t, ok)
@@ -408,7 +476,7 @@ func TestNormalizeSteadyRealNUMATargets_NonExclusiveFakeNUMAReclaimUntouched(t *
 		Quantity: 3, ComponentKey: "fake", Eligible: topology.CPUDetails.CPUs().Clone(),
 	}
 	normalized, report, err := normalizeSteadyRealNUMATargets([]advisorBlockDescriptor{fake},
-		topology.CPUDetails.CPUs(), topology, nil)
+		topology.CPUDetails.CPUs(), topology, nil, nil, nil, false)
 	require.NoError(t, err)
 	require.False(t, report.HadOddAdvice)
 	require.Empty(t, report.Records)

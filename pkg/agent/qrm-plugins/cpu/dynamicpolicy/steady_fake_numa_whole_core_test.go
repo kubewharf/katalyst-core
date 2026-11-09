@@ -2364,7 +2364,7 @@ func runSteadyFakeNUMAConvergencePathForTest(
 	}
 	require.Empty(t, remainingDemands)
 	require.Equal(t, machine.NewCPUSet(1, 129), floor.preferred)
-	require.Equal(t, machine.NewCPUSet(1, 129), residual.preferred)
+	require.True(t, residual.preferred.IsEmpty(), "floor preference must not be duplicated in the residual")
 
 	var reclaimDemandKeys []string
 	for _, demand := range demands {

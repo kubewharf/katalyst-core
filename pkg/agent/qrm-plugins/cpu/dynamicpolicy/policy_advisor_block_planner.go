@@ -830,11 +830,22 @@ func expandSteadyFakeNUMAReclaimPhase(
 			for _, candidate := range coreCandidates {
 				floorEligible = floorEligible.Union(candidate.cpus)
 			}
+			// Split only the preference, not eligibility: both artificial demands
+			// preferring the entire old block otherwise makes a stable aggregate
+			// look newly allocated and allows repeated whole-core migrations.
+			oldPreferred := descriptor.OldPreferred.Intersection(eligible)
+			floorPreferred := machine.NewCPUSet()
+			for _, candidate := range coreCandidates {
+				if candidate.cpus.Size() <= cpusPerCore && candidate.cpus.IsSubsetOf(oldPreferred) {
+					floorPreferred = candidate.cpus
+					break
+				}
+			}
 			demands = append(demands, partitionDemand{
 				key:       key,
 				quantity:  cpusPerCore,
 				eligible:  floorEligible,
-				preferred: descriptor.OldPreferred.Intersection(floorEligible),
+				preferred: floorPreferred,
 				class:     advisorBlockClassMandatoryReclaim,
 			})
 			blockIDByDemandKey[key] = descriptor.BlockID
@@ -850,7 +861,7 @@ func expandSteadyFakeNUMAReclaimPhase(
 					key:       residualKey,
 					quantity:  residual,
 					eligible:  eligible,
-					preferred: descriptor.OldPreferred.Intersection(eligible),
+					preferred: oldPreferred.Difference(floorPreferred),
 					class:     advisorBlockClassMandatoryReclaim,
 				})
 				blockIDByDemandKey[residualKey] = descriptor.BlockID

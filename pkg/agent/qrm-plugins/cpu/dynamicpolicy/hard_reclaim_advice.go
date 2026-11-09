@@ -19,11 +19,14 @@ package dynamicpolicy
 import (
 	stderrors "errors"
 	"fmt"
+	"math"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -37,9 +40,8 @@ const (
 	// steadyReclaimDecisionAligned means the advice was already whole-core aligned
 	// and the descriptors were left untouched.
 	steadyReclaimDecisionAligned steadyReclaimNormalizeDecision = "aligned"
-	// steadyReclaimDecisionRoundDown means the odd reclaim advice was rounded down
-	// to the nearest whole-core multiple that stays anchored on the committed
-	// reclaim (no dedicated migration required).
+	// steadyReclaimDecisionRoundDown means reclaim was rounded down within
+	// configured floor and dedicated capacity bounds.
 	steadyReclaimDecisionRoundDown steadyReclaimNormalizeDecision = "round_down"
 	// steadyReclaimDecisionRoundUp means the odd reclaim advice was rounded up to a
 	// whole-core multiple whose growth from committed is fully covered by free whole
@@ -66,25 +68,18 @@ type steadyReclaimNormalizeReport struct {
 	HadOddAdvice bool
 }
 
-// normalizeSteadyRealNUMATargets joints the mandatory-reclaim and dedicated
-// targets of each real NUMA and rewrites an odd (non-whole-core) reclaim advice
-// into a whole-core representable target. It is only wired on the steady
-// (!hardActive), disjoint-hard-partition path; fake-NUMA reclaim blocks and
-// skipped NUMAs are left to their own solvers.
-//
-// The choice between floor(R/w)*w and ceil(R/w)*w is governed by what can be
-// materialized without migrating running dedicated cores: a candidate reclaim
-// target T must not shrink the committed reclaim (T >= committed) and any growth
-// beyond committed must be fully covered by free whole cores (never by donating a
-// core out of a running dedicated group). Among feasible candidates the closest
-// to committed wins, then the closest to the advisor value, then the smaller
-// reclaim. When no legal whole-core value exists the NUMA is passed through
-// unchanged so the existing solver / committed fallback owns it.
+// normalizeSteadyRealNUMATargets conserves each real-NUMA dedicated/reclaim
+// partition while quantizing reclaim. With reclaim enabled, committed CPUs are
+// a placement preference, not a permanent size floor; the existing apply chain
+// owns their physical handoff. Disabled reclaim retains its frozen identity.
 func normalizeSteadyRealNUMATargets(
 	descriptors []advisorBlockDescriptor,
 	available machine.CPUSet,
 	topology *machine.CPUTopology,
 	skipNUMAs sets.Int,
+	dynamicConf *dynamicconfig.Configuration,
+	entries state.PodEntries,
+	allowElasticActual bool,
 ) ([]advisorBlockDescriptor, steadyReclaimNormalizeReport, error) {
 	var report steadyReclaimNormalizeReport
 	if topology == nil {
@@ -127,18 +122,15 @@ func normalizeSteadyRealNUMATargets(
 	}
 	sort.Ints(numaIDs)
 
-	floorReclaim := minimumHardReclaimCoresPerNUMA * w
+	// Aligned advice needs neither configured floors nor a physical-core scan.
+	var configuredFloors map[int]int
+	var coreIndex physicalCoreIndex
+	allowShrink := dynamicConf != nil && dynamicConf.EnableReclaim
 	for _, numaID := range numaIDs {
 		group := groups[numaID]
 		if len(group.mandatory) == 0 {
 			continue
 		}
-		sort.Slice(group.mandatory, func(a, b int) bool {
-			return advisorBlockDescriptorLess(normalized[group.mandatory[a]], normalized[group.mandatory[b]])
-		})
-		sort.Slice(group.dedicated, func(a, b int) bool {
-			return advisorBlockDescriptorLess(normalized[group.dedicated[a]], normalized[group.dedicated[b]])
-		})
 
 		advisorReclaim := 0
 		reclaimEligible := machine.NewCPUSet()
@@ -164,13 +156,20 @@ func normalizeSteadyRealNUMATargets(
 			continue
 		}
 		report.HadOddAdvice = true
+		if configuredFloors == nil {
+			configuredFloors = machine.ResolvePerNUMAReservedForReclaim(dynamicConf, topology)
+		}
+		if coreIndex.byKey == nil {
+			coreIndex = newPhysicalCoreIndex(topology)
+		}
+		floorReclaim := general.Max(minimumHardReclaimCoresPerNUMA*w, configuredFloors[numaID])
 
 		dedicatedCommitted := machine.NewCPUSet()
 		for _, di := range group.dedicated {
 			dedicatedCommitted = dedicatedCommitted.Union(normalized[di].Committed)
 		}
 		freeCPUs := reclaimEligible.Difference(committedReclaim).Difference(dedicatedCommitted)
-		freeCores := coreAlignedCandidates(topology, freeCPUs, machine.NewCPUSet())
+		freeCores := coreAlignedCandidatesWithIndex(coreIndex, freeCPUs, machine.NewCPUSet())
 		freeWholeCoreCPUs := 0
 		for _, core := range freeCores {
 			freeWholeCoreCPUs += core.cpus.Size()
@@ -179,6 +178,34 @@ func normalizeSteadyRealNUMATargets(
 		lowerR := (advisorReclaim / w) * w
 		upperR := ((advisorReclaim + w - 1) / w) * w
 		committedSize := committedReclaim.Size()
+		canShrinkCommitted := false
+		if allowShrink && lowerR < committedSize {
+			rawCommitted := normalized[group.mandatory[0]].Committed
+			canShrinkCommitted = rawCommitted.Equals(committedReclaim) &&
+				assertCoreAlignedWithIndex(rawCommitted, coreIndex) == nil
+		}
+		// Both candidates use the same owner proof, request floor and eligibility.
+		ownerBoundsKnown := len(group.mandatory) == 1 && len(group.dedicated) == 1
+		minimum, dedicatedCapacity, dedicatedQuantity := 0, 0, 0
+		if ownerBoundsKnown {
+			dedicated := normalized[group.dedicated[0]]
+			dedicatedQuantity = dedicated.Quantity
+			if allowShrink {
+				ownerBoundsKnown = len(dedicated.Owners) > 0
+				for _, owner := range dedicated.Owners {
+					_, podUID, name, _, ok := advisorDescriptorOwner(owner)
+					if !ok || entries[podUID][name] == nil {
+						ownerBoundsKnown = false
+						break
+					}
+				}
+			}
+			if ownerBoundsKnown {
+				dedicated.Quantity = 0
+				minimum = int(math.Ceil(advisorDescriptorRequestQuantityFromEntries(dedicated, entries, allowElasticActual)))
+				dedicatedCapacity = dedicated.Eligible.Intersection(available).Size()
+			}
+		}
 
 		feasible := make([]int, 0, 2)
 		for _, t := range []int{lowerR, upperR} {
@@ -189,13 +216,22 @@ func normalizeSteadyRealNUMATargets(
 			if t > reclaimEligible.Size() {
 				continue
 			}
-			if growth < 0 {
-				// never shrink an already-committed reclaim below its anchor.
+			if growth < 0 && !allowShrink {
 				continue
 			}
 			if growth > freeWholeCoreCPUs {
 				// growth beyond committed must be covered by free whole cores, never
 				// by donating a core out of running dedicated.
+				continue
+			}
+			if growth < 0 && !canShrinkCommitted {
+				continue
+			}
+			if !ownerBoundsKnown {
+				continue
+			}
+			newDedicated := dedicatedQuantity + advisorReclaim - t
+			if newDedicated < minimum || newDedicated > dedicatedCapacity {
 				continue
 			}
 			feasible = append(feasible, t)
@@ -205,16 +241,16 @@ func normalizeSteadyRealNUMATargets(
 		reason := ""
 		switch len(feasible) {
 		case 0:
-			reason = "no legal whole-core reclaim value within committed+free bounds; passing through"
+			reason = "no legal whole-core value within floor, capacity and owner bounds; passing through"
 		case 1:
 			chosen = feasible[0]
-			reason = "only feasible whole-core value anchored on committed reclaim"
+			reason = "only feasible whole-core value within joint bounds"
 		default:
 			// Two feasible candidates: prefer the one anchored closest to committed,
 			// then closest to the advisor target, then the smaller reclaim.
 			a, b := feasible[0], feasible[1]
 			chosen = b
-			if da, db := a-committedSize, b-committedSize; da != db {
+			if da, db := absInt(a-committedSize), absInt(b-committedSize); da != db {
 				if da < db {
 					chosen = a
 				}
@@ -250,65 +286,10 @@ func normalizeSteadyRealNUMATargets(
 		}
 
 		reclaimDelta := chosen - advisorReclaim
-		dedicatedDelta := -reclaimDelta
-
-		// Snapshot the dedicated quantities before distributing the delta so a
-		// failed absorb (remaining != 0) can roll back every partially-taken dedicated
-		// block, not just the mandatory block. Without this, on SMT>2 a 2..w-1 CPU
-		// delta partially absorbed by an earlier dedicated block would leave that
-		// block raised and break per-NUMA total conservation while still being
-		// recorded as a pass-through.
-		dedicatedSnapshot := make(map[int]int, len(group.dedicated))
-		for _, di := range group.dedicated {
-			dedicatedSnapshot[di] = normalized[di].Quantity
-		}
-
-		// Distribute the reclaim delta on the first sorted mandatory block and the
-		// dedicated delta across sorted dedicated blocks, conserving the NUMA total.
-		normalized[group.mandatory[0]].Quantity += reclaimDelta
-		remaining := dedicatedDelta
-		for _, di := range group.dedicated {
-			if remaining == 0 {
-				break
-			}
-			take := remaining
-			if take > 0 {
-				headroom := normalized[di].Eligible.Size() - normalized[di].Quantity
-				if headroom < take {
-					take = headroom
-				}
-			} else {
-				if -take > normalized[di].Quantity {
-					take = -normalized[di].Quantity
-				}
-			}
-			if take == 0 {
-				continue
-			}
-			normalized[di].Quantity += take
-			remaining -= take
-		}
-		if remaining != 0 {
-			// The dedicated side could not fully absorb the reclaim delta on either
-			// direction (it cannot grow to take released CPUs, or it cannot shrink
-			// enough to donate CPUs to a grown reclaim). Roll back the mandatory
-			// delta and every partially-taken dedicated block, then pass through
-			// unchanged.
-			normalized[group.mandatory[0]].Quantity -= reclaimDelta
-			for _, di := range group.dedicated {
-				normalized[di].Quantity = dedicatedSnapshot[di]
-			}
-			report.Records = append(report.Records, steadyReclaimNormalizeRecord{
-				NUMAID:            numaID,
-				CPUsPerCore:       w,
-				AdvisorReclaim:    advisorReclaim,
-				ReclaimAfter:      advisorReclaim,
-				CommittedReclaim:  committedSize,
-				FreeWholeCoreCPUs: freeWholeCoreCPUs,
-				Decision:          steadyReclaimDecisionInfeasible,
-			})
-			continue
-		}
+		// The candidate checks above establish one owner per side and enough
+		// dedicated capacity to absorb the entire residual atomically.
+		normalized[group.mandatory[0]].Quantity = chosen
+		normalized[group.dedicated[0]].Quantity -= reclaimDelta
 
 		decision := steadyReclaimDecisionRoundDown
 		if chosen > advisorReclaim {
