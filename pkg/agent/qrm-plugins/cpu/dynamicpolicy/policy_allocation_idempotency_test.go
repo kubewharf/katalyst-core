@@ -230,13 +230,12 @@ func TestExistingAllocationSatisfiesRequestWithElasticNUMABindingDNB(t *testing.
 			allocation.RequestQuantity = 6
 			allocation.RampUp = true
 
-			require.True(t, existingAllocationSatisfiesRequest(allocation, 6, true))
-			require.False(t, existingAllocationSatisfiesRequest(allocation, 6, false))
+			require.True(t, existingAllocationSatisfiesRequest(allocation, 6))
 		})
 	}
 }
 
-func TestExistingAllocationSatisfiesRequestRejectsIneligibleOrStaleShortAllocation(t *testing.T) {
+func TestExistingAllocationSatisfiesRequestAcceptsValidAndRejectsStaleShortAllocation(t *testing.T) {
 	t.Parallel()
 
 	allocation := newBoundAllocationForIdempotencyTest(
@@ -244,10 +243,10 @@ func TestExistingAllocationSatisfiesRequestRejectsIneligibleOrStaleShortAllocati
 	allocation.RequestQuantity = 6
 	allocation.RampUp = true
 
-	require.False(t, existingAllocationSatisfiesRequest(allocation, 6, false))
+	require.True(t, existingAllocationSatisfiesRequest(allocation, 6))
 
 	allocation.RequestQuantity = 8
-	require.False(t, existingAllocationSatisfiesRequest(allocation, 6, true))
+	require.False(t, existingAllocationSatisfiesRequest(allocation, 6))
 }
 
 func TestRemovePodOwnerEntriesForReallocationDropsSiblingContainers(t *testing.T) {
