@@ -1923,7 +1923,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 	}
 
-	if existingAllocationSatisfiesRequest(allocationInfo, reqInt, p.isRampUpReclaimHardPartitionEnabled()) &&
+	if existingAllocationSatisfiesRequest(allocationInfo, reqInt) &&
 		!util.PodInplaceUpdateResizing(req) {
 		general.InfoS("already allocated and meet requirement",
 			"podNamespace", req.PodNamespace,
