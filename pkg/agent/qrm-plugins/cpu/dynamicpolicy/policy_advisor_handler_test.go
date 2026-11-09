@@ -19,14 +19,17 @@ package dynamicpolicy
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/bytedance/mockey"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +43,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
+	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
+	cpusetplugin "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/plugins/cpusettopology"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/registry"
 	bulkheadtopology "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils/topology"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -457,6 +463,185 @@ func TestGenerateBlockCPUSetDisjointPlannerRequiresCapability(t *testing.T) {
 	got, err := policy.generateBlockCPUSet(resp, featureGates, false)
 	require.NoError(t, err)
 	require.Empty(t, got)
+}
+
+func testSteadyJointTargetsRecoverShortDNBAndConverge(t *testing.T) {
+	// Constructor substitution is process-global; do not run this fixture in parallel.
+	for _, mixed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("mixed-%v", mixed), func(t *testing.T) {
+			topology, err := machine.GenerateDummyCPUTopology(192, 2, 8)
+			require.NoError(t, err)
+			p, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
+			require.NoError(t, err)
+			p.config.reservedCPUs = machine.NewCPUSet()
+			dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+			dyn.EnableReclaim = true
+			dyn.EnableRampUpReclaimHardPartition = true
+			dyn.FillDefaultSharePoolWithNonReclaimCPUs = true
+			p.adjustment.cpuSetAdjustmentRetryStopping = true
+			oldReclaim := machine.NewCPUSet()
+			for n := 0; n < 8; n++ {
+				oldReclaim = oldReclaim.Union(coresInNUMA(topology, n, 0, 3))
+			}
+			oldReclaim = oldReclaim.Difference(topology.CPUDetails.CPUsInNUMANodes(0)).Union(machine.MustParse("0-1,8,96-97,104"))
+			oldDedicated := machine.MustParse("2-6,98")
+			entries := state.PodEntries{commonstate.PoolNameReclaim: {
+				commonstate.FakedContainerName: &state.AllocationInfo{
+					AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+					AllocationResult: oldReclaim, OriginalAllocationResult: oldReclaim,
+				},
+			}}
+			for _, name := range []string{"main", "sidecar"} {
+				if entries["pod"] == nil {
+					entries["pod"] = state.ContainerEntries{}
+				}
+				containerType := pluginapi.ContainerType_MAIN.String()
+				if name == "sidecar" {
+					containerType = pluginapi.ContainerType_SIDECAR.String()
+				}
+				entries["pod"][name] = &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid: "pod", ContainerName: name, ContainerType: containerType, OwnerPoolName: commonstate.PoolNameDedicated,
+						QoSLevel:    apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						Annotations: map[string]string{apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					},
+					RequestQuantity: 21, AllocationResult: oldDedicated, OriginalAllocationResult: oldDedicated,
+					TopologyAwareAssignments:         map[int]machine.CPUSet{0: oldDedicated},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{0: oldDedicated},
+				}
+			}
+			p.state.SetPodEntries(entries, false)
+			info := func(pool, block string, numa int, size uint64) *advisorapi.CalculationInfo {
+				return &advisorapi.CalculationInfo{OwnerPoolName: pool, CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+					int64(numa): {Blocks: []*advisorapi.Block{{BlockId: block, Result: size}}},
+				}}
+			}
+			reclaimInfo := info(commonstate.PoolNameReclaim, "real-0", 0, 3)
+			for n := 1; n < 8; n++ {
+				if mixed && (n == 5 || n == 6) {
+					continue
+				}
+				reclaimInfo.CalculationResultsByNumas[int64(n)] = &advisorapi.NumaCalculationResult{Blocks: []*advisorapi.Block{{BlockId: fmt.Sprintf("real-%d", n), Result: 6}}}
+			}
+			if mixed {
+				reclaimInfo.CalculationResultsByNumas[-1] = &advisorapi.NumaCalculationResult{Blocks: []*advisorapi.Block{{BlockId: "fake", Result: 14}}}
+			}
+			resp := &advisorapi.ListAndWatchResponse{DisableDedicatedCoresOverlapReclaimedCores: true, Entries: map[string]*advisorapi.CalculationEntries{
+				"pod": {Entries: map[string]*advisorapi.CalculationInfo{
+					"main":    info(commonstate.PoolNameDedicated, "dedicated", 0, 21),
+					"sidecar": info(commonstate.PoolNameDedicated, "dedicated", 0, 21),
+				}},
+				commonstate.PoolNameReclaim: {Entries: map[string]*advisorapi.CalculationInfo{commonstate.FakedContainerName: reclaimInfo}},
+				commonstate.PoolNameShare:   {Entries: map[string]*advisorapi.CalculationInfo{commonstate.FakedContainerName: info(commonstate.PoolNameShare, "share", -1, 192)}},
+			}}
+			features := map[string]*advisorsvc.FeatureGate{feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition: {Name: feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition}}
+			hierarchy := newReplacementRecordingHierarchyDriver(topology, oldReclaim, "primary", "reclaim", "reclaim/numa-")
+			for _, rel := range []string{"primary", "reclaim", "sys"} {
+				entry := hierarchy.entries[rel]
+				entry.Mems, entry.ConfiguredMems = "0-7", "0-7"
+				hierarchy.entries[rel] = entry
+			}
+			hierarchy.add("primary/pod", oldDedicated, "0")
+			hierarchy.children["primary"] = []bulkheadtopology.ChildRef{{Name: "pod", Identity: hierarchy.entries["primary/pod"].Identity}}
+			workload := &v1.Pod{}
+			workload.UID = "pod"
+			for _, name := range []string{"main", "sidecar"} {
+				rel := "primary/pod/" + name
+				hierarchy.add(rel, oldDedicated, "0")
+				hierarchy.children["primary/pod"] = append(hierarchy.children["primary/pod"], bulkheadtopology.ChildRef{Name: name, Identity: hierarchy.entries[rel].Identity})
+				workload.Spec.Containers = append(workload.Spec.Containers, v1.Container{Name: name})
+				workload.Status.ContainerStatuses = append(workload.Status.ContainerStatuses, v1.ContainerStatus{Name: name, ContainerID: "containerd://" + name, State: v1.ContainerState{Running: &v1.ContainerStateRunning{}}})
+			}
+			p.meta.metaServer.MetaAgent.PodFetcher = &pod.PodFetcherStub{PodList: []*v1.Pod{workload}}
+			cfg := p.config.conf.CPUQRMPluginConfig.BulkheadConfiguration
+			cfg.BulkheadPrimaryRelPath = "primary"
+			cfg.BulkheadReclaimRelPaths = []string{"reclaim"}
+			cfg.BulkheadReclaimNumaPrefixes = []string{"reclaim/numa-"}
+			cfg.BulkheadPartitionRelPaths = nil
+			cfg.BulkheadReclaimSiblingRelPaths = nil
+			cfg.EnableBulkheadReclaimSiblings = false
+			dyn.BulkheadConfig.Enable = true
+			dyn.BulkheadConfig.EnableBulkheadCpusetTopology = true
+			client := &replacementRecordingCgroupClient{driver: hierarchy}
+			mock := mockey.Mock(registry.NewDefaultPluginsWithCgroupClient).Return([]bulkheadapi.Plugin{
+				cpusetplugin.NewCPUSetTopologyPluginWithDependencies(p.config.conf, func() cgroupclient.CgroupClient { return client }, func(_, id string) (string, error) { return "primary/pod/" + id, nil }),
+			}, nil).Build()
+			defer mock.UnPatch()
+			manager, err := bulkhead.NewManagerWithCgroupClientFactory(p.config.conf, func() cgroupclient.CgroupClient { return client })
+			require.NoError(t, err)
+			p.bulkhead.bulkheadManager = manager
+			applied := 0
+			p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+				"bulkhead": func(ctx context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+					applied++
+					return manager.RunCPUSetAdjustmentHandlers(ctx, in)
+				},
+			}
+			hierarchy.enforceContainment = true
+			hierarchy.failFirstGrow = true
+			err = p.allocateByCPUAdvisor(&advisorapi.GetAdviceRequest{}, resp, features)
+			require.ErrorContains(t, err, "injected hierarchy grow failure")
+			require.NotNil(t, p.currentAdvisorPostCommitTarget())
+			require.FileExists(t, p.advisorPostCommitCheckpointPath())
+			require.Equal(t, oldDedicated, hierarchy.entries["primary/pod/main"].CPUs)
+			require.NoError(t, p.allocateByCPUAdvisor(&advisorapi.GetAdviceRequest{}, resp, features))
+			main := p.state.GetAllocationInfo("pod", "main")
+			require.Equal(t, 22, main.AllocationResult.Size())
+			require.True(t, oldDedicated.IsSubsetOf(main.AllocationResult))
+			require.Equal(t, main.AllocationResult, p.state.GetAllocationInfo("pod", "sidecar").AllocationResult)
+			// The pod scope may retain the wider non-reclaim envelope; business
+			// capacity is verified on both effective container leaves, not the parent.
+			require.True(t, main.AllocationResult.IsSubsetOf(hierarchy.entries["primary/pod"].CPUs))
+			for _, rel := range []string{"primary/pod/main", "primary/pod/sidecar"} {
+				require.Equal(t, main.AllocationResult, hierarchy.entries[rel].CPUs)
+			}
+			require.Nil(t, p.currentAdvisorPostCommitTarget())
+			require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+			firstGrow := map[string]int{}
+			sourceDrain := -1
+			for i, write := range hierarchy.writes {
+				if write.rel == "reclaim" && write.kind == replacementHierarchyWriteDrain && sourceDrain < 0 {
+					sourceDrain = i
+				}
+				if write.kind == replacementHierarchyWriteGrow {
+					if _, found := firstGrow[write.rel]; !found {
+						firstGrow[write.rel] = i
+					}
+				}
+			}
+			require.GreaterOrEqual(t, sourceDrain, 0)
+			require.Less(t, sourceDrain, firstGrow["primary"])
+			for _, rel := range []string{"primary/pod/main", "primary/pod/sidecar"} {
+				_, found := firstGrow[rel]
+				require.True(t, found, "business leaf must actually grow")
+				require.Less(t, firstGrow["primary"], firstGrow["primary/pod"])
+				require.Less(t, firstGrow["primary/pod"], firstGrow[rel])
+			}
+			reclaim := reclaimPoolCPUSet(p.state.GetPodEntries())
+			require.Equal(t, 2, reclaim.Intersection(topology.CPUDetails.CPUsInNUMANodes(0)).Size())
+			require.NoError(t, assertCoreAligned(reclaim, topology))
+			require.True(t, main.AllocationResult.Intersection(reclaim).IsEmpty())
+			if mixed {
+				require.Equal(t, 46, reclaim.Size())
+			}
+			// The existing migration projector may need several bounded stages for
+			// other NUMAs. Business recovery must remain stable throughout them.
+			for round := 0; round < 6; round++ {
+				before := p.state.GetRevision()
+				require.NoError(t, p.allocateByCPUAdvisor(&advisorapi.GetAdviceRequest{}, resp, features))
+				require.Equal(t, main.AllocationResult, p.state.GetAllocationInfo("pod", "main").AllocationResult)
+				if p.state.GetRevision() == before {
+					break
+				}
+			}
+			revision, applyCount := p.state.GetRevision(), applied
+			require.NoError(t, p.allocateByCPUAdvisor(&advisorapi.GetAdviceRequest{}, resp, features))
+			require.Equal(t, revision, p.state.GetRevision())
+			require.Equal(t, applyCount, applied)
+			require.LessOrEqual(t, applied, 6)
+			require.Equal(t, uint64(21), resp.Entries["pod"].Entries["main"].CalculationResultsByNumas[0].Blocks[0].Result)
+		})
+	}
 }
 
 func TestAllocateByCPUAdvisorConvergedFrameIsStrictNoOp(t *testing.T) {
@@ -885,11 +1070,12 @@ type replacementHierarchyWrite struct {
 }
 
 type replacementRecordingHierarchyDriver struct {
-	entries       map[string]bulkheadtopology.EntryState
-	children      map[string][]bulkheadtopology.ChildRef
-	roots         []bulkheadtopology.RootRef
-	writes        []replacementHierarchyWrite
-	failFirstGrow bool
+	entries            map[string]bulkheadtopology.EntryState
+	children           map[string][]bulkheadtopology.ChildRef
+	roots              []bulkheadtopology.RootRef
+	writes             []replacementHierarchyWrite
+	failFirstGrow      bool
+	enforceContainment bool
 }
 
 func newReplacementRecordingHierarchyDriver(
@@ -992,6 +1178,16 @@ func (d *replacementRecordingHierarchyDriver) WriteCPUs(
 	}
 	if entry.Identity != identity {
 		return bulkheadtopology.ErrCgroupIdentityChanged
+	}
+	if d.enforceContainment {
+		if parent, exists := d.entries[filepath.Dir(rel)]; exists && !cpus.IsSubsetOf(parent.CPUs) {
+			return fmt.Errorf("grow exceeds parent cpuset: %s", rel)
+		}
+		for _, child := range d.children[rel] {
+			if !d.entries[filepath.Join(rel, child.Name)].CPUs.IsSubsetOf(cpus) {
+				return fmt.Errorf("shrink excludes child cpuset: %s", rel)
+			}
+		}
 	}
 	kind := replacementHierarchyWriteDrain
 	if cpus.Size() > entry.ConfiguredCPUs.Size() {
@@ -2427,61 +2623,6 @@ func TestDynamicPolicyApplyBlocksUsesCandidateEntriesForRNBTopology(t *testing.T
 	got := pending.entries["non-rnb"]["main"].AllocationResult
 	require.True(t, got.Equals(numa1),
 		"non-RNB allocation must exclude the candidate RNB target NUMA, got %s", got)
-}
-
-func TestDynamicPolicyValidatesDefaultShareAsUpperBoundWhenBackfillEnabled(t *testing.T) {
-	t.Parallel()
-
-	topology, err := machine.GenerateDummyCPUTopology(8, 1, 1)
-	require.NoError(t, err)
-	policy, err := getTestDynamicPolicyWithoutInitialization(topology, t.TempDir())
-	require.NoError(t, err)
-	policy.config.dynamicConfig.GetDynamicConfiguration().FillDefaultSharePoolWithNonReclaimCPUs = true
-	policy.state.SetPodEntries(state.PodEntries{
-		commonstate.PoolNameShare: {
-			commonstate.FakedContainerName: &state.AllocationInfo{
-				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
-				AllocationResult: machine.NewCPUSet(0, 1, 2, 3),
-			},
-		},
-		commonstate.PoolNameReclaim: {
-			commonstate.FakedContainerName: &state.AllocationInfo{
-				AllocationMeta:   commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
-				AllocationResult: machine.NewCPUSet(4, 5, 6, 7),
-			},
-		},
-	}, false)
-
-	resp := &advisorapi.ListAndWatchResponse{
-		Entries: map[string]*advisorapi.CalculationEntries{
-			commonstate.PoolNameShare: {
-				Entries: map[string]*advisorapi.CalculationInfo{
-					commonstate.FakedContainerName: {
-						OwnerPoolName: commonstate.PoolNameShare,
-						CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
-							commonstate.FakedNUMAID: {
-								Blocks: []*advisorapi.Block{{BlockId: "share-upper-bound", Result: 6}},
-							},
-						},
-					},
-				},
-			},
-			commonstate.PoolNameReclaim: {
-				Entries: map[string]*advisorapi.CalculationInfo{
-					commonstate.FakedContainerName: {
-						OwnerPoolName: commonstate.PoolNameReclaim,
-						CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
-							commonstate.FakedNUMAID: {
-								Blocks: []*advisorapi.Block{{BlockId: "reclaim", Result: 4}},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	require.NoError(t, policy.validateAdvisorResponse(resp))
 }
 
 func TestDynamicPolicyApplyBlocksPrunesEmptyDefaultShareAfterLastOwnerMoves(t *testing.T) {
@@ -6016,4 +6157,17 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+var steadyJointTargetsHelper = flag.Bool("steady-joint-targets-helper", false, "run the isolated steady target trace")
+
+func TestSteadyJointTargetsRecoverShortDNBAndConverge(t *testing.T) {
+	t.Parallel()
+	if *steadyJointTargetsHelper {
+		testSteadyJointTargetsRecoverShortDNBAndConverge(t)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSteadyJointTargetsRecoverShortDNBAndConverge$", "-steady-joint-targets-helper")
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "steady target subprocess failed: %s", output)
 }

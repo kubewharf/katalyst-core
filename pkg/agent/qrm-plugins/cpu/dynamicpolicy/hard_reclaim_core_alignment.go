@@ -191,31 +191,30 @@ func coreAlignedCandidatesWithIndex(
 	if index.byKey == nil {
 		return nil
 	}
-	cpusByCore := make(map[physicalCoreKey]machine.CPUSet)
-	for _, cpu := range candidates.ToSliceInt() {
-		key, ok := index.byCPU[cpu]
-		if !ok {
-			continue
+	keys := make(map[physicalCoreKey]struct{})
+	candidates.Each(func(cpu int) {
+		if key, ok := index.byCPU[cpu]; ok {
+			keys[key] = struct{}{}
 		}
-		set := cpusByCore[key]
-		if !set.Initialed {
-			set = machine.NewCPUSet()
-		}
-		set.Add(cpu)
-		cpusByCore[key] = set
-	}
+	})
 
-	completeCores := make([]coreAlignedCandidate, 0, len(cpusByCore))
-	for key, cpus := range cpusByCore {
+	completeCores := make([]coreAlignedCandidate, 0, len(keys))
+	for key := range keys {
 		siblings, ok := index.byKey[key]
-		if !ok || !cpus.Equals(siblings) {
+		if !ok || !siblings.IsSubsetOf(candidates) {
 			continue
 		}
+		preferredHit := 0
+		siblings.Each(func(cpu int) {
+			if prefer.Contains(cpu) {
+				preferredHit++
+			}
+		})
 		completeCores = append(completeCores, coreAlignedCandidate{
 			key:          key,
 			coreID:       key.coreID,
-			cpus:         cpus,
-			preferredHit: cpus.Intersection(prefer).Size(),
+			cpus:         siblings.Clone(),
+			preferredHit: preferredHit,
 		})
 	}
 
@@ -385,15 +384,21 @@ func assertCoreAligned(reclaim machine.CPUSet, topology *machine.CPUTopology) er
 		return nil
 	}
 
+	return assertCoreAlignedWithIndex(reclaim, newPhysicalCoreIndex(topology))
+}
+
+func assertCoreAlignedWithIndex(reclaim machine.CPUSet, index physicalCoreIndex) error {
+	if reclaim.IsEmpty() {
+		return nil
+	}
 	cpusByCore := make(map[physicalCoreKey]machine.CPUSet)
 	orphanCPUs := machine.NewCPUSet()
 	for _, cpu := range reclaim.ToSliceInt() {
-		info, ok := topology.CPUDetails[cpu]
+		key, ok := index.byCPU[cpu]
 		if !ok {
 			orphanCPUs.Add(cpu)
 			continue
 		}
-		key := physicalCoreKeyForCPU(info)
 		cpus := cpusByCore[key]
 		if !cpus.Initialed {
 			cpus = machine.NewCPUSet()
@@ -406,7 +411,7 @@ func assertCoreAligned(reclaim machine.CPUSet, topology *machine.CPUTopology) er
 			reclaim.String(), orphanCPUs.String())
 	}
 
-	allCPUsByCore := physicalCoreCPUs(topology)
+	allCPUsByCore := index.byKey
 	coreKeys := make([]physicalCoreKey, 0, len(cpusByCore))
 	for key := range cpusByCore {
 		coreKeys = append(coreKeys, key)
