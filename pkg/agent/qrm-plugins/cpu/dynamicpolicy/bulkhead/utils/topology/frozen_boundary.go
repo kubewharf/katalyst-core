@@ -811,6 +811,66 @@ func evaluateFrozenBoundarySnapshot(
 	return nil
 }
 
+// frozenSnapshotRetirement permits rebuilding, never executing the old trace.
+// Removing operation-derived references here would weaken its required boundary;
+// instead compare against the unchanged caller contract and require strict progress.
+func frozenSnapshotRetirement(
+	input FrozenCoordinatorEvaluationInput,
+	protectedByRel map[string]machine.CPUSet,
+	before, current *CompleteSnapshot,
+) bool {
+	if before == nil || current == nil || len(current.Entries) >= len(before.Entries) ||
+		len(before.UnavailableChildren) != 0 || len(current.UnavailableChildren) != 0 ||
+		before.Capabilities != current.Capabilities || !current.Capabilities.StableIdentity ||
+		before.ScanBoundary.Purpose != ScanForPlan || current.ScanBoundary.Purpose != ScanForPlan ||
+		!reflect.DeepEqual(before.ScanBoundary.Roots, current.ScanBoundary.Roots) ||
+		len(before.OwnershipByRel) != len(current.OwnershipByRel) ||
+		validateCompleteSnapshotEvidence(before) != nil || validateCompleteSnapshotEvidence(current) != nil {
+		return false
+	}
+	for rel := range protectedByRel {
+		if _, existed := before.Entries[rel]; existed {
+			if _, retained := current.Entries[rel]; !retained {
+				return false
+			}
+		}
+	}
+	for rel, cpus := range before.OwnershipByRel {
+		if got, exists := current.OwnershipByRel[rel]; !exists || !got.Equals(cpus) {
+			return false
+		}
+	}
+	controlled := make(map[string]struct{}, len(input.DAGSpecs))
+	for _, spec := range input.DAGSpecs {
+		controlled[spec.Rel] = struct{}{}
+	}
+	semantic := indexFrozenDynamicSemanticRels(input, nil, controlled)
+	retired := make(map[string]struct{})
+	for rel := range before.Entries {
+		if _, exists := current.Entries[rel]; exists {
+			continue
+		}
+		if _, required := controlled[rel]; required || semantic.references(rel) {
+			return false
+		}
+		retired[rel] = struct{}{}
+	}
+	for rel, got := range current.Entries {
+		want, exists := before.Entries[rel]
+		if !exists || !entryPhysicalStateEqual(got, want) ||
+			current.DomainByRel[rel] != before.DomainByRel[rel] || !validCPUHolderMemsState(got) {
+			return false
+		}
+		// Child coverage must decrease by exactly the independently absent entries,
+		// not by lost observations, a replacement generation, or a new holder.
+		retained, err := frozenRetainedShrinkChildren(retired, rel, before.Children[rel], current.Children[rel])
+		if err != nil || ChildrenFingerprint(retained) != ChildrenFingerprint(current.Children[rel]) {
+			return false
+		}
+	}
+	return len(retired) > 0
+}
+
 func frozenRetainedShrinkChildren(
 	retirablePaths map[string]struct{},
 	parentRel string,

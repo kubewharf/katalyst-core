@@ -299,7 +299,7 @@ func (w safeCPUSetWriter) preflightValidatedTraceOperations(
 	physicalWritesAfter := w.physicalWriteCount()
 	if err != nil {
 		err = fmt.Errorf("capture frozen trace preflight snapshot: %w", err)
-		if fresh != nil {
+		if fresh != nil && phaseTraceStale(err) {
 			return nil, newFrozenInitialSnapshotDriftError(
 				fresh, frozen.InitialSnapshot, fresh.ID, err,
 				physicalWritesBefore, physicalWritesAfter)
@@ -1027,7 +1027,7 @@ func (r *coordinatorRound) proveFrozenTraceFinalState(
 		frozen.FinalSnapshot,
 	)
 	fresh := boundaryEvaluation.Snapshot
-	if err != nil && fresh != nil {
+	if err != nil && fresh != nil && phaseTraceStale(err) {
 		err = &frozenFinalSnapshotDriftError{
 			current:  fresh,
 			expected: frozen.FinalSnapshot,
@@ -1526,6 +1526,8 @@ func authorizePreWriteStaleReplan(res *ConvergenceResult, err error) {
 		return
 	}
 	res.ReplanDisposition = ReplanNotAllowed
+	res.FinalSnapshot = nil
+	res.FinalSnapshotCurrent = false
 	if !res.hasPhysicalWriteEvidence() && phaseTraceStale(err) {
 		res.ReplanDisposition = ReplanSafeNoPhysicalWrites
 		var initialDrift *frozenInitialSnapshotDriftError
@@ -1538,8 +1540,17 @@ func authorizePreWriteStaleReplan(res *ConvergenceResult, err error) {
 }
 
 func phaseTraceStale(err error) bool {
+	var related *executionRelatedError
+	if errors.As(err, &related) {
+		return phaseTraceStale(related.execution)
+	}
+	var snapshotErr *SnapshotError
+	if errors.As(err, &snapshotErr) {
+		return snapshotErr.Class == HierarchyErrorStale ||
+			(snapshotErr.Class != HierarchyErrorBudget && errors.Is(snapshotErr.Err, ErrCgroupIdentityChanged))
+	}
 	var stale *PlanStaleError
-	return errors.As(err, &stale)
+	return errors.As(err, &stale) || errors.Is(err, ErrCgroupIdentityChanged)
 }
 
 func rollbackVerificationComplete(stack *traceMutationStack) bool {

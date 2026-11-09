@@ -424,7 +424,7 @@ func (c TopologyCoordinator) Converge(ctx context.Context, in CoordinatorInput) 
 		result.Applied == 0 &&
 		len(result.Journal) == 0 &&
 		!result.hasPhysicalWriteEvidence() &&
-		(replanRequired(err) || (snapshotErr != nil && snapshotErr.Class == HierarchyErrorStale)) {
+		replanRequired(err) {
 		result.ReplanDisposition = ReplanSafeNoPhysicalWrites
 	}
 	return result, err
@@ -1067,8 +1067,16 @@ func noWriteBlockedSignature(snapshot *CompleteSnapshot, witnesses []ReleaseWitn
 }
 
 func replanRequired(err error) bool {
+	var related *executionRelatedError
+	if errors.As(err, &related) {
+		return replanRequired(related.execution)
+	}
+	var snapshotErr *SnapshotError
+	if errors.As(err, &snapshotErr) {
+		return phaseTraceStale(err)
+	}
 	var stale interface{ ReplanRequired() bool }
-	return (errors.As(err, &stale) && stale.ReplanRequired()) || errors.Is(err, ErrCgroupIdentityChanged)
+	return (errors.As(err, &stale) && stale.ReplanRequired()) || phaseTraceStale(err)
 }
 
 func preflightObservationStale(err error) bool {
@@ -1316,34 +1324,33 @@ func (r *coordinatorRound) executeParentSafeAdmission(
 		res.Rounds = append(res.Rounds, outcome)
 		if err != nil {
 			res.Published = false
-			// Absorb a transient dynamic frozen-boundary drift in place: the new
-			// holder/coverage already exists in the live hierarchy, so a fresh
-			// snapshot folds it into the plan without any physical write and
-			// without consuming the caller's replan budget.
-			if churnAbsorbed < maxParentSafeChurnAbsorptions &&
-				!res.hasPhysicalWriteEvidence() &&
-				isFrozenBoundaryDynamicDrift(err) {
-				churnAbsorbed++
-				general.InfofV(4, "cpuset_topology: absorbed frozen boundary dynamic drift, retrying with fresh snapshot, attempt=%d", churnAbsorbed)
-				fresh, snapErr := r.nextPlanningSnapshot(ctx)
-				if snapErr != nil {
-					// Prefer the original stale evidence over a snapshot error:
-					// the caller already has a replan-safe classification.
+			if !res.hasPhysicalWriteEvidence() {
+				var initialDrift *frozenInitialSnapshotDriftError
+				fresh := res.FinalSnapshot
+				retirement := res.FinalSnapshotCurrent && errors.As(err, &initialDrift) &&
+					frozenSnapshotRetirement(freezeCoordinatorEvaluationInput(r, baseSnapshot.Capabilities), r.protectedByRel, baseSnapshot, fresh)
+				churn := !retirement && churnAbsorbed < maxParentSafeChurnAbsorptions && isFrozenBoundaryDynamicDrift(err)
+				if !retirement && !churn {
 					return outcome, err
 				}
-				// The deferred settle only runs at function return, so release
-				// this iteration's reservation explicitly before recompiling.
-				// Zero writes are guaranteed by the hasPhysicalWriteEvidence
-				// guard above, so settling (0,0) matches the attempted counts.
-				// Fail closed on a mismatch: settleTotals leaves the reservation
-				// unsettled and does not release reservedWrites. Continuing would
-				// overwrite adjustmentReservation and leak this round's reserved
-				// writes permanently (the defer only settles the last round), so
-				// surface both the accounting failure and the original stale.
+				var snapErr error
+				if retirement {
+					fresh, snapErr = r.prepareSnapshot(ctx, fresh)
+				} else {
+					churnAbsorbed++
+					fresh, snapErr = r.nextPlanningSnapshot(ctx)
+				}
+				if snapErr != nil {
+					authorizePreWriteStaleReplan(res, snapErr)
+					return outcome, &executionRelatedError{execution: snapErr, relation: "original stale", related: err}
+				}
+				// Release the rejected immutable trace before reserving its replacement.
 				if settleErr := adjustmentReservation.settleTotals(0, 0); settleErr != nil {
-					return outcome, fmt.Errorf("churn absorption reservation settle failed: %w (original stale: %v)", settleErr, err)
+					authorizePreWriteStaleReplan(res, settleErr)
+					return outcome, &executionRelatedError{execution: settleErr, relation: "original stale", related: err}
 				}
 				baseSnapshot = fresh
+				authorizePreWriteStaleReplan(res, nil)
 				continue
 			}
 			return outcome, err
