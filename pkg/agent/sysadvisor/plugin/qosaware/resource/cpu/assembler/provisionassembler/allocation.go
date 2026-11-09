@@ -583,23 +583,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	// joint normalization below, so logging them now would reproduce the stale-snapshot
 	// / "log prints 8, pool lands 4" observation split. The terminal log after the
 	// quantity decision is the only authoritative record.
-	// Jointly align the non-overlap reclaim target to a whole-core value before
-	// publication. Real NUMA scopes keep the original gate (three hard-partition
-	// conditions). The global FakeNUMA scope is normalized whenever the dedicated
-	// overlap gate is closed, in BOTH steady and hard mode: QRM materializes that
-	// aggregate through a whole-core quota planner (steady
-	// expandSteadyFakeNUMAReclaimPhase / hard expandHardPartitionReclaimPhase) that
-	// rejects any odd residual, so an odd global quantity always fails Allocate.
-	// The adjustment keeps the controlled partition size-conserved: released CPUs
-	// go to the single dedicated pool when one exists, otherwise to the single
-	// unpinned share pool (FakeNUMA only). Ambiguous recipients pass through.
+	// Real and fake scopes both enter QRM's whole-core solver in steady mode.
+	// Reuse the joint adjustment after all clamps, never reopen a ceiling.
 	cpusPerCore := 0
 	if pa.metaServer != nil && pa.metaServer.CPUTopology != nil {
 		cpusPerCore = pa.metaServer.CPUTopology.CPUsPerCore()
 	}
 	globalScope := numaID == commonstate.FakedNUMAID
 	jointGate := cpusPerCore > 0 && ctx.DisableDedicatedCoresOverlapReclaimedCores &&
-		(globalScope || (nodeEnableReclaim && effectiveHard))
+		(globalScope || nodeEnableReclaim)
 	if jointGate {
 		joint := jointlyNormalizeNonExclusiveTargets(nonExclusiveJointInput{
 			CPUsPerCore:        cpusPerCore,
@@ -722,7 +714,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	general.InfoS("assemble reclaim pool entry",
 		"numaID", numaID,
 		"desired", desiredReclaimed,
-		"effectiveTarget", reclaimedCoresSize,
+		"effectiveTarget", publishedEffectiveTarget,
 		"ceiling", ceiling,
 		"floor", reservedForReclaim,
 		"overlapReclaimedCoresSize", overlapReclaimedCoresSize,
