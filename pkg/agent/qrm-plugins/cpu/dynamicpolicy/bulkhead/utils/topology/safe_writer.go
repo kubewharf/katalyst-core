@@ -55,6 +55,7 @@ type safeCPUSetWriter struct {
 	adjustmentReservation  *AdjustmentWriteReservation
 	recoveryContextFactory func(int) (context.Context, context.CancelFunc, error)
 	res                    *ConvergenceResult
+	preflightCurrent       map[string]EntryState
 	physicalWriteAttempts  *int
 	dormantProofs          map[string]DormantLeafProof
 }
@@ -97,7 +98,8 @@ func (w safeCPUSetWriter) withAdjustmentBudget(budget *AdjustmentBudget) safeCPU
 // subsystem. The preflight freeze prevents "write to A, then discover B is
 // stale" partial-application bugs; the rollback prevents drifting cgroup state
 // after a mid-plan failure.
-func (w safeCPUSetWriter) execute(ctx context.Context, plan PhasePlan) error {
+func (w safeCPUSetWriter) execute(ctx context.Context, plan PhasePlan) (executionErr error) {
+	originalDriver := w.driver
 	if plan.PlanID == "" || canonicalExecutionPlanID(plan) != plan.PlanID {
 		return fmt.Errorf("phase writer requires canonical plan id")
 	}
@@ -138,6 +140,7 @@ func (w safeCPUSetWriter) execute(ctx context.Context, plan PhasePlan) error {
 	// Freeze and validate the complete operation set before the first mutation.
 	// In particular, a later operation becoming stale must not leave an earlier
 	// operation partially applied.
+	w.preflightCurrent = make(map[string]EntryState, len(plan.Operations))
 	preflightChildren := make(map[string]stableLiveChildren, len(plan.Operations))
 	precedingOperations := make(map[string]PlanOperation, len(plan.Operations))
 	for _, operation := range plan.Operations {
@@ -177,12 +180,48 @@ func (w safeCPUSetWriter) execute(ctx context.Context, plan PhasePlan) error {
 		)
 	}()
 
+	journalStart, appliedStart := 0, 0
+	if w.res != nil {
+		journalStart, appliedStart = len(w.res.Journal), w.res.Applied
+	}
+	completed := &traceMutationStack{}
+	defer func() {
+		if executionErr == nil || len(completed.writes) == 0 {
+			return
+		}
+		newRecoveryContext := w.recoveryContextFactory
+		if newRecoveryContext == nil {
+			newRecoveryContext = newAdjustmentRecoveryContext
+		}
+		recoveryCtx, cancel, err := newRecoveryContext(len(completed.writes))
+		if err != nil {
+			executionErr = executionWithRollbackError(executionErr, err)
+			return
+		}
+		defer cancel()
+		w.driver = originalDriver
+		cost := planExecutionReservationCost(plan)
+		ticket := &ExecutionReservationTicket{
+			reserved: cost, rollbackIOOperations: saturatingMultiply(cost.Rollback.Total(), 5),
+		}
+		defer ticket.ReleaseUnused()
+		if err := w.rollbackTracePrefix(recoveryCtx, completed, ticket); err != nil {
+			w.rebuildPhysicalImpactEvidence(completed, w.res, journalStart, appliedStart)
+			executionErr = executionWithRollbackError(executionErr, err)
+			return
+		}
+		var priorRollbackError *executionRelatedError
+		if w.res != nil && !errors.As(executionErr, &priorRollbackError) {
+			w.res.Journal = w.res.Journal[:journalStart]
+			w.res.Applied = appliedStart
+		}
+	}()
 	if len(plan.Operations) > 0 {
 		if err := w.revalidateDormantProofs(ctx, ""); err != nil {
 			return err
 		}
 	}
-	for _, operation := range plan.Operations {
+	for operationIndex, operation := range plan.Operations {
 		// Recheck only the dormant envelopes that this operation's ancestor
 		// containment depends on. This keeps the authorization close to the
 		// corresponding write without multiplying activity scans for unrelated
@@ -190,6 +229,7 @@ func (w safeCPUSetWriter) execute(ctx context.Context, plan PhasePlan) error {
 		if err := w.revalidateDormantProofs(ctx, operation.Rel); err != nil {
 			return err
 		}
+		current := w.preflightCurrent[operation.Rel]
 		if w.res != nil {
 			w.res.Attempted++
 		}
@@ -258,6 +298,23 @@ func (w safeCPUSetWriter) execute(ctx context.Context, plan PhasePlan) error {
 			}
 			return err
 		}
+		if wroteMems {
+			completed.writes = append(completed.writes, physicalWriteBeforeFromEntry(
+				current, operation, HierarchyOperationWriteMems, operation.Target.Mems,
+				operationIndex, plan.Kind, applied.Observed.Mems))
+		}
+		if wroteCPUs {
+			completed.writes = append(completed.writes, physicalWriteBeforeFromEntry(
+				current, operation, HierarchyOperationWriteCPUs, operation.Target.CPUs.String(),
+				operationIndex, plan.Kind, applied.Observed.CPUs.String()))
+			current.ConfiguredCPUs = operation.Target.CPUs.Clone()
+		}
+		if wroteMems {
+			current.ConfiguredMems = operation.Target.Mems
+		}
+		current.CPUs = applied.Observed.CPUs.Clone()
+		current.Mems = applied.Observed.Mems
+		w.preflightCurrent[operation.Rel] = current
 		if w.res != nil {
 			w.res.Applied++
 		}
@@ -491,7 +548,12 @@ func scanFrozenLiveChildrenOnce(
 	frozen stableLiveChildren,
 	readMems bool,
 	failClosedRels map[string]struct{},
-) (stableLiveChildren, error) {
+) (result stableLiveChildren, err error) {
+	defer func() {
+		if err != nil {
+			err = (safeCPUSetWriter{driver: driver}).classifyHierarchyReadError(err, operation)
+		}
+	}()
 	before, err := driver.ListChildren(ctx, operation.Rel)
 	if err != nil {
 		return stableLiveChildren{}, err
@@ -908,6 +970,9 @@ func (w safeCPUSetWriter) precheckOperation(
 	current, err := w.driver.ReadEntry(ctx, operation.Rel)
 	if err != nil {
 		return w.classifyHierarchyReadError(err, operation)
+	}
+	if w.preflightCurrent != nil {
+		w.preflightCurrent[operation.Rel] = current
 	}
 	if current.Identity != operation.ExpectedIdentity {
 		return fmt.Errorf("%w: planned operation rel=%q expected=%v current=%v",
