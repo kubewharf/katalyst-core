@@ -368,8 +368,6 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 	// legacy floor/ownership path regardless of block quantities.
 	allowElasticActual := dynamicConf.EnableReclaim && dynamicConf.EnableRampUpReclaimHardPartition &&
 		resp.DisableDedicatedCoresOverlapReclaimedCores
-	descriptors = applyTargetDrivenReclaimGate(descriptors, allowElasticActual)
-
 	result := advisorapi.NewBlockCPUSet()
 	available, err := p.allocateStaticAndForbiddenPools(resp, result, allCPUs)
 	if err != nil {
@@ -387,19 +385,20 @@ func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDyna
 			descriptors, err = normalizeAdvisorDescriptorsForHardPartitionWholeCoreReclaim(
 				descriptors, available, topology, skipNUMAs)
 		} else {
-			// Steady real-NUMA path: join the per-NUMA mandatory-reclaim and
-			// dedicated targets and rewrite an odd reclaim advice to the
-			// committed-anchored whole-core value, rather than borrowing a core out
-			// of a running dedicated group.
+			// Joint steady targets may release committed reclaim CPUs; the existing
+			// owner-proven apply chain performs the physical handoff after planning.
 			var normalizeReport steadyReclaimNormalizeReport
 			descriptors, normalizeReport, err = normalizeSteadyRealNUMATargets(
-				descriptors, available, topology, skipNUMAs)
+				descriptors, available, topology, skipNUMAs, dynamicConf, podEntries, allowElasticActual)
 			p.emitSteadyReclaimNormalizeMetrics(normalizeReport)
 		}
 		if err != nil {
 			return nil, err
 		}
 	}
+	// Freeze provenance only after quantity normalization, so its target and quota
+	// describe the same plan consumed by both the solver and the final validator.
+	descriptors = applyTargetDrivenReclaimGate(descriptors, allowElasticActual)
 	baseAllocatable := available.Clone()
 	if err := allocateAdvisorStaticDescriptors(descriptors, result); err != nil {
 		return nil, err

@@ -238,8 +238,11 @@ func TestValidateSteadyFakeNUMACommittedSnapshotAllowsOverlappingPreferences(t *
 			residual = demand
 		}
 	}
-	require.Equal(t, machine.NewCPUSet(1, 129),
-		floor.preferred.Intersection(residual.preferred))
+	require.Equal(t, machine.NewCPUSet(1, 129), floor.preferred)
+	require.True(t, floor.preferred.Intersection(residual.preferred).IsEmpty())
+	// Preferences remain non-authoritative even if an external caller supplies
+	// overlap; validation must continue using committed block ownership.
+	residual.preferred = floor.preferred.Clone()
 	require.NoError(t, validateCommittedSteadyFakeNUMASnapshot(
 		snapshot, floors, topology))
 }

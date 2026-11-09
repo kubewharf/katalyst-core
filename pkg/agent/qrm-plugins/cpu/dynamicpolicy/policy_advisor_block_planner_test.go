@@ -548,6 +548,9 @@ func TestGenerateBlockCPUSetSteadyNormalizesRealMandatoryReclaimToWholeCore(t *t
 
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
+	entries := p.state.GetPodEntries()
+	entries["pod-0"] = state.ContainerEntries{"main": &state.AllocationInfo{RequestQuantity: 21}}
+	require.NoError(t, p.state.SetPodEntries(entries, false))
 	resp := advisorBlockTestResponse([]advisorBlockTestAlias{
 		{
 			entry: "pod-0", subEntry: "main", owner: commonstate.PoolNameDedicated,
