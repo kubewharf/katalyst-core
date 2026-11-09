@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1547,6 +1548,34 @@ func (r *coordinatorRound) prepareSnapshot(ctx context.Context, snapshot *Comple
 }
 
 func (r *coordinatorRound) validatePreflightObservations(ctx context.Context, snapshot *CompleteSnapshot) error {
+	// A materialized pending scope and its direct leaves are read independently.
+	// When the kernel guarantees parent containment, child ⊄ parent can only be a
+	// mixed hierarchy epoch; reject that evidence before it can authorize writes.
+	// Keep the fence scoped to protected pending rels because v1 containment
+	// envelopes elsewhere may intentionally lag semantic ownership.
+	if snapshot.Capabilities.KernelParentContainment {
+		for rel := range r.protectedByRel {
+			parent, ok := snapshot.Entries[rel]
+			if !ok {
+				continue
+			}
+			for _, child := range snapshot.Children[rel] {
+				childRel := filepath.Join(rel, child.Name)
+				entry, exists := snapshot.Entries[childRel]
+				if !exists || entry.CPUs.IsSubsetOf(parent.CPUs) {
+					continue
+				}
+				return &PlanStaleError{
+					Rel:       childRel,
+					Direction: WritePublish,
+					Resource:  "preflight_pending_scope_containment",
+					Current:   entry.CPUs.String(),
+					Target:    parent.CPUs.String(),
+					Err:       fmt.Errorf("protected scope child is not contained by its parent snapshot"),
+				}
+			}
+		}
+	}
 	for rel, required := range r.requiredIdentityByRel {
 		entry, ok := snapshot.Entries[rel]
 		if !ok || entry.Identity != required {
