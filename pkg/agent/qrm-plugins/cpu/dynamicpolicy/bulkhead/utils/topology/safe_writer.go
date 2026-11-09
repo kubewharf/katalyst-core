@@ -491,7 +491,12 @@ func scanFrozenLiveChildrenOnce(
 	frozen stableLiveChildren,
 	readMems bool,
 	failClosedRels map[string]struct{},
-) (stableLiveChildren, error) {
+) (result stableLiveChildren, err error) {
+	defer func() {
+		if err != nil {
+			err = (safeCPUSetWriter{driver: driver}).classifyHierarchyReadError(err, operation)
+		}
+	}()
 	before, err := driver.ListChildren(ctx, operation.Rel)
 	if err != nil {
 		return stableLiveChildren{}, err
