@@ -191,6 +191,8 @@ func SplitPlanForAdmission(plan *PhasePlan, in AdmissionSafetyInput) (required, 
 				Union(cpus.Intersection(in.PendingCPUSet))
 		}
 	}
+	// RequiredCPUSetByRel already carries this round's immutable adjusted floor
+	// projection derived once in buildPlan; SplitPlan only reads it to classify.
 	for i, operation := range plan.Operations {
 		deferredTarget, explicitlyDeferred := in.DeferredCPUSetByRel[operation.Rel]
 		removedCPUs := operation.ExpectedCurrent.CPUs.Difference(operation.Target.CPUs)
