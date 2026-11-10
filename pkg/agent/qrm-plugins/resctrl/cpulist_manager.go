@@ -30,12 +30,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resctrlutil "github.com/kubewharf/katalyst-core/pkg/util/resctrl"
 )
 
-const (
-	cpus         = "cpus"
-	monGroupsDir = "mon_groups"
-)
+const cpus = "cpus"
 
 // CPUListClos describes an existing resctrl CLOS directory. Epoch changes
 // whenever the directory's filesystem identity changes.
@@ -60,14 +58,19 @@ type closResourceUpdater interface {
 type cpuListManager struct {
 	root string
 
-	mu      sync.Mutex
-	epochs  map[string]uint64
-	handles map[string]*os.File
-	updater closResourceUpdater
-	// writeFile is injectable so tests can force a failed cpus write and
-	// observe rollback of a freshly created CLOS directory. It defaults to
-	// os.WriteFile.
+	mu            sync.Mutex
+	epochSequence uint64
+	epochs        map[string]uint64
+	handles       map[string]*os.File
+	updater       closResourceUpdater
+	// Incomplete parent restores alone retain descriptors; healthy batches do not.
+	restores sync.Map
+	// writeFile overrides parent writes in tests, including failed creation.
+	// Existing production files are written through pinned descriptors.
 	writeFile func(name string, data []byte, perm os.FileMode) error
+	// Tests use these hooks to emulate kernfs writes and directory replacement.
+	writeMonMask func(file *os.File, mask string) (int, error)
+	openMonFile  func(string, int, os.FileMode) (*os.File, error)
 }
 
 func NewCPUListManager() CPUListManager {
@@ -76,11 +79,10 @@ func NewCPUListManager() CPUListManager {
 
 func newCPUListManagerWithUpdater(root string, updater closResourceUpdater) *cpuListManager {
 	return &cpuListManager{
-		root:      root,
-		epochs:    make(map[string]uint64),
-		handles:   make(map[string]*os.File),
-		updater:   updater,
-		writeFile: os.WriteFile,
+		root:    root,
+		epochs:  make(map[string]uint64),
+		handles: make(map[string]*os.File),
+		updater: updater,
 	}
 }
 
@@ -97,7 +99,31 @@ func newCPUListManagerWithUpdater(root string, updater closResourceUpdater) *cpu
 // reliably even on filesystems that reuse inode numbers (resctrl kernfs, Linux
 // tmpfs). Detected recreations bump the epoch, swap the held handle, and close
 // the old one; CLOS that disappeared have their handles closed.
-func (m *cpuListManager) ListManagedClos(_ context.Context) ([]CPUListClos, error) {
+func (m *cpuListManager) ListManagedClos(ctx context.Context) ([]CPUListClos, error) {
+	clos, err := m.listManagedClos()
+	if err != nil {
+		return nil, err
+	}
+	// Dropped CLOS cannot retain failed-restore descriptors indefinitely. Use the
+	// CLOS coordinator outside m.mu to keep the Apply -> noteClosCreated lock order.
+	var retireErr error
+	m.restores.Range(func(key, _ interface{}) bool {
+		id := key.(string)
+		update := func() (bool, error) {
+			_, err := m.retireParentRestore(ctx, id)
+			return false, err
+		}
+		if m.updater != nil {
+			retireErr = m.updater.RunClosResourceUpdate(id, update)
+		} else {
+			_, retireErr = update()
+		}
+		return retireErr == nil
+	})
+	return clos, retireErr
+}
+
+func (m *cpuListManager) listManagedClos() ([]CPUListClos, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -131,7 +157,8 @@ func (m *cpuListManager) ListManagedClos(_ context.Context) ([]CPUListClos, erro
 			}
 		}
 		if reincarnated {
-			m.epochs[id]++
+			m.epochSequence++
+			m.epochs[id] = m.epochSequence
 			m.replaceHandleLocked(id)
 		}
 		clos = append(clos, CPUListClos{ID: id, Epoch: m.epochs[id]})
@@ -149,7 +176,7 @@ func (m *cpuListManager) ListManagedClos(_ context.Context) ([]CPUListClos, erro
 	return clos, nil
 }
 
-func (m *cpuListManager) ApplyCPUList(_ context.Context, closID, target string) error {
+func (m *cpuListManager) ApplyCPUList(ctx context.Context, closID, target string) error {
 	if err := validateCLOSID(closID); err != nil {
 		return err
 	}
@@ -159,29 +186,41 @@ func (m *cpuListManager) ApplyCPUList(_ context.Context, closID, target string) 
 		return fmt.Errorf("format CLOS %q cpu_list %q: %w", closID, target, err)
 	}
 	update := func() (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if err := m.finishParentRestore(ctx, closID); err != nil {
+			return false, err
+		}
+		if !createMissingClos {
+			if _, err := os.Stat(filepath.Join(m.root, closID)); os.IsNotExist(err) {
+				return false, nil
+			}
+		}
 		created, err := m.ensureClos(closID, createMissingClos)
 		if err != nil {
 			return false, err
 		}
-		if err := m.writeFile(filepath.Join(m.root, closID, cpus), []byte(mask), 0o644); err != nil {
-			if os.IsNotExist(err) && !createMissingClos {
-				return created, nil
+		var applyErr error
+		if created {
+			// A newly created kernfs CLOS has no MON children yet.
+			writer := m.writeFile
+			if writer == nil {
+				writer = os.WriteFile
 			}
+			applyErr = writer(filepath.Join(m.root, closID, cpus), []byte(mask), 0o644)
+		} else {
+			applyErr = m.applyParentCPUList(ctx, closID, mask)
+		}
+		if applyErr != nil {
 			if created {
-				// Roll back the directory we just materialized so a failed
-				// initial cpus write does not leave an empty, half-initialized
-				// CLOS behind for the memory manager to reconcile later.
 				_ = os.RemoveAll(filepath.Join(m.root, closID))
 			}
-			return created, err
+			return created, applyErr
 		}
 		if created {
-			// The manager just materialized a new CLOS directory incarnation.
-			// Own the epoch transition and record the directory identity now
-			// (after cpus exists) so the next poll matches on both inode and
-			// mtime without a spurious double-bump. This is in addition to the
-			// polling-time sameCLOSIdentity check, which also catches recreations
-			// the manager did not perform itself.
+			// Record the newly created directory's identity so a later poll keeps
+			// its epoch. The manager-wide sequence survives absent-directory polls.
 			m.noteClosCreated(closID)
 		}
 		return created, nil
@@ -202,6 +241,9 @@ func (m *cpuListManager) CPUListMatches(_ context.Context, closID, target string
 	if err := validateCLOSID(closID); err != nil {
 		return false, err
 	}
+	if _, pending := m.restores.Load(closID); pending {
+		return false, nil
+	}
 	mask, err := m.formatCPUListMask(target)
 	if err != nil {
 		return false, fmt.Errorf("format CLOS %q cpu_list %q: %w", closID, target, err)
@@ -210,7 +252,7 @@ func (m *cpuListManager) CPUListMatches(_ context.Context, closID, target string
 	if err != nil {
 		return false, fmt.Errorf("read CLOS %q cpu_list: %w", closID, err)
 	}
-	return strings.TrimSpace(string(content)) == mask, nil
+	return sameCPUListMask(content, []byte(mask))
 }
 
 func (m *cpuListManager) ensureClos(closID string, create bool) (bool, error) {
@@ -244,7 +286,8 @@ func (m *cpuListManager) ensureClos(closID string, create bool) (bool, error) {
 func (m *cpuListManager) noteClosCreated(closID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.epochs[closID]++
+	m.epochSequence++
+	m.epochs[closID] = m.epochSequence
 	m.replaceHandleLocked(closID)
 }
 
@@ -276,23 +319,44 @@ func (m *cpuListManager) formatCPUListMask(target string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	set := machine.NewCPUSet()
+	if strings.TrimSpace(target) != "" {
+		for _, token := range strings.Split(target, ",") {
+			bounds := strings.Split(token, "-")
+			if len(bounds) > 2 {
+				return "", fmt.Errorf("invalid cpu list token %q", token)
+			}
+			first, parseErr := strconv.Atoi(bounds[0])
+			if parseErr != nil || first < 0 {
+				return "", fmt.Errorf("invalid cpu list token %q", token)
+			}
+			if len(bounds) == 2 {
+				last, parseErr := strconv.Atoi(bounds[1])
+				if parseErr != nil || last < first {
+					return "", fmt.Errorf("invalid cpu list range %q", token)
+				}
+			}
+		}
+		set, err = machine.Parse(target)
+		if err != nil {
+			return "", fmt.Errorf("parse cpu list: %w", err)
+		}
+	}
+	return formatCPUSetMask(set, wordCount)
+}
+
+func formatCPUSetMask(set machine.CPUSet, wordCount int) (string, error) {
 	words := make([]uint32, wordCount)
-	if strings.TrimSpace(target) == "" {
-		return formatCPUListMaskWords(words), nil
-	}
-	cpus, err := machine.Parse(target)
-	if err != nil {
-		return "", fmt.Errorf("parse cpu list: %w", err)
-	}
-	for _, cpu := range cpus.ToSliceInt() {
-		if cpu < 0 {
-			return "", fmt.Errorf("negative cpu id %d", cpu)
+	var invalid error
+	set.Each(func(cpu int) {
+		if cpu < 0 || cpu/32 >= wordCount {
+			invalid = fmt.Errorf("cpu id %d exceeds resctrl cpus mask width %d", cpu, wordCount*32)
+			return
 		}
-		word := cpu / 32
-		if word >= len(words) {
-			return "", fmt.Errorf("cpu id %d exceeds resctrl cpus mask width %d", cpu, len(words)*32)
-		}
-		words[word] |= uint32(1) << uint(cpu%32)
+		words[cpu/32] |= uint32(1) << uint(cpu%32)
+	})
+	if invalid != nil {
+		return "", invalid
 	}
 	return formatCPUListMaskWords(words), nil
 }
@@ -324,7 +388,7 @@ func (m *cpuListManager) resctrlCPUMaskWordCount() (int, error) {
 // resctrl root. It is package-level and only ever read, so ListManagedClos can
 // reuse it across every enumerated entry instead of allocating a fresh set per
 // entry on each periodic list.
-var reservedResctrlRootEntries = sets.NewString("info", "mon_data", monGroupsDir)
+var reservedResctrlRootEntries = sets.NewString("info", "mon_data", resctrlutil.MonGroupsDir)
 
 func isClosDir(entry os.DirEntry) bool {
 	return entry.IsDir() && !reservedResctrlRootEntries.Has(entry.Name())
