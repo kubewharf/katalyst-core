@@ -30,6 +30,7 @@ import (
 	qrmresctrl "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	resctrlutil "github.com/kubewharf/katalyst-core/pkg/util/resctrl"
 )
@@ -149,7 +150,7 @@ func (p *CPUListPlugin) CPUSetAdjustmentHandler(ctx context.Context, in bulkhead
 		}
 	}
 	p.pruneApplied(active)
-	return nil
+	return p.reconcileMonGroupCPULists(ctx, clos, targetCPUSets, in.View)
 }
 
 func (p *CPUListPlugin) CPUSetAdjustmentDisabledHandler(ctx context.Context, _ bulkheadapi.HandlerContext) error {
@@ -175,6 +176,84 @@ func (p *CPUListPlugin) CPUSetAdjustmentDisabledHandler(ctx context.Context, _ b
 	}
 	p.pruneApplied(active)
 	return nil
+}
+
+// reconcileMonGroupCPULists projects each known Pod's container CPUSet union
+// onto its existing monitoring group. Overlapping Pod targets are cleared as a
+// whole, rather than partitioned or repeatedly stolen between sibling RMIDs.
+func (p *CPUListPlugin) reconcileMonGroupCPULists(ctx context.Context, clos []Clos,
+	parents map[string]machine.CPUSet, view *model.CPUSetPartitionView,
+) error {
+	manager, ok := p.manager.(qrmresctrlmanager.MonGroupCPUListManager)
+	if !ok || view == nil {
+		return nil
+	}
+	for _, current := range clos {
+		if !p.isManaged(current.ID) {
+			continue
+		}
+		groups, err := manager.ListMonGroupCPULists(ctx, current.ID)
+		if err != nil {
+			return fmt.Errorf("list monitor groups for CLOS %q: %w", current.ID, err)
+		}
+		targets := make(map[string]machine.CPUSet)
+		for _, group := range groups {
+			uid, podGroup := resctrlutil.PodUIDFromMonGroupName(group.Name)
+			if !podGroup {
+				continue
+			}
+			containers, exists := view.ContainerCPUSetByPod[uid]
+			if !exists {
+				continue // Missing allocation is not deletion authority.
+			}
+			cpus := machine.NewCPUSet()
+			for _, set := range containers {
+				cpus.AddSet(set)
+			}
+			targets[group.Name] = cpus
+		}
+		// Count ownership once per CPU instead of comparing every pair of
+		// monitoring groups. Unknown owners remain protected without modification.
+		owners := make(map[int]int)
+		protected := machine.NewCPUSet()
+		for _, group := range groups {
+			if target, known := targets[group.Name]; known {
+				for _, cpu := range target.ToSliceInt() {
+					owners[cpu]++
+				}
+			} else {
+				protected.AddSet(group.CPUs)
+			}
+		}
+		for _, name := range sortedMonGroupNames(targets) {
+			conflicting := !targets[name].Intersection(protected).IsEmpty()
+			for _, cpu := range targets[name].ToSliceInt() {
+				conflicting = conflicting || owners[cpu] > 1
+			}
+			if conflicting {
+				general.InfoSV(4, "skip overlapping monitor group CPU ownership", "closID", current.ID, "monGroup", name)
+				targets[name] = machine.NewCPUSet()
+			} else if !targets[name].Difference(parents[current.ID]).IsEmpty() {
+				general.InfoSV(4, "skip monitor group CPU ownership outside parent CLOS", "closID", current.ID, "monGroup", name)
+				targets[name] = machine.NewCPUSet()
+			}
+		}
+		if len(targets) > 0 {
+			if err := manager.ApplyMonGroupCPULists(ctx, current.ID, targets); err != nil {
+				return fmt.Errorf("apply monitor group CPULists for CLOS %q: %w", current.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func sortedMonGroupNames(targets map[string]machine.CPUSet) []string {
+	names := make([]string, 0, len(targets))
+	for name := range targets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (p *CPUListPlugin) buildTargetCPUSets(view *model.CPUSetPartitionView) map[string]machine.CPUSet {
