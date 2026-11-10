@@ -25,8 +25,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +34,7 @@ import (
 
 	qrmresctrlmanager "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/resctrl"
 	qrmresctrl "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/resctrl"
+	resctrlutil "github.com/kubewharf/katalyst-core/pkg/util/resctrl"
 )
 
 type fakeClosInvalidator struct {
@@ -49,9 +50,15 @@ type fakeClosLifecycle struct {
 	closIDs       []string
 	afterUpdate   func()
 	lifecycleRuns int
+	active        int32
+	invalidated   int32
 }
 
 func (f *fakeClosLifecycle) InvalidateClos(closID string) {
+	if atomic.LoadInt32(&f.active) != 0 {
+		atomic.StoreInt32(&f.invalidated, 1)
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.closIDs = append(f.closIDs, closID)
@@ -60,6 +67,8 @@ func (f *fakeClosLifecycle) InvalidateClos(closID string) {
 func (f *fakeClosLifecycle) RunClosLifecycle(closID string, update func() (bool, error)) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	atomic.StoreInt32(&f.active, 1)
+	defer atomic.StoreInt32(&f.active, 0)
 	f.lifecycleRuns++
 	changed, err := update()
 	if err != nil {
@@ -72,6 +81,26 @@ func (f *fakeClosLifecycle) RunClosLifecycle(closID string, update func() (bool,
 		f.closIDs = append(f.closIDs, closID)
 	}
 	return nil
+}
+
+func TestManagerUsesSharedPodMonGroupNaming(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	manager := NewManager(&qrmresctrl.ResctrlConfig{}).(*managerImpl)
+	manager.root = root
+	manager.enabled.Store(true)
+	uid := "pod-a"
+	require.NoError(t, manager.Create(uid, "dedicated", true))
+	path := filepath.Join(root, "dedicated", resctrlutil.MonGroupsDir, resctrlutil.PodMonGroupName(uid))
+	require.DirExists(t, path)
+	var observed []string
+	walkMonGroupsDirs(root, nil, func(got, _, _ string) { observed = append(observed, got) }, nil)
+	require.Equal(t, []string{uid}, observed)
+	// A bare prefix is not a Pod identity and must not authorize cleanup.
+	require.NoError(t, os.Mkdir(filepath.Join(root, "dedicated", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix), 0o755))
+	observed = nil
+	walkMonGroupsDirs(root, nil, func(got, _, _ string) { observed = append(observed, got) }, nil)
+	require.Equal(t, []string{uid}, observed)
 }
 
 func TestManagerInvalidatesClosOnCreateAndRemove(t *testing.T) {
@@ -146,16 +175,8 @@ func TestManagerLifecycleDoesNotReenterInvalidatorLock(t *testing.T) {
 	manager.root = root
 	manager.enabled.Store(true)
 
-	done := make(chan error, 1)
-	go func() {
-		done <- manager.Create("", "shared", false)
-	}()
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("Create deadlocked by re-entering the lifecycle invalidator")
-	}
+	require.NoError(t, manager.Create("", "shared", false))
+	require.Zero(t, atomic.LoadInt32(&lifecycle.invalidated), "Create re-entered the lifecycle invalidator")
 }
 
 func TestManagerExistingClosDoesNotBumpEpochOrInvalidate(t *testing.T) {
@@ -293,7 +314,7 @@ func TestManagerImpl_Create(t *testing.T) {
 			assert.NoError(t, err)
 
 			if tt.args.createMonGroup {
-				monPath := filepath.Join(closPath, MonGroupsDir, PodDirPrefix+tt.args.podUID)
+				monPath := filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+tt.args.podUID)
 				_, err := os.Stat(monPath)
 				assert.NoError(t, err)
 			}
@@ -318,7 +339,7 @@ func TestManagerImpl_CreateIgnoresLegacyLifecycleFlag(t *testing.T) {
 
 	closPath := filepath.Join(tmpDir, "shared-01")
 	assert.DirExists(t, closPath)
-	assert.DirExists(t, filepath.Join(closPath, MonGroupsDir, PodDirPrefix+"pod1"))
+	assert.DirExists(t, filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"pod1"))
 }
 
 func TestManagerCreateFailsWhileDisableRDTTransitionIsPending(t *testing.T) {
@@ -384,7 +405,7 @@ func TestManagerImpl_ReconcileClosCleansInactivePodsAndStaleClos(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create tasks file for inactive to make it "empty" (size 0)
-	inactivePath := filepath.Join(tmpDir, "shared-01", MonGroupsDir, PodDirPrefix+inactivePod)
+	inactivePath := filepath.Join(tmpDir, "shared-01", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+inactivePod)
 	// We need to ensure parent dirs exist because we might have skipped creation if logic was wrong,
 	// but here we enabled it.
 	err = os.MkdirAll(inactivePath, 0o755)
@@ -394,7 +415,7 @@ func TestManagerImpl_ReconcileClosCleansInactivePodsAndStaleClos(t *testing.T) {
 
 	// Create tasks file for active (not empty) to simulate running task?
 	// But Cleanup checks activePodUIDs list first.
-	activePath := filepath.Join(tmpDir, "shared-01", MonGroupsDir, PodDirPrefix+activePod)
+	activePath := filepath.Join(tmpDir, "shared-01", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+activePod)
 	err = os.MkdirAll(activePath, 0o755)
 	assert.NoError(t, err)
 	err = os.WriteFile(filepath.Join(activePath, tasks), []byte(""), 0o644)
@@ -443,7 +464,7 @@ func TestManagerImpl_ReconcileClosRemovesInactiveMonGroup(t *testing.T) {
 	}
 	m.enabled.Store(true)
 
-	inactivePath := filepath.Join(tmpDir, "shared-01", MonGroupsDir, PodDirPrefix+"inactive")
+	inactivePath := filepath.Join(tmpDir, "shared-01", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"inactive")
 	err := os.MkdirAll(inactivePath, 0o755)
 	assert.NoError(t, err)
 	err = os.WriteFile(filepath.Join(inactivePath, tasks), []byte(""), 0o644)
@@ -472,7 +493,7 @@ func TestManagerImpl_ReconcileClosSkipsConfiguredClosIDs(t *testing.T) {
 	// Create a dir that will be skipped
 	err := m.Create("skip_pod", "shared-skip", true)
 	assert.NoError(t, err)
-	skipPodPath := filepath.Join(tmpDir, "shared-skip", MonGroupsDir, PodDirPrefix+"skip_pod")
+	skipPodPath := filepath.Join(tmpDir, "shared-skip", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"skip_pod")
 	err = os.MkdirAll(skipPodPath, 0o755)
 	assert.NoError(t, err)
 	err = os.WriteFile(filepath.Join(skipPodPath, tasks), []byte(""), 0o644)
@@ -481,7 +502,7 @@ func TestManagerImpl_ReconcileClosSkipsConfiguredClosIDs(t *testing.T) {
 	// Create a dir that will NOT be skipped
 	err = m.Create("noskip_pod", "shared-noskip", true)
 	assert.NoError(t, err)
-	noskipPodPath := filepath.Join(tmpDir, "shared-noskip", MonGroupsDir, PodDirPrefix+"noskip_pod")
+	noskipPodPath := filepath.Join(tmpDir, "shared-noskip", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"noskip_pod")
 	err = os.MkdirAll(noskipPodPath, 0o755)
 	assert.NoError(t, err)
 	err = os.WriteFile(filepath.Join(noskipPodPath, tasks), []byte(""), 0o644)
@@ -537,13 +558,13 @@ func TestManagerImpl_ReconcileClosReadsTasksAndCPUsContent(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			closPath := filepath.Join(root, "shared-01")
-			require.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir), 0o755))
+			require.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir), 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), nil, 0o644))
 			require.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), nil, 0o644))
 
 			protectedPath := closPath
 			if tt.createMonGroup {
-				protectedPath = filepath.Join(closPath, MonGroupsDir, PodDirPrefix+"inactive")
+				protectedPath = filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"inactive")
 				require.NoError(t, os.MkdirAll(protectedPath, 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(protectedPath, tasks), nil, 0o644))
 			}
@@ -568,7 +589,7 @@ func TestManagerImpl_ReconcileClosReadFailureProtectsDirectory(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	closPath := filepath.Join(root, "shared-01")
-	monGroupPath := filepath.Join(closPath, MonGroupsDir, PodDirPrefix+"inactive")
+	monGroupPath := filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"inactive")
 	require.NoError(t, os.MkdirAll(monGroupPath, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(monGroupPath, tasks), nil, 0o644))
 
@@ -591,7 +612,7 @@ func TestManagerImpl_ReconcileClosKeepsDefaultClosOnly(t *testing.T) {
 	root := t.TempDir()
 	for _, closID := range []string{"reclaim", "share"} {
 		closPath := filepath.Join(root, closID)
-		require.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir), 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), nil, 0o644))
 		require.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), nil, 0o644))
 	}
@@ -610,7 +631,7 @@ func TestManagerImpl_ReconcileClosRemovesInactiveDefaultClosMonGroup(t *testing.
 	t.Parallel()
 	root := t.TempDir()
 	closPath := filepath.Join(root, "reclaim")
-	monGroupPath := filepath.Join(closPath, MonGroupsDir, PodDirPrefix+"inactive")
+	monGroupPath := filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"inactive")
 	require.NoError(t, os.MkdirAll(monGroupPath, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), nil, 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), nil, 0o644))
@@ -687,7 +708,7 @@ func TestManagerImpl_ReconcileClos(t *testing.T) {
 			},
 			setup: func(t *testing.T, root string) {
 				closPath := filepath.Join(root, "stale")
-				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir), 0o755))
+				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir), 0o755))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), nil, 0o644))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), nil, 0o644))
 			},
@@ -702,7 +723,7 @@ func TestManagerImpl_ReconcileClos(t *testing.T) {
 			},
 			setup: func(t *testing.T, root string) {
 				closPath := filepath.Join(root, "protected")
-				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir), 0o755))
+				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir), 0o755))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), nil, 0o644))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), nil, 0o644))
 			},
@@ -718,7 +739,7 @@ func TestManagerImpl_ReconcileClos(t *testing.T) {
 			},
 			setup: func(t *testing.T, root string) {
 				closPath := filepath.Join(root, "reclaim")
-				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir, PodDirPrefix+"pod"), 0o755))
+				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"pod"), 0o755))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), []byte("occupied"), 0o644))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), []byte("1"), 0o644))
 			},
@@ -733,7 +754,7 @@ func TestManagerImpl_ReconcileClos(t *testing.T) {
 			},
 			setup: func(t *testing.T, root string) {
 				closPath := filepath.Join(root, "stale")
-				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir, PodDirPrefix+"pod"), 0o755))
+				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"pod"), 0o755))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), []byte("occupied"), 0o644))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), []byte("1"), 0o644))
 			},
@@ -748,7 +769,7 @@ func TestManagerImpl_ReconcileClos(t *testing.T) {
 			},
 			setup: func(t *testing.T, root string) {
 				closPath := filepath.Join(root, "reclaim")
-				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, MonGroupsDir), 0o755))
+				assert.NoError(t, os.MkdirAll(filepath.Join(closPath, resctrlutil.MonGroupsDir), 0o755))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, tasks), []byte("occupied"), 0o644))
 				assert.NoError(t, os.WriteFile(filepath.Join(closPath, cpus), []byte("1"), 0o644))
 			},
@@ -864,7 +885,7 @@ func TestManagerDisableRDTRemovesAllNonSkippedClos(t *testing.T) {
 	for _, closID := range []string{"dedicated", "external"} {
 		require.NoError(t, os.Mkdir(filepath.Join(root, closID), 0o755))
 	}
-	externalMonGroup := filepath.Join(root, "dedicated", MonGroupsDir, PodDirPrefix+"external-pod")
+	externalMonGroup := filepath.Join(root, "dedicated", resctrlutil.MonGroupsDir, resctrlutil.PodDirPrefix+"external-pod")
 	require.NoError(t, os.MkdirAll(externalMonGroup, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(externalMonGroup, tasks), nil, 0o644))
 	manager := NewManager(&qrmresctrl.ResctrlConfig{}).(*managerImpl)
