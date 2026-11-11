@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/bytedance/mockey"
@@ -40,8 +39,6 @@ import (
 	v2 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v2"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
-
-var mu = sync.Mutex{}
 
 func TestV1Manager(t *testing.T) {
 	cgroups.TestMode = true
@@ -239,8 +236,6 @@ func testMemoryOffloadingWithAbsolutePath(t *testing.T) {
 
 func TestDyingMemcgReclaimWithAbsolutePath(t *testing.T) {
 	t.Parallel()
-	mu.Lock()
-	defer mu.Unlock()
 
 	t.Run("missing reclaim file", func(t *testing.T) {
 		t.Parallel()

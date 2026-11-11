@@ -36,14 +36,20 @@ type ReclaimedResourceConfiguration struct {
 	NumaMinReclaimedResourceRatioForAllocate          v1.ResourceList
 	NumaMinReclaimedResourceForAllocate               v1.ResourceList
 
+	// ReclaimedPercentageByConsumer maps a reclaim-consumer name to the
+	// whole-percent share of the total reclaimed resource that
+	// a reclaimed consumer owns. Missing keys default to 0.
+	ReclaimedPercentageByConsumer map[string]int
+
 	*cpuheadroom.CPUHeadroomConfiguration
 	*memoryheadroom.MemoryHeadroomConfiguration
 }
 
 func NewReclaimedResourceConfiguration() *ReclaimedResourceConfiguration {
 	return &ReclaimedResourceConfiguration{
-		CPUHeadroomConfiguration:    cpuheadroom.NewCPUHeadroomConfiguration(),
-		MemoryHeadroomConfiguration: memoryheadroom.NewMemoryHeadroomConfiguration(),
+		CPUHeadroomConfiguration:      cpuheadroom.NewCPUHeadroomConfiguration(),
+		MemoryHeadroomConfiguration:   memoryheadroom.NewMemoryHeadroomConfiguration(),
+		ReclaimedPercentageByConsumer: map[string]int{},
 	}
 }
 
@@ -97,6 +103,14 @@ func (c *ReclaimedResourceConfiguration) ApplyConfiguration(conf *crd.DynamicCon
 			for resourceName, value := range *config.NumaMinReclaimedResourceForAllocate {
 				c.NumaMinReclaimedResourceForAllocate[resourceName] = value
 			}
+		}
+
+		if config.ReclaimedConsumerToReclaimedResourcePercentage != nil {
+			percentages := make(map[string]int, len(*config.ReclaimedConsumerToReclaimedResourcePercentage))
+			for consumer, percentage := range *config.ReclaimedConsumerToReclaimedResourcePercentage {
+				percentages[consumer] = percentage
+			}
+			c.ReclaimedPercentageByConsumer = percentages
 		}
 	}
 

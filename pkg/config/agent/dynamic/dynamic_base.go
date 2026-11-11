@@ -40,6 +40,9 @@ func NewDynamicAgentConfiguration() *DynamicAgentConfiguration {
 }
 
 func (c *DynamicAgentConfiguration) GetDynamicConfiguration() *Configuration {
+	if c == nil {
+		return nil
+	}
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 

@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -1489,8 +1490,16 @@ func TestNewCheckpointState(t *testing.T) {
 
 		// prepare checkpoint for testing
 		if strings.TrimSpace(tc.checkpointContent) != "" {
-			checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
-			require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+			if strings.TrimSpace(tc.expectedError) != "" {
+				// error cases: write raw bytes so read path fails
+				checkpoint := &testutil.MockCheckpoint{Content: tc.checkpointContent}
+				require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
+			} else {
+				// valid case: unmarshal into a real checkpoint so MarshalCheckpoint computes a valid checksum
+				cp := NewCPUPluginCheckpoint()
+				require.NoError(t, json.Unmarshal([]byte(tc.checkpointContent), cp), "could not unmarshal test checkpoint content")
+				require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, cp), "could not create testing checkpoint")
+			}
 		}
 
 		restoredState, err := NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName, policyName, cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
@@ -3372,4 +3381,45 @@ func TestNewCPUPluginCheckpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStateWriteGateRejectsMutationAndRevisionAdvances(t *testing.T) {
+	t.Parallel()
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	require.NoError(t, err)
+
+	s := &cpuPluginState{
+		podEntries:     make(PodEntries),
+		machineState:   GetDefaultMachineState(cpuTopology),
+		socketTopology: cpuTopology.GetSocketTopology(),
+		cpuTopology:    cpuTopology,
+	}
+
+	// No gate installed: ordinary mutation succeeds and advances revision.
+	require.NoError(t, s.SetPodEntries(PodEntries{"u1": ContainerEntries{"c1": &AllocationInfo{}}}))
+	_, _, rev := s.GetAdvisorStateSnapshot()
+	require.Equal(t, uint64(1), rev)
+
+	// Install a gate that rejects every write.
+	rejectErr := fmt.Errorf("gate closed")
+	s.SetWritePermit(func(revision uint64, operation string, permit *WritePermit) error {
+		return rejectErr
+	})
+
+	// Mutation is rejected before changing memory.
+	require.ErrorIs(t, s.SetMachineState(NUMANodeMap{0: {DefaultCPUSet: machine.NewCPUSet(0)}}), rejectErr)
+	require.ErrorIs(t, s.Delete("u1", "c1"), rejectErr)
+	// Rejected write did not change state.
+	assert.Len(t, s.podEntries["u1"], 1)
+	assert.Equal(t, GetDefaultMachineState(cpuTopology), s.machineState)
+
+	// Gate off; an ordinary mutation now advances revision past the snapshot.
+	s.SetWritePermit(nil)
+	require.NoError(t, s.SetAllocationInfo("u2", "c2", &AllocationInfo{}))
+	_, _, rev2 := s.GetAdvisorStateSnapshot()
+	require.Equal(t, uint64(2), rev2)
+
+	// Stale revision: a conditional commit against the old revision is rejected.
+	err = s.CommitAdvisorStateIfRevision(1, PodEntries{}, NUMANodeMap{}, false, false, false)
+	require.ErrorIs(t, err, ErrStaleStateRevision)
 }
