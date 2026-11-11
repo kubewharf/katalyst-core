@@ -7162,6 +7162,20 @@ func TestBuildDefaultShareEligibleCPUSetUsesFullTopologyAfterDNBMigration(t *tes
 		"new exclusive DNB NUMA must be excluded as a whole")
 }
 
+func TestMaterializeDefaultShareCPUSetFrozenResidualIgnoresLegacyQuantity(t *testing.T) {
+	t.Parallel()
+
+	got, err := materializeDefaultShareCPUSetForMode(
+		2,
+		machine.NewCPUSet(0, 1, 2, 3),
+		map[string]machine.CPUSet{commonstate.PoolNameReclaim: machine.NewCPUSet(0)},
+		nil,
+		defaultShareMaterializationFrozenResidual,
+	)
+	require.NoError(t, err)
+	require.True(t, got.Equals(machine.NewCPUSet(1, 2, 3)), "got=%s want=1-3", got)
+}
+
 func TestMaterializeDefaultShareCPUSetRejectsQuantityMismatch(t *testing.T) {
 	t.Parallel()
 

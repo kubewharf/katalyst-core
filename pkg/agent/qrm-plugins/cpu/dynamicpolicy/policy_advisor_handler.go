@@ -705,6 +705,12 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 
 	currentEntries := p.state.GetPodEntries()
 	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+	frozenReclaim := newFrozenReclaimPlacementConstraint(
+		currentEntries, dynamicConf,
+		resp.AllowSharedCoresOverlapReclaimedCores,
+		resp.DisableDedicatedCoresOverlapReclaimedCores)
+	defaultShareMode := defaultShareMaterializationModeFor(dynamicConf, frozenReclaim, resp)
+	defaultShareResidual := defaultShareMode != defaultShareMaterializationDisabled
 
 	// Staleness is checked with the node-global ramp-up observation on both
 	// paths. The advisorapi request side carries no pod annotations, so a
@@ -737,17 +743,13 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 		}
 		hardActiveDomains = resolvedDomains
 	}
-	vErr := p.validateAdvisorResponseWithDynamicConfig(resp, dynamicConf)
+	vErr := p.advisor.advisorValidator.Validate(resp, defaultShareResidual)
 	if vErr != nil {
 		return fmt.Errorf("ValidateCPUAdvisorResp failed with error: %v", vErr)
 	}
 
 	blockToCPUSet, checkpointTransition, aErr := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
-		resp, featureGates, hardActiveDomains, dynamicConf,
-		newFrozenReclaimPlacementConstraint(
-			currentEntries, dynamicConf,
-			resp.AllowSharedCoresOverlapReclaimedCores,
-			resp.DisableDedicatedCoresOverlapReclaimedCores))
+		resp, featureGates, hardActiveDomains, dynamicConf, frozenReclaim, defaultShareResidual)
 	if aErr != nil {
 		return fmt.Errorf("generateBlockCPUSet failed with error: %w", aErr)
 	}
@@ -764,8 +766,8 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 
 	responseAllowOverlap := resp.AllowSharedCoresOverlapReclaimedCores
 	hardActive := rampUpDomainsToLegacyHardActive(hardActiveDomains)
-	pending, applyErr := p.applyBlocksWithDynamicConfig(
-		blockToCPUSet, resp, responseAllowOverlap, hardActive, dynamicConf)
+	pending, applyErr := p.applyBlocksWithDefaultShareMode(
+		blockToCPUSet, resp, responseAllowOverlap, hardActive, dynamicConf, defaultShareMode)
 	if applyErr != nil {
 		return fmt.Errorf("prepare applyBlocks failed with error: %w", applyErr)
 	}
@@ -809,24 +811,6 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 	}
 
 	return nil
-}
-
-func (p *DynamicPolicy) validateAdvisorResponse(resp *advisorapi.ListAndWatchResponse) error {
-	var dynamicConf *dynamicconfig.Configuration
-	if p != nil && p.config.dynamicConfig != nil {
-		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
-	}
-	return p.validateAdvisorResponseWithDynamicConfig(resp, dynamicConf)
-}
-
-func (p *DynamicPolicy) validateAdvisorResponseWithDynamicConfig(
-	resp *advisorapi.ListAndWatchResponse,
-	dynamicConf *dynamicconfig.Configuration,
-) error {
-	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
-		return p.advisor.advisorValidator.ValidateWithDefaultShareUpperBound(resp)
-	}
-	return p.advisor.advisorValidator.Validate(resp)
 }
 
 func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
@@ -1654,8 +1638,6 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 	return nil
 }
 
-// generateBlockCPUSet keeps legacy allocation completely isolated from the negotiated
-// dedicated/reclaim disjoint planner.
 // rampUpDomainsToLegacyHardActive converts the domain-scoped ramp-up set into the
 // node-global boolean used by the legacy block-planning helpers. The per-NUMA
 // scoping happens upstream; here we only need to know whether any ramp-up domain
@@ -1664,40 +1646,13 @@ func rampUpDomainsToLegacyHardActive(hardActiveDomains sets.Int) bool {
 	return hardActiveDomains.Len() > 0
 }
 
-func (p *DynamicPolicy) generateBlockCPUSet(
-	resp *advisorapi.ListAndWatchResponse,
-	featureGates map[string]*advisorsvc.FeatureGate,
-	hardActive bool,
-) (advisorapi.BlockCPUSet, error) {
-	blockCPUSet, _, err := p.generateBlockCPUSetWithCheckpointTransition(
-		resp, featureGates, hardActive)
-	return blockCPUSet, err
-}
-
-func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransition(
-	resp *advisorapi.ListAndWatchResponse,
-	featureGates map[string]*advisorsvc.FeatureGate,
-	hardActive bool,
-) (
-	advisorapi.BlockCPUSet,
-	steadyFakeNUMAMigrationCheckpointTransition,
-	error,
-) {
-	domains := sets.NewInt()
-	if hardActive {
-		domains.Insert(commonstate.FakedNUMAID)
-	}
-	return p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
-		resp, featureGates, domains, p.config.dynamicConfig.GetDynamicConfiguration(),
-		frozenReclaimPlacementConstraint{})
-}
-
 func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransitionForAttempt(
 	resp *advisorapi.ListAndWatchResponse,
 	featureGates map[string]*advisorsvc.FeatureGate,
 	hardActiveDomains sets.Int,
 	dynamicConf *dynamicconfig.Configuration,
 	frozenReclaim frozenReclaimPlacementConstraint,
+	defaultShareResidual bool,
 ) (
 	advisorapi.BlockCPUSet,
 	steadyFakeNUMAMigrationCheckpointTransition,
@@ -1711,11 +1666,10 @@ func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransitionForAttempt(
 		return nil, keep, fmt.Errorf("got nil resp")
 	}
 	planningResp := resp
-	if dynamicConf != nil &&
-		dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
-		// Default share is a synthetic upper-bound block. Preserve it in the
-		// original response for applyBlocks, but never allocate it as an exact
-		// descriptor before QRM materializes the residual.
+	if defaultShareResidual {
+		// Default share is materialized from the QRM-owned CPUSet complement.
+		// Preserve its advisor entry for validation and diagnostics, but never
+		// allocate its quantity as an exact descriptor.
 		planningResp = resp.WithoutDefaultShareEntry()
 	}
 	if !planningResp.DisableDedicatedCoresOverlapReclaimedCores {
@@ -2269,6 +2223,7 @@ type pendingAdvisorState struct {
 	enforceSteadyReclaim          bool
 	residualFloor                 machine.CPUSet
 	dynamicConfig                 *dynamicconfig.Configuration
+	validateDefaultShareResidual  bool
 	migrationCheckpointTransition steadyFakeNUMAMigrationCheckpointTransition
 }
 
@@ -2368,12 +2323,13 @@ func advisorResponseHasFakeNUMAMandatoryReclaim(
 	return false
 }
 
-func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
+func (p *DynamicPolicy) applyBlocksWithDefaultShareMode(
 	blockCPUSet advisorapi.BlockCPUSet,
 	resp *advisorapi.ListAndWatchResponse,
 	allowSharedCoresOverlapReclaimedCores bool,
 	hardActive bool,
 	dynamicConf *dynamicconfig.Configuration,
+	defaultShareMode defaultShareMaterializationMode,
 ) (*pendingAdvisorState, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("applyBlocks got nil resp")
@@ -2383,10 +2339,9 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 	curEntries := p.state.GetPodEntries()
 	newEntries := make(state.PodEntries)
 	var dedicatedCPUSet, pooledUnionDedicatedCPUSet machine.CPUSet
-	defaultSharePlan := defaultShareMaterializationPlan{}
-	if dynamicConf != nil &&
-		dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
-		defaultSharePlan.enabled = true
+	defaultShareResidual := defaultShareMode != defaultShareMaterializationDisabled
+	defaultSharePlan := defaultShareMaterializationPlan{mode: defaultShareMode}
+	if defaultShareResidual {
 		var err error
 		defaultSharePlan.advisedQuantity, err = defaultShareQuantityFromAdvisorResponse(resp)
 		if err != nil {
@@ -2404,7 +2359,7 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 
 	// deal with blocks of dedicated_cores and pools
 	dedicatedCPUSet, pooledUnionDedicatedCPUSet, err = p.buildAdvisorDedicatedPoolEntries(
-		blockCPUSet, resp, curEntries, newEntries, defaultSharePlan.enabled,
+		blockCPUSet, resp, curEntries, newEntries, defaultShareResidual,
 	)
 	if err != nil {
 		return nil, err
@@ -2471,15 +2426,16 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 		}
 		rampUpReclaimFloor = legacyFloor
 	}
-	if defaultSharePlan.enabled {
+	if defaultShareResidual {
 		ownershipEntries, err := projectDefaultShareOwnershipEntries(curEntries, newEntries, resp)
 		if err != nil {
 			return nil, err
 		}
 		defaultSharePlan.eligibleCPUSet = p.buildDefaultShareEligibleCPUSet(
 			newEntries, currentMachineState, rampUpReclaimFloor)
-		if err := p.finalizeDefaultShareEntry(
-			newEntries, ownershipEntries, defaultSharePlan.advisedQuantity, defaultSharePlan.eligibleCPUSet,
+		if err := p.finalizeDefaultShareEntryForMode(
+			newEntries, ownershipEntries, defaultSharePlan.advisedQuantity,
+			defaultSharePlan.eligibleCPUSet, defaultSharePlan.mode,
 		); err != nil {
 			return nil, err
 		}
@@ -2530,11 +2486,12 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 	); err != nil {
 		return nil, fmt.Errorf("sync reclaim pool with adjustment commit override failed with error: %w", err)
 	}
-	if defaultSharePlan.enabled {
+	if defaultShareResidual {
 		defaultSharePlan.eligibleCPUSet = p.buildDefaultShareEligibleCPUSet(
 			newEntries, currentMachineState, rampUpReclaimFloor)
-		if err := p.finalizeDefaultShareEntry(
-			newEntries, newEntries, defaultSharePlan.advisedQuantity, defaultSharePlan.eligibleCPUSet,
+		if err := p.finalizeDefaultShareEntryForMode(
+			newEntries, newEntries, defaultSharePlan.advisedQuantity,
+			defaultSharePlan.eligibleCPUSet, defaultSharePlan.mode,
 		); err != nil {
 			return nil, err
 		}
@@ -2559,19 +2516,20 @@ func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
 	}
 
 	return &pendingAdvisorState{
-		preCommitRevision: stateRevision,
-		entries:           newEntries,
-		allowOverlap:      allowSharedCoresOverlapReclaimedCores,
-		disableDedicated:  resp.DisableDedicatedCoresOverlapReclaimedCores,
-		residualFloor:     rampUpReclaimFloor,
-		dynamicConfig:     dynamicConf,
+		preCommitRevision:            stateRevision,
+		entries:                      newEntries,
+		allowOverlap:                 allowSharedCoresOverlapReclaimedCores,
+		disableDedicated:             resp.DisableDedicatedCoresOverlapReclaimedCores,
+		residualFloor:                rampUpReclaimFloor,
+		dynamicConfig:                dynamicConf,
+		validateDefaultShareResidual: defaultShareResidual,
 	}, nil
 }
 
 // buildAdvisorDedicatedPoolEntries walks the advisor response and constructs (or
 // updates) dedicated_cores and pool entries in newEntries, accumulating the
 // union dedicated CPUSets. It is the dedicated/pools stage of
-// applyBlocksWithDynamicConfig.
+// applyBlocksWithDefaultShareMode.
 func (p *DynamicPolicy) buildAdvisorDedicatedPoolEntries(
 	blockCPUSet advisorapi.BlockCPUSet,
 	resp *advisorapi.ListAndWatchResponse,
@@ -3080,16 +3038,17 @@ func (p *DynamicPolicy) commitPendingAdvisorState(
 		target = targets[0]
 	}
 	entries, _, err := p.commitPendingCPUPartitionForAdvisorTarget(pendingCPUPartition{
-		expectedRevision:          pending.preCommitRevision,
-		entries:                   pending.entries,
-		allowOverlap:              pending.allowOverlap,
-		disableDedicated:          pending.disableDedicated,
-		persist:                   true,
-		source:                    "advisor apply",
-		requireCoreAlignedReclaim: pending.disableDedicated,
-		enforceSteadyReclaim:      pending.enforceSteadyReclaim,
-		residualFloor:             pending.residualFloor,
-		dynamicConfig:             pending.dynamicConfig,
+		expectedRevision:             pending.preCommitRevision,
+		entries:                      pending.entries,
+		allowOverlap:                 pending.allowOverlap,
+		disableDedicated:             pending.disableDedicated,
+		persist:                      true,
+		source:                       "advisor apply",
+		requireCoreAlignedReclaim:    pending.disableDedicated,
+		enforceSteadyReclaim:         pending.enforceSteadyReclaim,
+		residualFloor:                pending.residualFloor,
+		dynamicConfig:                pending.dynamicConfig,
+		validateDefaultShareResidual: pending.validateDefaultShareResidual,
 	}, target)
 	if err == nil {
 		pending.entries = entries
