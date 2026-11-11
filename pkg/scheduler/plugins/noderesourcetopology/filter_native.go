@@ -19,19 +19,19 @@ package noderesourcetopology
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func (tm *TopologyMatch) nativeSingleNUMAContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) nativeSingleNUMAContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo) *framework.Status {
 	klog.V(6).Infof("native Single NUMA node container handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
 
 	return singleNUMAContainerLevelHandler(pod, zones, nodeInfo, tm.resourcePolicy, nativeAlignedResources)
 }
 
-func (tm *TopologyMatch) nativeSingleNUMAPodLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) nativeSingleNUMAPodLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo) *framework.Status {
 	klog.V(5).Infof("native Single NUMA node pod handler for pod %s/%s", pod.Namespace, pod.Name)
 
 	resources := util.GetPodEffectiveRequest(pod)

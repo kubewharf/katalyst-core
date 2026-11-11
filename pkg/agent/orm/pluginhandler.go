@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
@@ -75,7 +76,7 @@ func (m *ManagerImpl) ValidatePlugin(pluginName string, endpoint string, version
 }
 
 // RegisterPlugin starts the endpoint and registers it
-func (m *ManagerImpl) RegisterPlugin(pluginName string, endpoint string, versions []string) error {
+func (m *ManagerImpl) RegisterPlugin(pluginName string, endpoint string, versions []string, _ *time.Duration) error {
 	klog.V(2).Infof("[ORM] Registering Plugin %s at endpoint %s", pluginName, endpoint)
 
 	e, err := endpoint2.NewEndpointImpl(endpoint, pluginName)
@@ -94,11 +95,11 @@ func (m *ManagerImpl) RegisterPlugin(pluginName string, endpoint string, version
 }
 
 // DeRegisterPlugin deregisters the plugin
-func (m *ManagerImpl) DeRegisterPlugin(pluginName string) {
+func (m *ManagerImpl) DeRegisterPlugin(pluginName, endpoint string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if eI, ok := m.endpoints[pluginName]; ok {
+	if eI, ok := m.endpoints[pluginName]; ok && eI.E.GetSocketPath() == endpoint {
 		eI.E.Stop()
 	}
 }
@@ -142,7 +143,7 @@ func (m *ManagerImpl) Register(ctx context.Context, r *pluginapi.RegisterRequest
 	if !versionCompatible {
 		errorString := fmt.Sprintf(errUnsupportedVersion, r.Version, pluginapi.SupportedVersions)
 		klog.Infof("Bad registration request from resource plugin with resource name %q: %s", r.ResourceName, errorString)
-		return &pluginapi.Empty{}, fmt.Errorf(errorString)
+		return &pluginapi.Empty{}, fmt.Errorf("%s", errorString)
 	}
 
 	// TODO: for now, always accepts newest resource plugin. Later may consider to

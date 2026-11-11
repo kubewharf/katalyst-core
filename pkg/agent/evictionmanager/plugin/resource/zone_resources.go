@@ -314,14 +314,14 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to get allocatable: %v", err)
 		klog.Errorf("[%s] %s", p.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	zoneAllocations, err := p.getZoneAllocation(cnr)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to get resources: %v", err)
 		klog.Errorf("[%s] %s", p.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	parseZoneScope := func(evictionScope string) (string, string, error) {

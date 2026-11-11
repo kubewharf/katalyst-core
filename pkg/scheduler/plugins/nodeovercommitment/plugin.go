@@ -17,9 +17,11 @@ limitations under the License.
 package nodeovercommitment
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
 
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
 )
@@ -45,7 +47,7 @@ func (n *NodeOvercommitment) Name() string {
 	return Name
 }
 
-func New(args runtime.Object, h framework.Handle) (framework.Plugin, error) {
+func New(_ context.Context, args runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	klog.Info("Creating new NodeOvercommitment plugin")
 
 	cache.RegisterPodHandler()

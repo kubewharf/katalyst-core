@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -212,7 +213,7 @@ func (m *podSinglePortSDManager) getPodEndpoint(pod *v1.Pod) (string, error) {
 	}
 
 	for _, hostIP := range hostIPs {
-		url := fmt.Sprintf("[%s]:%d", hostIP, port)
+		url := net.JoinHostPort(hostIP, strconv.Itoa(int(port)))
 		if conn, err := net.DialTimeout("tcp", url, time.Second*5); err == nil {
 			if conn != nil {
 				_ = conn.Close()

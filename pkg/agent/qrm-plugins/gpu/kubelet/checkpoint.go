@@ -49,7 +49,7 @@ func ReadAllocations(
 		return nil, fmt.Errorf("failed to get kubelet GPU checkpoint: %w", err)
 	}
 
-	entries, _ := checkpointData.GetDataInLatestFormat()
+	entries, _ := checkpointData.GetData()
 	allocations := make([]Allocation, 0, len(entries))
 	for _, entry := range entries {
 		if !gpuDeviceNames.Has(entry.ResourceName) {

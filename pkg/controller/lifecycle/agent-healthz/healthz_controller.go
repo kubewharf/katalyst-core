@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/controller/lifecycle/agent-healthz/handler"
 	"github.com/kubewharf/katalyst-core/pkg/controller/lifecycle/agent-healthz/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -113,7 +114,13 @@ func NewHealthzController(ctx context.Context,
 	)
 	if !genericConf.DryRun && !conf.DryRun {
 		cnrControl = control.NewCNRControlImpl(client.InternalClient)
-		podControl = control.NewRealPodEjector(client.KubeClient)
+		var err error
+		versionResolver := compatibility.NewKubernetesVersionResolver(
+			client.DiscoveryClient, nil, control.EvictionVersionConfig())
+		podControl, err = control.NewRealPodEjector(client.KubeClient, versionResolver)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ec.nodeListerSynced = nodeInformer.Informer().HasSynced

@@ -18,10 +18,10 @@ package server
 
 import (
 	"google.golang.org/grpc"
+	kubeletutil "k8s.io/cri-client/pkg/util"
 	"k8s.io/klog/v2"
 
 	podresourcesapi "k8s.io/kubelet/pkg/apis/podresources/v1"
-	kubeletutil "k8s.io/kubernetes/pkg/kubelet/util"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/server/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"

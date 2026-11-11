@@ -121,6 +121,10 @@ func (f *mockPodResourcesListerClient) GetAllocatableResources(ctx context.Conte
 	return f.AllocatableResourcesResponse, nil
 }
 
+func (f *mockPodResourcesListerClient) Get(ctx context.Context, in *v1.GetPodResourcesRequest, opts ...grpc.CallOption) (*v1.GetPodResourcesResponse, error) {
+	return nil, nil
+}
+
 type errPodResourceListerClient struct{}
 
 func (e *errPodResourceListerClient) List(ctx context.Context, in *v1.ListPodResourcesRequest, opts ...grpc.CallOption) (*v1.ListPodResourcesResponse, error) {
@@ -128,6 +132,10 @@ func (e *errPodResourceListerClient) List(ctx context.Context, in *v1.ListPodRes
 }
 
 func (e *errPodResourceListerClient) GetAllocatableResources(ctx context.Context, in *v1.AllocatableResourcesRequest, opts ...grpc.CallOption) (*v1.AllocatableResourcesResponse, error) {
+	return nil, fmt.Errorf("err")
+}
+
+func (e *errPodResourceListerClient) Get(ctx context.Context, in *v1.GetPodResourcesRequest, opts ...grpc.CallOption) (*v1.GetPodResourcesResponse, error) {
 	return nil, fmt.Errorf("err")
 }
 

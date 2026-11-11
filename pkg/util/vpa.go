@@ -213,14 +213,14 @@ func GenerateVPAResourceMap(vpa *apis.KatalystVerticalPodAutoscaler) (map[consts
 		for _, podResource := range vpa.Status.PodResources {
 			if podResource.PodName == nil {
 				err := fmt.Errorf("pod resource's PodName is nil")
-				klog.Errorf(err.Error())
+				klog.Error(err)
 				return nil, nil, err
 			}
 
 			for _, containerResource := range podResource.ContainerResources {
 				if containerResource.ContainerName == nil {
 					err := fmt.Errorf("container resource's ContainerName is nil")
-					klog.Errorf(err.Error())
+					klog.Error(err)
 					return nil, nil, err
 				}
 
@@ -235,7 +235,7 @@ func GenerateVPAResourceMap(vpa *apis.KatalystVerticalPodAutoscaler) (map[consts
 		for _, containerResource := range vpa.Status.ContainerResources {
 			if containerResource.ContainerName == nil {
 				err := fmt.Errorf("container resource's ContainerName is nil")
-				klog.Errorf(err.Error())
+				klog.Error(err)
 				return nil, nil, err
 			}
 
@@ -249,7 +249,7 @@ func GenerateVPAResourceMap(vpa *apis.KatalystVerticalPodAutoscaler) (map[consts
 func GenerateVPAPolicyMap(vpa *apis.KatalystVerticalPodAutoscaler) (map[string]apis.ContainerResourcePolicy, error) {
 	if vpa == nil {
 		err := fmt.Errorf("vpa is nil")
-		klog.Errorf(err.Error())
+		klog.Error(err)
 		return nil, err
 	}
 
@@ -257,7 +257,7 @@ func GenerateVPAPolicyMap(vpa *apis.KatalystVerticalPodAutoscaler) (map[string]a
 	for _, containerPolicy := range vpa.Spec.ResourcePolicy.ContainerPolicies {
 		if containerPolicy.ContainerName == nil {
 			err := fmt.Errorf("containerPolicy's ContainerName is nil")
-			klog.Errorf(err.Error())
+			klog.Error(err)
 			return nil, err
 		}
 

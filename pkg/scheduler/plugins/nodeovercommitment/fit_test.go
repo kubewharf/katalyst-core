@@ -24,7 +24,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/plugins/nodeovercommitment/cache"
@@ -127,8 +128,8 @@ func TestPreFilter(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			n := &NodeOvercommitment{}
-			cs := framework.NewCycleState()
-			res, stat := n.PreFilter(context.TODO(), cs, tc.pod)
+			cs := schedulerframework.NewCycleState()
+			res, stat := n.PreFilter(context.TODO(), cs, tc.pod, nil)
 			assert.Nil(t, res)
 			assert.Nil(t, stat)
 
@@ -149,7 +150,7 @@ func TestFilter(t *testing.T) {
 		cnrs      []*v1alpha1.CustomNodeResource
 		existPods []*v1.Pod
 		pod       *v1.Pod
-		requested *framework.Resource
+		requested *schedulerframework.Resource
 		expectRes *framework.Status
 	}{
 		{
@@ -183,7 +184,7 @@ func TestFilter(t *testing.T) {
 				},
 			},
 			existPods: []*v1.Pod{},
-			requested: &framework.Resource{
+			requested: &schedulerframework.Resource{
 				MilliCPU: 24000,
 			},
 			pod: &v1.Pod{
@@ -236,7 +237,7 @@ func TestFilter(t *testing.T) {
 					},
 				},
 			},
-			requested: &framework.Resource{
+			requested: &schedulerframework.Resource{
 				MilliCPU: 24000,
 			},
 			existPods: []*v1.Pod{
@@ -316,7 +317,7 @@ func TestFilter(t *testing.T) {
 					},
 				},
 			},
-			requested: &framework.Resource{
+			requested: &schedulerframework.Resource{
 				MilliCPU: 24000,
 			},
 			existPods: []*v1.Pod{
@@ -395,7 +396,7 @@ func TestFilter(t *testing.T) {
 					},
 				},
 			},
-			requested: &framework.Resource{
+			requested: &schedulerframework.Resource{
 				MilliCPU: 24000,
 			},
 			existPods: []*v1.Pod{
@@ -474,7 +475,7 @@ func TestFilter(t *testing.T) {
 					},
 				},
 			},
-			requested: &framework.Resource{
+			requested: &schedulerframework.Resource{
 				MilliCPU: 24000,
 			},
 			existPods: []*v1.Pod{
@@ -557,7 +558,7 @@ func TestFilter(t *testing.T) {
 					},
 				},
 			},
-			requested: &framework.Resource{
+			requested: &schedulerframework.Resource{
 				MilliCPU: 0,
 			},
 			existPods: []*v1.Pod{},
@@ -598,13 +599,13 @@ func TestFilter(t *testing.T) {
 				}
 			}()
 
-			nodeInfo := framework.NewNodeInfo()
+			nodeInfo := schedulerframework.NewNodeInfo()
 			nodeInfo.SetNode(tc.node)
 			nodeInfo.Requested = tc.requested
 
 			n := &NodeOvercommitment{}
-			cs := framework.NewCycleState()
-			res, stat := n.PreFilter(context.TODO(), cs, tc.pod)
+			cs := schedulerframework.NewCycleState()
+			res, stat := n.PreFilter(context.TODO(), cs, tc.pod, nil)
 			assert.Nil(t, res)
 			assert.Nil(t, stat)
 

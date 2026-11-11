@@ -20,67 +20,275 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
-	autoscaling "k8s.io/api/autoscaling/v2"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	autoscalingv2beta2 "k8s.io/api/autoscaling/v2beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/kubernetes"
+	autoscalingv2client "k8s.io/client-go/kubernetes/typed/autoscaling/v2"
+	autoscalingv2beta2client "k8s.io/client-go/kubernetes/typed/autoscaling/v2beta2"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha2"
 	clientset "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned"
+	"github.com/kubewharf/katalyst-core/pkg/util/compatibility"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-type HPAManager interface {
-	Create(ctx context.Context, new *autoscaling.HorizontalPodAutoscaler, opts metav1.CreateOptions) (*autoscaling.HorizontalPodAutoscaler, error)
-	Patch(ctx context.Context, old, new *autoscaling.HorizontalPodAutoscaler, opts metav1.PatchOptions) (*autoscaling.HorizontalPodAutoscaler, error)
-}
+const (
+	hpaV2      = "autoscaling/v2"
+	hpaV2beta2 = "autoscaling/v2beta2"
+)
 
-type HPAManageImpl struct {
-	client kubernetes.Interface
-}
-
-func NewHPAManager(client kubernetes.Interface) HPAManager {
-	return &HPAManageImpl{
-		client: client,
+func HPAVersionConfig() compatibility.KubernetesVersionConfig {
+	return compatibility.KubernetesVersionConfig{
+		APIName: "HorizontalPodAutoscaler API",
+		Candidates: []compatibility.KubernetesVersionCandidate{{
+			Resource:               "horizontalpodautoscalers",
+			DiscoveryGroupVersions: []string{hpaV2, hpaV2beta2},
+			SupportedVersions:      []string{hpaV2, hpaV2beta2},
+		}},
 	}
 }
 
-func (h *HPAManageImpl) Create(ctx context.Context,
-	new *autoscaling.HorizontalPodAutoscaler, opts metav1.CreateOptions,
-) (*autoscaling.HorizontalPodAutoscaler, error) {
+type HPAManager interface {
+	Get(ctx context.Context, namespace, name string, opts metav1.GetOptions) (*autoscalingv2.HorizontalPodAutoscaler, error)
+	Create(ctx context.Context, new *autoscalingv2.HorizontalPodAutoscaler, opts metav1.CreateOptions) (*autoscalingv2.HorizontalPodAutoscaler, error)
+	Patch(ctx context.Context, old, new *autoscalingv2.HorizontalPodAutoscaler, opts metav1.PatchOptions) (*autoscalingv2.HorizontalPodAutoscaler, error)
+}
+
+type hpaAdapter interface {
+	Get(ctx context.Context, namespace, name string, opts metav1.GetOptions) (*autoscalingv2.HorizontalPodAutoscaler, error)
+	Create(ctx context.Context, new *autoscalingv2.HorizontalPodAutoscaler, opts metav1.CreateOptions) (*autoscalingv2.HorizontalPodAutoscaler, error)
+	Patch(ctx context.Context, old, new *autoscalingv2.HorizontalPodAutoscaler, opts metav1.PatchOptions) (*autoscalingv2.HorizontalPodAutoscaler, error)
+}
+
+type hpaManagerImpl struct {
+	client          kubernetes.Interface
+	versionResolver compatibility.VersionResolver
+
+	mutex   sync.Mutex
+	adapter hpaAdapter
+}
+
+func NewHPAManager(
+	client kubernetes.Interface,
+	versionResolver compatibility.VersionResolver,
+) (HPAManager, error) {
+	if versionResolver == nil {
+		return nil, fmt.Errorf("HPA API version resolver is nil")
+	}
+
+	return &hpaManagerImpl{
+		client:          client,
+		versionResolver: versionResolver,
+	}, nil
+}
+
+func (h *hpaManagerImpl) getAdapter(ctx context.Context) (hpaAdapter, error) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	if h.adapter != nil {
+		return h.adapter, nil
+	}
+
+	version, err := h.versionResolver.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve HorizontalPodAutoscaler API version: %w", err)
+	}
+
+	adapter := h.newAdapter(version)
+	if adapter == nil {
+		return nil, fmt.Errorf("unsupported HorizontalPodAutoscaler API %q", version)
+	}
+	h.adapter = adapter
+	return adapter, nil
+}
+
+func (h *hpaManagerImpl) newAdapter(groupVersion string) hpaAdapter {
+	switch groupVersion {
+	case hpaV2:
+		return &hpaV2Adapter{client: h.client.AutoscalingV2()}
+	case hpaV2beta2:
+		return &hpaV2beta2Adapter{client: h.client.AutoscalingV2beta2()}
+	default:
+		return nil
+	}
+}
+
+func (h *hpaManagerImpl) Get(
+	ctx context.Context,
+	namespace, name string,
+	opts metav1.GetOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	adapter, err := h.getAdapter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return adapter.Get(ctx, namespace, name, opts)
+}
+
+func (h *hpaManagerImpl) Create(
+	ctx context.Context,
+	new *autoscalingv2.HorizontalPodAutoscaler,
+	opts metav1.CreateOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
 	if new == nil {
 		return nil, fmt.Errorf("can't create a nil HPA")
 	}
-	return h.client.AutoscalingV2().HorizontalPodAutoscalers(new.Namespace).Create(ctx, new, opts)
+	adapter, err := h.getAdapter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return adapter.Create(ctx, new, opts)
 }
 
-func (h *HPAManageImpl) Patch(ctx context.Context, old,
-	new *autoscaling.HorizontalPodAutoscaler, opts metav1.PatchOptions,
-) (*autoscaling.HorizontalPodAutoscaler, error) {
+func (h *hpaManagerImpl) Patch(
+	ctx context.Context,
+	old, new *autoscalingv2.HorizontalPodAutoscaler,
+	opts metav1.PatchOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
 	if old == nil || new == nil {
 		return nil, fmt.Errorf("can't patch a nil HPA")
 	}
+	adapter, err := h.getAdapter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return adapter.Patch(ctx, old, new, opts)
+}
 
+type hpaV2Adapter struct {
+	client autoscalingv2client.AutoscalingV2Interface
+}
+
+func (h *hpaV2Adapter) Get(
+	ctx context.Context,
+	namespace, name string,
+	opts metav1.GetOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	return h.client.HorizontalPodAutoscalers(namespace).Get(ctx, name, opts)
+}
+
+func (h *hpaV2Adapter) Create(
+	ctx context.Context,
+	new *autoscalingv2.HorizontalPodAutoscaler,
+	opts metav1.CreateOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	return h.client.HorizontalPodAutoscalers(new.Namespace).Create(ctx, new, opts)
+}
+
+func (h *hpaV2Adapter) Patch(
+	ctx context.Context,
+	old, new *autoscalingv2.HorizontalPodAutoscaler,
+	opts metav1.PatchOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	patchBytes, err := createHPAPatch(old, new, &autoscalingv2.HorizontalPodAutoscaler{})
+	if err != nil || general.JsonPathEmpty(patchBytes) {
+		return nil, err
+	}
+	return h.client.HorizontalPodAutoscalers(old.Namespace).Patch(
+		ctx, old.Name, types.StrategicMergePatchType, patchBytes, opts)
+}
+
+type hpaV2beta2Adapter struct {
+	client autoscalingv2beta2client.AutoscalingV2beta2Interface
+}
+
+func (h *hpaV2beta2Adapter) Get(
+	ctx context.Context,
+	namespace, name string,
+	opts metav1.GetOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	external, err := h.client.HorizontalPodAutoscalers(namespace).Get(ctx, name, opts)
+	if err != nil {
+		return nil, err
+	}
+	result := &autoscalingv2.HorizontalPodAutoscaler{}
+	if err := convertHPA(external, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (h *hpaV2beta2Adapter) Create(
+	ctx context.Context,
+	new *autoscalingv2.HorizontalPodAutoscaler,
+	opts metav1.CreateOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	external := &autoscalingv2beta2.HorizontalPodAutoscaler{}
+	if err := convertHPA(new, external); err != nil {
+		return nil, err
+	}
+	created, err := h.client.HorizontalPodAutoscalers(external.Namespace).Create(ctx, external, opts)
+	if err != nil {
+		return nil, err
+	}
+	result := &autoscalingv2.HorizontalPodAutoscaler{}
+	if err := convertHPA(created, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (h *hpaV2beta2Adapter) Patch(
+	ctx context.Context,
+	old, new *autoscalingv2.HorizontalPodAutoscaler,
+	opts metav1.PatchOptions,
+) (*autoscalingv2.HorizontalPodAutoscaler, error) {
+	oldExternal := &autoscalingv2beta2.HorizontalPodAutoscaler{}
+	if err := convertHPA(old, oldExternal); err != nil {
+		return nil, err
+	}
+	newExternal := &autoscalingv2beta2.HorizontalPodAutoscaler{}
+	if err := convertHPA(new, newExternal); err != nil {
+		return nil, err
+	}
+	patchBytes, err := createHPAPatch(
+		oldExternal, newExternal, &autoscalingv2beta2.HorizontalPodAutoscaler{})
+	if err != nil || general.JsonPathEmpty(patchBytes) {
+		return nil, err
+	}
+	patched, err := h.client.HorizontalPodAutoscalers(old.Namespace).Patch(
+		ctx, old.Name, types.StrategicMergePatchType, patchBytes, opts)
+	if err != nil {
+		return nil, err
+	}
+	result := &autoscalingv2.HorizontalPodAutoscaler{}
+	if err := convertHPA(patched, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func convertHPA(from, to interface{}) error {
+	data, err := json.Marshal(from)
+	if err != nil {
+		return fmt.Errorf("marshal HPA for conversion: %w", err)
+	}
+	if err := json.Unmarshal(data, to); err != nil {
+		return fmt.Errorf("unmarshal converted HPA: %w", err)
+	}
+	return nil
+}
+
+func createHPAPatch(old, new, dataStruct interface{}) ([]byte, error) {
 	oldData, err := json.Marshal(old)
 	if err != nil {
 		return nil, err
 	}
-
 	newData, err := json.Marshal(new)
 	if err != nil {
 		return nil, err
 	}
-
-	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, &autoscaling.HorizontalPodAutoscaler{})
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, dataStruct)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create merge patch for hpa %q/%q: %v", old.Namespace, old.Name, err)
-	} else if general.JsonPathEmpty(patchBytes) {
-		return nil, nil
+		return nil, fmt.Errorf("create HPA strategic merge patch: %w", err)
 	}
-
-	return h.client.AutoscalingV2().HorizontalPodAutoscalers(old.Namespace).Patch(ctx, old.Name, types.StrategicMergePatchType, patchBytes, opts)
+	return patchBytes, nil
 }
 
 type IHPAUpdater interface {
