@@ -149,7 +149,7 @@ func TestVerifyChecksumCorrupted(t *testing.T) {
 	}
 
 	err := d.VerifyChecksum()
-	assert.ErrorIs(t, err, errors.ErrCorruptCheckpoint,
+	assert.ErrorIs(t, err, errors.CorruptCheckpointError{},
 		"mismatched checksum should return ErrCorruptCheckpoint")
 }
 
@@ -195,7 +195,7 @@ func TestVerifyChecksumRejectsMigratableCheckpointWithUnknownKind(t *testing.T) 
 	assert.NoError(t, err)
 
 	err = restored.VerifyChecksum()
-	assert.ErrorIs(t, err, errors.ErrCorruptCheckpoint,
+	assert.ErrorIs(t, err, errors.CorruptCheckpointError{},
 		"unknown config kind should not be accepted by migration fallback")
 }
 
@@ -218,7 +218,7 @@ func TestVerifyChecksumRejectsMigratableCheckpointWithNilValue(t *testing.T) {
 	assert.NoError(t, err)
 
 	err = restored.VerifyChecksum()
-	assert.ErrorIs(t, err, errors.ErrCorruptCheckpoint,
+	assert.ErrorIs(t, err, errors.CorruptCheckpointError{},
 		"nil config value should not be accepted by migration fallback")
 }
 

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net"
 	"os"
 	"path"
@@ -33,9 +34,8 @@ import (
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/component-helpers/resource"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/api/v1/resource"
-	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -215,8 +215,8 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 				ContainerName:        allocationInfo.ContainerName,
 				ContainerType:        pluginapi.ContainerType(containerType),
 				ContainerIndex:       allocationInfo.ContainerIndex,
-				Labels:               maputil.CopySS(allocationInfo.Labels),
-				Annotations:          maputil.CopySS(allocationInfo.Annotations),
+				Labels:               maps.Clone(allocationInfo.Labels),
+				Annotations:          maps.Clone(allocationInfo.Annotations),
 				QosLevel:             allocationInfo.QoSLevel,
 				RequestQuantity:      uint64(allocationInfo.RequestQuantity),
 				RequestMilliQuantity: uint64(allocationInfo.RequestQuantity * 1000),
@@ -254,8 +254,8 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 					PodName:              allocationInfo.PodName,
 					ContainerName:        allocationInfo.ContainerName,
 					ContainerIndex:       allocationInfo.ContainerIndex,
-					Labels:               maputil.CopySS(allocationInfo.Labels),
-					Annotations:          maputil.CopySS(allocationInfo.Annotations),
+					Labels:               maps.Clone(allocationInfo.Labels),
+					Annotations:          maps.Clone(allocationInfo.Annotations),
 					QosLevel:             allocationInfo.QoSLevel,
 					RequestQuantity:      uint64(allocationInfo.RequestQuantity),
 					RequestMilliQuantity: uint64(allocationInfo.RequestQuantity * 1000),
@@ -626,7 +626,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 			continue
 		}
 
-		_, limit := resource.PodRequestsAndLimits(pod)
+		limit := resource.PodLimits(pod, resource.PodResourcesOptions{})
 		if _, ok := limit[v1.ResourceCPU]; !ok {
 			general.Warningf("no cpu limit for pod %s: %v", pod.Name, err)
 			continue
@@ -1480,8 +1480,8 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			case consts.PodAnnotationQoSLevelDedicatedCores:
 				errMsg := fmt.Sprintf("dedicated_cores blocks aren't applied, pod: %s/%s, container: %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				general.Errorf(errMsg)
-				return fmt.Errorf(errMsg)
+				general.Errorf("%s", errMsg)
+				return fmt.Errorf("%s", errMsg)
 			case consts.PodAnnotationQoSLevelSystemCores:
 				poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(newEntries, allocationInfo)
 				if err != nil {

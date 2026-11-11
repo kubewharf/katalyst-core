@@ -109,8 +109,8 @@ func (r *RealPodUpdater) UpdatePodStatus(ctx context.Context, pod *core.Pod, opt
 	return r.client.CoreV1().Pods(pod.Namespace).UpdateStatus(ctx, pod, opts)
 }
 
-func (r *RealPodUpdater) PatchPodStatus(_ context.Context, oldPod, newPod *core.Pod) error {
-	_, _, _, err := statusutil.PatchPodStatus(r.client, oldPod.Namespace, oldPod.Name, oldPod.UID, oldPod.Status, newPod.Status)
+func (r *RealPodUpdater) PatchPodStatus(ctx context.Context, oldPod, newPod *core.Pod) error {
+	_, _, _, err := statusutil.PatchPodStatus(ctx, r.client, oldPod.Namespace, oldPod.Name, oldPod.UID, oldPod.Status, newPod.Status)
 	return err
 }
 

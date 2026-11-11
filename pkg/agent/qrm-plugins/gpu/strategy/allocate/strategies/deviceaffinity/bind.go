@@ -56,7 +56,7 @@ func (s *DeviceAffinityStrategy) Bind(
 		return &allocate.AllocationResult{
 			Success:      false,
 			ErrorMessage: errMsg,
-		}, fmt.Errorf(errMsg)
+		}, fmt.Errorf("%s", errMsg)
 	}
 
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)

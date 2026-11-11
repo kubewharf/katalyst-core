@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes/fake"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	. "github.com/bytedance/mockey"
 
@@ -42,6 +41,7 @@ import (
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	criclient "github.com/kubewharf/katalyst-core/pkg/util/kubelet/cri"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -86,7 +86,7 @@ func TestStaticPolicy_New(t *testing.T) {
 			PluginManager: nil,
 		}
 
-		Mock(remote.NewRemoteRuntimeService).Return(nil, nil).Build()
+		Mock(criclient.NewRuntimeService).Return(nil, nil).Build()
 
 		shouldRun, _, err := NewStaticPolicy(agentCtx, conf, nil, "sriov")
 

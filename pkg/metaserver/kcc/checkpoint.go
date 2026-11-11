@@ -109,7 +109,7 @@ func (d *Data) VerifyChecksum() error {
 		return nil
 	}
 
-	return errors.ErrCorruptCheckpoint
+	return errors.CorruptCheckpointError{}
 }
 
 func (d *Data) isMigratableDecodedCheckpoint() bool {

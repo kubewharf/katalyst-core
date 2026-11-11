@@ -82,7 +82,7 @@ func (e *EvictHelper) Run() {
 // doEviction is used to pop nodes from to-be-evicted queue,
 // and then trigger the taint actions
 func (e *EvictHelper) doEviction() {
-	e.queue.Try(func(value scheduler.TimedValue) (bool, time.Duration) {
+	e.queue.Try(klog.FromContext(e.ctx), func(value scheduler.TimedValue) (bool, time.Duration) {
 		node, err := e.nodeLister.Get(value.Value)
 		if errors.IsNotFound(err) {
 			klog.Warningf("Node %v no longer present in nodeLister", value.Value)

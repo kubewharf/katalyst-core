@@ -23,41 +23,41 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/framework"
 	pluginv1alpha1 "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func (tm *TopologyMatch) dedicatedCoresWithNUMABindingSingleNUMANodeContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) dedicatedCoresWithNUMABindingSingleNUMANodeContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo) *framework.Status {
 	klog.V(5).Infof("dedicated with NUMABinding Single NUMA node container handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
 
 	return singleNUMAContainerLevelHandler(pod, zones, nodeInfo, tm.resourcePolicy, nativeAlignedResources)
 }
 
-func (tm *TopologyMatch) dedicatedCoresWithNUMAExclusiveSingleNUMANodeContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) dedicatedCoresWithNUMAExclusiveSingleNUMANodeContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo) *framework.Status {
 	klog.V(5).Infof("dedicated with NUMAExclusive Single NUMA node container handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
 
 	return singleNUMAContainerLevelHandler(pod, zones, nodeInfo, tm.resourcePolicy, tm.alignedResources)
 }
 
-func (tm *TopologyMatch) dedicatedCoresWithNUMABindingNumericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) dedicatedCoresWithNUMABindingNumericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo) *framework.Status {
 	klog.V(5).Infof("dedicated with NUMABinding numeric container handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
 
 	return numericContainerLevelHandler(pod, zones, nodeInfo, tm.resourcePolicy, tm.alignedResources)
 }
 
-func (tm *TopologyMatch) dedicatedCoresWithNUMAExclusiveNumericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo) *framework.Status {
+func (tm *TopologyMatch) dedicatedCoresWithNUMAExclusiveNumericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo) *framework.Status {
 	klog.V(5).Infof("dedicated with NUMAExclusive numeric container handler for pod %s/%s, node %s", pod.Namespace, pod.Name, nodeInfo.Node().Name)
 
 	return numericContainerLevelHandler(pod, zones, nodeInfo, tm.resourcePolicy, tm.alignedResources)
 }
 
-func numericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo *framework.NodeInfo, policy consts.ResourcePluginPolicyName, alignedResource sets.String) *framework.Status {
+func numericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, nodeInfo framework.NodeInfo, policy consts.ResourcePluginPolicyName, alignedResource sets.String) *framework.Status {
 	var (
 		NUMANodeMap = TopologyZonesToNUMANodeMap(zones)
 		numaBinding = util.IsNumaBinding(pod)
@@ -93,7 +93,7 @@ func numericContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone, n
 	return nil
 }
 
-func resourceAvailable(resources v1.ResourceList, numaNodeMap map[int]NUMANode, nodeInfo *framework.NodeInfo, alignedResource sets.String, numaBinding, exclusive bool) (map[string]topologymanager.TopologyHint, bool) {
+func resourceAvailable(resources v1.ResourceList, numaNodeMap map[int]NUMANode, nodeInfo framework.NodeInfo, alignedResource sets.String, numaBinding, exclusive bool) (map[string]topologymanager.TopologyHint, bool) {
 	resourceBestHints := make(map[string][]topologymanager.TopologyHint)
 
 	for resourceName, quantity := range resources {

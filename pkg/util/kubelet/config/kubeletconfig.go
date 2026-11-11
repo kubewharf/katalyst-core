@@ -102,21 +102,19 @@ func GetInTreeProviderPolicies(kubeletConfig *native.KubeletConfiguration) (map[
 	}
 
 	klog.V(5).Infof("GetProviderPolicies featureGates: %v, cpuManagerPolicy: %v, memoryManagerPolicy: %v",
-		kubeletConfig.FeatureGates, features.CPUManager, features.MemoryManager)
+		kubeletConfig.FeatureGates, kubeletConfig.CPUManagerPolicy, features.MemoryManager)
 
 	res := map[string]string{
 		consts.KCNRAnnotationCPUManager:    string(consts.CPUManagerOff),
 		consts.KCNRAnnotationMemoryManager: string(consts.MemoryManagerOff),
 	}
 
-	on, ok := kubeletConfig.FeatureGates[string(features.CPUManager)]
-	if (ok && on) || (!ok) {
-		if kubeletConfig.CPUManagerPolicy != "" {
-			res[consts.KCNRAnnotationCPUManager] = kubeletConfig.CPUManagerPolicy
-		}
+	if kubeletConfig.CPUManagerPolicy != "" &&
+		kubeletConfig.CPUManagerPolicy != string(consts.CPUManagerPolicyNone) {
+		res[consts.KCNRAnnotationCPUManager] = kubeletConfig.CPUManagerPolicy
 	}
 
-	on, ok = kubeletConfig.FeatureGates[string(features.MemoryManager)]
+	on, ok := kubeletConfig.FeatureGates[string(features.MemoryManager)]
 	if (ok && on) || (!ok) {
 		if kubeletConfig.MemoryManagerPolicy != "" {
 			res[consts.KCNRAnnotationMemoryManager] = kubeletConfig.MemoryManagerPolicy

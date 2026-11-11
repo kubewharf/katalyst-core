@@ -110,6 +110,10 @@ type remoteEndpointImpl struct {
 	*process.StopControl
 }
 
+func (e *remoteEndpointImpl) GetSocketPath() string {
+	return e.socketPath
+}
+
 // Run initializes ListAndWatch gRPC call for the plugin and blocks
 // on receiving ListAndWatch gRPC stream updates. Each stream-item
 // for ListAndWatch contains a new list of report content.
