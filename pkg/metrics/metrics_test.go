@@ -24,7 +24,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
@@ -59,9 +58,12 @@ func TestMetrics(t *testing.T) {
 		_ = w.StoreInt64("int_up_down_count_every_1s", 1, MetricTypeNameUpDownCount)
 	}, 1*time.Second, context.TODO().Done())
 
-	go func() {
-		klog.Fatal(http.ListenAndServe(":8080", http.DefaultServeMux))
-	}()
+	// NOTE: previously this test started an HTTP server on the hardcoded ":8080"
+	// and klog.Fatal'd on bind failure. That bound a well-known port (which may
+	// already be held by a host service) and aborted the whole test binary via
+	// os.Exit, making the test flaky/environment-dependent. The test only
+	// exercises metric storage, so no listener is required; the prometheus
+	// handler remains registered on the provided mux without being served.
 }
 
 func TestClock(t *testing.T) {
