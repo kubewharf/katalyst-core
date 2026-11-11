@@ -191,10 +191,10 @@ Components related to scheduling:
 
 We will introduce some new resource keys:
 
-- `katalyst.kubewharf.io/reclaimed_millicpu` represents the amount of reclaimed CPU resources requested by a container.
+- `resource.katalyst.kubewharf.io/reclaimed_millicpu` represents the amount of reclaimed CPU resources requested by a container.
   Its unit is milli-core.
 
-- `katalyst.kubewharf.io/reclaimed_memory` represents the amount of reclaimed memory resources requested by a container.
+- `resource.katalyst.kubewharf.io/reclaimed_memory` represents the amount of reclaimed memory resources requested by a container.
   Its unit is byte.
 
 If a user wants to create a Pod with a `reclaimed_cores` QoS class which requests 4 CPU cores and 8 GiB of memory,
@@ -213,11 +213,11 @@ spec:
   - ...
     resources:
       requests:
-        "katalyst.kubewharf.io/reclaimed_millicpu": "4k"
-        "katalyst.kubewharf.io/reclaimed_memory": 8Gi
+        "resource.katalyst.kubewharf.io/reclaimed_millicpu": "4k"
+        "resource.katalyst.kubewharf.io/reclaimed_memory": 8Gi
       limits:
-        "katalyst.kubewharf.io/reclaimed_millicpu": "4k"
-        "katalyst.kubewharf.io/reclaimed_memory": 8Gi
+        "resource.katalyst.kubewharf.io/reclaimed_millicpu": "4k"
+        "resource.katalyst.kubewharf.io/reclaimed_memory": 8Gi
 ```
 
 #### Report Allocatable Reclaimed Resources
@@ -237,11 +237,11 @@ spec:
 status:
   ...
   resourceAllocatable:
-    katalyst.kubewharf.io/reclaimed_memory: "107374182400"
-    katalyst.kubewharf.io/reclaimed_millicpu: 40k
+    resource.katalyst.kubewharf.io/reclaimed_memory: "107374182400"
+    resource.katalyst.kubewharf.io/reclaimed_millicpu: 40k
   resourceCapacity:
-    katalyst.kubewharf.io/reclaimed_memory: "107374182400"
-    katalyst.kubewharf.io/reclaimed_millicpu: 40k
+    resource.katalyst.kubewharf.io/reclaimed_memory: "107374182400"
+    resource.katalyst.kubewharf.io/reclaimed_millicpu: 40k
 ```
 
 ### Design Details
@@ -348,7 +348,7 @@ The native **NodeResourcesFit** plugin filters and scores nodes based on the amo
 node. Reclaimed resources should not interfere with this process.
 
 We use the NodeResourcesFit plugin's ignoredResourceGroups feature, introduced in K8s v1.19, to make the plugin ignore
-resource types prefixed with `katalyst.kubewharf.io` when filtering nodes:
+resource types prefixed with `resource.katalyst.kubewharf.io` when filtering nodes:
 
 ```yaml
 apiVersion: kubescheduler.config.k8s.io/v1beta3
@@ -358,7 +358,7 @@ profiles:
   - name: NodeResourcesFit
     args:
       ignoredResourceGroups:
-      - katalyst.kubewharf.io
+      - resource.katalyst.kubewharf.io
 ... 
 ```
 
@@ -507,7 +507,7 @@ Compatibility matrix:
           - name: NodeResourcesFit
             args:
               ignoredResourceGroups:
-              - katalyst.kubewharf.io
+              - resource.katalyst.kubewharf.io
           - name: QoSAwareNodeResourcesFit # optional
             args:
               scoringStrategy:
@@ -518,9 +518,9 @@ Compatibility matrix:
                 - name: memory
                   weight: 1
                 reclaimedResources:
-                - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+                - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                   weight: 1
-                - name: "katalyst.kubewharf.io/reclaimed_memory"
+                - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                   weight: 1  
           - name: QoSAwareNodeResourcesBalancedAllocation # optional
             args:
@@ -530,9 +530,9 @@ Compatibility matrix:
               - name: memory
                 weight: 1
               reclaimedResources:
-              - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                 weight: 1
-              - name: "katalyst.kubewharf.io/reclaimed_memory"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                 weight: 1  
         ```
 
@@ -573,7 +573,7 @@ Compatibility matrix:
         - name: NodeResourcesFit
           args:
             ignoredResourceGroups:
-            - katalyst.kubewharf.io
+            - resource.katalyst.kubewharf.io
         - name: QoSAwareNodeResourcesFit
           args:
             scoringStrategy:
@@ -584,9 +584,9 @@ Compatibility matrix:
               - name: memory
                 weight: 1
               reclaimedResources:
-              - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                 weight: 1
-              - name: "katalyst.kubewharf.io/reclaimed_memory"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                 weight: 1  
         - name: QoSAwareNodeResourcesBalancedAllocation # optional
           args:
@@ -596,9 +596,9 @@ Compatibility matrix:
             - name: memory
               weight: 1
             reclaimedResources:
-            - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
               weight: 1
-            - name: "katalyst.kubewharf.io/reclaimed_memory"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
               weight: 1  
       ```
 
@@ -639,7 +639,7 @@ Compatibility matrix:
         - name: NodeResourcesFit
           args:
             ignoredResourceGroups:
-            - katalyst.kubewharf.io
+            - resource.katalyst.kubewharf.io
         - name: QoSAwareNodeResourcesFit
           args:
             scoringStrategy:
@@ -662,9 +662,9 @@ Compatibility matrix:
               - name: memory
                 weight: 1
               reclaimedResources:
-              - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                 weight: 1
-              - name: "katalyst.kubewharf.io/reclaimed_memory"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                 weight: 1  
         - name: QoSAwareNodeResourcesBalancedAllocation # optional
           args:
@@ -674,9 +674,9 @@ Compatibility matrix:
             - name: memory
               weight: 1
             reclaimedResources:
-            - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
               weight: 1
-            - name: "katalyst.kubewharf.io/reclaimed_memory"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
               weight: 1  
       ```
 
@@ -717,7 +717,7 @@ Compatibility matrix:
           - name: NodeResourcesFit
             args:
               ignoredResourceGroups:
-              - katalyst.kubewharf.io
+              - resource.katalyst.kubewharf.io
           - name: QoSAwareNodeResourcesFit
             args:
               scoringStrategy:
@@ -728,9 +728,9 @@ Compatibility matrix:
                 - name: memory
                   weight: 1
                 reclaimedResources:
-                - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+                - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                   weight: 1
-                - name: "katalyst.kubewharf.io/reclaimed_memory"
+                - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                   weight: 1  
           - name: QoSAwareNodeResourcesBalancedAllocation # optional
             args:
@@ -740,9 +740,9 @@ Compatibility matrix:
               - name: memory
                 weight: 1
               reclaimedResources:
-              - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                 weight: 1
-              - name: "katalyst.kubewharf.io/reclaimed_memory"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                 weight: 1  
         ```
 
@@ -783,7 +783,7 @@ Compatibility matrix:
         - name: NodeResourcesFit
           args:
             ignoredResourceGroups:
-            - katalyst.kubewharf.io
+            - resource.katalyst.kubewharf.io
         - name: QoSAwareNodeResourcesFit
           args:
             scoringStrategy:
@@ -794,9 +794,9 @@ Compatibility matrix:
               - name: memory
                 weight: 1
               reclaimedResources:
-              - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                 weight: 1
-              - name: "katalyst.kubewharf.io/reclaimed_memory"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                 weight: 1  
         - name: QoSAwareNodeResourcesBalancedAllocation # optional
           args:
@@ -806,9 +806,9 @@ Compatibility matrix:
             - name: memory
               weight: 1
             reclaimedResources:
-            - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
               weight: 1
-            - name: "katalyst.kubewharf.io/reclaimed_memory"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
               weight: 1  
       ```
 
@@ -849,7 +849,7 @@ Compatibility matrix:
         - name: NodeResourcesFit
           args:
             ignoredResourceGroups:
-            - katalyst.kubewharf.io
+            - resource.katalyst.kubewharf.io
         - name: QoSAwareNodeResourcesFit
           args:
             scoringStrategy:
@@ -872,9 +872,9 @@ Compatibility matrix:
               - name: memory
                 weight: 1
               reclaimedResources:
-              - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
                 weight: 1
-              - name: "katalyst.kubewharf.io/reclaimed_memory"
+              - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
                 weight: 1  
         - name: QoSAwareNodeResourcesBalancedAllocation # optional
           args:
@@ -884,9 +884,9 @@ Compatibility matrix:
             - name: memory
               weight: 1
             reclaimedResources:
-            - name: "katalyst.kubewharf.io/reclaimed_millicpu"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_millicpu"
               weight: 1
-            - name: "katalyst.kubewharf.io/reclaimed_memory"
+            - name: "resource.katalyst.kubewharf.io/reclaimed_memory"
               weight: 1  
       ```
 
@@ -897,7 +897,7 @@ Compatibility matrix:
     <table>
     <tr>
         <td></td>
-        <td><code><b>katalyst.kubewharf.io</b></code></td>
+        <td><code><b>resource.katalyst.kubewharf.io</b></code></td>
         <td><code><b>*kubernetes.io</b></code></td>
     </tr>
     <tr>
@@ -946,7 +946,7 @@ Compatibility matrix:
     </tr>
     </table>
 
-Considering that currently in the Katalyst system, the demand for Pod-level over-commitment of offline Pods is not strong. Also, by using `katalyst.kubewharf.io`, the cost to modify the scheduler and kubelet is much lower. **Therefore, we chose `katalyst.kubewharf.io`.**
+Considering that currently in the Katalyst system, the demand for Pod-level over-commitment of offline Pods is not strong. Also, by using `resource.katalyst.kubewharf.io`, the cost to modify the scheduler and kubelet is much lower. **Therefore, we chose `resource.katalyst.kubewharf.io`.**
 
 ## References
 
