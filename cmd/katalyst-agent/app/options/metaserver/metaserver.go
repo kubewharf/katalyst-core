@@ -17,6 +17,7 @@ limitations under the License.
 package metaserver
 
 import (
+	"fmt"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -181,6 +182,18 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 // ApplyTo fills up config with options
 func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error {
+	// Reject non-positive pod-cache-sync rate and burst up front instead of
+	// silently feeding them into the token bucket built by the pod consumer
+	// (rate.NewLimiter(MaxRate, BurstBulk)): a zero/negative rate yields a
+	// limiter that never admits a sync, and a zero/negative burst defeats
+	// the bucket. We never clamp, fall back, retry, or change the default.
+	if o.KubeletPodCacheSyncMaxRate <= 0 {
+		return fmt.Errorf("kubelet-pod-cache-sync-max-rate must be positive, got %d", o.KubeletPodCacheSyncMaxRate)
+	}
+	if o.KubeletPodCacheSyncBurstBulk <= 0 {
+		return fmt.Errorf("kubelet-pod-cache-sync-burst-bulk must be positive, got %d", o.KubeletPodCacheSyncBurstBulk)
+	}
+
 	c.CheckpointManagerDir = o.CheckpointManagerDir
 	c.EnableMetricsFetcher = o.EnableMetricsFetcher
 	c.EnableCNCFetcher = o.EnableCNCFetcher

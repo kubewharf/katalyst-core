@@ -20,9 +20,28 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	critesting "k8s.io/cri-api/pkg/apis/testing"
 )
+
+func TestRuntimePodFetcherImpl_GetContainerInfoPreservesGRPCStatus(t *testing.T) {
+	t.Parallel()
+
+	fakeRuntimeService := critesting.NewFakeRuntimeService()
+	fakeRuntimeService.Errors["ContainerStatus"] = []error{
+		status.Error(codes.NotFound, "container not found"),
+	}
+	fakeRuntimePodFetcher := &runtimePodFetcherImpl{
+		runtimeService: fakeRuntimeService,
+	}
+
+	resp, err := fakeRuntimePodFetcher.GetContainerInfo("missing-container")
+
+	assert.Nil(t, resp)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
 
 func TestRuntimePodFetcherImpl_GetContainerInfo(t *testing.T) {
 	t.Parallel()

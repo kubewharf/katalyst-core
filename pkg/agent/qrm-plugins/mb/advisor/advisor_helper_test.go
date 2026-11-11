@@ -240,6 +240,27 @@ func Test_preProcessGroupInfo(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "physical share group and same-weight dedicated group on same CCD stay separate",
+			stats: monitor.GroupMBStats{
+				"dedicated": {
+					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+				},
+				"share-4000": {
+					0: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+				},
+			},
+			wantResult: monitor.GroupMBStats{
+				"dedicated": {
+					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+				},
+				"share-4000": {
+					0: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+				},
+			},
+			wantGroupInfos: domainGroupMapping{},
+			wantErr:        false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
