@@ -17,11 +17,16 @@ limitations under the License.
 package general
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/klog/v2"
 )
 
 type testLogging struct{}
@@ -98,4 +103,76 @@ func TestLogging(t *testing.T) {
 	go f()
 
 	time.Sleep(time.Millisecond)
+}
+
+func TestInfoSVDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	// InfoSV must stay safe both when the level is disabled (default verbosity)
+	// and when it is enabled; it lazy-gates internally and keeps key/value shape.
+	InfoSV(4, "test-InfoSV-disabled", "scope", "s1")
+	InfoSV(0, "test-InfoSV-enabled", "scope", "s2", "n", 1)
+}
+
+// TestInfoSVCapturesMessageAndKeyValues redirects klog to a buffer and asserts
+// the InfoSV message and its structured key/value pairs actually reach the log
+// sink at an enabled verbosity, while staying silent when the level is disabled.
+//
+// Because klog output and verbosity flags are process-global, the capture logic
+// runs in a helper subprocess. The parent test calls t.Parallel() (satisfying
+// paralleltest) and only checks the subprocess exit code; no global state is
+// mutated in the parent process.
+//
+// The helper mode is selected by a test-only flag (-infosv-capture-helper), not
+// by an environment variable: a preset/stale environment variable must be unable
+// to flip the parent process into helper mode, otherwise the parent would skip
+// its real assertions in-process and a wrong mutation would pass for free.
+var infosvCaptureHelper = flag.Bool("infosv-capture-helper", false,
+	"internal: run the InfoSV capture helper in this test binary")
+
+func TestInfoSVCapturesMessageAndKeyValues(t *testing.T) {
+	t.Parallel()
+
+	if *infosvCaptureHelper {
+		testInfoSVCaptureHelper(t)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestInfoSVCapturesMessageAndKeyValues$",
+		"-test.v", "-infosv-capture-helper")
+	// Inherit the parent environment as-is; the helper is selected solely by
+	// the flag above, so any pre-existing/stale environment variable cannot
+	// change control flow.
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	// Parent only verifies the child exited 0; the Contains/NotContains and
+	// key-value assertions run inside the child helper.
+	require.NoError(t, err, "subprocess failed:\n%s", out)
+}
+
+func testInfoSVCaptureHelper(t *testing.T) {
+	var buf bytes.Buffer
+	klog.SetOutput(&buf)
+	klog.InitFlags(flag.CommandLine)
+	_ = flag.Set("v", "2")
+	_ = flag.Set("logtostderr", "false")
+
+	// disabled level (5 > 2): must emit nothing.
+	InfoSV(5, "probe-disabled", "k", "v")
+	klog.Flush()
+
+	// enabled level (2 <= 2): message + structured kvs reach the sink.
+	InfoSV(2, "probe-enabled", "probe-key", "probe-value")
+	klog.Flush()
+
+	// The child itself asserts the captured sink; a failure here makes the
+	// child exit non-zero so the parent cannot pass for free.
+	captured := buf.String()
+	require.Contains(t, captured, "probe-enabled")
+	require.Contains(t, captured, "probe-key")
+	require.Contains(t, captured, "probe-value")
+	require.NotContains(t, captured, "probe-disabled")
+
+	// Print captured buffer to stdout for diagnostic on failure.
+	fmt.Print(captured)
 }

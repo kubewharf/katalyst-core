@@ -42,12 +42,15 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
@@ -136,11 +139,17 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 		general.Errorf("update advisor failed: %v", err)
 		return nil, fmt.Errorf("update advisor failed: %w", err)
 	}
+	if result.DisableDedicatedCoresOverlapReclaimedCores &&
+		supportedWantedFeatureGates[feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition] == nil {
+		return nil, fmt.Errorf("feature gate %s is required for dedicated reclaim disjoint partition",
+			feature_cpu.NegotiationFeatureGateDedicatedReclaimDisjointPartition)
+	}
 	resp := &cpuadvisor.GetAdviceResponse{
 		Entries:                               result.Entries,
 		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
 		ExtraEntries:                          result.ExtraEntries,
 		SupportedFeatureGates:                 supportedWantedFeatureGates,
+		DisableDedicatedCoresOverlapReclaimedCores: result.DisableDedicatedCoresOverlapReclaimedCores,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
 	general.InfoS("get advice", "duration", time.Since(startTime))
@@ -256,11 +265,10 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	if err != nil {
 		return err
 	}
-	lwResp := &cpuadvisor.ListAndWatchResponse{
-		Entries:                               result.Entries,
-		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
-		ExtraEntries:                          result.ExtraEntries,
+	if result.DisableDedicatedCoresOverlapReclaimedCores {
+		return fmt.Errorf("list and watch does not support dedicated reclaim disjoint partition")
 	}
+	lwResp := convertInternalCPUResultToListAndWatchResponse(result)
 	if err := server.Send(lwResp); err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("send listWatch response failed: %w", err)
@@ -276,7 +284,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 
 func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
 	// update feature gates in meta cache
-	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
+	err := cs.metaCache.SetSupportedWantedFeatureGates(finders.FeatureGateTypeCPU, featureGates)
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("set feature gates failed: %w", err)
@@ -288,7 +296,7 @@ func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("get advice failed: %w", err)
 	}
-	advisorResp, ok := advisorRespRaw.(*types.InternalCPUCalculationResult)
+	advisorResp, ok := advisorRespRaw.(*types.CPUAdvice)
 	if !ok {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("get advice failed: invalid type: %T", advisorRespRaw)
@@ -300,12 +308,30 @@ func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]
 }
 
 type cpuInternalResult struct {
-	Entries                               map[string]*cpuadvisor.CalculationEntries
-	AllowSharedCoresOverlapReclaimedCores bool
-	ExtraEntries                          []*advisorsvc.CalculationInfo
+	Entries                                    map[string]*cpuadvisor.CalculationEntries
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+	ExtraEntries                               []*advisorsvc.CalculationInfo
 }
 
-func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuInternalResult {
+func convertInternalCPUResultToListAndWatchResponse(result *cpuInternalResult) *cpuadvisor.ListAndWatchResponse {
+	if result == nil {
+		return nil
+	}
+
+	return &cpuadvisor.ListAndWatchResponse{
+		Entries:                               result.Entries,
+		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
+		ExtraEntries:                          result.ExtraEntries,
+		DisableDedicatedCoresOverlapReclaimedCores: result.DisableDedicatedCoresOverlapReclaimedCores,
+	}
+}
+
+func (cs *cpuServer) assembleResponse(advice *types.CPUAdvice) *cpuInternalResult {
+	// The calculation result is the payload; the overlap flags are taken from the
+	// same advice (this cycle's single sampling) so the proto publish cannot drift
+	// from computation when config is swapped. Do not re-read dynamicConf here.
+	advisorResp := advice.CalculationResult
 	startTime := time.Now()
 	defer func() {
 		general.InfoS("finished", "duration", time.Since(startTime))
@@ -335,15 +361,17 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	cs.metaCache.RangeContainer(f)
 
 	extraEntries := cs.assembleCgroupConfig(advisorResp)
-	extraNumaHeadRoom := cs.assembleHeadroom()
-	if extraNumaHeadRoom != nil {
-		extraEntries = append(extraEntries, extraNumaHeadRoom)
+	extraHeadroom := cs.assembleHeadroom()
+	if extraHeadroom != nil {
+		extraEntries = append(extraEntries, extraHeadroom)
 	}
-	// Send result
+	// Send result. The overlap flags are published from this cycle's advice (the
+	// exact values the advisor snapshotted), never from a fresh dynamicConf read.
 	resp := &cpuInternalResult{
 		Entries:                               calculationEntriesMap,
 		ExtraEntries:                          extraEntries,
-		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
+		AllowSharedCoresOverlapReclaimedCores: advice.AllowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: advice.DisableDedicatedCoresOverlapReclaimedCores,
 	}
 
 	return resp
@@ -351,45 +379,78 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 
 // assemble cgroup config
 func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculationResult) (extraEntries []*advisorsvc.CalculationInfo) {
-	for poolName, entries := range advisorResp.PoolEntries {
-		if poolName != commonstate.PoolNameReclaim {
+	reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]
+	if !ok {
+		return nil
+	}
+
+	numaIDs := make([]int, 0, cs.metaServer.NumNUMANodes)
+	for numaID := 0; numaID < cs.metaServer.NumNUMANodes; numaID++ {
+		numaIDs = append(numaIDs, numaID)
+	}
+	d := cs.conf.GetDynamicConfiguration()
+	parentPaths := reclaim.AggregateCgroupPaths()
+	perNUMAPaths := reclaim.AggregateNumaBindingCgroupPaths()
+
+	// scaleQuota splits the reclaim quota across consumer cgroup paths by the
+	// consumer's reclaimed percentage. The unlimited sentinel (Quota <= 0) is
+	// passed through unchanged so it stays unlimited on every path.
+	scaleQuota := func(cpuResource types.CPUResource, pct float64) types.CPUResource {
+		if cpuResource.Quota > 0 {
+			cpuResource.Quota = cpuResource.Quota * pct / 100
+		}
+		return cpuResource
+	}
+
+	appendEntry := func(cgroupPath string, cpuResource types.CPUResource) {
+		quota := int64(-1)
+		if cpuResource.Quota > 0 {
+			quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
+		}
+		bytes, err := json.Marshal(&common.CgroupResources{
+			CpuQuota:  quota,
+			CpuPeriod: DefaultCFSCPUPeriod,
+		})
+		if err != nil {
+			klog.ErrorS(err, "")
+			return
+		}
+		extraEntries = append(extraEntries, &advisorsvc.CalculationInfo{
+			CgroupPath: cgroupPath,
+			CalculationResult: &advisorsvc.CalculationResult{
+				Values: map[string]string{
+					string(cpuadvisor.ControlKnobKeyCgroupConfig): string(bytes),
+				},
+			},
+		})
+	}
+
+	// numaID = -1 (fakeNUMAID) → broadcast to every configured parent cgroup path,
+	// scaling the quota by each consumer's reclaimed percentage.
+	if cpuResource, ok := reclaimEntries[-1]; ok {
+		for _, path := range parentPaths {
+			pct := reclaim.GetReclaimedPercentageByPath(d, path)
+			appendEntry(path, scaleQuota(cpuResource, pct))
+		}
+	}
+
+	// real NUMAs → broadcast the per-NUMA CPUResource across every configured entry,
+	// scaling the quota by each consumer's reclaimed percentage.
+	for _, numaID := range numaIDs {
+		cpuResource, ok := reclaimEntries[numaID]
+		if !ok {
 			continue
 		}
-
-		// range from fakeNUMAID
-		for numaID := -1; numaID < cs.metaServer.NumNUMANodes; numaID++ {
-			quota := int64(-1)
-			cpuResource, ok := entries[numaID]
-			if !ok {
-				continue
-			}
-			if cpuResource.Quota > 0 {
-				quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
-			}
-			resourceConf := &common.CgroupResources{
-				CpuQuota:  quota,
-				CpuPeriod: DefaultCFSCPUPeriod,
-			}
-			bytes, err := json.Marshal(resourceConf)
-			if err != nil {
-				klog.ErrorS(err, "")
-				continue
-			}
-
-			extraEntries = append(extraEntries, &advisorsvc.CalculationInfo{
-				CgroupPath: common.GetReclaimRelativeRootCgroupPath(cs.reclaimRelativeRootCgroupPath, numaID),
-				CalculationResult: &advisorsvc.CalculationResult{
-					Values: map[string]string{
-						string(cpuadvisor.ControlKnobKeyCgroupConfig): string(bytes),
-					},
-				},
-			})
+		for _, path := range perNUMAPaths[numaID] {
+			pct := reclaim.GetReclaimedPercentageByPath(d, path)
+			appendEntry(path, scaleQuota(cpuResource, pct))
 		}
 	}
 	return
 }
 
-// assemble per-numa headroom
+// assembleHeadroom emits per-NUMA reclaim CPU headroom (in fractional cores)
+// on a single CalculationInfo.
 func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
@@ -401,21 +462,19 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	for numaID, res := range numaAllocatable {
 		numaHeadroom[numaID] = float64(res.Value()) / 1000.0
 	}
-	data, err := json.Marshal(numaHeadroom)
+	numaData, err := json.Marshal(numaHeadroom)
 	if err != nil {
-		klog.Errorf("marshal headroom failed: %v", err)
+		klog.Errorf("marshal numa headroom failed: %v", err)
 		return nil
 	}
 
-	calculationResult := &advisorsvc.CalculationResult{
-		Values: map[string]string{
-			string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(data),
-		},
-	}
-
 	return &advisorsvc.CalculationInfo{
-		CgroupPath:        "",
-		CalculationResult: calculationResult,
+		CgroupPath: "",
+		CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{
+				string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(numaData),
+			},
+		},
 	}
 }
 
@@ -428,7 +487,6 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 
 	var errs []error
 	livingPoolNameSet := sets.NewString()
-
 	if req.GetResourcePackageConfig() == nil {
 		general.InfoS("resource package config is nil, skip updating meta cache")
 		_ = cs.metaCache.SetResourcePackageConfig(nil)
@@ -503,8 +561,17 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 		podUID := entryName
 		pod, err := cs.metaServer.GetPod(ctx, podUID)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("get pod info for %s failed: %w", podUID, err))
-			continue
+			// QRM owns residual-state retirement. A local PodNotFound may only
+			// mean that the kubelet cache has not observed a newly admitted Pod,
+			// so process this frame from its synchronous metadata instead of
+			// deleting a container that QRM still considers canonical.
+			if metaserverpod.IsPodNotFound(err) {
+				general.Warningf("use advisor metadata while pod %s is unavailable: %v", podUID, err)
+				pod = nil
+			} else {
+				errs = append(errs, fmt.Errorf("get pod info for %s failed: %w", podUID, err))
+				continue
+			}
 		}
 
 		for containerName, info := range entry.Entries {
@@ -639,7 +706,10 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 	ci *types.ContainerInfo,
 	info *cpuadvisor.ContainerAllocationInfo,
 ) error {
-	if err := cs.setContainerInfoBasedOnAllocationInfo(pod, ci, info.AllocationInfo); err != nil {
+	cs.setContainerInfoBasedOnAllocationInfo(ci, info.AllocationInfo)
+
+	ci.QoSLevel = info.Metadata.QosLevel
+	if err := cs.setContainerInfoQoSLevelFromPod(pod, ci); err != nil {
 		return err
 	}
 
@@ -652,9 +722,9 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 		ci.CPURequest = float64(info.Metadata.RequestQuantity)
 	}
 
-	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
+	if ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
 		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		poolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
+		poolName, err := commonstate.GetSpecifiedNUMABindingPoolName(ci.QoSLevel, info.Metadata.Annotations)
 		if err != nil {
 			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
 		}
@@ -677,7 +747,7 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 
 		ci.OriginOwnerPoolName = poolName
 	} else {
-		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(info.Metadata.QosLevel, info.Metadata.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
+		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(ci.QoSLevel, info.Metadata.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 	}
 
 	return nil
@@ -685,24 +755,13 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 
 // Deprecated: to be removed after all qrm plugins are migrated to the new synchronous model
 func (cs *cpuServer) setContainerInfoBasedOnAllocationInfo(
-	pod *v1.Pod,
 	ci *types.ContainerInfo,
 	info *cpuadvisor.AllocationInfo,
-) error {
+) {
 	ci.RampUp = info.RampUp
 	ci.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
 	ci.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
 	ci.OwnerPoolName = info.OwnerPoolName
-
-	// get qos level name according to the qos conf
-	qosLevel, err := cs.qosConf.GetQoSLevelForPod(pod)
-	if err != nil {
-		return fmt.Errorf("get qos level failed: %w", err)
-	}
-	if ci.QoSLevel != qosLevel {
-		general.Infof("qos level of %v/%v has change from %s to %s", ci.PodUID, ci.ContainerName, ci.QoSLevel, qosLevel)
-		ci.QoSLevel = qosLevel
-	}
 
 	if ci.OriginOwnerPoolName == "" {
 		ci.OriginOwnerPoolName = ci.OwnerPoolName
@@ -716,7 +775,21 @@ func (cs *cpuServer) setContainerInfoBasedOnAllocationInfo(
 			}
 		}
 	}
+}
 
+func (cs *cpuServer) setContainerInfoQoSLevelFromPod(pod *v1.Pod, ci *types.ContainerInfo) error {
+	if pod == nil {
+		return nil
+	}
+
+	qosLevel, err := cs.qosConf.GetQoSLevelForPod(pod)
+	if err != nil {
+		return fmt.Errorf("get qos level failed: %w", err)
+	}
+	if ci.QoSLevel != qosLevel {
+		general.Infof("qos level of %v/%v has change from %s to %s", ci.PodUID, ci.ContainerName, ci.QoSLevel, qosLevel)
+		ci.QoSLevel = qosLevel
+	}
 	return nil
 }
 
@@ -735,15 +808,6 @@ func (cs *cpuServer) createOrUpdateContainerInfo(
 			ContainerName:  containerName,
 			ContainerType:  info.Metadata.ContainerType,
 			ContainerIndex: int(info.Metadata.ContainerIndex),
-			Labels:         info.Metadata.Labels,
-			Annotations:    info.Metadata.Annotations,
-			QoSLevel:       info.Metadata.QosLevel,
-		}
-
-		if info.Metadata.UseMilliQuantity {
-			ci.CPURequest = float64(info.Metadata.RequestMilliQuantity) / 1000.0
-		} else {
-			ci.CPURequest = float64(info.Metadata.RequestQuantity)
 		}
 
 		if err := cs.setContainerInfoBasedOnContainerAllocationInfo(pod, ci, info); err != nil {
@@ -776,7 +840,8 @@ func (cs *cpuServer) updateContainerInfo(
 		return fmt.Errorf("container %v/%v not exist", podUID, containerName)
 	}
 
-	if err := cs.setContainerInfoBasedOnAllocationInfo(pod, ci, info); err != nil {
+	cs.setContainerInfoBasedOnAllocationInfo(ci, info)
+	if err := cs.setContainerInfoQoSLevelFromPod(pod, ci); err != nil {
 		return fmt.Errorf("update container info %v/%v failed: %w", podUID, containerName, err)
 	}
 
@@ -814,6 +879,10 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 
 	if reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]; ok {
 		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameReclaim)
+		// The cpu server is a serializer only: it converts assembler PoolEntries
+		// into proto blocks without modifying any Size. All quantity decisions,
+		// including live-reclaim continuity under domain-scoped ramp-up, are made
+		// by the assembler as the single conservation boundary.
 		for numaID, reclaimCPU := range reclaimEntries {
 			reclaimNUMACalculationResult, ok := poolEntry.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[int64(numaID)]
 			if !ok {
@@ -821,7 +890,6 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 				poolEntry.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = reclaimNUMACalculationResult
 			}
 
-			// first init reclaim pool if reclaim size is greater than 0
 			if reclaimCPU.Size > 0 {
 				block := NewBlock(uint64(reclaimCPU.Size), "")
 				innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, reclaimNUMACalculationResult)

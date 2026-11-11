@@ -21,13 +21,21 @@ package rdt
 
 import (
 	"errors"
+
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
-type defaultRDTManager struct{}
+type defaultRDTManager struct {
+	schemataCoordinator *SchemataCoordinator
+}
+
+var defaultSchemataCoordinator = newSchemataCoordinator(consts.DefaultResctrlRootDir)
 
 // NewDefaultManager returns a defaultRDTManager.
 func NewDefaultManager() RDTManager {
-	return &defaultRDTManager{}
+	return &defaultRDTManager{
+		schemataCoordinator: defaultSchemataCoordinator,
+	}
 }
 
 // CheckSupportRDT checks whether RDT is supported by the CPU and the kernel.
@@ -48,14 +56,28 @@ func (*defaultRDTManager) ApplyTasks(clos string, tasks []string) error {
 	return errors.New("not implemented yet")
 }
 
-// ApplyCAT applies the CAT configurations for each CLOS.
-func (*defaultRDTManager) ApplyCAT(clos string, cat map[int]int) error {
-	// TODO: implement ApplyCAT
-	return errors.New("not implemented yet")
+// ApplyCAT applies only the L3 schemata configuration for a CLOS.
+func (m *defaultRDTManager) ApplyCAT(clos string, cat map[int]uint64) error {
+	return m.schemataCoordinator.ApplyL3(clos, cat)
 }
 
-// ApplyMBA applies the MBA configurations for each CLOS.
-func (*defaultRDTManager) ApplyMBA(clos string, mba map[int]int) error {
-	// TODO: implement ApplyMBA
-	return errors.New("not implemented yet")
+// ApplyMBA applies only the MB schemata configuration for a CLOS.
+func (m *defaultRDTManager) ApplyMBA(clos string, mba map[int]int) error {
+	return m.schemataCoordinator.ApplyMB(clos, mba)
+}
+
+// InvalidateClos clears cached schemata targets for a recreated or removed CLOS.
+func (m *defaultRDTManager) InvalidateClos(clos string) {
+	m.schemataCoordinator.InvalidateClos(clos)
+}
+
+// RunClosResourceUpdate serializes a non-schemata CLOS resource update with
+// schemata updates and lifecycle transitions for the same CLOS.
+func (m *defaultRDTManager) RunClosResourceUpdate(clos string, update func() (bool, error)) error {
+	return m.schemataCoordinator.RunClosResourceUpdate(clos, update)
+}
+
+// RunClosLifecycle serializes a CLOS lifecycle update with schemata updates.
+func (m *defaultRDTManager) RunClosLifecycle(clos string, update func() (bool, error)) error {
+	return m.schemataCoordinator.RunClosLifecycle(clos, update)
 }

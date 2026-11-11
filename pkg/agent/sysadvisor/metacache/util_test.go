@@ -47,7 +47,7 @@ func TestUtil_IsQuotaCtrlKnobEnabled(t *testing.T) {
 			MustMutuallySupported: false,
 		},
 	}
-	err = mc.SetSupportedWantedFeatureGates(featureGates)
+	err = mc.SetSupportedWantedFeatureGates(finders.FeatureGateTypeCPU, featureGates)
 	if err != nil {
 		t.Errorf("TestUtil_IsQuotaCtrlKnobEnabled set featutegates failed: %v", err)
 		return

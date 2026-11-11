@@ -31,6 +31,8 @@ import (
 
 func TestMemoryPolicy(t *testing.T) {
 	t.Parallel()
+	mu.Lock()
+	defer mu.Unlock()
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

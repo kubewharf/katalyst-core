@@ -23,13 +23,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
 )
 
+const (
+	defaultReclaimedMemoryMaxRatio = 0
+)
+
 type MemoryHeadroomOptions struct {
 	*UtilBasedOptions
+	ReclaimedMemoryMaxRatio float64
 }
 
 func NewMemoryHeadroomOptions() *MemoryHeadroomOptions {
 	return &MemoryHeadroomOptions{
-		UtilBasedOptions: NewUtilBasedOptions(),
+		UtilBasedOptions:        NewUtilBasedOptions(),
+		ReclaimedMemoryMaxRatio: defaultReclaimedMemoryMaxRatio,
 	}
 }
 
@@ -37,10 +43,13 @@ func (o *MemoryHeadroomOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("memory-headroom")
 
 	o.UtilBasedOptions.AddFlags(fs)
+	fs.Float64Var(&o.ReclaimedMemoryMaxRatio, "memory-headroom-reclaimed-memory-max-ratio", o.ReclaimedMemoryMaxRatio,
+		"the maximum ratio of per-NUMA memory that can be assigned to reclaimed_cores, 0 means no limit")
 }
 
 func (o *MemoryHeadroomOptions) ApplyTo(c *memoryheadroom.MemoryHeadroomConfiguration) error {
 	var errList []error
 	errList = append(errList, o.UtilBasedOptions.ApplyTo(c.MemoryUtilBasedConfiguration))
+	c.ReclaimedMemoryMaxRatio = o.ReclaimedMemoryMaxRatio
 	return errors.NewAggregate(errList)
 }

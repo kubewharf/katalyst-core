@@ -10,6 +10,7 @@ require (
 	github.com/cilium/ebpf v0.7.0
 	github.com/containerd/cgroups v1.0.1
 	github.com/containerd/nri v0.6.0
+	github.com/davecgh/go-spew v1.1.1
 	github.com/evanphx/json-patch v5.6.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/gogo/protobuf v1.3.2
@@ -20,7 +21,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.17-0.20261021070619-21de3e9c9283
+	github.com/kubewharf/katalyst-api v0.5.17-0.20261021093118-68a56ec85054
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
@@ -91,7 +92,6 @@ require (
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/docker/distribution v2.8.1+incompatible // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/emicklei/go-restful v2.16.0+incompatible // indirect

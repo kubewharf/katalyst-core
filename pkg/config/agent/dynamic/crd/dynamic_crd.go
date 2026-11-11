@@ -23,8 +23,11 @@ import (
 )
 
 const (
-	ResourceKindAdminQoSConfiguration = "AdminQoSConfiguration"
-	ResourceKindAuthConfiguration     = "AuthConfiguration"
+	ResourceKindAdminQoSConfiguration                    = "AdminQoSConfiguration"
+	ResourceKindAuthConfiguration                        = "AuthConfiguration"
+	ResourceKindTransparentMemoryOffloadingConfiguration = "TransparentMemoryOffloadingConfiguration"
+	ResourceKindStrategyGroup                            = "StrategyGroup"
+	ResourceKindIRQTuningConfiguration                   = "IRQTuningConfiguration"
 )
 
 // DynamicConfigCRD records all those configurations defined by CRD

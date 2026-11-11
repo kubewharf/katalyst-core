@@ -40,14 +40,19 @@ func TestAsyncWorkers(t *testing.T) {
 	result, a, b, c, d, e, f, g, h := 0, 1, 2, 3, 4, 5, 6, 7, 8
 
 	timeoutSeconds := 100 * time.Millisecond
+	blockWork2 := make(chan struct{})
 	fn := func(ctx context.Context, params ...interface{}) error {
 		if len(params) != 2 {
 			return fmt.Errorf("invalid params")
 		}
 
-		time.Sleep(5 * time.Millisecond)
 		p1Int := params[0].(int)
 		p2Int := params[1].(int)
+		if p1Int == c && p2Int == d {
+			<-blockWork2
+		} else {
+			time.Sleep(5 * time.Millisecond)
+		}
 		result = p1Int + p2Int
 		_ = EmitAsyncedMetrics(ctx, metrics.MetricTag{})
 		return nil
@@ -122,6 +127,8 @@ func TestAsyncWorkers(t *testing.T) {
 	asw.workLock.Lock()
 	rt.Equal(work3, asw.lastUndeliveredWork[work2Name])
 	asw.workLock.Unlock()
+
+	close(blockWork2)
 
 	asw.workLock.Lock()
 	for asw.workStatuses[work2Name].working {
