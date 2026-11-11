@@ -21,6 +21,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
 
 const (
@@ -81,13 +83,16 @@ type PodSet map[string]sets.String
 
 // ResourceEssentials defines essential variables, and those variables may be adjusted by KCC
 type ResourceEssentials struct {
+	DynamicConfiguration *dynamic.Configuration
+
 	EnableReclaim       bool
 	ResourceUpperBound  float64
 	ResourceLowerBound  float64
 	ReservedForReclaim  float64
 	ReservedForAllocate float64
 
-	AllowSharedCoresOverlapReclaimedCores bool
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
 }
 
 // PolicyUpdateStatus works as a flag indicating update result

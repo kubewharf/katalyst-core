@@ -178,14 +178,101 @@ type HeadroomInfo struct {
 	TotalHeadroom float64         `json:"total_headroom"`
 }
 
+// DefaultShareBackfillDiagnostics captures the structured diagnostics of the
+// reclaim max-ratio clamp so that the default share pool can later backfill the
+// residual non-reclaim CPU. It is an internal, in-process only view and is never
+// propagated to the advisor proto.
+type DefaultShareBackfillDiagnostics struct {
+	Enabled                    bool
+	AllocatableBudget          int
+	RawReclaimSize             int
+	FinalReclaimSize           int
+	ReleasedReclaimSize        int
+	FixedPoolSize              int
+	ReserveSize                int
+	DedicatedSize              int
+	IsolationSize              int
+	CustomSharedSize           int
+	SNBSize                    int
+	PinnedCPUSize              int
+	ExclusiveNUMASize          int
+	DefaultShareBeforeBackfill int
+	DefaultShareBackfilled     int
+	DefaultShareFinal          int
+	UnassignedNonReclaimSize   int
+}
+
 // InternalCPUCalculationResult conveys minimal information to cpu server for composing
-// calculation result
+// calculation result.
+//
+// Input mirrors intentionally removed: the per-cycle resolved overlap flags
+// (AllowSharedCoresOverlapReclaimedCores / DisableDedicatedCoresOverlapReclaimedCores)
+// and the ramp-up lifecycle set (RampUpActive / RampUpHardPartitionActive /
+// RampUpDomains) used to live here. They were redundant echoes of the
+// ProvisionContext input with no assembler-internal reader:
+//   - the overlap flags are published to the proto from CPUAdvice, which carries
+//     the SAME per-cycle sampled flags the advisor snapshotted; the cpu server must
+//     not re-read dynamicConf (which could have been swapped between the advisor
+//     computation and the proto publish).
+//   - the ramp-up set is captured immutable in the Snapshot and read ctx-side;
+//     RampUpHardPartitionActive is recomputed inside the assembler where needed.
+//
+// Keeping them here would have created a second, stale-prone copy of cycle input.
 type InternalCPUCalculationResult struct {
-	PoolEntries                           map[string]map[int]CPUResource               // map[poolName][numaId]CPUResource
-	PoolOverlapInfo                       map[string]map[int]map[string]int            // map[poolName][numaId][targetOverlapPoolName]int
-	PoolOverlapPodContainerInfo           map[string]map[int]map[string]map[string]int // map[poolName][numaId][targetOverlapPodUID][targetOverlapContainerName]int
-	TimeStamp                             time.Time
-	AllowSharedCoresOverlapReclaimedCores bool
+	PoolEntries                 map[string]map[int]CPUResource               // map[poolName][numaId]CPUResource
+	PoolOverlapInfo             map[string]map[int]map[string]int            // map[poolName][numaId][targetOverlapPoolName]int
+	PoolOverlapPodContainerInfo map[string]map[int]map[string]map[string]int // map[poolName][numaId][targetOverlapPodUID][targetOverlapContainerName]int
+	TimeStamp                   time.Time
+	// ReclaimConstraintExcess is the per-NUMA diagnostic distance of the published
+	// reclaim pool size ABOVE its steady reservation floor (max(size - floor, 0)).
+	// It is NOT a constraint input: the actual clamp is the optional per-scope
+	// ceiling. It exists so canary/metrics can see how far the pool has grown past
+	// the floor under ramp-up.
+	ReclaimConstraintExcess  int
+	ReclaimConstraintTargets map[string]ReclaimConstraintTarget
+
+	// DefaultShareBackfill holds in-process only diagnostics for the default
+	// share pool residual backfill; it does not enter the advisor proto.
+	DefaultShareBackfill DefaultShareBackfillDiagnostics
+}
+
+// CPUAdvice is the per-cycle bundle the cpu advisor returns to the cpu server.
+// It pairs the calculation result with the resolved overlap flags sampled THIS
+// cycle at Snapshot injection. The flags ride out with the same advice so the
+// server can stamp them onto the proto response and gate feature negotiation from
+// a single sampling; it must NOT read dynamicConf again. This is a transient,
+// per-cycle value: it is neither persisted on the advisor nor written back into
+// the result, so a config swap cannot desynchronize computation from publish.
+type CPUAdvice struct {
+	CalculationResult *InternalCPUCalculationResult
+	// AllowSharedCoresOverlapReclaimedCores / DisableDedicatedCoresOverlapReclaimedCores
+	// are the resolved overlap flags the advisor used for this very cycle.
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+}
+
+// ReclaimConstraintTarget is the descriptive per-scope contract recorded into
+// the result: the ramp-up desired, the pure reservation floor, the steady upper
+// bound, the optional rate-limited ceiling and the member NUMAs. It is consumed
+// by the constraint guard commit and by diagnostic metrics; it never feeds back
+// into the current cycle's quantity decision (the assembler is the single
+// quantity boundary).
+type ReclaimConstraintTarget struct {
+	// Desired is the ramp-up target the per-scope ceiling converges toward while
+	// ramp-up is active; after ramp-up exits the desired reverts to SteadyCap.
+	Desired int
+	// Floor is the pure reservation lower bound: the sum of member-NUMA steady
+	// reserves. It is never raised by the ramp-up target.
+	Floor int
+	// SteadyCap is the reclaim pool upper bound when no ramp-up is active:
+	// min(rawAvailable, coreAligned(aggregateCapacity * MaxRatio)).
+	SteadyCap int
+	// Ceiling is the rate-limited, optional per-scope pool upper bound decided by
+	// the constraint guard this cycle. nil means "unconstrained": the pool keeps
+	// its steady (MaxRatio) size and must not be floored to an arbitrary value.
+	Ceiling *int
+	// MemberNUMAs is the sorted member NUMA set this scope aggregates over.
+	MemberNUMAs []int
 }
 
 type CPUResource struct {

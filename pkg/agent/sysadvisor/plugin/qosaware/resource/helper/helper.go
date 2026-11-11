@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -29,9 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-// PodEnableReclaim checks whether the pod can be reclaimed,
-// if node does not enable reclaim, it will return false directly,
-// if node enable reclaim, it will check whether the pod is degraded or baseline.
+// PodEnableReclaim checks whether the pod can be reclaimed.
 func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	podUID string, nodeEnableReclaim bool,
 ) (bool, error) {
@@ -49,27 +48,66 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 		return false, err
 	}
 
-	// get current service performance level of the pod
-	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, pod.ObjectMeta)
-	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
-		return false, err
-	} else if err != nil {
-		return true, nil
-	} else if pLevel == spd.PerformanceLevelPoor {
-		// if performance level is poor, it can not be reclaimed
-		general.InfoS("performance level is poor, reclaim disabled", "podUID", podUID)
-		return false, nil
+	return PodMetaEnableReclaim(ctx, metaServer, pod.ObjectMeta, nodeEnableReclaim)
+}
+
+// PodMetaEnableReclaim checks whether the pod metadata permits reclaim.
+func PodMetaEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
+	podMeta metav1.ObjectMeta, nodeEnableReclaim bool,
+) (bool, error) {
+	enabled, err := PodMetaPerformanceLevelEnableReclaim(ctx, metaServer, podMeta, nodeEnableReclaim)
+	if err != nil || !enabled {
+		return enabled, err
 	}
 
-	// check whether current pod is service baseline
-	baseline, err := metaServer.ServiceBaseline(ctx, pod.ObjectMeta)
+	return PodMetaBaselineEnableReclaim(ctx, metaServer, podMeta)
+}
+
+// PodMetaBaselineEnableReclaim evaluates only the timestamp-dependent baseline
+// classification. Callers must provide metadata from the complete Pod object,
+// not the metadata subset carried by ResourceRequest.
+func PodMetaBaselineEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
+	podMeta metav1.ObjectMeta,
+) (bool, error) {
+	baseline, err := metaServer.ServiceBaseline(ctx, podMeta)
 	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
 		return false, err
 	} else if err != nil {
 		return true, nil
 	} else if baseline {
 		// if pod is baseline, it can not be reclaimed
-		general.InfoS("pod is regarded as baseline, reclaim disabled", "podUID", podUID)
+		general.InfoS("pod is regarded as baseline, reclaim disabled", "podUID", podMeta.UID)
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// PodMetaPerformanceLevelEnableReclaim checks only the adapter-owned
+// performance classification available from request metadata. Baseline
+// classification is intentionally excluded because ResourceRequest does not
+// carry the Pod creation timestamp required for stable baseline ordering.
+func PodMetaPerformanceLevelEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
+	podMeta metav1.ObjectMeta, nodeEnableReclaim bool,
+) (bool, error) {
+	if !nodeEnableReclaim {
+		general.Infof("node reclaim disabled")
+		return false, nil
+	}
+
+	if metaServer == nil {
+		return false, fmt.Errorf("metaServer is nil")
+	}
+
+	// get current service performance level of the pod
+	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, podMeta)
+	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
+		return false, err
+	} else if err != nil {
+		return true, nil
+	} else if pLevel == spd.PerformanceLevelPoor {
+		// if performance level is poor, it can not be reclaimed
+		general.InfoS("performance level is poor, reclaim disabled", "podUID", podMeta.UID)
 		return false, nil
 	}
 

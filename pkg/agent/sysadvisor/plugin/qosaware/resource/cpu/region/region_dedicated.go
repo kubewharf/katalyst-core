@@ -78,6 +78,7 @@ func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, 
 	}
 
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
+		string(workloadapis.ServiceSystemIndicatorNameCPUSchedWait):  r.getCPUSchedWait,
 		string(workloadapis.ServiceSystemIndicatorNameCPI):           r.getPodCPICurrent,
 		string(workloadapis.ServiceSystemIndicatorNameCPUUsageRatio): r.getCPUUsageRatio,
 	}
@@ -274,24 +275,51 @@ func (r *QoSRegionDedicated) getPodCPICurrent() (float64, error) {
 	return cpiSum / containerCnt, nil
 }
 
-func (r *QoSRegionDedicated) getCPUUsageRatio() (float64, error) {
+func (r *QoSRegionDedicated) getAssignedCPUSet() (machine.CPUSet, error) {
 	cpuSet := machine.NewCPUSet()
 	for podUID, containerSet := range r.podSet {
 		for containerName := range containerSet {
 			ci, ok := r.metaReader.GetContainerInfo(podUID, containerName)
 			if !ok || ci == nil {
-				klog.Errorf("[qosaware-cpu] illegal container info of %v/%v", podUID, containerName)
-				return 0, nil
+				return machine.NewCPUSet(), fmt.Errorf(
+					"%w: container info not found for %s/%s",
+					errIndicatorUnavailable,
+					podUID,
+					containerName,
+				)
 			}
 
-			for numaID := range ci.TopologyAwareAssignments {
-				if r.bindingNumas.Contains(numaID) {
-					cpuSet = cpuSet.Union(ci.TopologyAwareAssignments[numaID])
+			for numaID, assignedCPUs := range ci.TopologyAwareAssignments {
+				if !r.isNumaBinding || r.bindingNumas.Contains(numaID) {
+					cpuSet = cpuSet.Union(assignedCPUs)
 				}
 			}
 		}
 	}
+	if cpuSet.IsEmpty() {
+		return machine.NewCPUSet(), fmt.Errorf(
+			"%w: empty assigned cpu set for region %s with numas %s",
+			errIndicatorUnavailable,
+			r.name,
+			r.bindingNumas.String(),
+		)
+	}
+	return cpuSet, nil
+}
 
+func (r *QoSRegionDedicated) getCPUSchedWait() (float64, error) {
+	cpuSet, err := r.getAssignedCPUSet()
+	if err != nil {
+		return 0, err
+	}
+	return r.getAverageCoreMetric(cpuSet, consts.MetricCPUSchedwait)
+}
+
+func (r *QoSRegionDedicated) getCPUUsageRatio() (float64, error) {
+	cpuSet, err := r.getAssignedCPUSet()
+	if err != nil {
+		return 0, err
+	}
 	usageRatio := r.metaServer.AggregateCoreMetric(cpuSet, consts.MetricCPUUsageRatio, metric.AggregatorAvg)
 	return usageRatio.Value, nil
 }

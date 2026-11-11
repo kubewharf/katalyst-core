@@ -30,9 +30,9 @@ import (
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 type PolicyDynamicQuota struct {
@@ -62,12 +62,32 @@ func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob() bool {
 
 func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	indicator := p.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
-	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.bindingNumas.ToSliceInt()[0])
-	data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
-	if err != nil {
-		return err
+
+	// isCPUQuotaAsControlKnob only gates on isNUMABinding, but a region can be
+	// marked NUMA binding before its bindingNumas are populated. Indexing an empty
+	// set below would panic, so bail out cleanly instead.
+	if p.bindingNumas.Size() == 0 {
+		return fmt.Errorf("region %s has empty binding numas, cannot apply cpu quota control knob", p.regionName)
 	}
-	reclaimCoresCPUUsage := data.Value
+	numaID := p.bindingNumas.ToSliceInt()[0]
+	// sum reclaim CPU usage across every registered consumer's cgroup subtree for
+	// this NUMA; the subtrees are disjoint and share the same reclaim pool, so
+	// their measured usage sums.
+	reclaimPaths := reclaim.AggregateNumaBindingCgroupPaths()[numaID]
+	var reclaimCoresCPUUsage float64
+	found := false
+	for _, reclaimPath := range reclaimPaths {
+		data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
+		if err != nil {
+			general.Infof("skip missing reclaim cgroup %s: %v", reclaimPath, err)
+			continue
+		}
+		found = true
+		reclaimCoresCPUUsage += data.Value
+	}
+	if !found {
+		return fmt.Errorf("no reclaim cgroup usage metric found for numa %d", numaID)
+	}
 
 	var reclaimNUMACPUSize int
 	// get reclaim cpu size instead of numa cpuset size if reclaim pool exist to avoid unavailable cpu
@@ -118,7 +138,7 @@ func (p *PolicyDynamicQuota) Update() error {
 func (p *PolicyDynamicQuota) sanityCheck() error {
 	var errList []error
 
-	if !p.conf.GetDynamicConfiguration().EnableReclaim {
+	if p.DynamicConfiguration == nil || !p.DynamicConfiguration.EnableReclaim {
 		errList = append(errList, fmt.Errorf("reclaim disabled"))
 	}
 
