@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -341,28 +342,49 @@ func IsNumaKcompactdBusy(numaID int) bool {
 // each plugin can use its own metric name and tags. The per-NUMA kcompactd pids are discovered
 // lazily on first use (and retried until found), so callers do not have to prime them before the scan loop.
 func TryCompactNUMANode(numaID int) bool {
-	// Guard against concurrent compaction of the same node (e.g. two plugins sharing this helper):
-	// if another caller is already compacting numaID, skip rather than duplicate the work.
+	return CompactNUMANode(numaID).State == CompactionWriteReturned
+}
+
+// CompactionState describes the outcome of one attempt, not its fragmentation benefit.
+type CompactionState string
+
+const (
+	CompactionNUMABusy      CompactionState = "numa_busy"
+	CompactionKcompactdBusy CompactionState = "kcompactd_busy"
+	CompactionWriteFailed   CompactionState = "write_failed"
+	CompactionWriteReturned CompactionState = "write_returned"
+)
+
+// CompactionResult preserves the write error and duration. Cost is nil when no write was attempted.
+type CompactionResult struct {
+	State CompactionState
+	Err   error
+	Cost  *time.Duration
+}
+
+// CompactNUMANode shares the same per-NUMA guard and kcompactd checks as all existing callers.
+// A returned write does not guarantee complete compaction or a fragmentation improvement.
+func CompactNUMANode(numaID int) CompactionResult {
 	if !tryAcquireNumaCompacting(numaID) {
 		general.Infof("skip NUMA %d: a compaction is already in progress", numaID)
-		return false
+		return CompactionResult{State: CompactionNUMABusy}
 	}
 	defer releaseNumaCompacting(numaID)
 
-	// Make sure the per-NUMA kcompactd pids are known before consulting their state. This is a
-	// no-op once the pids have been discovered.
 	ensureNumaKcompactdPids()
-
 	if IsNumaKcompactdBusy(numaID) {
 		general.Infof("skip NUMA %d: kcompactd is busy (R/D state)", numaID)
-		return false
+		return CompactionResult{State: CompactionKcompactdBusy}
 	}
 
-	if err := CompactMemoryNodeFn(numaID); err != nil {
+	start := time.Now()
+	err := CompactMemoryNodeFn(numaID)
+	cost := time.Since(start)
+	if err != nil {
 		general.Errorf("compact NUMA %d failed: %v", numaID, err)
-		return false
+		return CompactionResult{State: CompactionWriteFailed, Err: err, Cost: &cost}
 	}
-	return true
+	return CompactionResult{State: CompactionWriteReturned, Cost: &cost}
 }
 
 // ResetKcompactdPidsForTest clears the discovered kcompactd pid cache so tests can start from a
