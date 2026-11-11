@@ -123,6 +123,7 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 						},
 					},
 				},
+				CPUTopology: &machine.CPUTopology{CPUDetails: machine.CPUDetails{}},
 				ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 					SiblingNumaInfo: &machine.SiblingNumaInfo{},
 					NumaDistanceMap: map[int][]machine.NumaDistanceInfo{

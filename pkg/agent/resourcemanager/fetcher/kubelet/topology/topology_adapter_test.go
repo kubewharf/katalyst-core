@@ -40,6 +40,7 @@ import (
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	agentConf "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -176,8 +177,11 @@ func generateTestMetricsFetcher() *metric.FakeMetricsFetcher {
 func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 	m := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			PodFetcher:          &pod.PodFetcherStub{PodList: podList},
-			KatalystMachineInfo: &machine.KatalystMachineInfo{MachineInfo: &info.MachineInfo{}},
+			PodFetcher: &pod.PodFetcherStub{PodList: podList},
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo: &info.MachineInfo{},
+				CPUTopology: &machine.CPUTopology{CPUDetails: machine.CPUDetails{}},
+			},
 		},
 	}
 
@@ -1067,7 +1071,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 		cacheGroupCPUsMap     map[int]sets.Int
 		numaMBWCapacityMap    map[int]int64
 		numaMBWAllocatableMap map[int]int64
-		reservedCPUs          string
+		reservedCPUs          machine.CPUSet
 	}
 	tests := []struct {
 		name              string
@@ -1078,7 +1082,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 		{
 			name: "test-1",
 			args: args{
-				reservedCPUs: "0,2",
+				reservedCPUs: machine.NewCPUSet(0, 2),
 				cacheGroupCPUsMap: map[int]sets.Int{
 					0: sets.NewInt(0, 2, 4, 6),
 					1: sets.NewInt(1, 3, 5, 7),
@@ -3056,6 +3060,34 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyPolicy(t *testing.T) 
 	assert.Equal(t, nodev1alpha1.TopologyPolicySingleNUMANodeContainerLevel, got)
 }
 
+func TestNewPodResourcesServerTopologyAdapterReservedCPUsFromKubeletConfig(t *testing.T) {
+	t.Parallel()
+
+	testMetaServer := generateTestMetaServer()
+	testMetaServer.KubeletConfigFetcher = kubeletconfig.NewFakeKubeletConfigFetcher(native.KubeletConfiguration{
+		ReservedSystemCPUs: "0-1,4-5",
+	})
+	testConf := pkgconfig.NewConfiguration()
+	testConf.UseKubeletReservedConfig = true
+
+	adapter, err := NewPodResourcesServerTopologyAdapter(
+		testMetaServer,
+		testConf,
+		nil,
+		[]string{t.TempDir()},
+		pkgconsts.KubeletQoSResourceManagerCheckpoint,
+		nil,
+		nil,
+		func() ([]info.Node, error) { return nil, nil },
+		nil,
+		nil,
+		nil,
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, machine.NewCPUSet(0, 1, 4, 5), adapter.(*topologyAdapterImpl).reservedCPUs)
+}
+
 func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	t.Parallel()
 
@@ -3094,7 +3126,8 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	notifier := make(chan struct{}, 1)
-	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, generic.NewQoSConfiguration(), agentConf.NewAgentConfiguration(),
+	testConf := pkgconfig.NewConfiguration()
+	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, testConf,
 		endpoints, kubeletResourcePluginPath, pkgconsts.KubeletQoSResourceManagerCheckpoint, nil,
 		nil, getNumaInfo, nil, podresources.GetV1Client, []string{"cpu", "memory"})
 	err = p.Run(ctx, func() {})
