@@ -2317,6 +2317,322 @@ func TestGpuReporterPlugin_getRDMAResourceProperty(t *testing.T) {
 	}
 }
 
+func TestGpuReporterPlugin_getAffinityDeviceByAccompanyResource(t *testing.T) {
+	t.Parallel()
+
+	gpuTopology := &machine.DeviceTopology{
+		PriorityDimensions: []string{"pcie", "numa"},
+		Devices: map[string]machine.DeviceInfo{
+			"g0": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g1": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g2": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g3": {Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+		},
+	}
+	bothHealthy := map[string]string{
+		"g0": "r0",
+		"g1": "r0",
+		"g2": "r1",
+		"g3": "r1",
+	}
+	onlyR0Healthy := map[string]string{
+		"g0": "r0",
+		"g1": "r0",
+		"g2": "r0",
+		"g3": "r0",
+	}
+
+	tests := []struct {
+		name         string
+		rdmaTopology *machine.DeviceTopology
+		expected     map[string]string
+	}{
+		{
+			name: "both RDMAs healthy",
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{
+				"r1": {Health: pluginapi.Healthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+				"r0": {Health: pluginapi.Healthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			}},
+			expected: bothHealthy,
+		},
+		{
+			name: "one RDMA unhealthy",
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{
+				"r1": {Health: pluginapi.Unhealthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+				"r0": {Health: pluginapi.Healthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			}},
+			expected: onlyR0Healthy,
+		},
+		{
+			name: "one RDMA absent",
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{
+				"r0": {Health: pluginapi.Healthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			}},
+			expected: onlyR0Healthy,
+		},
+		{
+			name: "all RDMAs unhealthy",
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{
+				"r1": {Health: pluginapi.Unhealthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+				"r0": {Health: pluginapi.Unhealthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			}},
+			expected: map[string]string{},
+		},
+		{
+			name:         "empty initialized RDMA inventory",
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{}},
+			expected:     map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			registry := machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+			registry.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
+			registry.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+			require.NoError(t, registry.SetDeviceTopology("gpu", gpuTopology))
+			require.NoError(t, registry.SetDeviceTopology("rdma", tt.rdmaTopology))
+
+			reporter := &gpuReporterPlugin{
+				rdmaDeviceNames:                         []string{"rdma"},
+				deviceTopologyRegistry:                  registry,
+				enableHybridAccompanyResourceAllocation: true,
+			}
+
+			rdmaTopology, rdmaResourceName := reporter.getRDMADeviceTopology()
+			actual := reporter.getAffinityDeviceByAccompanyResource(
+				"gpu",
+				gpuTopology.PriorityDimensions,
+				rdmaResourceName,
+				rdmaTopology,
+			)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
+func TestGpuReporterPlugin_buildReportResponseRDMAInventory(t *testing.T) {
+	t.Parallel()
+
+	gpuTopology := &machine.DeviceTopology{
+		PriorityDimensions: []string{"pcie", "numa"},
+		Devices: map[string]machine.DeviceInfo{
+			"g0": {Health: pluginapi.Healthy, NumaNodes: []int{0}, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g1": {Health: pluginapi.Healthy, NumaNodes: []int{0}, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g2": {Health: pluginapi.Healthy, NumaNodes: []int{0}, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			"g3": {Health: pluginapi.Healthy, NumaNodes: []int{0}, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+		},
+	}
+	machineTopology := []cadvisorapi.Node{{
+		Id:    0,
+		Cores: []cadvisorapi.Core{{SocketID: 0, Id: 0, Threads: []int{0, 4}}},
+	}}
+
+	tests := []struct {
+		name              string
+		hybridEnabled     bool
+		configureRDMA     bool
+		rdmaTopology      *machine.DeviceTopology
+		expectedGPUZones  int
+		expectedRDMAByGPU map[string]string
+	}{
+		{
+			name:             "hybrid enabled without RDMA support",
+			hybridEnabled:    true,
+			expectedGPUZones: 4,
+		},
+		{
+			name:             "hybrid enabled with uninitialized RDMA inventory",
+			hybridEnabled:    true,
+			configureRDMA:    true,
+			expectedGPUZones: 4,
+		},
+		{
+			name:             "hybrid enabled with empty RDMA inventory",
+			hybridEnabled:    true,
+			configureRDMA:    true,
+			rdmaTopology:     &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{}},
+			expectedGPUZones: 0,
+		},
+		{
+			name:          "hybrid enabled with no healthy RDMA",
+			hybridEnabled: true,
+			configureRDMA: true,
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{
+				"r0": {Health: pluginapi.Unhealthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+				"r1": {Health: pluginapi.Unhealthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			}},
+			expectedGPUZones: 0,
+		},
+		{
+			name:          "hybrid enabled with one healthy RDMA",
+			hybridEnabled: true,
+			configureRDMA: true,
+			rdmaTopology: &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{
+				"r0": {Health: pluginapi.Healthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+				"r1": {Health: pluginapi.Unhealthy, Dimensions: machine.DeviceDimensions{"pcie": "switch-0", "numa": "0"}},
+			}},
+			expectedGPUZones: 4,
+			expectedRDMAByGPU: map[string]string{
+				"g0": "r0",
+				"g1": "r0",
+				"g2": "r0",
+				"g3": "r0",
+			},
+		},
+		{
+			name:             "hybrid disabled with empty RDMA inventory",
+			configureRDMA:    true,
+			rdmaTopology:     &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{}},
+			expectedGPUZones: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			registry := machine.NewDeviceTopologyRegistry(metrics.DummyMetrics{})
+			registry.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
+			require.NoError(t, registry.SetDeviceTopology("gpu", gpuTopology))
+
+			var rdmaDeviceNames []string
+			if tt.configureRDMA {
+				rdmaDeviceNames = []string{"rdma"}
+				registry.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+				if tt.rdmaTopology != nil {
+					require.NoError(t, registry.SetDeviceTopology("rdma", tt.rdmaTopology))
+				}
+			}
+
+			testState := &testGPUState{
+				machineState: buildMachineState(v1.ResourceName("gpu-type"), []string{"g0", "g1", "g2", "g3"}),
+			}
+			reporter := &gpuReporterPlugin{
+				gpuDeviceNames:                          []string{"gpu"},
+				rdmaDeviceNames:                         rdmaDeviceNames,
+				numaSocketZoneNodeMap:                   util.GenerateNumaSocketZone(machineTopology),
+				deviceTopologyRegistry:                  registry,
+				stateGetter:                             func() state.State { return testState },
+				deviceTypeToNames:                       map[string]sets.String{"gpu-type": sets.NewString("gpu")},
+				enableHybridAccompanyResourceAllocation: tt.hybridEnabled,
+			}
+
+			report, err := reporter.buildReportResponse()
+			require.NoError(t, err)
+			gpuZones := getGPUZonesFromReport(t, report)
+			assert.Len(t, gpuZones, tt.expectedGPUZones)
+
+			for _, zone := range gpuZones {
+				expectedRDMA, expectRDMA := tt.expectedRDMAByGPU[zone.Name]
+				var actualRDMA string
+				for _, attribute := range zone.Attributes {
+					if attribute.Name == "rdma" {
+						actualRDMA = attribute.Value
+						break
+					}
+				}
+				if expectRDMA {
+					assert.Equal(t, expectedRDMA, actualRDMA)
+				} else {
+					assert.Empty(t, actualRDMA)
+				}
+			}
+		})
+	}
+}
+
+func TestFilterGPUDeviceTopology(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"g0": {},
+			"g1": {},
+			"g2": {},
+			"g3": {},
+		},
+	}
+
+	t.Run("keep mapped GPUs without mutating input", func(t *testing.T) {
+		t.Parallel()
+
+		filtered := filterGPUDeviceTopology(
+			topology,
+			map[string]string{"g0": "r0", "g2": "r0"},
+		)
+
+		assert.NotSame(t, topology, filtered)
+		assert.Equal(t, map[string]machine.DeviceInfo{"g0": {}, "g2": {}}, filtered.Devices)
+		assert.Len(t, topology.Devices, 4)
+	})
+
+	t.Run("empty mapping removes all GPUs", func(t *testing.T) {
+		t.Parallel()
+
+		filtered := filterGPUDeviceTopology(topology, map[string]string{})
+		require.NotNil(t, filtered)
+		assert.Empty(t, filtered.Devices)
+		assert.Len(t, topology.Devices, 4)
+	})
+}
+
+func getGPUZonesFromReport(t *testing.T, report *v1alpha1.GetReportContentResponse) []*nodev1alpha1.TopologyZone {
+	t.Helper()
+
+	var result []*nodev1alpha1.TopologyZone
+	var visit func(zones []*nodev1alpha1.TopologyZone)
+	visit = func(zones []*nodev1alpha1.TopologyZone) {
+		for _, zone := range zones {
+			if zone.Type == nodev1alpha1.TopologyTypeGPU {
+				result = append(result, zone)
+			}
+			visit(zone.Children)
+		}
+	}
+
+	for _, content := range report.Content {
+		for _, field := range content.Field {
+			if field.FieldType != v1alpha1.FieldType_Status || field.FieldName != util.CNRFieldNameTopologyZone {
+				continue
+			}
+
+			var zones []*nodev1alpha1.TopologyZone
+			require.NoError(t, json.Unmarshal(field.Value, &zones))
+			visit(zones)
+		}
+	}
+
+	return result
+}
+
+func TestGpuReporterPlugin_getGPUZoneAttributesWithTargetDevice(t *testing.T) {
+	t.Parallel()
+
+	topology := &machine.DeviceTopology{
+		PriorityDimensions: []string{"fine"},
+		Devices: map[string]machine.DeviceInfo{
+			"g0": {Dimensions: machine.DeviceDimensions{"fine": "x"}},
+			"g1": {Dimensions: machine.DeviceDimensions{"fine": "y"}},
+		},
+	}
+	reporter := &gpuReporterPlugin{}
+
+	attributes := reporter.getGPUZoneAttributes(topology, map[string]string{"g0": "r0"})
+
+	assert.Equal(t, util.ZoneAttributes{
+		{Name: "fine", Value: "x"},
+		{Name: "rdma", Value: "r0"},
+	}, attributes[util.GenerateDeviceZoneNode("g0", string(nodev1alpha1.TopologyTypeGPU))])
+	assert.Equal(t, util.ZoneAttributes{
+		{Name: "fine", Value: "y"},
+	}, attributes[util.GenerateDeviceZoneNode("g1", string(nodev1alpha1.TopologyTypeGPU))])
+}
+
 func TestGpuReporterPlugin_getResourcePropertyReportField_RDMAOnly(t *testing.T) {
 	t.Parallel()
 

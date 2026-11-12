@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -122,12 +123,13 @@ type gpuReporterPlugin struct {
 	stateGetter            func() state.State
 	deviceTypeToNames      map[string]sets.String
 
-	reportNotifyCh                  chan struct{}
-	reportRetryInterval             time.Duration
-	lastReportContent               *v1alpha1.GetReportContentResponse
-	kubeletCheckpointManager        checkpointmanager.CheckpointManager
-	kubeletDevicePluginPath         string
-	enableKubeletCheckpointFallback bool
+	reportNotifyCh                          chan struct{}
+	reportRetryInterval                     time.Duration
+	lastReportContent                       *v1alpha1.GetReportContentResponse
+	kubeletCheckpointManager                checkpointmanager.CheckpointManager
+	kubeletDevicePluginPath                 string
+	enableKubeletCheckpointFallback         bool
+	enableHybridAccompanyResourceAllocation bool
 }
 
 var (
@@ -140,19 +142,20 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 	kubeletCheckpointManager checkpointmanager.CheckpointManager,
 ) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
 	reporter := &gpuReporterPlugin{
-		gpuDeviceNames:                  conf.GPUDeviceNames,
-		rdmaDeviceNames:                 conf.RDMADeviceNames,
-		numaSocketZoneNodeMap:           util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
-		emitter:                         emitter,
-		deviceTopologyRegistry:          topologyRegistry,
-		stateGetter:                     stateGetter,
-		deviceTypeToNames:               deviceTypeToNames,
-		reportNotifyCh:                  make(chan struct{}, 1),
-		reportRetryInterval:             defaultReportRetryInterval,
-		metaServer:                      metaServer,
-		kubeletCheckpointManager:        kubeletCheckpointManager,
-		kubeletDevicePluginPath:         conf.KubeletDevicePluginPath,
-		enableKubeletCheckpointFallback: conf.EnableKubeletCheckpointFallback,
+		gpuDeviceNames:                          conf.GPUDeviceNames,
+		rdmaDeviceNames:                         conf.RDMADeviceNames,
+		numaSocketZoneNodeMap:                   util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
+		emitter:                                 emitter,
+		deviceTopologyRegistry:                  topologyRegistry,
+		stateGetter:                             stateGetter,
+		deviceTypeToNames:                       deviceTypeToNames,
+		reportNotifyCh:                          make(chan struct{}, 1),
+		reportRetryInterval:                     defaultReportRetryInterval,
+		metaServer:                              metaServer,
+		kubeletCheckpointManager:                kubeletCheckpointManager,
+		kubeletDevicePluginPath:                 conf.KubeletDevicePluginPath,
+		enableKubeletCheckpointFallback:         conf.EnableKubeletCheckpointFallback,
+		enableHybridAccompanyResourceAllocation: conf.EnableHybridAccompanyResourceAllocation,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -281,7 +284,7 @@ func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentRes
 	if !ok {
 		return nil, fmt.Errorf("failed to get any device topology")
 	}
-	latestDeviceTopology, _ := machine.PickLatestDeviceTopology(topologiesMap)
+	latestDeviceTopology, gpuResourceName := machine.PickLatestDeviceTopology(topologiesMap)
 
 	stateImpl := p.stateGetter()
 	if stateImpl == nil {
@@ -295,7 +298,32 @@ func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentRes
 
 	var reportFields []*v1alpha1.ReportField
 
-	zoneField, err := p.getTopologyZoneReportField(topologiesMap, latestDeviceTopology, machineState)
+	// Resolve each GPU's healthy RDMA affinity. Once RDMA inventory is initialized,
+	// GPUs without a healthy mapping are omitted from topology-zone reporting.
+	rdmaTopology, rdmaResourceName := p.getRDMADeviceTopology()
+	affinityDeviceByAccompanyResource := p.getAffinityDeviceByAccompanyResource(
+		gpuResourceName,
+		latestDeviceTopology.PriorityDimensions,
+		rdmaResourceName,
+		rdmaTopology,
+	)
+	var reportedGPUTopology *machine.DeviceTopology
+	if rdmaTopology == nil && rdmaResourceName == "" {
+		// No need to filter out GPUs if there is no RDMA topology.
+		reportedGPUTopology = latestDeviceTopology
+	} else {
+		// Filter out the GPUs with no RDMA affinity or with unhealthy RDMA affinity.
+		reportedGPUTopology = filterGPUDeviceTopology(
+			latestDeviceTopology,
+			affinityDeviceByAccompanyResource,
+		)
+	}
+	zoneField, err := p.getTopologyZoneReportField(
+		topologiesMap,
+		reportedGPUTopology,
+		machineState,
+		affinityDeviceByAccompanyResource,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +350,12 @@ func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentRes
 	}, nil
 }
 
-func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]*machine.DeviceTopology, latestDeviceTopology *machine.DeviceTopology, machineState state.AllocationResourcesMap) (*v1alpha1.ReportField, error) {
+func (p *gpuReporterPlugin) getTopologyZoneReportField(
+	topologiesMap map[string]*machine.DeviceTopology,
+	latestDeviceTopology *machine.DeviceTopology,
+	machineState state.AllocationResourcesMap,
+	affinityDeviceByAccompanyResource map[string]string,
+) (*v1alpha1.ReportField, error) {
 	// generate the zones for numa and socket in machine
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
 	if err != nil {
@@ -334,7 +367,7 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]
 		return nil, err
 	}
 
-	zoneAttributes := p.getGPUZoneAttributes(latestDeviceTopology)
+	zoneAttributes := p.getGPUZoneAttributes(latestDeviceTopology, affinityDeviceByAccompanyResource)
 	if zoneAttributes == nil {
 		return nil, fmt.Errorf("no zone attributes found for device topology")
 	}
@@ -362,6 +395,103 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]
 		FieldName: util.CNRFieldNameTopologyZone,
 		Value:     zoneValues,
 	}, nil
+}
+
+// getRDMADeviceTopology returns the latest rdma device topology and the rdma resource name.
+// If enableHybridAccompanyResourceAllocation is false, it returns nil and empty string.
+func (p *gpuReporterPlugin) getRDMADeviceTopology() (*machine.DeviceTopology, string) {
+	if !p.enableHybridAccompanyResourceAllocation {
+		return nil, ""
+	}
+
+	rdmaTopology, rdmaResourceName, err := p.deviceTopologyRegistry.GetLatestDeviceTopology(p.rdmaDeviceNames)
+	if err != nil {
+		general.Warningf("failed to get resource topology for target-device mapping: %v", err)
+		return nil, ""
+	}
+	return rdmaTopology, rdmaResourceName
+}
+
+// getAffinityDeviceByAccompanyResource maps each GPU to one healthy RDMA.
+func (p *gpuReporterPlugin) getAffinityDeviceByAccompanyResource(
+	accompanyResourceName string,
+	priorityDimensions []string,
+	rdmaResourceName string,
+	rdmaTopology *machine.DeviceTopology,
+) map[string]string {
+	rdmaCandidatesByGPU, err := p.deviceTopologyRegistry.GetAffinityDevices(
+		accompanyResourceName,
+		rdmaResourceName,
+	)
+	if err != nil {
+		general.Warningf("failed to get resource affinity: %v", err)
+		return map[string]string{}
+	}
+
+	rdmaCandidatesByGPU = filterHealthyRDMACandidates(
+		rdmaCandidatesByGPU,
+		rdmaTopology,
+	)
+
+	return gpuutil.ResolveAffinityDeviceByAccompanyResource(
+		rdmaCandidatesByGPU,
+		priorityDimensions,
+	)
+}
+
+// filterHealthyRDMACandidates copies the GPU-to-RDMA candidates while removing
+// RDMAs that are absent or unhealthy in the latest inventory.
+func filterHealthyRDMACandidates(
+	rdmaCandidatesByGPU map[string]map[string]machine.DeviceIDs,
+	rdmaTopology *machine.DeviceTopology,
+) map[string]map[string]machine.DeviceIDs {
+	healthyCandidatesByGPU := make(map[string]map[string]machine.DeviceIDs)
+	if rdmaTopology == nil {
+		return healthyCandidatesByGPU
+	}
+
+	for gpuID, rdmaCandidatesByDimension := range rdmaCandidatesByGPU {
+		healthyCandidatesByDimension := make(map[string]machine.DeviceIDs, len(rdmaCandidatesByDimension))
+		for dimension, candidateRDMAIDs := range rdmaCandidatesByDimension {
+			healthyRDMAIDs := make(machine.DeviceIDs, 0, len(candidateRDMAIDs))
+			for _, rdmaID := range candidateRDMAIDs {
+				// We only report healthy RDMA candidates.
+				if healthy, found := rdmaTopology.IsDeviceHealthy(rdmaID); found && healthy {
+					healthyRDMAIDs = append(healthyRDMAIDs, rdmaID)
+				}
+			}
+
+			if len(healthyRDMAIDs) > 0 {
+				healthyCandidatesByDimension[dimension] = healthyRDMAIDs
+			}
+		}
+
+		if len(healthyCandidatesByDimension) > 0 {
+			healthyCandidatesByGPU[gpuID] = healthyCandidatesByDimension
+		}
+	}
+
+	return healthyCandidatesByGPU
+}
+
+// filterGPUDeviceTopology returns a cloned topology containing only GPUs with
+// resolved RDMA affinity.
+func filterGPUDeviceTopology(
+	topology *machine.DeviceTopology,
+	rdmaByGPU map[string]string,
+) *machine.DeviceTopology {
+	if topology == nil {
+		return topology
+	}
+
+	filtered := topology.Clone()
+	for gpuID := range filtered.Devices {
+		if _, reportable := rdmaByGPU[gpuID]; !reportable {
+			delete(filtered.Devices, gpuID)
+		}
+	}
+
+	return filtered
 }
 
 func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology *machine.DeviceTopology) (*v1alpha1.ReportField, error) {
@@ -421,7 +551,10 @@ func (p *gpuReporterPlugin) getRDMAResourceProperty() *nodev1alpha1.Property {
 }
 
 // getGPUZoneAttributes returns the map of gpu zone nodes to their attributes
-func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceTopology) map[util.ZoneNode]util.ZoneAttributes {
+func (p *gpuReporterPlugin) getGPUZoneAttributes(
+	deviceTopology *machine.DeviceTopology,
+	affinityDeviceByAccompanyResource map[string]string,
+) map[util.ZoneNode]util.ZoneAttributes {
 	if deviceTopology == nil {
 		return nil
 	}
@@ -443,6 +576,13 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 			attributes = append(attributes, nodev1alpha1.Attribute{
 				Name:  dimName,
 				Value: dimValue,
+			})
+		}
+		// Expose the RDMA device with affinity on the corresponding GPU zone.
+		if resourceID, ok := affinityDeviceByAccompanyResource[id]; ok {
+			attributes = append(attributes, nodev1alpha1.Attribute{
+				Name:  "rdma",
+				Value: resourceID,
 			})
 		}
 

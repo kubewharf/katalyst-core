@@ -87,6 +87,57 @@ func generateTestGenericContext(t *testing.T, conf *config.Configuration) *agent
 	return agentCtx
 }
 
+func TestNewBasePluginUsesConfiguredAnnotationKeys(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		enabled  bool
+		key      string
+		keptKeys []string
+		expected []string
+	}{
+		{
+			name:     "disabled leaves keys unchanged",
+			key:      "example.com/rdma-shared",
+			keptKeys: []string{"example.com/existing"},
+			expected: []string{"example.com/existing"},
+		},
+		{
+			name:     "enabled leaves missing shared key unchanged",
+			enabled:  true,
+			key:      "example.com/rdma-shared",
+			keptKeys: []string{"example.com/existing"},
+			expected: []string{"example.com/existing"},
+		},
+		{
+			name:     "enabled uses configured shared key",
+			enabled:  true,
+			key:      "example.com/rdma-shared",
+			keptKeys: []string{"example.com/existing", "example.com/rdma-shared"},
+			expected: []string{"example.com/existing", "example.com/rdma-shared"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := generateTestConfiguration(t)
+			conf.PodAnnotationKeptKeys = append([]string(nil), tt.keptKeys...)
+			conf.EnableHybridAccompanyResourceAllocation = tt.enabled
+			conf.AccompanyResourceSharedAnnotationKey = tt.key
+
+			plugin, err := NewBasePlugin(generateTestGenericContext(t, conf), conf, metrics.DummyMetrics{})
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, plugin.PodAnnotationKeptKeys)
+			assert.Equal(t, tt.keptKeys, conf.PodAnnotationKeptKeys)
+		})
+	}
+}
+
 func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 	t.Parallel()
 

@@ -83,6 +83,13 @@ type GPUQRMPluginConfig struct {
 	// when the annotation exists on ResourceRequest.Annotations and its value is "true".
 	// If empty, env injection keeps the current behavior.
 	VirtualGPUDisableEnvsInjectionAnnotationKey string
+	// EnableHybridAccompanyResourceAllocation allows for exclusive and shared allocation of accompany resources
+	// to coexist on the same node.
+	// Set to false by default.
+	EnableHybridAccompanyResourceAllocation bool
+	// AccompanyResourceSharedAnnotationKey is the pod annotation key that requests shared accompany resource allocation.
+	// An empty key keeps accompany resource allocation exclusive.
+	AccompanyResourceSharedAnnotationKey string
 
 	*gpustrategy.GPUStrategyConfig
 }
