@@ -1419,6 +1419,7 @@ func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containe
 	}
 
 	lastUpdateTime, _ := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer)
+	lastBpfFsData, _ := m.metricStore.GetContainerByStringIndex(podUID, containerName, consts.MetricBpfFsDataContainer).(malachitetypes.BpfFsData)
 
 	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		io := cgStats.V1.Blkio
@@ -1427,24 +1428,25 @@ func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containe
 
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
 			func() float64 {
-				return float64(uint64CounterDelta(io.OldBpfFsData.FsRead, io.BpfFsData.FsRead))
+				return float64(uint64CounterDelta(lastBpfFsData.FsRead, io.BpfFsData.FsRead))
 			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
 			func() float64 {
-				return float64(uint64CounterDelta(io.OldBpfFsData.FsWrite, io.BpfFsData.FsWrite))
+				return float64(uint64CounterDelta(lastBpfFsData.FsWrite, io.BpfFsData.FsWrite))
 			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
 			func() float64 {
-				return float64(uint64CounterDelta(io.OldBpfFsData.FsReadBytes, io.BpfFsData.FsReadBytes))
+				return float64(uint64CounterDelta(lastBpfFsData.FsReadBytes, io.BpfFsData.FsReadBytes))
 			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
 			func() float64 {
-				return float64(uint64CounterDelta(io.OldBpfFsData.FsWriteBytes, io.BpfFsData.FsWriteBytes))
+				return float64(uint64CounterDelta(lastBpfFsData.FsWriteBytes, io.BpfFsData.FsWriteBytes))
 			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.metricStore.SetContainerByStringIndex(podUID, containerName, consts.MetricBpfFsDataContainer, io.BpfFsData)
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(updateTimestampInSec), Time: &updateTime})
@@ -1454,21 +1456,22 @@ func (m *MalachiteMetricsProvisioner) processContainerBlkIOData(podUID, containe
 		updateTimestampInSec := updateTime.Unix()
 
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadIopsContainer,
-			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsRead, io.BpfFsData.FsRead)) },
+			func() float64 { return float64(uint64CounterDelta(lastBpfFsData.FsRead, io.BpfFsData.FsRead)) },
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteIopsContainer,
-			func() float64 { return float64(uint64CounterDelta(io.OldBpfFsData.FsWrite, io.BpfFsData.FsWrite)) },
+			func() float64 { return float64(uint64CounterDelta(lastBpfFsData.FsWrite, io.BpfFsData.FsWrite)) },
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioReadBpsContainer,
 			func() float64 {
-				return float64(uint64CounterDelta(io.OldBpfFsData.FsReadBytes, io.BpfFsData.FsReadBytes))
+				return float64(uint64CounterDelta(lastBpfFsData.FsReadBytes, io.BpfFsData.FsReadBytes))
 			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
 		m.setContainerRateMetric(podUID, containerName, consts.MetricBlkioWriteBpsContainer,
 			func() float64 {
-				return float64(uint64CounterDelta(io.OldBpfFsData.FsWriteBytes, io.BpfFsData.FsWriteBytes))
+				return float64(uint64CounterDelta(lastBpfFsData.FsWriteBytes, io.BpfFsData.FsWriteBytes))
 			},
 			int64(lastUpdateTime.Value), updateTimestampInSec)
+		m.metricStore.SetContainerByStringIndex(podUID, containerName, consts.MetricBpfFsDataContainer, io.BpfFsData)
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricBlkioUpdateTimeContainer,
 			utilmetric.MetricData{Value: float64(io.UpdateTime), Time: &updateTime})
