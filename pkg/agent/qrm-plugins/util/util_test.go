@@ -32,6 +32,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -1033,6 +1034,328 @@ func TestGetPodAggregatedRequestResourceMap(t *testing.T) {
 			if !reflect.DeepEqual(gotFloat, tt.expectedFloat) {
 				t.Errorf("GetPodAggregatedRequestResourceMap() gotFloat = %v, want %v", gotFloat, tt.expectedFloat)
 			}
+		})
+	}
+}
+
+func TestIsQuantityFromQRMDeclaration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expected    bool
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			expected:    false,
+		},
+		{
+			name:        "unrelated annotations only",
+			annotations: map[string]string{"foo": "bar"},
+			expected:    false,
+		},
+		{
+			name:        "declaration value is not true",
+			annotations: map[string]string{PodAnnotationQuantityFromQRMDeclarationKey: "false"},
+			expected:    false,
+		},
+		{
+			name:        "declaration value is true",
+			annotations: map[string]string{PodAnnotationQuantityFromQRMDeclarationKey: PodAnnotationQuantityFromQRMDeclarationTrue},
+			expected:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, IsQuantityFromQRMDeclaration(tt.annotations))
+		})
+	}
+}
+
+func TestGetQuantityFromResourceRequests(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		resourceRequests map[string]float64
+		resourceName     string
+		annotations      map[string]string
+		expectedInt      int
+		expectedFloat    float64
+		expectedNotFound bool
+	}{
+		{
+			name:             "resource not declared in request",
+			resourceRequests: map[string]float64{},
+			resourceName:     string(apiconsts.ReclaimedResourceMilliCPU),
+			expectedNotFound: true,
+		},
+		{
+			name:             "reclaimed milli cpu is converted to cores and rounded up",
+			resourceRequests: map[string]float64{string(apiconsts.ReclaimedResourceMilliCPU): 1500},
+			resourceName:     string(apiconsts.ReclaimedResourceMilliCPU),
+			expectedInt:      2,
+			expectedFloat:    1.5,
+		},
+		{
+			name:             "reclaimed milli cpu never returns a negative integer",
+			resourceRequests: map[string]float64{string(apiconsts.ReclaimedResourceMilliCPU): -100},
+			resourceName:     string(apiconsts.ReclaimedResourceMilliCPU),
+			expectedInt:      0,
+			expectedFloat:    -0.1,
+		},
+		{
+			// math.Ceil(-1.5) is -1, so this case fails if the clamp to zero is removed;
+			// -100 above cannot catch that because math.Ceil(-0.1) is -0.
+			name:             "reclaimed milli cpu clamps a strictly negative core count to zero",
+			resourceRequests: map[string]float64{string(apiconsts.ReclaimedResourceMilliCPU): -1500},
+			resourceName:     string(apiconsts.ReclaimedResourceMilliCPU),
+			expectedInt:      0,
+			expectedFloat:    -1.5,
+		},
+		{
+			name:             "net bandwidth declared from qrm is ignored",
+			resourceRequests: map[string]float64{string(apiconsts.ResourceNetBandwidth): 10},
+			resourceName:     string(apiconsts.ResourceNetBandwidth),
+			annotations:      map[string]string{PodAnnotationQuantityFromQRMDeclarationKey: PodAnnotationQuantityFromQRMDeclarationTrue},
+			expectedInt:      0,
+			expectedFloat:    0,
+		},
+		{
+			name:             "net bandwidth not declared from qrm keeps the request",
+			resourceRequests: map[string]float64{string(apiconsts.ResourceNetBandwidth): 10},
+			resourceName:     string(apiconsts.ResourceNetBandwidth),
+			annotations:      map[string]string{"foo": "bar"},
+			expectedInt:      10,
+			expectedFloat:    10,
+		},
+		{
+			name:             "ordinary resource is rounded up",
+			resourceRequests: map[string]float64{string(v1.ResourceCPU): 1.5},
+			resourceName:     string(v1.ResourceCPU),
+			expectedInt:      2,
+			expectedFloat:    1.5,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotInt, gotFloat, err := GetQuantityFromResourceRequests(tt.resourceRequests, tt.resourceName, tt.annotations)
+			if tt.expectedNotFound {
+				assert.True(t, errors.IsNotFound(err), "expected not-found error, got %v", err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedInt, gotInt)
+			assert.InDelta(t, tt.expectedFloat, gotFloat, 1e-9)
+		})
+	}
+}
+
+func TestIsDebugPod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		debugKeys   []string
+		expected    bool
+	}{
+		{
+			name:        "no debug keys configured",
+			annotations: map[string]string{"foo": "bar"},
+			expected:    false,
+		},
+		{
+			name:        "debug key absent",
+			annotations: map[string]string{"foo": "bar"},
+			debugKeys:   []string{"debug.katalyst.kubewharf.io/enable"},
+			expected:    false,
+		},
+		{
+			name:        "one of several debug keys present",
+			annotations: map[string]string{"debug.katalyst.kubewharf.io/verbosity": "5"},
+			debugKeys:   []string{"debug.katalyst.kubewharf.io/enable", "debug.katalyst.kubewharf.io/verbosity"},
+			expected:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, IsDebugPod(tt.annotations, tt.debugKeys))
+		})
+	}
+}
+
+func TestIsReallocation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		annotations   map[string]string
+		expectedExist bool
+		expectedValue string
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+		},
+		{
+			name:        "reallocation annotation absent",
+			annotations: map[string]string{"foo": "bar"},
+		},
+		{
+			name:          "reallocation annotation present",
+			annotations:   map[string]string{PodAnnotationResourceReallocationKey: "true"},
+			expectedExist: true,
+			expectedValue: "true",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			exist, value := IsReallocation(tt.annotations)
+			assert.Equal(t, tt.expectedExist, exist)
+			assert.Equal(t, tt.expectedValue, value)
+		})
+	}
+}
+
+func TestAsyncWorkNameHelpers(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "pod-uid/container/topic", GetContainerAsyncWorkName("pod-uid", "container", "topic"))
+	assert.Equal(t, "/kubepods/burstable/pod-uid/topic", GetCgroupAsyncWorkName("/kubepods/burstable/pod-uid", "topic"))
+	assert.Equal(t, "/kubepods/burstable/topic", GetAsyncWorkNameByPrefix("/kubepods/burstable", "topic"))
+}
+
+func TestPodInplaceUpdateResizing(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expected    bool
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			expected:    false,
+		},
+		{
+			name:        "resizing annotation disabled",
+			annotations: map[string]string{apiconsts.PodAnnotationInplaceUpdateResizingKey: "false"},
+			expected:    false,
+		},
+		{
+			name:        "resizing annotation enabled",
+			annotations: map[string]string{apiconsts.PodAnnotationInplaceUpdateResizingKey: "true"},
+			expected:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := &pluginapi.ResourceRequest{Annotations: tt.annotations}
+			assert.Equal(t, tt.expected, PodInplaceUpdateResizing(req))
+		})
+	}
+}
+
+func TestGetMainContainer(t *testing.T) {
+	t.Parallel()
+
+	const mainContainerKey = "main-container"
+
+	tests := []struct {
+		name     string
+		pod      *v1.Pod
+		expected string
+	}{
+		{
+			name: "annotation wins over container order",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{mainContainerKey: "app"}},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{{Name: "sidecar"}, {Name: "app"}},
+				},
+			},
+			expected: "app",
+		},
+		{
+			name: "falls back to the first container when annotation is absent",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{{Name: "app"}, {Name: "sidecar"}},
+				},
+			},
+			expected: "app",
+		},
+		{
+			name: "returns empty when annotation is empty and there are no containers",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{mainContainerKey: ""}},
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, GetMainContainer(tt.pod, mainContainerKey))
+		})
+	}
+}
+
+func TestIsNetworkAffinityRestricted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expected    bool
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			expected:    false,
+		},
+		{
+			name:        "affinity restriction disabled",
+			annotations: map[string]string{consts.PodAnnotationNetworkEnhancementAffinityRestricted: "false"},
+			expected:    false,
+		},
+		{
+			name:        "affinity restriction enabled",
+			annotations: map[string]string{consts.PodAnnotationNetworkEnhancementAffinityRestricted: consts.PodAnnotationNetworkEnhancementAffinityRestrictedTrue},
+			expected:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.expected, IsNetworkAffinityRestricted(tt.annotations))
 		})
 	}
 }
