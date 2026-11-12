@@ -1110,6 +1110,15 @@ func TestGetQuantityFromResourceRequests(t *testing.T) {
 			expectedFloat:    -0.1,
 		},
 		{
+			// math.Ceil(-1.5) is -1, so this case fails if the clamp to zero is removed;
+			// -100 above cannot catch that because math.Ceil(-0.1) is -0.
+			name:             "reclaimed milli cpu clamps a strictly negative core count to zero",
+			resourceRequests: map[string]float64{string(apiconsts.ReclaimedResourceMilliCPU): -1500},
+			resourceName:     string(apiconsts.ReclaimedResourceMilliCPU),
+			expectedInt:      0,
+			expectedFloat:    -1.5,
+		},
+		{
 			name:             "net bandwidth declared from qrm is ignored",
 			resourceRequests: map[string]float64{string(apiconsts.ResourceNetBandwidth): 10},
 			resourceName:     string(apiconsts.ResourceNetBandwidth),
