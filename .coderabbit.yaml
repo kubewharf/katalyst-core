@@ -1,9 +1,10 @@
 language: "en-US"
 early_access: false
 tone_instructions: >-
-  Prioritize correctness, concurrency safety, nil/error handling, and tests.
-  Write concise English text first, then equivalent Simplified Chinese. Do not
-  translate code, paths, APIs, markers, protobuf names, or error strings.
+  Prioritize correctness, concurrency safety, nil/error, tests. Conservative on
+  data-integrity: only flag provable mismatches; cross-layer transforms are
+  intentional. Write English, then Chinese. Don't translate code, paths, APIs,
+  or markers.
 
 reviews:
   profile: "chill"
@@ -11,14 +12,22 @@ reviews:
   high_level_summary: true
   high_level_summary_instructions: >-
     Summarize runtime behavior changes, affected components, operational or
-    rollout risk, and any config or dependency updates. Call out when changes
-    affect agent, controller, scheduler, or release wiring. Write concise English text 
-    first, then equivalent Simplified Chinese. Do not translate code, paths, APIs, markers, 
-    protobuf names, or error strings.
+    rollout risk, and any config or dependency updates. katalyst-core consumes
+    katalyst-api via go.mod pin; note changes needing a new api field or bump
+    first. Call out when changes affect agent, controller, scheduler, or
+    release wiring. Write concise English text first, then equivalent
+    Simplified Chinese. Do not translate code, paths, APIs, markers, protobuf
+    names, or error strings.
   high_level_summary_in_walkthrough: false
   review_status: true
+  review_details: true
   collapse_walkthrough: true
   poem: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
   slop_detection:
     enabled: true
   auto_review:
@@ -31,16 +40,14 @@ reviews:
       - "WIP"
       - "DRAFT"
       - "DO NOT MERGE"
-  path_filters:
-    - "!**/*.pb.go"
-    - "!**/zz_generated_*.go"
-    - "!docs/imgs/**"
-    - "!**/*.png"
-    - "!**/*.jpg"
-    - "!**/*.jpeg"
-    - "!**/*.gif"
-    - "!**/*.svg"
+  # path_filters intentionally omitted: rely on CodeRabbit defaults, including *.pb.go, and keep repository sources broadly reviewable.
   path_instructions:
+    - path: "**"
+      instructions: |
+        Treat go mod tidy and go vet findings as CI-covered. Formatting checks cover pkg/** and cmd/**. The paralleltest job excludes pkg/scheduler, pkg/controller/resource-recommend, pkg/util/resource-recommend, pkg/util/machine, and pkg/agent/qrm-plugins/sriov/policy; do not suppress formatting or t.Parallel findings outside the paths CI actually covers. Critical/Major only for concrete failures (data loss, panic, correctness bug, security vulnerability, privacy leak, credential exposure); style/speculation is Minor.
+    - path: "{AGENTS.md,ai/**/*.md}"
+      instructions: |
+        Review agent guidance against the current Makefile, CI workflow, repository layout, and source-of-truth ownership. Flag commands or invariants that are stale, broader than enforcement, or inconsistent with more local guidance.
     - path: "go.mod"
       instructions: |
         Review dependency and module version changes for runtime behavior risk, katalyst-api compatibility, and transitive Kubernetes or controller-runtime impact.
@@ -64,6 +71,24 @@ reviews:
     - path: "docs/**/*.md"
       instructions: |
         Check for technical accuracy, outdated operational guidance, and mismatches between documented behavior and current runtime wiring.
+    - path: "{cmd/**,pkg/agent/**,pkg/client/**,pkg/controller/**,pkg/custom-metric/**,pkg/metaserver/**,pkg/metrics/**,pkg/util/**,pkg/webhook/**}"
+      instructions: |
+        Flag unbounded identity tags such as pod UID or pod name. Evaluate namespace tags against the metric's scope and boundedness; do not flag namespace solely because it is present.
+    - path: "pkg/scheduler/**"
+      instructions: |
+        pkg/scheduler is excluded from make test; require focused package tests for scheduling changes.
+    - path: "{cmd/**,pkg/controller/resource-recommend/**,pkg/util/resource-recommend/**}"
+      instructions: |
+        These paths are not covered by make test. Require focused package tests for changed behavior or wiring, and do not treat the main local gate as complete without them.
+    - path: "pkg/webhook/**"
+      instructions: |
+        Flag webhooks that mutate without validation or can reject valid pods.
+    - path: "pkg/util/**"
+      instructions: |
+        Keep pkg/util dependency-light. Flag new imports of runtime implementation packages unless they follow an established narrowly scoped helper dependency and do not create a cycle.
+    - path: "{Makefile,hack/**,build/**}"
+      instructions: |
+        Flag build/codegen changes that produce non-reproducible output.
 
 knowledge_base:
   automatic_repository_linking: true
