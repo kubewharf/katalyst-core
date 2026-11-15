@@ -33,14 +33,13 @@ import (
 	qrmresctrlmanager "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/resctrl"
 	qrmresctrl "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	resctrlutil "github.com/kubewharf/katalyst-core/pkg/util/resctrl"
 )
 
 const (
-	PodDirPrefix = "pod"
-	MonGroupsDir = "mon_groups"
-	tasks        = "tasks"
-	cpus         = "cpus"
-	schemata     = "schemata"
+	tasks    = "tasks"
+	cpus     = "cpus"
+	schemata = "schemata"
 )
 
 var (
@@ -134,8 +133,8 @@ func (m *managerImpl) Create(podUID, closID string, createMonGroup bool) error {
 		return err
 	}
 	if createMonGroup {
-		rmID := PodDirPrefix + podUID
-		monGroupsPath := filepath.Join(closIDPath, MonGroupsDir, rmID)
+		rmID := resctrlutil.PodMonGroupName(podUID)
+		monGroupsPath := filepath.Join(closIDPath, resctrlutil.MonGroupsDir, rmID)
 		if err := os.MkdirAll(monGroupsPath, 0o755); err != nil {
 			return fmt.Errorf("create mon_groups dir %s failed: %v", monGroupsPath, err)
 		}
@@ -239,10 +238,10 @@ func (m *managerImpl) GetMonGroupsCount() (int64, error) {
 		return 0, fmt.Errorf("read root %s error: %v", root, err)
 	}
 	for _, subdir := range subdirs {
-		if !subdir.IsDir() || subdir.Name() == "info" || subdir.Name() == "mon_data" || subdir.Name() == MonGroupsDir {
+		if !subdir.IsDir() || subdir.Name() == "info" || subdir.Name() == "mon_data" || subdir.Name() == resctrlutil.MonGroupsDir {
 			continue
 		}
-		monGroupPath := filepath.Join(root, subdir.Name(), MonGroupsDir)
+		monGroupPath := filepath.Join(root, subdir.Name(), resctrlutil.MonGroupsDir)
 		monGroupsDirs, err := os.ReadDir(monGroupPath)
 		if err != nil && !os.IsNotExist(err) {
 			general.Errorf("resctrl: read mon_groups dir %s error: %v", monGroupPath, err)
@@ -266,7 +265,7 @@ func (m *managerImpl) isFileEmpty(root, name string) bool {
 }
 
 func isClosDir(entry os.DirEntry) bool {
-	return entry.IsDir() && !sets.NewString("info", "mon_data", MonGroupsDir).Has(entry.Name())
+	return entry.IsDir() && !sets.NewString("info", "mon_data", resctrlutil.MonGroupsDir).Has(entry.Name())
 }
 
 func (m *managerImpl) createClosLocked(closID string) (string, error) {
@@ -288,7 +287,7 @@ func (m *managerImpl) isClosEmptyLocked(path string) bool {
 	if !m.isFileEmpty(path, tasks) || !m.isFileEmpty(path, cpus) {
 		return false
 	}
-	entries, err := os.ReadDir(filepath.Join(path, MonGroupsDir))
+	entries, err := os.ReadDir(filepath.Join(path, resctrlutil.MonGroupsDir))
 	return os.IsNotExist(err) || err == nil && len(entries) == 0
 }
 
@@ -351,7 +350,7 @@ func walkMonGroupsDirs(root string, skipClosIDs sets.String, walkMonGroupsFunc f
 		if skipClosIDs != nil && skipClosIDs.Has(closID) {
 			continue
 		}
-		monGroupPath := filepath.Join(root, closID, MonGroupsDir)
+		monGroupPath := filepath.Join(root, closID, resctrlutil.MonGroupsDir)
 
 		monGroupsSubdirs, err := os.ReadDir(monGroupPath)
 		if err != nil {
@@ -361,11 +360,11 @@ func walkMonGroupsDirs(root string, skipClosIDs sets.String, walkMonGroupsFunc f
 		} else {
 			for _, monGroupsSubdir := range monGroupsSubdirs {
 				rmID := monGroupsSubdir.Name()
-				if !monGroupsSubdir.IsDir() || !strings.HasPrefix(rmID, PodDirPrefix) {
+				uid, podGroup := resctrlutil.PodUIDFromMonGroupName(rmID)
+				if !monGroupsSubdir.IsDir() || !podGroup {
 					continue
 				}
 				podMonGroupPath := filepath.Join(monGroupPath, rmID)
-				uid := strings.TrimPrefix(rmID, PodDirPrefix)
 
 				if walkMonGroupsFunc != nil {
 					walkMonGroupsFunc(uid, closID, podMonGroupPath)
