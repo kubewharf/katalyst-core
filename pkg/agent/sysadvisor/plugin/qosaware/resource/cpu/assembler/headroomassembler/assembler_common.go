@@ -19,20 +19,25 @@ package headroomassembler
 import (
 	"fmt"
 	"math"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 type HeadroomAssemblerCommon struct {
@@ -42,9 +47,61 @@ type HeadroomAssemblerCommon struct {
 	numaAvailable      *map[int]int
 	nonBindingNumas    *machine.CPUSet
 
+	reclaimRelativeRootCgroupPaths     []string
+	numaBindingRelativeRootCgroupPaths map[int][]string
+	existingRelativeCgroupPaths        func(...string) []string
+
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+
+	pathWarningOnce sync.Map
+}
+
+// ReclaimPathsSetter is implemented by HeadroomAssemblerCommon so the advisor
+// (or tests) can override the reclaim cgroup paths that were captured from the
+// process-global reclaim registry at construction. Production leaves the
+// default; parallel tests inject per-test paths instead of mutating the global
+// registry.
+type ReclaimPathsSetter interface {
+	SetReclaimCgroupPaths(global []string, numa map[int][]string)
+}
+
+// SetReclaimCgroupPaths overrides the reclaim cgroup paths used for headroom
+// calculation. Pass nil for numa to keep only the global path set.
+func (ha *HeadroomAssemblerCommon) SetReclaimCgroupPaths(global []string, numa map[int][]string) {
+	ha.reclaimRelativeRootCgroupPaths = global
+	if numa != nil {
+		ha.numaBindingRelativeRootCgroupPaths = numa
+	}
+}
+
+const (
+	metricHeadroomApportionRequested     = "headroom_apportion_requested"
+	metricHeadroomApportionEffective     = "headroom_apportion_effective"
+	metricHeadroomApportionAlignmentLoss = "headroom_apportion_alignment_loss"
+)
+
+func (ha *HeadroomAssemblerCommon) logReclaimPathResolution(scope string, numaID int, cpuSet machine.CPUSet, inputPaths, resolvedPaths []string) {
+	if len(inputPaths) > 0 && len(resolvedPaths) == 0 {
+		warningKey := fmt.Sprintf("%s/%d", scope, numaID)
+		if _, loaded := ha.pathWarningOnce.LoadOrStore(warningKey, struct{}{}); !loaded {
+			klog.Warningf("headroom_reclaim_paths_resolved component=%s policy=%s scope=%s numa_id=%d input_paths=%v resolved_paths=%v input_count=%d resolved_count=%d cpuset=%s",
+				"headroom_assembler", "common", scope, numaID, inputPaths, resolvedPaths, len(inputPaths), len(resolvedPaths), cpuSet.String())
+		}
+		return
+	}
+
+	klog.V(4).InfoS("headroom_reclaim_paths_resolved",
+		"component", "headroom_assembler",
+		"policy", "common",
+		"scope", scope,
+		"numa_id", numaID,
+		"input_paths", inputPaths,
+		"resolved_paths", resolvedPaths,
+		"input_count", len(inputPaths),
+		"resolved_count", len(resolvedPaths),
+		"cpuset", cpuSet.String())
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
@@ -58,15 +115,20 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 		numaAvailable:      numaAvailable,
 		nonBindingNumas:    nonBindingNumas,
 
+		reclaimRelativeRootCgroupPaths:     reclaim.AggregateCgroupPaths(),
+		numaBindingRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
+		existingRelativeCgroupPaths:        cgroupcommon.GetExistingRelativeCgroupPaths,
+
 		metaReader: metaReader,
 		metaServer: metaServer,
 		emitter:    emitter,
 	}
 }
 
-func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
-	dynamicConfig := ha.conf.GetDynamicConfiguration()
-
+func (ha *HeadroomAssemblerCommon) GetHeadroom(dynamicConfig *dynamic.Configuration) (resource.Quantity, map[int]resource.Quantity, error) {
+	if dynamicConfig == nil {
+		return resource.Quantity{}, nil, fmt.Errorf("dynamic configuration is nil")
+	}
 	// return zero when reclaim is disabled
 	if !dynamicConfig.EnableReclaim {
 		general.Infof("reclaim is NOT enabled")
@@ -74,18 +136,18 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 	}
 
 	if dynamicConfig.CPUUtilBasedConfiguration.Enable {
-		return ha.getHeadroomByUtil()
+		return ha.getHeadroomByUtil(dynamicConfig)
 	}
-	return ha.getHeadroomDefault()
+	return ha.getHeadroomDefault(dynamicConfig)
 }
 
-func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[int]resource.Quantity, error) {
+func (ha *HeadroomAssemblerCommon) getHeadroomDefault(dynamicConfig *dynamic.Configuration) (resource.Quantity, map[int]resource.Quantity, error) {
 	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
 	if !reclaimPoolExist || reclaimPoolInfo == nil {
 		return resource.Quantity{}, nil, fmt.Errorf("get headroom failed: reclaim pool not found")
 	}
 
-	bindingNUMAs, nonBindingNUMAs, err := ha.getReclaimNUMABindingTopo(reclaimPoolInfo)
+	bindingNUMAs, nonBindingNUMAs, dedicatedNUMAs, err := ha.getReclaimNUMABindingTopo(dynamicConfig, reclaimPoolInfo)
 	if err != nil {
 		general.Errorf("getReclaimNUMABindingTop failed: %v", err)
 		return resource.Quantity{}, nil, err
@@ -94,7 +156,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 	general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNUMAs)
 
 	numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
-	totalHeadroom := resource.Quantity{}
+	var requestedHeadroom int64
 
 	// get headroom per NUMA
 	for _, numaID := range bindingNUMAs {
@@ -103,15 +165,18 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
 		}
 
-		reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, reclaimPath, ha.metaServer.MetricsFetcher)
+		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
+		resolvedPaths := ha.existingRelativeCgroupPaths(reclaimPaths...)
+		ha.logReclaimPathResolution("numa", numaID, cpuSet, reclaimPaths, resolvedPaths)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, resolvedPaths, ha.metaServer.MetricsFetcher,
+			ha.resolveOverlapReclaim(dynamicConfig, numaID, dedicatedNUMAs))
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
 
 		headroom := *resource.NewQuantity(int64(math.Ceil(reclaimMetrics.ReclaimedCoresSupply)), resource.DecimalSI)
-		numaHeadroom[numaID] = headroom
-		totalHeadroom.Add(headroom)
+		requestedHeadroom += wholeCPUValue(headroom)
+		numaHeadroom[numaID] = clampBindingNUMAHeadroom(headroom, cpuSet)
 	}
 
 	// get global reclaim headroom
@@ -126,22 +191,25 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			cpuSets = cpuSets.Union(cpuSet)
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, commonstate.FakedNUMAID), ha.metaServer.MetricsFetcher)
+		resolvedPaths := ha.existingRelativeCgroupPaths(ha.reclaimRelativeRootCgroupPaths...)
+		ha.logReclaimPathResolution("global", -1, cpuSets, ha.reclaimRelativeRootCgroupPaths, resolvedPaths)
+		// non-binding NUMAs are share/global and never dedicated, so the overlap
+		// flag follows AllowSharedCoresOverlapReclaimedCores directly.
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSets, resolvedPaths, ha.metaServer.MetricsFetcher,
+			dynamicConfig.AllowSharedCoresOverlapReclaimedCores)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
 
-		headroomPerNUMA := reclaimMetrics.ReclaimedCoresSupply / float64(len(nonBindingNUMAs))
-		for _, numaID := range nonBindingNUMAs {
-			q := *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
-			numaHeadroom[numaID] = q
-			totalHeadroom.Add(q)
+		headroom := *resource.NewQuantity(int64(math.Ceil(reclaimMetrics.ReclaimedCoresSupply)), resource.DecimalSI)
+		requestedHeadroom += wholeCPUValue(headroom)
+		allocations, err := ha.apportionNonBindingHeadroom(headroom, nonBindingNUMAs, reclaimPoolInfo)
+		if err != nil {
+			return resource.Quantity{}, nil, fmt.Errorf("apportion non-binding headroom failed: %v", err)
 		}
-	}
-
-	general.InfoS("[qosaware-cpu] get headroom ret", "total", totalHeadroom.Value())
-	for numaID, headroom := range numaHeadroom {
-		general.InfoS("[qosaware-cpu] get headroom per numa", "NUMA-ID", numaID, "headroom", headroom.Value())
+		for numaID, allocation := range allocations {
+			numaHeadroom[numaID] = allocation
+		}
 	}
 
 	allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
@@ -151,17 +219,30 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 		}
 	}
+	totalHeadroom := totalNUMAHeadroom(numaHeadroom)
+	general.InfoS("[qosaware-cpu] get headroom ret", "total", totalHeadroom.Value())
+	for numaID, headroom := range numaHeadroom {
+		general.InfoS("[qosaware-cpu] get headroom per numa", "NUMA-ID", numaID, "headroom", headroom.Value())
+	}
+	ha.emitApportionmentMetrics(requestedHeadroom, totalHeadroom.Value())
+	klog.V(4).InfoS("headroom_computed",
+		"component", "headroom_assembler",
+		"policy", "common",
+		"source", "default",
+		"resource", "cpu",
+		"output_value", totalHeadroom.Value(),
+		"numa_output", headroomValues(numaHeadroom))
 
 	return totalHeadroom, numaHeadroom, nil
 }
 
-func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[int]resource.Quantity, error) {
+func (ha *HeadroomAssemblerCommon) getHeadroomByUtil(dynamicConfig *dynamic.Configuration) (resource.Quantity, map[int]resource.Quantity, error) {
 	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
 	if !reclaimPoolExist || reclaimPoolInfo == nil {
 		return resource.Quantity{}, nil, fmt.Errorf("get headroom by util failed: reclaim pool not found")
 	}
 
-	bindingNUMAs, nonBindingNUMAs, err := ha.getReclaimNUMABindingTopo(reclaimPoolInfo)
+	bindingNUMAs, nonBindingNUMAs, dedicatedNUMAs, err := ha.getReclaimNUMABindingTopo(dynamicConfig, reclaimPoolInfo)
 	if err != nil {
 		general.Errorf("getReclaimNUMABindingTop failed: %v", err)
 		return resource.Quantity{}, nil, err
@@ -169,8 +250,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNUMAs)
 
 	numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
-	totalHeadroom := resource.Quantity{}
-	dynamicConfig := ha.conf.GetDynamicConfiguration()
+	var requestedHeadroom int64
 	reclaimedCPUs, err := ha.getLastReclaimedCPUPerNUMA()
 	if err != nil {
 		general.Errorf("getLastReclaimedCPUPerNUMA failed: %v", err)
@@ -184,8 +264,11 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
 		}
 
-		reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, reclaimPath, ha.metaServer.MetricsFetcher)
+		reclaimPaths := ha.numaBindingRelativeRootCgroupPaths[numaID]
+		resolvedPaths := ha.existingRelativeCgroupPaths(reclaimPaths...)
+		ha.logReclaimPathResolution("numa", numaID, cpuSet, reclaimPaths, resolvedPaths)
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpuSet, resolvedPaths, ha.metaServer.MetricsFetcher,
+			ha.resolveOverlapReclaim(dynamicConfig, numaID, dedicatedNUMAs))
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -198,8 +281,8 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed with numa %d: %v", numaID, err)
 		}
 
-		numaHeadroom[numaID] = headroom
-		totalHeadroom.Add(headroom)
+		requestedHeadroom += wholeCPUValue(headroom)
+		numaHeadroom[numaID] = clampBindingNUMAHeadroom(headroom, cpuSet)
 	}
 
 	// get global reclaim headroom
@@ -216,7 +299,12 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpusets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, commonstate.FakedNUMAID), ha.metaServer.MetricsFetcher)
+		resolvedPaths := ha.existingRelativeCgroupPaths(ha.reclaimRelativeRootCgroupPaths...)
+		ha.logReclaimPathResolution("global", -1, cpusets, ha.reclaimRelativeRootCgroupPaths, resolvedPaths)
+		// non-binding NUMAs are share/global and never dedicated, so the overlap
+		// flag follows AllowSharedCoresOverlapReclaimedCores directly.
+		reclaimMetrics, err := metricHelper.GetReclaimMetricsMulti(cpusets, resolvedPaths, ha.metaServer.MetricsFetcher,
+			dynamicConfig.AllowSharedCoresOverlapReclaimedCores)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
@@ -232,18 +320,14 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}
 
-		for _, numaID := range nonBindingNUMAs {
-			numaCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)
-			headroomForNUMA := float64(headroom.Value()) * float64(numaCPUSize) / float64(totalCPUSize)
-			q := *resource.NewQuantity(int64(headroomForNUMA), resource.DecimalSI)
-			numaHeadroom[numaID] = q
-			totalHeadroom.Add(q)
+		requestedHeadroom += wholeCPUValue(headroom)
+		allocations, err := ha.apportionNonBindingHeadroom(headroom, nonBindingNUMAs, reclaimPoolInfo)
+		if err != nil {
+			return resource.Quantity{}, nil, fmt.Errorf("apportion non-binding headroom failed: %v", err)
 		}
-	}
-
-	general.InfoS("[qosaware-cpu] headroom by utilization", "total", totalHeadroom.Value())
-	for numaID, headroom := range numaHeadroom {
-		general.InfoS("[qosaware-cpu] NUMA headroom by utilization", "NUMA-ID", numaID, "headroom", headroom.Value())
+		for numaID, allocation := range allocations {
+			numaHeadroom[numaID] = allocation
+		}
 	}
 
 	allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
@@ -253,5 +337,112 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 		}
 	}
+	totalHeadroom := totalNUMAHeadroom(numaHeadroom)
+	general.InfoS("[qosaware-cpu] headroom by utilization", "total", totalHeadroom.Value())
+	for numaID, headroom := range numaHeadroom {
+		general.InfoS("[qosaware-cpu] NUMA headroom by utilization", "NUMA-ID", numaID, "headroom", headroom.Value())
+	}
+	ha.emitApportionmentMetrics(requestedHeadroom, totalHeadroom.Value())
+	klog.V(4).InfoS("headroom_computed",
+		"component", "headroom_assembler",
+		"policy", "common",
+		"source", "utilization",
+		"resource", "cpu",
+		"output_value", totalHeadroom.Value(),
+		"numa_output", headroomValues(numaHeadroom))
 	return totalHeadroom, numaHeadroom, nil
+}
+
+func wholeCPUValue(q resource.Quantity) int64 {
+	return q.MilliValue() / 1000
+}
+
+// clampBindingNUMAHeadroom bounds the per-NUMA reclaim headroom to the CPUs the
+// reclaim pool actually owns on that NUMA. headroom is reported as a reclaim
+// capacity hint and is intentionally NOT rounded down to a whole-core multiple,
+// so the reported value reflects the real reclaimable supply instead of losing
+// the sub-core remainder.
+func clampBindingNUMAHeadroom(headroom resource.Quantity, cpuSet machine.CPUSet) resource.Quantity {
+	target := wholeCPUValue(headroom)
+	limit := int64(cpuSet.Size())
+	if target > limit {
+		target = limit
+	}
+	if target < 0 {
+		target = 0
+	}
+	return *resource.NewQuantity(target, resource.DecimalSI)
+}
+
+func (ha *HeadroomAssemblerCommon) apportionNonBindingHeadroom(
+	headroom resource.Quantity,
+	nonBindingNUMAs []int,
+	reclaimPool *types.PoolInfo,
+) (map[int]resource.Quantity, error) {
+	weights := make(map[int]int64, len(nonBindingNUMAs))
+	limits := make(map[int]int64, len(nonBindingNUMAs))
+	for _, numaID := range nonBindingNUMAs {
+		cpuSet, ok := reclaimPool.TopologyAwareAssignments[numaID]
+		if !ok {
+			return nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
+		}
+		weights[numaID] = int64(ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID))
+		limits[numaID] = int64(cpuSet.Size())
+	}
+
+	// distribute per single logical CPU (quantum=1); headroom is a reclaim
+	// capacity hint and must not be rounded down to a whole-core multiple.
+	allocations, effective, err := machine.ApportionNUMACPU(
+		wholeCPUValue(headroom), weights, limits, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	klog.V(4).InfoS("headroom_apportioned",
+		"component", "assembler",
+		"resource", "cpu",
+		"requested", wholeCPUValue(headroom),
+		"effective", effective,
+		"weights", weights,
+		"limits", limits,
+		"allocations", allocations)
+
+	result := make(map[int]resource.Quantity, len(allocations))
+	for numaID, allocation := range allocations {
+		result[numaID] = *resource.NewQuantity(allocation, resource.DecimalSI)
+	}
+	return result, nil
+}
+
+func totalNUMAHeadroom(numaHeadroom map[int]resource.Quantity) resource.Quantity {
+	total := resource.Quantity{}
+	for _, headroom := range numaHeadroom {
+		total.Add(headroom)
+	}
+	return total
+}
+
+func (ha *HeadroomAssemblerCommon) emitApportionmentMetrics(requested, effective int64) {
+	if ha.emitter == nil {
+		return
+	}
+	loss := requested - effective
+	if loss < 0 {
+		loss = 0
+	}
+	tags := []metrics.MetricTag{
+		{Key: "component", Val: "assembler"},
+		{Key: "resource", Val: "cpu"},
+	}
+	_ = ha.emitter.StoreInt64(metricHeadroomApportionRequested, requested, metrics.MetricTypeNameRaw, tags...)
+	_ = ha.emitter.StoreInt64(metricHeadroomApportionEffective, effective, metrics.MetricTypeNameRaw, tags...)
+	_ = ha.emitter.StoreInt64(metricHeadroomApportionAlignmentLoss, loss, metrics.MetricTypeNameRaw, tags...)
+}
+
+func headroomValues(numaHeadroom map[int]resource.Quantity) map[int]int64 {
+	values := make(map[int]int64, len(numaHeadroom))
+	for numaID, headroom := range numaHeadroom {
+		values[numaID] = headroom.Value()
+	}
+	return values
 }

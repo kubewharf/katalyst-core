@@ -66,6 +66,16 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	if isNumaBinding {
 		r.bindingNumas = machine.NewCPUSet(numaID)
 	}
+	// Share regions additionally exclude pools listed in DisableReclaimSharePools.
+	// Bind the internal enableReclaim closure (used by GetProvisionPolicy /
+	// GetHeadRoomPolicy / updateBoundType under the region lock) to the SAME
+	// predicate exposed by the public EnableReclaim(), so the internal and external
+	// views stay consistent. This closure must remain lock-free: it is invoked while
+	// callers already hold r.Lock().
+	r.enableReclaim = func() bool {
+		return r.EnableReclaimFunc() &&
+			!sets.NewString(r.DynamicConfiguration.DisableReclaimSharePools...).Has(r.configTranslator.Translate(r.ownerPoolName))
+	}
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):             r.getPoolCPUSchedWait,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio):            r.getPoolCPUUsageRatio,
@@ -147,7 +157,7 @@ func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 		}
 	}
 	var requirement int
-	if r.conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores {
+	if r.DynamicConfiguration.AllowSharedCoresOverlapReclaimedCores {
 		requirement = int(math.Ceil(r.getPodsRequest()))
 	} else {
 		requirement, ok = r.metaReader.GetPoolSize(r.ownerPoolName)
@@ -157,8 +167,12 @@ func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 		}
 	}
 	if requirement <= 0 {
-		klog.Errorf("[qosaware-cpu] pool %v of non positive requirement", r.ownerPoolName)
-		return nil
+		if bootstrapRequirement, ok := r.bootstrapDefaultShareRequirement(); ok {
+			requirement = bootstrapRequirement
+		} else {
+			klog.Errorf("[qosaware-cpu] pool %v of non positive requirement", r.ownerPoolName)
+			return nil
+		}
 	}
 
 	return types.ControlKnob{
@@ -167,6 +181,24 @@ func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 			Action: types.ControlKnobActionNone,
 		},
 	}
+}
+
+func (r *QoSRegionShare) bootstrapDefaultShareRequirement() (int, bool) {
+	if r.ownerPoolName != commonstate.PoolNameShare ||
+		!r.DynamicConfiguration.FillDefaultSharePoolWithNonReclaimCPUs {
+		return 0, false
+	}
+
+	upperBound := int(math.Floor(r.ResourceEssentials.ResourceUpperBound))
+	if upperBound <= 0 {
+		return 0, false
+	}
+
+	general.InfoS("bootstrap default share requirement from resource upper bound",
+		"poolName", r.ownerPoolName,
+		"resourceUpperBound", upperBound,
+	)
+	return upperBound, true
 }
 
 func (r *QoSRegionShare) getPoolCPUSchedWait() (float64, error) {
@@ -193,7 +225,12 @@ func (r *QoSRegionShare) getPoolCPUUsageRatio() (float64, error) {
 	return usageRatio.Value, nil
 }
 
+// EnableReclaim reports whether reclaim is allowed for this share region. It
+// locks and delegates to the same r.enableReclaim closure used internally, so the
+// public and internal views cannot diverge. The closure itself is lock-free.
 func (r *QoSRegionShare) EnableReclaim() bool {
-	return r.QoSRegionBase.EnableReclaim() &&
-		!sets.NewString(r.conf.GetDynamicConfiguration().DisableReclaimSharePools...).Has(r.configTranslator.Translate(r.ownerPoolName))
+	r.Lock()
+	defer r.Unlock()
+
+	return r.enableReclaim()
 }

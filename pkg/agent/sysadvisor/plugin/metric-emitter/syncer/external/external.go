@@ -19,6 +19,7 @@ package external
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -46,6 +47,11 @@ type MetricSyncerExternal struct {
 
 	metaServer *metaserver.MetaServer
 	metaReader metacache.MetaReader
+
+	// wg tracks the background goroutines spawned in Run so that Run waits for
+	// them to exit after ctx is canceled, avoiding goroutine leaks on
+	// shutdown or partial start failure.
+	wg sync.WaitGroup
 }
 
 func NewMetricSyncerExternal(conf *config.Configuration, _ interface{},
@@ -74,39 +80,60 @@ func (e *MetricSyncerExternal) Name() string {
 	return types.MetricSyncerNameExternal
 }
 
-func (e *MetricSyncerExternal) Run(ctx context.Context) {
+func (e *MetricSyncerExternal) Run(ctx context.Context) error {
+	// Validate dependencies up front, before spawning any goroutine.
+	if err := e.validate(); err != nil {
+		return err
+	}
+
 	// todo: replace demo metrics for real external-metrics produced by sys-advisor
-	go wait.Until(func() {
-		if e.node == nil {
-			node, err := e.metaServer.GetNode(ctx)
-			if err != nil {
-				klog.Warningf("get current node failed: %v", err)
-				return
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		wait.Until(func() {
+			if e.node == nil {
+				node, err := e.metaServer.GetNode(ctx)
+				if err != nil {
+					klog.Warningf("get current node failed: %v", err)
+					return
+				}
+				e.node = node
 			}
-			e.node = node
-		}
 
-		tags := []metrics.MetricTag{
-			{
-				Key: "timestamp",
-				Val: fmt.Sprintf("%v", time.Now().UnixMilli()),
-			},
-			{
-				Key: fmt.Sprintf("%stest", data.CustomMetricLabelSelectorPrefixKey),
-				Val: "fake",
-			},
-			{
-				Key: fmt.Sprintf("%stest", data.CustomMetricLabelSelectorPrefixKey),
-				Val: "fake",
-			},
-		}
-		if e.node != nil {
-			tags = append(tags, metrics.MetricTag{
-				Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyObjectName),
-				Val: e.node.Name,
-			})
-		}
+			tags := []metrics.MetricTag{
+				{
+					Key: "timestamp",
+					Val: fmt.Sprintf("%v", time.Now().UnixMilli()),
+				},
+				{
+					Key: fmt.Sprintf("%stest", data.CustomMetricLabelSelectorPrefixKey),
+					Val: "fake",
+				},
+				{
+					Key: fmt.Sprintf("%stest", data.CustomMetricLabelSelectorPrefixKey),
+					Val: "fake",
+				},
+			}
+			if e.node != nil {
+				tags = append(tags, metrics.MetricTag{
+					Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyObjectName),
+					Val: e.node.Name,
+				})
+			}
 
-		_ = e.dataEmitter.StoreFloat64("external.demo", float64(rand.Intn(100)), metrics.MetricTypeNameRaw, tags...)
-	}, time.Minute, ctx.Done())
+			_ = e.dataEmitter.StoreFloat64("external.demo", float64(rand.Intn(100)), metrics.MetricTypeNameRaw, tags...)
+		}, time.Minute, ctx.Done())
+	}()
+
+	<-ctx.Done()
+	e.wg.Wait()
+	return nil
+}
+
+// validate ensures the dependencies that Run dereferences are initialized.
+func (e *MetricSyncerExternal) validate() error {
+	if e.metaServer == nil {
+		return fmt.Errorf("metric syncer external: metaServer is not initialized")
+	}
+	return nil
 }

@@ -55,6 +55,10 @@ func (f *fakeState) GetPodEntries() state.PodEntries {
 	return f.podEntries
 }
 
+func (f *fakeState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	return f.podEntries.Clone(), f.machineState.Clone(), f.GetRevision()
+}
+
 func (f *fakeState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	if f.allocations == nil {
 		return nil
@@ -66,13 +70,17 @@ func (f *fakeState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return f.allowOverlap
 }
 
-func (f *fakeState) GetDisableDedicatedCoresOverlapReclaimedCores() bool { return false }
-func (f *fakeState) GetRevision() uint64                                 { return 0 }
-func (f *fakeState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
-	return f.podEntries, f.machineState, 0
+func (f *fakeState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	return false
 }
 
-func (f *fakeState) SetWritePermit(gate state.WriteGate) {}
+func (f *fakeState) GetRevision() uint64 {
+	return 0
+}
+
+func (f *fakeState) SetWritePermit(state.WriteGate) {}
+
+func (f *fakeState) SetDisableDedicatedCoresOverlapReclaimedCores(_, _ bool) error { return nil }
 
 func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) error {
 	f.machineState = numaNodeMap
@@ -102,22 +110,28 @@ func (f *fakeState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOve
 	return nil
 }
 
-func (f *fakeState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, _ bool) error {
-	return nil
-}
-
-func (f *fakeState) CommitAdvisorState(podEntries state.PodEntries, machineState state.NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*state.WritePermit) error {
+func (f *fakeState) CommitAdvisorState(
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores, _, _ bool,
+	_ ...*state.WritePermit,
+) error {
 	f.podEntries = podEntries
 	f.machineState = machineState
 	f.allowOverlap = allowSharedCoresOverlapReclaimedCores
 	return nil
 }
 
-func (f *fakeState) CommitAdvisorStateIfRevision(expectedRevision uint64, podEntries state.PodEntries, machineState state.NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*state.WritePermit) error {
-	f.podEntries = podEntries
-	f.machineState = machineState
-	f.allowOverlap = allowSharedCoresOverlapReclaimedCores
-	return nil
+func (f *fakeState) CommitAdvisorStateIfRevision(
+	_ uint64,
+	podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
+	permits ...*state.WritePermit,
+) error {
+	return f.CommitAdvisorState(
+		podEntries, machineState, allowSharedCoresOverlapReclaimedCores,
+		disableDedicatedCoresOverlapReclaimedCores, persist, permits...)
 }
 
 func (f *fakeState) Delete(podUID string, containerName string, _ bool) error {
