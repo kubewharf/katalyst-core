@@ -82,6 +82,7 @@ func GenerateGenericContainerAllocationMeta(req *pluginapi.ResourceRequest, owne
 		Labels:         general.DeepCopyMap(req.Labels),
 		Annotations:    general.DeepCopyMap(req.Annotations),
 		QoSLevel:       qosLevel,
+		NativeQOSClass: req.NativeQosClass,
 	}
 }
 

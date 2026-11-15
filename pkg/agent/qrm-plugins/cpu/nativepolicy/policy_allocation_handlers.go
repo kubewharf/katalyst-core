@@ -126,10 +126,11 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 		RequestQuantity:                  reqFloat64,
 	}
 
-	// update pod entries directly.
-	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
-	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, true)
 	podEntries := p.state.GetPodEntries()
+	if podEntries[allocationInfo.PodUid] == nil {
+		podEntries[allocationInfo.PodUid] = make(state.ContainerEntries)
+	}
+	podEntries[allocationInfo.PodUid][allocationInfo.ContainerName] = allocationInfo.Clone()
 
 	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
@@ -137,13 +138,21 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
-	p.state.SetMachineState(updatedMachineState, true)
 
 	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+	}
+	if err := p.state.CommitAdvisorState(
+		podEntries,
+		updatedMachineState,
+		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
+		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		true,
+	); err != nil {
+		return nil, fmt.Errorf("persist dedicated allocation atomically: %w", err)
 	}
 	return resp, nil
 }
@@ -193,10 +202,11 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 		RequestQuantity:                  reqFloat64,
 	}
 
-	// update pod entries directly.
-	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
-	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, true)
 	podEntries := p.state.GetPodEntries()
+	if podEntries[allocationInfo.PodUid] == nil {
+		podEntries[allocationInfo.PodUid] = make(state.ContainerEntries)
+	}
+	podEntries[allocationInfo.PodUid][allocationInfo.ContainerName] = allocationInfo.Clone()
 
 	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
@@ -204,13 +214,21 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
-	p.state.SetMachineState(updatedMachineState, true)
 
 	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+	}
+	if err := p.state.CommitAdvisorState(
+		podEntries,
+		updatedMachineState,
+		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
+		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		true,
+	); err != nil {
+		return nil, fmt.Errorf("persist shared allocation atomically: %w", err)
 	}
 	return resp, nil
 }

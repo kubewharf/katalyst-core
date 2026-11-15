@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/irqtuner"
 )
@@ -47,6 +48,8 @@ type CPUDynamicPolicyConfig struct {
 	// EnableCPUPressureEviction indicates whether to enable cpu-pressure eviction, such as cpu load eviction or cpu
 	// suppress eviction
 	EnableCPUPressureEviction bool
+	// EnableLoadEvictionAdvisedThreshold indicates whether load eviction may use advisor-based thresholds.
+	EnableLoadEvictionAdvisedThreshold bool
 	// LoadPressureEvictionSkipPools indicates the ignored pools when check load pressure.
 	LoadPressureEvictionSkipPools []string
 	// EnableSyncingCPUIdle is set to sync specific cgroup path with EnableCPUIdle
@@ -83,6 +86,7 @@ type CPUDynamicPolicyConfig struct {
 	// EnableCPUWeight indicates whether cpu weight sync is enabled
 	EnableCPUWeight bool
 
+	*bulkhead.BulkheadConfiguration
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration
 }
@@ -98,8 +102,10 @@ type CPUNativePolicyConfig struct {
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{
 		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{
-			HintOptimizerConfiguration: hintoptimizer.NewHintOptimizerConfiguration(),
-			IRQTunerConfiguration:      irqtuner.NewIRQTunerConfiguration(),
+			EnableLoadEvictionAdvisedThreshold: true,
+			HintOptimizerConfiguration:         hintoptimizer.NewHintOptimizerConfiguration(),
+			IRQTunerConfiguration:              irqtuner.NewIRQTunerConfiguration(),
+			BulkheadConfiguration:              bulkhead.NewBulkheadConfiguration(),
 		},
 		CPUNativePolicyConfig: CPUNativePolicyConfig{},
 	}

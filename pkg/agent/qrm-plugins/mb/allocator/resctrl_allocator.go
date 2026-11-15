@@ -19,7 +19,6 @@ package allocator
 import (
 	"context"
 	"fmt"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -29,17 +28,18 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
 const (
 	fileSchemata      = "schemata"
-	filePermSchemata  = 0o644
 	defaultCCDMBValue = 256_000
+	mbUnitAMD         = 1_000 / 8
 )
 
 type resctrlAllocator struct {
-	fs afero.Fs
+	fs         afero.Fs
+	rdtManager rdt.RDTManager
 }
 
 func validatePath(name string) error {
@@ -124,22 +124,20 @@ func (r *resctrlAllocator) allocateGroupPlan(group string, ccdPlan plan.GroupCCD
 		return errors.Wrap(err, fmt.Sprintf("invalid group name %q", group))
 	}
 
-	schemataPath := path.Join(consts.DefaultResctrlRootDir, group, fileSchemata)
-	if _, err := r.fs.Stat(schemataPath); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("unable to locate schemata file for group %s", group))
-	}
-
-	return r.updateSchemata(schemataPath, ccdPlan)
+	return r.rdtManager.ApplyMBA(group, ccdPlanToMBA(ccdPlan))
 }
 
-func (r *resctrlAllocator) updateSchemata(schemataPath string, ccdPlan plan.GroupCCDPlan) error {
-	instruction := ccdPlan.ToSchemataInstruction()
-	general.InfofV(6, "mbm: writing to schemata %s with content %q", schemataPath, instruction)
-	return afero.WriteFile(r.fs, schemataPath, instruction, filePermSchemata)
+func ccdPlanToMBA(ccdPlan plan.GroupCCDPlan) map[int]int {
+	mba := make(map[int]int, len(ccdPlan))
+	for ccd, mb := range ccdPlan {
+		mba[ccd] = (mb + mbUnitAMD - 1) / mbUnitAMD
+	}
+	return mba
 }
 
 func New() PlanAllocator {
 	return &resctrlAllocator{
-		fs: afero.NewOsFs(),
+		fs:         afero.NewOsFs(),
+		rdtManager: rdt.NewDefaultManager(),
 	}
 }

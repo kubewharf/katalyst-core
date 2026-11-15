@@ -35,28 +35,45 @@ var resctrlMajorGroupWeights = map[string]int{
 }
 
 func getMajor(name string) string {
+	if isPhysicalShareSubgroup(name) {
+		return consts.ResctrlGroupShare
+	}
 	parts := strings.Split(name, consts.ResctrlSubgroupSeparator)
 	return parts[0]
 }
 
-func hasShareSubgroup(name string) bool {
-	return strings.HasPrefix(name, consts.ResctrlShareSubgroupPrefix)
+func isPhysicalShareSubgroup(name string) bool {
+	_, ok := extractShareSubgroupNumber(name)
+	return ok
 }
 
-func extractNumberSplit(s string) (int, bool) {
-	parts := strings.Split(s, consts.ResctrlSubgroupSeparator)
-	if len(parts) < 2 {
+func extractShareSubgroupNumber(name string) (int, bool) {
+	var number string
+	switch {
+	case strings.HasPrefix(name, consts.ResctrlShareSubgroupPrefix):
+		number = strings.TrimPrefix(name, consts.ResctrlShareSubgroupPrefix)
+	case strings.HasPrefix(name, consts.ResctrlObsoleteSharedSubgroupPrefix):
+		number = strings.TrimPrefix(name, consts.ResctrlObsoleteSharedSubgroupPrefix)
+	default:
 		return 0, false
 	}
-	num, err := strconv.Atoi(parts[len(parts)-1])
+
+	if number == "" {
+		return 0, false
+	}
+	for i := range number {
+		if number[i] < '0' || number[i] > '9' {
+			return 0, false
+		}
+	}
+
+	num, err := strconv.Atoi(number)
 	return num, err == nil
 }
 
 func getSubWeight(name string) int {
-	if hasShareSubgroup(name) {
-		if subWeight, ok := extractNumberSplit(name); ok {
-			return subWeight
-		}
+	if subWeight, ok := extractShareSubgroupNumber(name); ok {
+		return subWeight
 	}
 
 	// "share" is "share-50"

@@ -38,6 +38,11 @@ type Manager interface {
 	ApplyCPU(absCgroupPath string, data *common.CPUData) error
 	ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error
 	ApplyCPUSetPartition(absCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error
+	// ApplySchedLoadBalance writes the cpuset sched_load_balance flag under
+	// absCgroupPath. It is only meaningful on cgroup v1 (which exposes the
+	// cpuset.sched_load_balance knob); v2 implementations are expected to
+	// report an unsupported error so callers can decide whether to short-circuit.
+	ApplySchedLoadBalance(absCgroupPath string, enabled bool) error
 	ApplyNetCls(absCgroupPath string, data *common.NetClsData) error
 	ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error
 	ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error
@@ -46,6 +51,9 @@ type Manager interface {
 
 	GetMemory(absCgroupPath string) (*common.MemoryStats, error)
 	GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error)
+	// GetHierarchicalNumaMemoryUsage returns per-NUMA resident memory in bytes
+	// for the cgroup subtree rooted at absCgroupPath.
+	GetHierarchicalNumaMemoryUsage(absCgroupPath string, pageSize uint64) (map[int]uint64, error)
 	GetMemoryPressure(absCgroupPath string, t common.PressureType) (*common.MemoryPressure, error)
 	GetCPU(absCgroupPath string) (*common.CPUStats, error)
 	GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error)

@@ -23,6 +23,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -43,6 +44,7 @@ type CPUDynamicPolicyOptions struct {
 	EnableCPUAdvisor                                   bool
 	AdvisorGetAdviceInterval                           time.Duration
 	EnableCPUPressureEviction                          bool
+	EnableLoadEvictionAdvisedThreshold                 bool
 	LoadPressureEvictionSkipPools                      []string
 	EnableSyncingCPUIdle                               bool
 	EnableCPUIdle                                      bool
@@ -60,6 +62,7 @@ type CPUDynamicPolicyOptions struct {
 	IRQForbiddenPinnedResourcePackageAttributeSelector string
 	EnableSystemExclusivePool                          bool
 	EnableCPUWeight                                    bool
+	bulkhead.BulkheadOptions
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -75,14 +78,15 @@ func NewCPUOptions() *CPUOptions {
 		ReservedCPUCores:       0,
 		SkipCPUStateCorruption: false,
 		CPUDynamicPolicyOptions: CPUDynamicPolicyOptions{
-			EnableCPUAdvisor:          false,
-			AdvisorGetAdviceInterval:  5 * time.Second,
-			EnableCPUPressureEviction: false,
-			EnableSyncingCPUIdle:      false,
-			EnableCPUIdle:             false,
-			EnableContainerCPUIdle:    false,
-			EnableCPUBurst:            false,
-			EnableCPUWeight:           false,
+			EnableCPUAdvisor:                   false,
+			AdvisorGetAdviceInterval:           5 * time.Second,
+			EnableCPUPressureEviction:          false,
+			EnableLoadEvictionAdvisedThreshold: true,
+			EnableSyncingCPUIdle:               false,
+			EnableCPUIdle:                      false,
+			EnableContainerCPUIdle:             false,
+			EnableCPUBurst:                     false,
+			EnableCPUWeight:                    false,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -95,6 +99,7 @@ func NewCPUOptions() *CPUOptions {
 			HintOptimizerOptions:           hintoptimizer.NewHintOptimizerOptions(),
 			IRQTunerOptions:                irqtuner.NewIRQTunerOptions(),
 			EnableSystemExclusivePool:      false,
+			BulkheadOptions:                bulkhead.NewBulkheadOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -120,6 +125,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SkipCPUStateCorruption, "if set true, we will skip cpu state corruption")
 	fs.BoolVar(&o.EnableCPUPressureEviction, "enable-cpu-pressure-eviction", o.EnableCPUPressureEviction,
 		"if set true, it can enable cpu-related eviction, such as cpu pressure eviction and cpu suppression eviction")
+	fs.BoolVar(&o.EnableLoadEvictionAdvisedThreshold, "enable-load-eviction-advised-threshold", o.EnableLoadEvictionAdvisedThreshold,
+		"if set true, load eviction may use advisor-based thresholds when the dynamic conditions are met")
 	fs.StringSliceVar(&o.LoadPressureEvictionSkipPools, "load-pressure-eviction-skip-pools", o.LoadPressureEvictionSkipPools,
 		"the pool in this list will be ignored when check load pressure")
 	fs.BoolVar(&o.EnableSyncingCPUIdle, "enable-syncing-cpu-idle",
@@ -160,6 +167,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSystemExclusivePool, "if set true, it will enable exclusive cpu binding for pool of system cores")
 	fs.BoolVar(&o.EnableCPUWeight, "enable-cpu-weight", o.EnableCPUWeight,
 		"This is a flag that enables the cpu weight handler to sync periodically.")
+	o.BulkheadOptions.AddFlags(fss)
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -172,6 +180,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.ReservedCPUList = o.ReservedCPUList
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
 	conf.EnableCPUPressureEviction = o.EnableCPUPressureEviction
+	conf.EnableLoadEvictionAdvisedThreshold = o.EnableLoadEvictionAdvisedThreshold
 	conf.LoadPressureEvictionSkipPools = o.LoadPressureEvictionSkipPools
 	conf.EnableSyncingCPUIdle = o.EnableSyncingCPUIdle
 	conf.EnableCPUIdle = o.EnableCPUIdle
@@ -197,6 +206,9 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 		return err
 	}
 	if err := o.IRQTunerOptions.ApplyTo(conf.IRQTunerConfiguration); err != nil {
+		return err
+	}
+	if err := o.BulkheadOptions.ApplyTo(conf.BulkheadConfiguration); err != nil {
 		return err
 	}
 	return nil

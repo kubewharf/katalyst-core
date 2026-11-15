@@ -163,6 +163,8 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		map[int]machine.CPUSet{
 			0: machine.NewCPUSet(0),
 		}, 20<<30)
+	containerInfoZeroCPUSharedCores := makeContainerInfo("pod6", "default",
+		"pod6", "container6", consts.PodAnnotationQoSLevelSharedCores, nil, nil, 20<<30)
 
 	tests := []struct {
 		name           string
@@ -192,6 +194,41 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 				return conf, metaReader, metaServer
 			},
 			wantErr: true,
+		},
+		{
+			name: "Zero CPU shared container with pod-level disable reclaim needs no topology",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod6",
+						Namespace: "default",
+						UID:       "pod6",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{{Name: "container6"}},
+					},
+					Status: v1.PodStatus{
+						Phase:             v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{{Name: "container6", ContainerID: "container6"}},
+					},
+				},
+			},
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
+				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
+				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+				require.NoError(t, err)
+				require.NoError(t, metaReader.ClearContainers())
+				require.NoError(t, metaReader.SetContainerInfo(
+					containerInfoZeroCPUSharedCores.PodUID,
+					containerInfoZeroCPUSharedCores.ContainerName,
+					containerInfoZeroCPUSharedCores))
+				return conf, metaReader, metaServer
+			},
+			wantNUMAs:      machine.NewCPUSet(0, 1),
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
 		},
 		{
 			name: "No Containers",
