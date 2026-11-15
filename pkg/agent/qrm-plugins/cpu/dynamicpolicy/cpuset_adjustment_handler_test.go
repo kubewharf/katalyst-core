@@ -719,6 +719,9 @@ func TestCPUSetAdjustmentCommitsTopologyReclaimOverride(t *testing.T) {
 	setReclaimPoolCPUSet(t, p, machine.NewCPUSet(0, 1))
 	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
 		"topology-override": func(_ context.Context, handlerCtx cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			if handlerCtx.ReconcileCanonicalPartition {
+				t.Fatal("ordinary adjustment must not inherit advisor replay intent")
+			}
 			if handlerCtx.CommitOverride == nil {
 				t.Fatal("CPUSet adjustment runner did not provide a commit override")
 			}
@@ -991,6 +994,9 @@ func TestCPUSetAdjustmentRetrySchedulesAgainWhenReclaimOverrideTrimmed(t *testin
 	p.adjustment.cpuSetAdjustmentRetryQueued = true
 	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
 		"topology-override": func(_ context.Context, handlerCtx cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			if handlerCtx.ReconcileCanonicalPartition {
+				t.Fatal("ordinary adjustment must not inherit advisor replay intent")
+			}
 			if handlerCtx.CommitOverride == nil {
 				t.Fatal("CPUSet adjustment runner did not provide a commit override")
 			}
@@ -1024,6 +1030,9 @@ func TestCPUSetAdjustmentCommitOverrideUsesRevisionGuard(t *testing.T) {
 	p.state = guardState
 	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
 		"topology-override": func(_ context.Context, handlerCtx cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			if handlerCtx.ReconcileCanonicalPartition {
+				t.Fatal("ordinary adjustment must not inherit advisor replay intent")
+			}
 			if handlerCtx.CommitOverride == nil {
 				t.Fatal("CPUSet adjustment runner did not provide a commit override")
 			}
@@ -1058,6 +1067,9 @@ func TestAdvisorCPUSetAdjustmentFailureRetainsDesiredStateAndRetries(t *testing.
 	retried := make(chan machine.CPUSet, 1)
 	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
 		"transient-cgroup-failure": func(_ context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			if !in.ReconcileCanonicalPartition {
+				return errors.New("advisor replay lost canonical partition intent")
+			}
 			reclaim := in.State.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 			if in.Mode == cpusetutil.CPUSetAdjustmentModeRetry {
 				retried <- reclaim.AllocationResult.Clone()

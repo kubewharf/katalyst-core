@@ -38,6 +38,32 @@ import (
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
+func TestPrepareApplyPreservesCanonicalPartitionIntent(t *testing.T) {
+	t.Parallel()
+	for _, canonical := range []bool{false, true} {
+		m := &Manager{}
+		st := cpustate.NewCPUPluginState(nil)
+		st.SetAllowSharedCoresOverlapReclaimedCores(false)
+		prepared, err := m.prepareApply(cpusetutil.CPUSetAdjustmentHandlerCtx{
+			ReconcileCanonicalPartition: canonical,
+			Mode:                        cpusetutil.CPUSetAdjustmentModeRetry,
+			DynamicConf:                 dynamicBulkheadConf(true),
+			State:                       st,
+			Topology:                    &machine.CPUTopology{CPUDetails: machine.CPUDetails{0: {NUMANodeID: 0}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prepared.shortCircuitDisabledGate || prepared.handlerCtx.DesiredView == nil {
+			t.Fatal("test must exercise enabled manager prepare")
+		}
+		if prepared.handlerCtx.ReconcileCanonicalPartition != canonical {
+			t.Fatalf("manager changed canonical partition intent: got %t want %t",
+				prepared.handlerCtx.ReconcileCanonicalPartition, canonical)
+		}
+	}
+}
+
 func TestShouldProjectPendingToDesiredNonReclaim(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

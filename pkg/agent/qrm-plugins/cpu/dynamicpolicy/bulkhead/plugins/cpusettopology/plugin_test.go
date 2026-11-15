@@ -104,6 +104,28 @@ func TestAccumulateConvergenceResultPropagatesPublicationState(t *testing.T) {
 	}
 }
 
+func TestPendingAuthorityDistinguishesCanonicalReplayFromDeferredRetry(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []cpusetutil.CPUSetAdjustmentMode{"", cpusetutil.CPUSetAdjustmentModeAdmission, cpusetutil.CPUSetAdjustmentModeRetry, cpusetutil.CPUSetAdjustmentModePeriodic} {
+		for _, canonical := range []bool{false, true} {
+			for _, admissionHint := range []bool{false, true} {
+				in := bulkheadapi.HandlerContext{
+					CPUSetAdjustmentHandlerCtx:        cpusetutil.CPUSetAdjustmentHandlerCtx{Mode: mode, ReconcileCanonicalPartition: canonical},
+					ProjectPendingToDesiredNonReclaim: admissionHint,
+					AppliedView:                       &model.AppliedView{CPUSetPartitionView: model.CPUSetPartitionView{ReclaimEffective: machine.NewCPUSet(1)}},
+				}
+				want := !canonical && (admissionHint || mode == cpusetutil.CPUSetAdjustmentModeRetry)
+				if got := shouldProjectPendingToValidatedAuthority(in); got != want {
+					t.Fatalf("mode=%q canonical=%t hint=%t: projection=%t want=%t", mode, canonical, admissionHint, got, want)
+				}
+				if got := admissionEnforcementBaseline(in); (got != nil) != want {
+					t.Fatalf("mode=%q canonical=%t hint=%t: baseline=%+v", mode, canonical, admissionHint, got)
+				}
+			}
+		}
+	}
+}
+
 func TestScheduleFixedPointRetryByAdjustmentMode(t *testing.T) {
 	t.Parallel()
 
@@ -6767,31 +6789,37 @@ func TestPendingProtectionCarriesProjectedSubset(t *testing.T) {
 	eligible := pendingContainerCPUSet{PodUID: "p", ContainerName: "main", CPUs: machine.NewCPUSet(0)}
 	eligible.projectionCPUs = machine.NewCPUSet(0)
 
-	// Reuse the aggregation inline: build the two records and confirm the union
-	// projects only the eligible container's CPU.
-	agg := map[string]pendingContainerCPUSet{}
-	for _, p := range []pendingContainerCPUSet{exact, eligible} {
-		cur, ok := agg[p.PodUID]
-		if !ok {
-			agg[p.PodUID] = p
-			continue
+	const rel = "kubepods/pod-p"
+	exact.ScopeRel, eligible.ScopeRel = rel, rel
+	for _, pending := range [][]pendingContainerCPUSet{
+		{exact, eligible}, {eligible, exact}, {exact},
+	} {
+		cg := &fakeCgroupClient{cpus: map[string]machine.CPUSet{rel: machine.NewCPUSet(0, 2)}}
+		p := &CPUSetTopologyPlugin{cgroup: cg}
+		got, err := p.pendingProtectionScopes(context.Background(), nil, pending)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("aggregate pending: got=%+v err=%v", got, err)
 		}
-		cur.CPUs = cur.CPUs.Union(p.CPUs)
-		if !p.projectionCPUs.IsEmpty() {
-			if cur.projectionCPUs.IsEmpty() {
-				cur.projectionCPUs = p.projectionCPUs.Clone()
-			} else {
-				cur.projectionCPUs = cur.projectionCPUs.Union(p.projectionCPUs)
-			}
+		want := machine.NewCPUSet(2)
+		projected := machine.NewCPUSet()
+		if len(pending) == 2 {
+			want = machine.NewCPUSet(0, 2)
+			projected = machine.NewCPUSet(0)
 		}
-		agg[p.PodUID] = cur
+		if !got[0].CPUs.Equals(want) || !got[0].SharedProjectedCPUs.ElementsEqual(projected) {
+			t.Fatalf("aggregation changed shared/exact obligations: %+v", got[0])
+		}
+		if len(cg.writeOrder) != 0 {
+			t.Fatal("pending aggregation must not write")
+		}
 	}
-	got := agg["p"]
-	if !got.CPUs.Equals(machine.NewCPUSet(0, 2)) {
-		t.Fatalf("aggregated CPUs = %s, want {0,2}", got.CPUs)
-	}
-	if !got.projectionCPUs.Equals(machine.NewCPUSet(0)) {
-		t.Fatalf("projected subset = %s, want {0} only (sibling {2} stays exact)", got.projectionCPUs)
+	// Both aggregation orders must reject an overlapping exact obligation.
+	exact.CPUs = machine.NewCPUSet(0)
+	for _, pending := range [][]pendingContainerCPUSet{{exact, eligible}, {eligible, exact}} {
+		p := &CPUSetTopologyPlugin{cgroup: &fakeCgroupClient{}}
+		if _, err := p.pendingProtectionScopes(context.Background(), nil, pending); !errors.Is(err, topology.ErrInvalidPendingProtection) {
+			t.Fatalf("mixed overlap must fail closed: %v", err)
+		}
 	}
 }
 

@@ -530,6 +530,11 @@ func admissionEnforcementBaseline(in bulkheadapi.HandlerContext) *model.CPUSetPa
 // or on a deferred-leaf Retry carrying a validated AppliedView; overlap and
 // periodical/full rounds without that hint stay on the raw business baseline.
 func shouldProjectPendingToValidatedAuthority(in bulkheadapi.HandlerContext) bool {
+	// Post-commit replay must drive its canonical target from fresh physical
+	// state, not freeze the previous admission's reclaim partition.
+	if in.ReconcileCanonicalPartition {
+		return false
+	}
 	if in.ProjectPendingToDesiredNonReclaim {
 		return true
 	}
@@ -3521,6 +3526,15 @@ func (p *CPUSetTopologyPlugin) pendingProtectionScopes(
 		if !ok {
 			aggregated[pending.PodUID] = pending
 			continue
+		}
+		// Union must not erase an exact container's obligation when another
+		// container classifies the same logical CPU as shared-projectable.
+		exact := current.CPUs.Difference(current.projectionCPUs)
+		pendingExact := pending.CPUs.Difference(pending.projectionCPUs)
+		if !exact.Intersection(pending.projectionCPUs).IsEmpty() ||
+			!pendingExact.Intersection(current.projectionCPUs).IsEmpty() {
+			return nil, fmt.Errorf("%w: pod=%q shared and exact pending CPUs overlap",
+				topology.ErrInvalidPendingProtection, pending.PodUID)
 		}
 		current.CPUs = current.CPUs.Union(pending.CPUs)
 		if current.ScopeRel == "" {

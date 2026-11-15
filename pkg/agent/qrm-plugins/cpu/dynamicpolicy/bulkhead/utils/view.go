@@ -322,16 +322,8 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 	// set. This is rebuilt from the same ReadonlyState snapshot every revision, is never
 	// recorded as a pool owner, and carries no cache/generation/TTL.
 	activeSNBProtected := machine.NewCPUSet()
-	// The pending shared-non-reclaim projection mode is only valid when the
-	// prepare snapshot is neither hard-partitioned nor in share/reclaim overlap:
-	// in those modes the share pool is already structurally disjoint from (or
-	// deliberately overlapping with) reclaim, so folding a pending allocation onto
-	// the shared domain must not change the partition. Outside this gate every
-	// pending protection keeps its exact (whole-core) behavior.
-	// Hard partition no longer disqualifies a pending non-SNB shared ramp-up
-	// container from projection: the active ramp-up reclaim floor must coexist with
-	// projecting pending shared pods onto the validated non-reclaim domain. Only
-	// share/reclaim overlap does.
+	// Shared projection is valid only in non-overlap snapshots. Hard partition
+	// floors do not disqualify it: projection cannot take CPUs from reclaim.
 	projectionEligibleSnapshot := !allowOverlap
 	// pendingSharedProjection is a transient, per-container planning hint (NOT a
 	// business partition field). It is returned alongside the view so the topology
@@ -349,12 +341,12 @@ func BuildCPUSetPartitionView(state cpustate.ReadonlyState, topology *machine.CP
 				recordContainerCPUSet(allocation.PodUid, allocation.ContainerName, allocation.AllocationResult)
 				if projectionEligibleSnapshot &&
 					allocation.CheckShared() &&
-					allocation.RampUp &&
-					!allocation.CheckSharedNUMABinding() {
-					// Eligible pending shared ramp-up (non-SNB) for THIS container
-					// only: classified per allocation, never OR-ed across a pod's
-					// other containers. The pending builder looks it up exactly by
-					// (podUID, containerName).
+					!allocation.CheckSharedNUMABinding() &&
+					(allocation.RampUp || (allocation.GetOwnerPoolName() == commonstate.PoolNameShare &&
+						allocation.GetResourcePackageName() == "")) {
+					// Logical-CPU scoped shared protection, classified per container.
+					// A steady default-share owner may legally share an SMT core
+					// with isolation; expanding it as exact would acquire that owner.
 					if pendingSharedProjection[allocation.PodUid] == nil {
 						pendingSharedProjection[allocation.PodUid] = map[string]struct{}{}
 					}

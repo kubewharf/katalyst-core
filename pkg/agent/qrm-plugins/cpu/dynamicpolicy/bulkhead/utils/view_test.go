@@ -574,11 +574,9 @@ func sharedRampUpAllocation(podUID string, cpus machine.CPUSet, snb bool) *cpust
 	return &cpustate.AllocationInfo{AllocationMeta: meta, RampUp: true, AllocationResult: cpus}
 }
 
-// TestPendingSharedProjectionReturned proves the prepare snapshot returns exactly
-// the eligible non-SNB shared ramp-up allocations as a transient side-channel set,
-// gates it behind HardPartition=false && overlap=false, excludes steady/SNB/dedicated
-// cases, and — critically — keeps the hint OFF the business DesiredView: it must
-// not survive DeepCopy and must not affect DesiredView equality/revision/checkpoint.
+// The prepare snapshot returns ordinary shared owners and non-SNB ramp-up
+// containers as a transient per-container hint. SNB/dedicated and overlap stay
+// exact; the hint never participates in DesiredView equality or checkpoint.
 func TestPendingSharedProjectionReturned(t *testing.T) {
 	t.Parallel()
 	topo := &machine.CPUTopology{CPUDetails: machine.CPUDetails{
@@ -592,10 +590,24 @@ func TestPendingSharedProjectionReturned(t *testing.T) {
 		state.SetAllocationInfo("eligible", "main", sharedRampUpAllocation("eligible", machine.NewCPUSet(0), false))
 		// Not eligible: shared ramp-up but SNB.
 		state.SetAllocationInfo("snb", "main", sharedRampUpAllocation("snb", machine.NewCPUSet(1), true))
-		// Not eligible: steady shared (RampUp off).
+		// Eligible: steady default share (RampUp off).
 		steady := sharedRampUpAllocation("steady", machine.NewCPUSet(2), false)
 		steady.RampUp = false
 		state.SetAllocationInfo("steady", "main", steady)
+		// Named, resource-package and unproven steady owners stay exact.
+		for _, owner := range []string{"named-share", "resource-package", "unknown-owner"} {
+			a := sharedRampUpAllocation(owner, machine.NewCPUSet(2), false)
+			a.RampUp = false
+			switch owner {
+			case "named-share":
+				a.OwnerPoolName = "system-services"
+			case "resource-package":
+				a.Annotations = map[string]string{apiconsts.PodAnnotationResourcePackageKey: "package"}
+			case "unknown-owner":
+				a.OwnerPoolName = ""
+			}
+			state.SetAllocationInfo(owner, "main", a)
+		}
 		// Not eligible: dedicated.
 		state.SetAllocationInfo("ded", "main", &cpustate.AllocationInfo{
 			AllocationMeta:   commonstate.AllocationMeta{PodUid: "ded", ContainerName: "main", QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores},
@@ -605,13 +617,14 @@ func TestPendingSharedProjectionReturned(t *testing.T) {
 		return BuildCPUSetPartitionView(state, topo, opts)
 	}
 
-	// Default: HardPartition=false, overlap=false => only the eligible shared
-	// ramp-up non-SNB container is returned, classified per (podUID, container).
+	// Non-overlap ordinary shared owners are eligible in both ramp-up and steady state.
 	view, projection := build(false, false)
-	if _, ok := projection["eligible"]["main"]; !ok {
-		t.Fatalf("eligible shared ramp-up non-SNB must be returned: %v", projection)
+	for _, pod := range []string{"eligible", "steady"} {
+		if _, ok := projection[pod]["main"]; !ok {
+			t.Fatalf("ordinary shared owner %s must be returned: %v", pod, projection)
+		}
 	}
-	for _, pod := range []string{"snb", "steady", "ded"} {
+	for _, pod := range []string{"snb", "ded", "named-share", "resource-package", "unknown-owner"} {
 		if _, ok := projection[pod]; ok {
 			t.Fatalf("%s must not be returned as eligible: %v", pod, projection)
 		}
@@ -635,6 +648,45 @@ func TestPendingSharedProjectionReturned(t *testing.T) {
 	cp := view.DeepCopy()
 	if !model.EqualDesiredView(view, cp) {
 		t.Fatalf("business DesiredView must be self-equal under DeepCopy")
+	}
+}
+
+func TestSteadySharedPendingProjectionPreservesHardOwnerSibling(t *testing.T) {
+	t.Parallel()
+	topo := make4NUMASMTTopology()
+	st := cpustate.NewCPUPluginState(topo)
+	st.SetAllowSharedCoresOverlapReclaimedCores(false)
+	reclaim := machine.MustParse("4,20,36,52,68,84,100,116")
+	isolation := machine.NewCPUSet(2)
+	shared := topo.CPUDetails.CPUs().Difference(reclaim).Difference(isolation)
+	for pool, cpus := range map[string]machine.CPUSet{
+		commonstate.PoolNameReclaim: reclaim, commonstate.PoolNameShare: shared, "isolation-owner": isolation,
+	} {
+		if err := st.SetAllocationInfo(pool, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+			AllocationMeta: commonstate.GenerateGenericPoolAllocationMeta(pool), AllocationResult: cpus,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	allocation := sharedRampUpAllocation("shared-pending", shared, false)
+	allocation.RampUp = false
+	allocation.OwnerPoolName = commonstate.PoolNameShare
+	if err := st.SetAllocationInfo(allocation.PodUid, "main", allocation); err != nil {
+		t.Fatal(err)
+	}
+	view, eligible := BuildCPUSetPartitionView(st, topo, CPUSetPartitionViewOptions{HardPartitionEnabled: true})
+	if _, ok := eligible[allocation.PodUid]["main"]; !ok {
+		t.Fatal("steady ordinary shared owner must retain shared-domain pending protection")
+	}
+	shadow := DeriveShadowPartition(view, topo, []topology.PendingProtection{{
+		ScopeRel: "kubepods/pod-shared", PodUID: allocation.PodUid,
+		CPUs: shared, SharedProjectedCPUs: shared, Source: topology.PendingProtectionSourceExistingPod,
+	}})
+	if shadow.Err != nil || shadow.HoldCurrent {
+		t.Fatalf("legal shared/hard SMT siblings blocked: err=%v hold=%s", shadow.Err, shadow.HoldReason)
+	}
+	if shadow.ProtectedPending.Contains(2) || !shadow.ProtectedPending.Contains(18) {
+		t.Fatalf("protection must retain shared sibling 18 but not hard owner 2: %s", shadow.ProtectedPending)
 	}
 }
 
@@ -1864,10 +1916,8 @@ func TestE2EPendingSharedProjectionSideChannel(t *testing.T) {
 	}
 }
 
-// TestPendingProjectionLifecycleRounds proves the side-channel follows the
-// allocation lifecycle: a pending ramp-up is classified, a materialized/resolved
-// allocation is not, and delete-recreate under a new UID classifies fresh without
-// leaking the old pod's hint.
+// TestPendingProjectionLifecycleRounds checks fresh per-container eligibility;
+// RampUp is not a CRI/cgroup lifecycle proof, and removed owners leave no hint.
 func TestPendingProjectionLifecycleRounds(t *testing.T) {
 	t.Parallel()
 	topo := make4NUMASMTTopology()
@@ -1881,15 +1931,15 @@ func TestPendingProjectionLifecycleRounds(t *testing.T) {
 		t.Fatalf("pending ramp-up must be eligible: %v", projA)
 	}
 
-	// Round B: same pod materialized/resolved (RampUp off) => not projected.
+	// Round B: RampUp off still permits ordinary shared pending protection.
 	stateB := cpustate.NewCPUPluginState(nil)
 	stateB.SetAllowSharedCoresOverlapReclaimedCores(false)
 	materialized := sharedRampUpAllocation("pod-1", machine.NewCPUSet(0), false)
 	materialized.RampUp = false
 	stateB.SetAllocationInfo("pod-1", "main", materialized)
 	_, projB := BuildCPUSetPartitionView(stateB, topo, CPUSetPartitionViewOptions{})
-	if _, ok := projB["pod-1"]; ok {
-		t.Fatalf("materialized/resolved allocation must not be projected: %v", projB)
+	if _, ok := projB["pod-1"]["main"]; !ok {
+		t.Fatalf("steady default share must retain protection eligibility: %v", projB)
 	}
 
 	// Round C: deleted pod-1 recreated as pod-NEW; old hint must not leak and the

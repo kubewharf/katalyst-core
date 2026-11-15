@@ -238,7 +238,7 @@ type sharedProjection struct {
 	projected machine.CPUSet
 }
 
-// projectSharedPending projects eligible non-SNB shared ramp-up pending
+// projectSharedPending projects prepare-classified shared pending
 // protections onto the whole-core clean shared non-reclaim domain. It never
 // mutates base. Any contradiction returns a typed, zero-write error carrying
 // pod/container/pending/domain/dedicated/isolation/reclaim diagnostics; it is
@@ -363,7 +363,7 @@ func validatedNonReclaimAuthority(
 //   - Eligible shared ramp-up protections overlap the shared domain. They are
 //     clipped to the validated non-reclaim domain − Dedicated − Isolation and
 //     flagged as shared-projected, so they never take CPUs away from reclaim.
-//   - Fully-exact protections (SNB / steady / dedicated / an admission-target
+//   - Fully-exact protections (SNB / non-projectable shared / dedicated / an admission-target
 //     seed leaf) whose CPUs have no overlap with the shared domain are retained
 //     verbatim as exact. In particular, the admission seed leaf's required CPU
 //     has not yet been folded into the validated non-reclaim partition; dropping
@@ -453,16 +453,14 @@ func ProjectPendingProtectionsToDesiredNonReclaim(
 //
 // Pending protections are split into two classes:
 //
-//   - Exact (default): the allocation is materialized/resolved, steady shared,
-//     SNB, dedicated, isolation, reclaimed, system, or otherwise not eligible for
-//     projection. Its whole cores are folded wholesale onto the non-reclaim side,
-//     exactly as before; a collision with a hard owner holds-current.
-//   - Shared projected (eligible non-SNB shared ramp-up, observed under the
-//     HardPartition=false && overlap=false prepare gate): its whole cores are
-//     intersected with the whole-core clean shared non-reclaim domain
-//     (DesiredNonReclaimPool − Dedicated − Isolation) rather than folded wholesale.
-//     Because the projection is a subset of DesiredNonReclaimPool it never takes
-//     CPUs away from reclaim.
+//   - Exact (default): SNB, dedicated, isolation, reclaimed, system, or other
+//     non-projectable pending containers. Whole cores are folded onto the
+//     non-reclaim side; a hard-owner collision holds-current.
+//   - Shared projected: the prepare snapshot classifies ordinary steady shared
+//     owners and eligible non-SNB ramp-up containers in non-overlap mode. Their
+//     whole cores are intersected with the clean shared non-reclaim domain
+//     (DesiredNonReclaimPool − Dedicated − Isolation). This cannot acquire
+//     hard-owner CPUs or take CPUs away from reclaim.
 //
 // Order (the invariants):
 //  1. available = all CPUs - reserve.
@@ -518,11 +516,9 @@ func DeriveShadowPartitionWithAppliedEnforcement(
 	all := topo.CPUDetails.CPUs()
 	available := all.Difference(base.Reserve)
 
-	// Split protections: for each pending protection, the projected CPU subset
-	// (eligible non-SNB shared ramp-up containers) is projected onto the shared
-	// domain, while the remainder (exact siblings / steady / SNB / dedicated /
-	// isolation / reclaimed / system) is folded whole-core. Classification is per
-	// container: SharedProjectedCPUs is a subset of CPUs, never a pod-wide flag.
+	// The prepare-classified shared subset is projected onto the shared domain;
+	// the remaining strict containers' CPUs are folded whole-core. The subset
+	// is per container, never a pod-wide flag.
 	var exactCPUs machine.CPUSet
 	sharedProtectionsList := make([]topology.PendingProtection, 0, len(protections))
 	for _, protection := range protections {

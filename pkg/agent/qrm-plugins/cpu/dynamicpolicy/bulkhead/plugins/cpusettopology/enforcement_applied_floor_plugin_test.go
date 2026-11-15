@@ -22,15 +22,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
+	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils/topology"
 	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
@@ -39,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	cgroupclient "github.com/kubewharf/katalyst-core/pkg/util/cgroup/client"
+	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -332,6 +336,193 @@ func TestEnforcementAppliedFloorRetainsReclaimed0(t *testing.T) {
 
 	if !result.Converged && !result.ParentSafe {
 		t.Fatalf("expected convergence (or parent-safe) with reclaimed-0 retained; result=%+v", result)
+	}
+}
+
+func TestCanonicalPartitionRetryReleasesReclaimBeforeGrowingSharedLeaves(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"converge", "source-write-failure", "mixed-exact-conflict", "recorded-partition-converge"} {
+		scenario := scenario
+		t.Run(scenario, func(t *testing.T) {
+			failSource := scenario == "source-write-failure"
+			t.Parallel()
+			fx := newEnforcementAppliedFloorFixture(t)
+			// Source-release order and exact fences are independent of wall-clock speed.
+			fx.plugin.cfg.TopologyConvergenceBudget.DeadlineDuration = -1
+			ctx := context.Background()
+			all := machine.MustParse("0-127")
+			handoff := machine.MustParse("4,68")
+			retained := machine.MustParse("5,69")
+			oldReclaim := fx.reclaim8.Union(retained)
+			newReclaim := oldReclaim.Difference(handoff)
+			if scenario == "recorded-partition-converge" {
+				// Recorded partition sets; the SMT/NUMA layout is a fixture, not
+				// a complete replay of the node's filesystem or execution timing.
+				all = machine.MustParse("0-191")
+				oldReclaim = machine.MustParse("0-1,3-4,12-15,24-26,36-38,48-50,60-62,72-74,84-86,96-97,99-100,108-111,120-122,132-134,144-146,156-158,168-170,180-182")
+				newReclaim = machine.MustParse("0-1,12-13,24-25,36-37,48-49,60-61,72,84,96-97,108-109,120-121,132-133,144-145,156-157,168,180")
+				handoff = oldReclaim.Difference(newReclaim)
+				fx.details = machine.CPUDetails{}
+				for cpu := 0; cpu < 192; cpu++ {
+					numa := (cpu % 96) / 12
+					fx.details[cpu] = machine.CPUTopoInfo{NUMANodeID: numa, SocketID: numa, CoreID: cpu % 96}
+				}
+			}
+			fx.applied.ReclaimEffectivePerNUMA = map[int]machine.CPUSet{}
+			fx.cg.children["reclaimed"] = nil
+			for _, numa := range fx.details.NUMANodes().ToSliceInt() {
+				domain := fx.details.CPUsInNUMANodes(numa)
+				name := fmt.Sprintf("reclaimed-%d", numa)
+				rel := "reclaimed/" + name
+				fx.applied.ReclaimEffectivePerNUMA[numa] = oldReclaim.Intersection(domain)
+				fx.cg.cpus[rel] = oldReclaim.Intersection(domain)
+				fx.cg.existing[rel] = true
+				fx.cg.mems[rel] = "0"
+				fx.cg.children["reclaimed"] = append(fx.cg.children["reclaimed"], name)
+			}
+			hard := machine.NewCPUSet(2)
+			oldShare := all.Difference(oldReclaim).Difference(hard)
+			newShare := all.Difference(newReclaim).Difference(hard)
+			fx.applied.ReclaimEffective = oldReclaim
+			fx.applied.NonReclaimPool = all.Difference(oldReclaim)
+			fx.cg.cpus["reclaimed"] = oldReclaim
+			fx.cg.cpus["kubepods"] = all.Difference(oldReclaim)
+			fx.cg.cpus["kubepods/besteffort"] = all.Difference(oldReclaim)
+			fx.cg.cpus[fx.scopeRel] = oldShare
+			st := cpustate.NewCPUPluginState(&machine.CPUTopology{CPUDetails: fx.details})
+			st.SetAllowSharedCoresOverlapReclaimedCores(false)
+			for pool, cpus := range map[string]machine.CPUSet{
+				commonstate.PoolNameShare: newShare, commonstate.PoolNameReclaim: newReclaim, "isolation-owner": hard,
+			} {
+				if err := st.SetAllocationInfo(pool, commonstate.FakedContainerName, &cpustate.AllocationInfo{
+					AllocationMeta: commonstate.GenerateGenericPoolAllocationMeta(pool), AllocationResult: cpus,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := st.SetAllocationInfo(fx.podUID, "main", &cpustate.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid: fx.podUID, ContainerName: "main", OwnerPoolName: commonstate.PoolNameShare,
+					QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+				}, AllocationResult: newShare,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			view, hint, err := bulkheadutils.BuildValidatedCPUSetPartitionView(st,
+				&machine.CPUTopology{CPUDetails: fx.details}, bulkheadutils.CPUSetPartitionViewOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fx.desired = view
+			fx.fetcher.containerErr = nil
+			fx.fetcher.containerErrs = map[string]error{"main": metapod.ErrContainerNotFound}
+			fx.fetcher.containerIDs = map[string]string{}
+			for pod := 0; pod < 4; pod++ {
+				uid := fmt.Sprintf("running-%d", pod)
+				rel := "kubepods/besteffort/pod" + uid
+				fx.cg.existing[rel] = true
+				fx.cg.cpus[rel] = all.Difference(oldReclaim)
+				fx.cg.mems[rel] = "0"
+				fx.cg.children["kubepods/besteffort"] = append(fx.cg.children["kubepods/besteffort"], "pod"+uid)
+				fx.desired.ContainerCPUSetByPod[uid] = map[string]machine.CPUSet{}
+				p := &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID(uid)}}
+				for container := 0; container < 3; container++ {
+					name := fmt.Sprintf("container-%d-%d", pod, container)
+					id := name + "-id"
+					fx.fetcher.containerIDs[name] = id
+					fx.cg.children[rel] = append(fx.cg.children[rel], id)
+					fx.cg.existing[rel+"/"+id] = true
+					fx.cg.cpus[rel+"/"+id] = oldShare
+					fx.cg.mems[rel+"/"+id] = "0"
+					fx.desired.ContainerCPUSetByPod[uid][name] = newShare
+					p.Spec.Containers = append(p.Spec.Containers, v1.Container{Name: name})
+					p.Status.ContainerStatuses = append(p.Status.ContainerStatuses, v1.ContainerStatus{
+						Name: name, ContainerID: "containerd://" + id,
+						State: v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+					})
+				}
+				fx.fetcher.pods[uid] = p
+			}
+			fx.plugin.resolveContainerRel = func(uid, id string) (string, error) {
+				return "kubepods/besteffort/pod" + uid + "/" + id, nil
+			}
+			in := fx.handlerContext()
+			in.Mode = cpusetutil.CPUSetAdjustmentModeRetry
+			in.ProjectPendingToDesiredNonReclaim = false
+			in.ReconcileCanonicalPartition = true
+			in.PendingSharedProjection = hint
+			if scenario == "mixed-exact-conflict" {
+				// An exact sibling overlaps the eligible shared subset. It must retain
+				// its strict obligation, including the hard owner's sibling.
+				fx.desired.ContainerCPUSetByPod[fx.podUID]["strict"] = machine.NewCPUSet(66)
+				fx.fetcher.containerErrs["strict"] = metapod.ErrContainerNotFound
+				fx.fetcher.pods[fx.podUID].Spec.Containers = append(fx.fetcher.pods[fx.podUID].Spec.Containers, v1.Container{Name: "strict"})
+			}
+			fx.cg.afterApply = func(rel string, _ *cgcommon.CPUSetData) {
+				if strings.HasPrefix(rel, "kubepods") && !fx.cg.cpus[rel].Intersection(handoff).IsEmpty() {
+					if !fx.cg.cpus["reclaimed"].Intersection(handoff).IsEmpty() {
+						t.Fatalf("destination %s grew before physical source release", rel)
+					}
+					for _, child := range fx.cg.children["reclaimed"] {
+						if !fx.cg.cpus["reclaimed/"+child].Intersection(handoff).IsEmpty() {
+							t.Fatalf("destination %s grew before bucket %s released CPUs", rel, child)
+						}
+					}
+				}
+			}
+			writeErr := errors.New("source drain failed")
+			if failSource {
+				fx.cg.writeCPUHook = func(rel string, _ int) error {
+					if rel == "reclaimed/reclaimed-0" {
+						return writeErr
+					}
+					return nil
+				}
+			}
+			var result bulkheadapi.TopologyResult
+			err = fx.plugin.runNormalAdjustment(ctx, in, func(r bulkheadapi.TopologyResult) { result = r })
+			if scenario == "mixed-exact-conflict" {
+				if !errors.Is(err, topology.ErrInvalidPendingProtection) || len(fx.cg.writeOrder) != 0 || result.Converged {
+					t.Fatalf("exact mixed sibling was relaxed: err=%v writes=%v result=%+v", err, fx.cg.writeOrder, result)
+				}
+				return
+			}
+			if failSource {
+				if !errors.Is(err, writeErr) || result.Converged || result.AppliedView != nil {
+					t.Fatalf("failed source drain published convergence: err=%v result=%+v", err, result)
+				}
+				if !fx.cg.cpus["reclaimed/reclaimed-0"].Equals(oldReclaim.Intersection(fx.details.CPUsInNUMANodes(0))) {
+					t.Fatal("failed source drain changed bucket ownership")
+				}
+				if !fx.cg.cpus["reclaimed"].Equals(oldReclaim) || !fx.cg.cpus["kubepods"].Equals(all.Difference(oldReclaim)) {
+					t.Fatal("failed source drain changed source or destination ownership")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("canonical partition retry failed: %v", err)
+			}
+			if !result.Converged || result.AppliedView == nil || !result.AppliedView.ReclaimEffective.Equals(newReclaim) {
+				t.Fatalf("canonical reclaim did not converge: %+v", result)
+			}
+			for uid, containers := range fx.desired.ContainerCPUSetByPod {
+				if uid == fx.podUID {
+					continue
+				}
+				for name := range containers {
+					rel := "kubepods/besteffort/pod" + uid + "/" + name + "-id"
+					if !fx.cg.cpus[rel].Equals(newShare) {
+						t.Fatalf("leaf %s=%s, want %s", rel, fx.cg.cpus[rel], newShare)
+					}
+				}
+			}
+			bucket := indexOfString(fx.cg.writeOrder, "reclaimed/reclaimed-0")
+			root := indexOfString(fx.cg.writeOrder, "reclaimed")
+			primary := indexOfString(fx.cg.writeOrder, "kubepods")
+			if bucket < 0 || root < bucket || primary <= root {
+				t.Fatalf("source must drain before primary grows: %v", fx.cg.writeOrder)
+			}
+		})
 	}
 }
 

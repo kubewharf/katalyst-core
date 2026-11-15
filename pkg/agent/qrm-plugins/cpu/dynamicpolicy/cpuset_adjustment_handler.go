@@ -546,16 +546,17 @@ func (p *DynamicPolicy) runCPUSetAdjustmentHandlers(ctx context.Context, modes .
 		p.adjustment.stagedPendingSharedProjection = nil
 		p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
 		handlerCtx := cpusetutil.CPUSetAdjustmentHandlerCtx{
-			CoreConf:                  p.config.conf,
-			DynamicConf:               dynamicConf,
-			Emitter:                   p.emitter.emitter,
-			MetaServer:                p.meta.metaServer,
-			State:                     stateSnapshot,
-			Topology:                  topology,
-			ReservedCPUs:              p.config.reservedCPUs.Clone(),
-			ReservedReclaimedCPUs:     p.reclaim.reservedReclaimedCPUSet.Clone(),
-			ReservedReclaimedCPUsSize: p.reclaim.reservedReclaimedCPUsSize,
-			Mode:                      mode,
+			CoreConf:                    p.config.conf,
+			DynamicConf:                 dynamicConf,
+			Emitter:                     p.emitter.emitter,
+			MetaServer:                  p.meta.metaServer,
+			State:                       stateSnapshot,
+			Topology:                    topology,
+			ReservedCPUs:                p.config.reservedCPUs.Clone(),
+			ReservedReclaimedCPUs:       p.reclaim.reservedReclaimedCPUSet.Clone(),
+			ReservedReclaimedCPUsSize:   p.reclaim.reservedReclaimedCPUsSize,
+			Mode:                        mode,
+			ReconcileCanonicalPartition: reconcileTarget != nil,
 			ScheduleFullRetry: func(reason cpusetutil.CPUSetAdjustmentRetryReason) {
 				p.scheduleCPUSetAdjustmentRetry(reason)
 			},
