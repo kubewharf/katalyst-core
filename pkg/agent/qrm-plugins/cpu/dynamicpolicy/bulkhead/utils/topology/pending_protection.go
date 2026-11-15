@@ -43,15 +43,10 @@ type PendingProtection struct {
 	PodUID   string
 	Source   PendingProtectionSource
 
-	// SharedProjectedCPUs is the per-container subset of CPUs on this pending
-	// protection that are eligible for the shared non-reclaim projection. It is
-	// the union of the CPUs of the eligible non-SNB shared ramp-up containers
-	// (CheckShared && RampUp && !CheckSharedNUMABinding) observed while the
-	// prepare snapshot was HardPartition=false && overlap=false. The remaining
-	// CPUs (CPUs - SharedProjectedCPUs) stay exact and are folded whole-core.
-	// Empty means the whole protection is exact. It is internal bulkhead
-	// bookkeeping, carried per container from pendingContainerCPUSet; never a
-	// public/business or proto contract.
+	// SharedProjectedCPUs is the subset classified by the immutable prepare
+	// snapshot as shared-projectable. The remainder stays exact and is folded
+	// whole-core. Empty means the whole protection is exact; this is transient
+	// planning metadata, not a public/business or proto contract.
 	SharedProjectedCPUs machine.CPUSet
 }
 
