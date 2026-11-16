@@ -51,6 +51,7 @@ type MBOptions struct {
 	ActiveTrafficMBThreshold       int
 	CCDCapKp                       float64
 	CCDCapGroups                   map[string]int
+	CapRecoveryMode                string
 	DomainGroupAwareCapacityPCT    map[string]int
 	NoThrottleGroups               []string
 	CrossDomainGroups              []string
@@ -83,6 +84,8 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.CCDCapKp, "proportional gain for ccd cap governance")
 	fs.StringToIntVar(&o.CCDCapGroups, "mb-ccd-cap-groups",
 		o.CCDCapGroups, "per-group target actual mb per ccd (e.g. dedicated=20000,shared-50=24000)")
+	fs.StringVar(&o.CapRecoveryMode, "mb-cap-recovery-mode",
+		o.CapRecoveryMode, "cap recovery mode. e.g. slow-cool-down recovery")
 	fs.IntVar(&o.MaxIncomingRemoteMB, "mb-remote-limit",
 		o.MaxIncomingRemoteMB, "max mb allowed from remote domains")
 	fs.IntVar(&o.MBCapLimitPercent, "mb-cap-limit-percent",
@@ -109,6 +112,7 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.MaxCCDMB = o.MaxCCDMB
 	conf.CCDCapKp = o.CCDCapKp
 	conf.CCDCapGroups = o.CCDCapGroups
+	conf.CapRecoveryMode = o.CapRecoveryMode
 	conf.MaxIncomingRemoteMB = o.MaxIncomingRemoteMB
 	conf.MBCapLimitPercent = o.MBCapLimitPercent
 	conf.ActiveTrafficMBThreshold = o.ActiveTrafficMBThreshold
