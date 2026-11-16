@@ -73,7 +73,8 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 	}
 
 	machineState := p.state.GetMachineState()
-	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+	reservedCPUs := p.state.GetReservedCPUs()
+	pooledCPUs := machineState.GetFilteredAvailableCPUSet(reservedCPUs,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 	// cores that are not allocatable from user binding need to be deducted from the pool.
@@ -654,9 +655,10 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	hintNodes := hint.Nodes
 	pkgName := rputil.GetResourcePackageName(reqAnnotations)
 	numaRPPinnedCPUSet := machineState.GetNUMAResourcePackagePinnedCPUSet()
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	for _, numaNode := range hintNodes {
-		availableCPUs := machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs)
+		availableCPUs := machineState[int(numaNode)].GetAvailableCPUSet(reservedCPUs)
 
 		// Filter available CPUs based on Resource Package (RP) pinning rules:
 		// 1. If the current RP has pinned CPUs, restrict allocation strictly to those CPUs.
@@ -1074,7 +1076,8 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	machineState state.NUMANodeMap,
 	persistCheckpoint bool,
 ) error {
-	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+	reservedCPUs := p.state.GetReservedCPUs()
+	availableCPUs := machineState.GetFilteredAvailableCPUSet(reservedCPUs, nil,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 	// rpPinnedCPUSet contains the pinned CPU sets for resource packages
@@ -1244,6 +1247,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 ) error {
 	newPodEntries := make(state.PodEntries)
 	unionDedicatedIsolatedCPUSet := machine.NewCPUSet()
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	// calculate NUMAs without actual numa_binding reclaimed pods
 	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
@@ -1341,7 +1345,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
 	notAllocatablePoolsCPUs := state.GetUnitedPoolsCPUs(newPodEntries, state.IsForbiddenPool, commonstate.IsSystemPool)
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
-	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(reservedCPUs,
 		nil,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive)).
 		Difference(unionDedicatedIsolatedCPUSet).
@@ -1534,6 +1538,7 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 	numaToPoolQuantityMap := make(map[int]map[string]int)
 	originalAvailableCPUSet := availableCPUs.Clone()
 	enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	for poolName, numaToQuantity := range poolsQuantityMap {
 		for numaID, quantity := range numaToQuantity {
@@ -1552,7 +1557,7 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 
 	for numaID, numaPoolsToQuantityMap := range numaToPoolQuantityMap {
 		numaPoolsTotalQuantity := general.SumUpMapValues(numaPoolsToQuantityMap)
-		numaCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
+		numaCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(reservedCPUs)
 		numaAvailableCPUs := numaCPUs.Intersection(availableCPUs)
 		availableSize := numaAvailableCPUs.Size()
 
@@ -1594,6 +1599,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 	reclaimOverlapShareRatio map[string]float64) (poolsCPUSet map[string]machine.CPUSet,
 	isolatedCPUSet map[string]map[string]machine.CPUSet, err error,
 ) {
+	reservedCPUs := p.state.GetReservedCPUs()
 	poolsBindingNUMAs := sets.NewInt()
 	poolsToSkip := make([]string, 0, len(poolsQuantityMap))
 	nonBindingPoolsQuantityMap := make(map[string]int)
@@ -1722,7 +1728,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 
 	// deal with reserve pool
 	if poolsCPUSet[commonstate.PoolNameReserve].IsEmpty() {
-		poolsCPUSet[commonstate.PoolNameReserve] = p.reservedCPUs.Clone()
+		poolsCPUSet[commonstate.PoolNameReserve] = reservedCPUs
 		general.Infof("set pool %s:%s", commonstate.PoolNameReserve, poolsCPUSet[commonstate.PoolNameReserve].String())
 	} else {
 		err = fmt.Errorf("static pool %s result: %s is generated dynamically", commonstate.PoolNameReserve, poolsCPUSet[commonstate.PoolNameReserve].String())
@@ -2204,6 +2210,7 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 	if allocationInfo == nil {
 		return machine.CPUSet{}, nil, fmt.Errorf("allocationInfo is nil")
 	}
+	reservedCPUs := p.state.GetReservedCPUs()
 
 	poolCPUSet := machine.NewCPUSet()
 	specifiedPoolName := allocationInfo.GetSpecifiedPoolName()
@@ -2230,7 +2237,7 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 	if poolCPUSet.IsEmpty() {
 		// if the pod is numa binding, get the default cpuset from machine state
 		if allocationInfo.CheckNUMABinding() {
-			poolCPUSet = p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs)
+			poolCPUSet = p.state.GetMachineState().GetAvailableCPUSet(reservedCPUs)
 		}
 
 		// if the default cpuset is empty or no numa binding, use all cpuset as default cpuset

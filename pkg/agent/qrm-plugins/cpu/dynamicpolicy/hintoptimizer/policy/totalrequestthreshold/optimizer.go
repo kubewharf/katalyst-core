@@ -126,7 +126,7 @@ func (o *cpuTotalRequestThresholdHintOptimizer) OptimizeHints(
 }
 
 func (o *cpuTotalRequestThresholdHintOptimizer) getTotalAllocatable(numaSet machine.CPUSet) float64 {
-	return float64(o.metaServer.CPUDetails.CPUsInNUMANodes(numaSet.ToSliceInt()...).Difference(o.reservedCPUs).Size())
+	return float64(o.metaServer.CPUDetails.CPUsInNUMANodes(numaSet.ToSliceInt()...).Difference(o.state.GetReservedCPUs()).Size())
 }
 
 func (o *cpuTotalRequestThresholdHintOptimizer) getTotalRequest(req *pluginapi.ResourceRequest,

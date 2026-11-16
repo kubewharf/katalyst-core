@@ -614,10 +614,14 @@ func TestCalculateHintsForNUMABindingSharedCores1(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			statePolicy, stateErr := getTestDynamicPolicyWithoutInitialization(cpuTopology, t.TempDir())
+			require.NoError(t, stateErr)
+			statePolicy.state.SetReservedCPUs(machine.NewCPUSet())
 			p := &DynamicPolicy{
 				machineInfo: &machine.KatalystMachineInfo{
 					CPUTopology: cpuTopology,
 				},
+				state:                               statePolicy.state,
 				numaBindingResultAnnotationKey:      "katalyst-test/nume-bind-result",
 				sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{},
 				dynamicConfig:                       dynamic.NewDynamicAgentConfiguration(),

@@ -365,7 +365,7 @@ func (o *resourcePackageHintOptimizer) calculateNodeCPUMetrics(
 
 		// Calculate the actual available physical CPU quantity for "Unpinned" pods.
 		// unpinnedAllocatable is calculated by subtracting reservedCPUs and PinnedCPUs from the union of DefaultCPUSet and AllocatedCPUSet.
-		unpinnedAllocatable := float64(ns.DefaultCPUSet.Union(ns.AllocatedCPUSet).Difference(o.reservedCPUs).Difference(pinnedCPUSet).Size())
+		unpinnedAllocatable := float64(ns.DefaultCPUSet.Union(ns.AllocatedCPUSet).Difference(o.state.GetReservedCPUs()).Difference(pinnedCPUSet).Size())
 
 		unpinnedAvailable = general.MaxFloat64(unpinnedAllocatable-unpinnedPreciseAllocated, 0)
 	}
