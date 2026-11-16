@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -42,30 +43,43 @@ import (
 const metricName = "poweraware-advisor-plugin"
 
 type powerAwarePlugin struct {
-	name    string
-	dryRun  bool
-	advisor advisor.PowerAwareAdvisor
+	name          string
+	dryRun        bool
+	advisor       advisor.PowerAwareAdvisor
+	healthMonitor *healthMonitor
 }
 
-func (p powerAwarePlugin) Name() string {
+func (p *powerAwarePlugin) Name() string {
 	return p.name
 }
 
-func (p powerAwarePlugin) Init() error {
-	general.Infof("pap initialized")
+func (p *powerAwarePlugin) Init() error {
+	// must start before advisor.Init(): framework wraps Init() with 10s timeout,
+	// and abandons the plugin (no Run() call) if Init() times out or errors out.
+	p.healthMonitor.Start()
+
+	general.Infof("pap: initializing power advisor")
 
 	if err := p.advisor.Init(); err != nil {
 		klog.Errorf("pap: failed to initialize power advisor: %v", err)
 		return errors.Wrap(err, "failed to initialize power advisor")
 	}
 
+	general.Infof("pap: power advisor initialized")
+
 	return nil
 }
 
-func (p powerAwarePlugin) Run(ctx context.Context) {
-	general.Infof("pap running")
+func (p *powerAwarePlugin) Run(ctx context.Context) {
+	general.Infof("pap: running")
+
+	go func() {
+		<-ctx.Done()
+		p.healthMonitor.Stop()
+	}()
+
 	p.advisor.Run(ctx)
-	general.Infof("pap ran and finished")
+	general.Infof("pap: power advisor ran and finished")
 }
 
 func NewPowerAwarePlugin(
@@ -119,15 +133,18 @@ func NewPowerAwarePlugin(
 		powerReader,
 		powerCapper,
 		reconciler,
+		conf.DisablePowerCapping,
+		conf.DisablePowerPressureEvict,
 	)
 
-	return newPluginWithAdvisor(pluginName, conf, powerAdvisor)
+	return newPluginWithAdvisor(pluginName, conf, powerAdvisor, emitter)
 }
 
-func newPluginWithAdvisor(pluginName string, conf *config.Configuration, advisor advisor.PowerAwareAdvisor) (plugin.SysAdvisorPlugin, error) {
+func newPluginWithAdvisor(pluginName string, conf *config.Configuration, advisor advisor.PowerAwareAdvisor, emitter metrics.MetricEmitter) (plugin.SysAdvisorPlugin, error) {
 	return &powerAwarePlugin{
-		name:    pluginName,
-		dryRun:  conf.PowerAwarePluginConfiguration.DryRun,
-		advisor: advisor,
+		name:          pluginName,
+		dryRun:        conf.PowerAwarePluginConfiguration.DryRun,
+		advisor:       advisor,
+		healthMonitor: newHealthMonitor(advisor, emitter),
 	}, nil
 }
