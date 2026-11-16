@@ -22,6 +22,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
@@ -35,6 +36,9 @@ import (
 // ResourceAdvisor is a wrapper of different sub resource advisors. It can be registered to
 // headroom reporter to give designated resource headroom quantity based on provision result.
 type ResourceAdvisor interface {
+	// Init initializes all sub resource advisors
+	Init() error
+
 	// Run starts all sub resource advisors
 	Run(ctx context.Context)
 
@@ -45,6 +49,9 @@ type ResourceAdvisor interface {
 // SubResourceAdvisor updates resource provision of a certain dimension based on the latest
 // system and workload snapshot(s), and returns provision advice or resource headroom quantity.
 type SubResourceAdvisor interface {
+	// Init initializes sub resource advisor
+	Init() error
+
 	// Run starts resource provision update based on the latest system and workload snapshot(s)
 	Run(ctx context.Context)
 
@@ -57,6 +64,14 @@ type SubResourceAdvisor interface {
 
 type resourceAdvisorWrapper struct {
 	subAdvisorsToRun map[types.QoSResourceName]SubResourceAdvisor
+}
+
+func (ra *resourceAdvisorWrapper) Init() error {
+	var errList []error
+	for _, subAdvisor := range ra.subAdvisorsToRun {
+		errList = append(errList, subAdvisor.Init())
+	}
+	return errors.NewAggregate(errList)
 }
 
 // NewResourceAdvisor returns a resource advisor wrapper instance, initializing all required
