@@ -404,6 +404,44 @@ func TestScore(t *testing.T) {
 
 	dedicatedTestCases := []testCase{
 		{
+			name:            "balanced allocation with only CPU aligned",
+			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
+			strategy:        consts.BalancedAllocation,
+			alignedResource: []string{"cpu"},
+			wantRes: map[string]int64{
+				"node-2numa-8c16g":                 100,
+				"node-2numa-4c8g":                  100,
+				"node-2numa-8c16g-with-allocation": 100,
+				"node-4numa-8c16g":                 100,
+			},
+			pod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("1"),
+				v1.ResourceMemory: resource.MustParse("1Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+			}),
+		},
+		{
+			name:            "balanced allocation with no requested resource aligned",
+			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
+			strategy:        consts.BalancedAllocation,
+			alignedResource: []string{"Gpu"},
+			wantRes: map[string]int64{
+				"node-2numa-8c16g":                 0,
+				"node-2numa-4c8g":                  0,
+				"node-2numa-8c16g-with-allocation": 0,
+				"node-4numa-8c16g":                 0,
+			},
+			pod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("1"),
+				v1.ResourceMemory: resource.MustParse("1Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+			}),
+		},
+		{
 			name:            "dedicated_cores with numabinding + single numa + MostAllocated strategy",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			strategy:        config.MostAllocated,
