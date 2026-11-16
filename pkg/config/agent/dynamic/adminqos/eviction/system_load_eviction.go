@@ -36,6 +36,8 @@ type SystemLoadEvictionPluginConfiguration struct {
 	// the plugin considers the node is facing load pressure only when the ratio of load history which is greater than
 	// threshold is greater than this percentage
 	ThresholdMetPercentage float64
+	// SortPodBy is the sort pod principle, default is qos, can be load or qos
+	SortPodBy []string
 }
 
 func NewSystemLoadEvictionPluginConfiguration() *SystemLoadEvictionPluginConfiguration {
