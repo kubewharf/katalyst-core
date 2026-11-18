@@ -53,11 +53,11 @@ func (m *MockPromAPIClient) Flags(ctx context.Context) (v1.FlagsResult, error) {
 	return nil, nil
 }
 
-func (m *MockPromAPIClient) LabelNames(ctx context.Context, matches []string, startTime time.Time, endTime time.Time) ([]string, v1.Warnings, error) {
+func (m *MockPromAPIClient) LabelNames(ctx context.Context, matches []string, startTime time.Time, endTime time.Time, opts ...v1.Option) ([]string, v1.Warnings, error) {
 	return nil, nil, nil
 }
 
-func (m *MockPromAPIClient) LabelValues(ctx context.Context, label string, matches []string, startTime time.Time, endTime time.Time) (model.LabelValues, v1.Warnings, error) {
+func (m *MockPromAPIClient) LabelValues(ctx context.Context, label string, matches []string, startTime time.Time, endTime time.Time, opts ...v1.Option) (model.LabelValues, v1.Warnings, error) {
 	return nil, nil, nil
 }
 
@@ -77,7 +77,7 @@ func (m *MockPromAPIClient) Runtimeinfo(ctx context.Context) (v1.RuntimeinfoResu
 	return v1.RuntimeinfoResult{}, nil
 }
 
-func (m *MockPromAPIClient) Series(ctx context.Context, matches []string, startTime time.Time, endTime time.Time) ([]model.LabelSet, v1.Warnings, error) {
+func (m *MockPromAPIClient) Series(ctx context.Context, matches []string, startTime time.Time, endTime time.Time, opts ...v1.Option) ([]model.LabelSet, v1.Warnings, error) {
 	return nil, nil, nil
 }
 
@@ -101,7 +101,7 @@ func (m *MockPromAPIClient) Metadata(ctx context.Context, metric string, limit s
 	return nil, nil
 }
 
-func (m *MockPromAPIClient) TSDB(ctx context.Context) (v1.TSDBResult, error) {
+func (m *MockPromAPIClient) TSDB(ctx context.Context, opts ...v1.Option) (v1.TSDBResult, error) {
 	return v1.TSDBResult{}, nil
 }
 

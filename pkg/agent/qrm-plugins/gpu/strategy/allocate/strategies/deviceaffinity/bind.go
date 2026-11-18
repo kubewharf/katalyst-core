@@ -51,12 +51,12 @@ func (s *DeviceAffinityStrategy) Bind(
 	general.InfoS("device affinity strategy binding called",
 		"available devices", sortedDevices)
 
-	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices)
+	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices, false)
 	if !valid {
 		return &allocate.AllocationResult{
 			Success:      false,
 			ErrorMessage: errMsg,
-		}, fmt.Errorf(errMsg)
+		}, fmt.Errorf("%s", errMsg)
 	}
 
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)

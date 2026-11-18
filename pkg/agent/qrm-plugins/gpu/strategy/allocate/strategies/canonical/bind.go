@@ -31,12 +31,12 @@ import (
 func (s *CanonicalStrategy) Bind(
 	ctx *allocate.AllocationContext, sortedDevices []string,
 ) (*allocate.AllocationResult, error) {
-	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices)
+	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices, false)
 	if !valid {
 		return &allocate.AllocationResult{
 			Success:      false,
 			ErrorMessage: errMsg,
-		}, fmt.Errorf(errMsg)
+		}, fmt.Errorf("%s", errMsg)
 	}
 
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)

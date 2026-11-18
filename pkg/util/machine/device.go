@@ -372,6 +372,17 @@ func (r *DeviceTopologyRegistry) GetAffinityDevices(deviceA, deviceB string) (ma
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceB, err)
 	}
 
+	return GetAffinityDevicesFromTopology(deviceTopologyA, deviceTopologyB)
+}
+
+// GetAffinityDevicesFromTopology resolves affinity from the supplied snapshots
+// without reading the registry. Dimensions take precedence; NUMA nodes are used
+// only when no dimension-based affinity exists.
+func GetAffinityDevicesFromTopology(deviceTopologyA, deviceTopologyB *DeviceTopology) (map[string]map[string]DeviceIDs, error) {
+	if deviceTopologyA == nil || deviceTopologyB == nil {
+		return nil, fmt.Errorf("device topology is nil when resolving affinity")
+	}
+
 	result := getAffinityFromDimensions(deviceTopologyA, deviceTopologyB)
 	if len(result) == 0 {
 		result = getAffinityFromNumaNodes(deviceTopologyA, deviceTopologyB)

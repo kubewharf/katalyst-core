@@ -234,7 +234,9 @@ func (*mutatingDeviceAffinityProvider) WatchTopologyChanged(stopCh <-chan struct
 }
 
 func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
+	t.Parallel()
 	t.Run("clones cached topology before updating affinity", func(t *testing.T) {
+		t.Parallel()
 		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 		registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
 		affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
@@ -257,6 +259,7 @@ func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
 	})
 
 	t.Run("does nothing without cached topology", func(t *testing.T) {
+		t.Parallel()
 		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 		provider := &retainingDeviceTopologyProvider{}
 		registry.RegisterDeviceTopologyProvider("gpu", provider)
@@ -268,6 +271,7 @@ func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
 	})
 
 	t.Run("preserves cached topology when provider update fails", func(t *testing.T) {
+		t.Parallel()
 		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 		provider := &retainingDeviceTopologyProvider{}
 		registry.RegisterDeviceTopologyProvider("gpu", provider)
@@ -294,6 +298,7 @@ func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
 }
 
 func TestDeviceTopologyRegistry_UpdateTopologyDoesNotMutatePublishedSnapshot(t *testing.T) {
+	t.Parallel()
 	registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 	registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
 	affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
@@ -567,6 +572,76 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 				assert.NoError(t, err)
 				evaluateDeviceAffinityMap(t, tt.expected, actual)
 			}
+		})
+	}
+}
+
+func TestGetAffinityDevicesFromTopology(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		topologyA   *DeviceTopology
+		topologyB   *DeviceTopology
+		expected    map[string]map[string]DeviceIDs
+		expectedErr bool
+	}{
+		{
+			name: "dimensions take precedence over NUMA",
+			topologyA: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"g0": {Dimensions: DeviceDimensions{"pcie": "A"}, NumaNodes: []int{0}},
+			}},
+			topologyB: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"rA": {Health: "Unhealthy", Dimensions: DeviceDimensions{"pcie": "A"}, NumaNodes: []int{1}},
+				"rB": {Dimensions: DeviceDimensions{"pcie": "B"}, NumaNodes: []int{0}},
+			}},
+			expected: map[string]map[string]DeviceIDs{"g0": {"pcie": {"rA"}}},
+		},
+		{
+			name: "NUMA fallback",
+			topologyA: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"g0": {NumaNodes: []int{0, 1}},
+			}},
+			topologyB: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"r0": {NumaNodes: []int{1}},
+			}},
+			expected: map[string]map[string]DeviceIDs{"g0": {DimensionNuma: {"r0"}}},
+		},
+		{
+			name: "no affinity",
+			topologyA: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"g0": {NumaNodes: []int{0}},
+			}},
+			topologyB: &DeviceTopology{Devices: map[string]DeviceInfo{
+				"r0": {NumaNodes: []int{1}},
+			}},
+			expected: map[string]map[string]DeviceIDs{},
+		},
+		{
+			name:      "empty inventory",
+			topologyA: &DeviceTopology{},
+			topologyB: &DeviceTopology{},
+			expected:  map[string]map[string]DeviceIDs{},
+		},
+		{name: "nil source", topologyB: &DeviceTopology{}, expectedErr: true},
+		{name: "nil target", topologyA: &DeviceTopology{}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			originalA, originalB := tt.topologyA.Clone(), tt.topologyB.Clone()
+			actual, err := GetAffinityDevicesFromTopology(tt.topologyA, tt.topologyB)
+			if tt.expectedErr {
+				assert.Error(t, err)
+				assert.Nil(t, actual)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, actual)
+			}
+			assert.Equal(t, originalA, tt.topologyA)
+			assert.Equal(t, originalB, tt.topologyB)
 		})
 	}
 }
@@ -1119,7 +1194,9 @@ func TestDeviceTopologyRegistry_GetDeviceTopologies(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			topologies, ok := registry.GetDeviceTopologies(tt.deviceNames)
 			assert.Equal(t, tt.expectOk, ok)
 			if tt.expectOk {
@@ -1205,7 +1282,9 @@ func TestDeviceTopologyRegistry_GetLatestDeviceTopology(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			latest, latestName, err := registry.GetLatestDeviceTopology(tt.deviceNames)
 			if tt.expectErr {
 				assert.Error(t, err)

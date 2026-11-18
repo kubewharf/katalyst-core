@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	resourceutil "k8s.io/kubernetes/pkg/api/v1/resource"
+	resourceutil "k8s.io/component-helpers/resource"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -203,7 +203,7 @@ func (m *managerImpl) getPodOriginalCPURequests(pod *v1.Pod) int64 {
 		return cpuRequests
 	}
 
-	reqs, _ := resourceutil.PodRequestsAndLimits(pod)
+	reqs := resourceutil.PodRequests(pod, resourceutil.PodResourcesOptions{})
 	if cpuQuantity, ok := reqs[v1.ResourceCPU]; ok {
 		return cpuQuantity.MilliValue()
 	}

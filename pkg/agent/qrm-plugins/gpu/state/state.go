@@ -326,14 +326,21 @@ func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(ac
 	return float64(accompanyResourceNumber) / float64(targetResourceNumber)
 }
 
-// CalculateTargetDevicesToAllocate calculates the number of target devices to be allocated
-// proportionally to the accompany resource devices.
-func (arm AllocationResourcesMap) CalculateTargetDevicesToAllocate(ratio float64, accompanyAllocatedDeviceCount int) (int, error) {
+// CalculateTargetDevicesToAllocate calculates the proportional target count.
+// roundUp allows non-integral ratios by taking the ceiling.
+func (arm AllocationResourcesMap) CalculateTargetDevicesToAllocate(
+	ratio float64,
+	accompanyAllocatedDeviceCount int,
+	roundUp bool,
+) (int, error) {
 	if ratio <= 0 {
 		ratio = 1
 	}
 
 	devicesNeededFloat := float64(accompanyAllocatedDeviceCount) / ratio
+	if roundUp {
+		return int(math.Ceil(devicesNeededFloat)), nil
+	}
 
 	// Ensure the calculated devices needed is a whole number (with a small epsilon for floating point precision)
 	if math.Abs(devicesNeededFloat-math.Round(devicesNeededFloat)) > 1e-9 {
