@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
@@ -52,7 +53,7 @@ func TestAllocate(t *testing.T) {
 
 	respOut, err := e.Allocate(context.TODO(), req)
 	require.NoError(t, err)
-	require.Equal(t, resp, respOut)
+	require.True(t, proto.Equal(resp, respOut))
 }
 
 func TestNewStoppedEndpointImpl(t *testing.T) {
@@ -89,7 +90,7 @@ func TestGetResourceAllocation(t *testing.T) {
 
 	actual, err := e.GetResourceAllocation(context.TODO(), &pluginapi.GetResourcesAllocationRequest{})
 	require.NoError(t, err)
-	require.Equal(t, actual, resp)
+	require.True(t, proto.Equal(resp, actual))
 }
 
 func TestGetTopologyAwareAllocatableResources(t *testing.T) {
@@ -106,7 +107,7 @@ func TestGetTopologyAwareAllocatableResources(t *testing.T) {
 
 	actual, err := e.GetTopologyAwareAllocatableResources(context.TODO(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
 	require.NoError(t, err)
-	require.Equal(t, resp, actual)
+	require.True(t, proto.Equal(resp, actual))
 }
 
 func TestGetTopologyAwareResources(t *testing.T) {
@@ -123,7 +124,7 @@ func TestGetTopologyAwareResources(t *testing.T) {
 
 	actual, err := e.GetTopologyAwareResources(context.TODO(), &pluginapi.GetTopologyAwareResourcesRequest{})
 	require.NoError(t, err)
-	require.Equal(t, resp, actual)
+	require.True(t, proto.Equal(resp, actual))
 }
 
 func TestClient(t *testing.T) {

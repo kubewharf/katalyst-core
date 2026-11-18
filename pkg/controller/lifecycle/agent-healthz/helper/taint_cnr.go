@@ -98,7 +98,7 @@ func (t *CNRTaintHelper) Run() {
 // doTaint is used to pop nodes from to-be-tainted queue,
 // and then trigger the taint actions
 func (t *CNRTaintHelper) doTaint() {
-	t.queue.Try(func(value scheduler.TimedValue) (bool, time.Duration) {
+	t.queue.Try(klog.FromContext(t.ctx), func(value scheduler.TimedValue) (bool, time.Duration) {
 		node := value.Value
 
 		cnr, err := t.cnrLister.Get(value.Value)

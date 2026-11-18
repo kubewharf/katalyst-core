@@ -383,7 +383,7 @@ func (rrc *ResourceRecommendController) RegisterTasks(recommendation recommendat
 				recommendation.Config.TargetRef, container.ContainerName,
 				containerConfig.ControlledResource, "")
 			if err := processor.Register(processConfig); err != nil {
-				return errortypes.DataProcessRegisteredFailedError(err.Error())
+				return errortypes.DataProcessRegisteredFailedError("%s", err.Error())
 			}
 		}
 	}
