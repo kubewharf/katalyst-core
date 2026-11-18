@@ -250,6 +250,7 @@ func getInterfaceIndex(nicsBaseDirPath string, info *InterfaceInfo) {
 		return
 	}
 	info.IfIndex = iface.Index
+	info.HardwareAddr = iface.HardwareAddr
 }
 
 // getInterfaceAttr parses key information from system files
