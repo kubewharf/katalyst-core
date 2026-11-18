@@ -234,7 +234,9 @@ func (*mutatingDeviceAffinityProvider) WatchTopologyChanged(stopCh <-chan struct
 }
 
 func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
+	t.Parallel()
 	t.Run("clones cached topology before updating affinity", func(t *testing.T) {
+		t.Parallel()
 		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 		registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
 		affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
@@ -257,6 +259,7 @@ func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
 	})
 
 	t.Run("does nothing without cached topology", func(t *testing.T) {
+		t.Parallel()
 		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 		provider := &retainingDeviceTopologyProvider{}
 		registry.RegisterDeviceTopologyProvider("gpu", provider)
@@ -268,6 +271,7 @@ func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
 	})
 
 	t.Run("preserves cached topology when provider update fails", func(t *testing.T) {
+		t.Parallel()
 		registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 		provider := &retainingDeviceTopologyProvider{}
 		registry.RegisterDeviceTopologyProvider("gpu", provider)
@@ -294,6 +298,7 @@ func TestDeviceTopologyRegistry_UpdateTopology(t *testing.T) {
 }
 
 func TestDeviceTopologyRegistry_UpdateTopologyDoesNotMutatePublishedSnapshot(t *testing.T) {
+	t.Parallel()
 	registry := NewDeviceTopologyRegistry(metrics.DummyMetrics{})
 	registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProvider())
 	affinityProvider := &mutatingDeviceAffinityProvider{dimensionValue: "0"}
@@ -1189,7 +1194,9 @@ func TestDeviceTopologyRegistry_GetDeviceTopologies(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			topologies, ok := registry.GetDeviceTopologies(tt.deviceNames)
 			assert.Equal(t, tt.expectOk, ok)
 			if tt.expectOk {
@@ -1275,7 +1282,9 @@ func TestDeviceTopologyRegistry_GetLatestDeviceTopology(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			latest, latestName, err := registry.GetLatestDeviceTopology(tt.deviceNames)
 			if tt.expectErr {
 				assert.Error(t, err)

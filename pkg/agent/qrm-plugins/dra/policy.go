@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"time"
@@ -35,8 +36,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 )
 
-const staticPolicyName = "compute-domain.nvidia.com"
-const DefaultDriverName = staticPolicyName
+const (
+	staticPolicyName  = "compute-domain.nvidia.com"
+	DefaultDriverName = staticPolicyName
+)
 
 type StaticPolicy struct {
 	driverName     string
@@ -90,7 +93,20 @@ func (p *StaticPolicy) lockClaim(uid string) func() {
 	}
 }
 
-func NewStaticPolicy(options Options) (*StaticPolicy, error) {
+// NewStaticPolicy constructs the policy and delegates registration and lifecycle
+// to the shared skeleton. Start returns before asynchronous initialization finishes.
+func NewStaticPolicy(options Options) (*skeleton.PluginRegistrationWrapper, error) {
+	if !filepath.IsAbs(options.RegistrationDir) {
+		return nil, fmt.Errorf("DRA registration directory must be absolute")
+	}
+	policy, err := newStaticPolicy(options)
+	if err != nil {
+		return nil, err
+	}
+	return skeleton.NewRegistrationPluginWrapper(policy, []string{options.RegistrationDir}, nil)
+}
+
+func newStaticPolicy(options Options) (*StaticPolicy, error) {
 	if options.DriverName == "" {
 		options.DriverName = DefaultDriverName
 	}
@@ -239,8 +255,4 @@ func (p *StaticPolicy) Stop() error {
 	return err
 }
 
-// Keep the fixed API fork: DRA registration is supplied by the adapter.
-var _ interface {
-	skeleton.GenericPlugin
-	drapluginapi.DRAPluginServer
-} = (*StaticPolicy)(nil)
+var _ skeleton.DRAPlugin = (*StaticPolicy)(nil)

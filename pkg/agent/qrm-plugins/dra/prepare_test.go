@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ type fakeProvider struct {
 }
 
 func TestCoDependentClaimsDoNotHoldGlobalCheckpointLock(t *testing.T) {
+	t.Parallel()
 	entered := make(chan struct{})
 	daemonReady := make(chan struct{})
 	provider := &fakeProvider{prepareFunc: func(c *resourcev1.ResourceClaim) (PrepareResult, error) {
@@ -134,6 +135,7 @@ func (p *releasingProvider) Unprepare(_ context.Context, c state.PreparedClaim) 
 }
 
 func TestUnprepareDeletionFailureCannotReturnReleasedDevices(t *testing.T) {
+	t.Parallel()
 	store := &deleteFailureState{State: state.NewMemoryState(), fail: true}
 	provider := &releasingProvider{store: store}
 	plugin := newOperationTestPlugin(provider)
@@ -157,6 +159,7 @@ func TestUnprepareDeletionFailureCannotReturnReleasedDevices(t *testing.T) {
 }
 
 func TestPrepareOnePersistsTransitionsAndIsIdempotent(t *testing.T) {
+	t.Parallel()
 	provider := &fakeProvider{prepareResults: []PrepareResult{{
 		Devices: []state.PreparedDevice{{
 			Requests:     []string{"request-a/subrequest-a"},
@@ -187,6 +190,7 @@ func TestPrepareOnePersistsTransitionsAndIsIdempotent(t *testing.T) {
 }
 
 func TestPrepareOneKeepsStartedStateAfterProviderFailure(t *testing.T) {
+	t.Parallel()
 	provider := &fakeProvider{prepareErrors: []error{
 		errors.New("host service unavailable"),
 	}}
@@ -204,6 +208,7 @@ func TestPrepareOneKeepsStartedStateAfterProviderFailure(t *testing.T) {
 }
 
 func TestPrepareOneRejectsOverlappingNonAdminDevice(t *testing.T) {
+	t.Parallel()
 	provider := &fakeProvider{}
 	plugin := newOperationTestPlugin(provider)
 	existing := allocatedDeviceClaim(
@@ -224,6 +229,7 @@ func TestPrepareOneRejectsOverlappingNonAdminDevice(t *testing.T) {
 }
 
 func TestPrepareOneAllowsAdminDeviceOverlap(t *testing.T) {
+	t.Parallel()
 	provider := &fakeProvider{}
 	plugin := newOperationTestPlugin(provider)
 	existing := allocatedDeviceClaim(
@@ -243,7 +249,9 @@ func TestPrepareOneAllowsAdminDeviceOverlap(t *testing.T) {
 }
 
 func TestRunWithRetry(t *testing.T) {
+	t.Parallel()
 	t.Run("retryable error", func(t *testing.T) {
+		t.Parallel()
 		attempts := 0
 		got, err := runWithRetry(
 			context.Background(),
@@ -263,6 +271,7 @@ func TestRunWithRetry(t *testing.T) {
 	})
 
 	t.Run("non-retryable error", func(t *testing.T) {
+		t.Parallel()
 		attempts := 0
 		_, err := runWithRetry(
 			context.Background(),
@@ -278,6 +287,7 @@ func TestRunWithRetry(t *testing.T) {
 	})
 
 	t.Run("deadline", func(t *testing.T) {
+		t.Parallel()
 		attempts := 0
 		_, err := runWithRetry(
 			context.Background(),
@@ -294,6 +304,7 @@ func TestRunWithRetry(t *testing.T) {
 }
 
 func TestNodePrepareResourcesReturnsOneResponsePerClaim(t *testing.T) {
+	t.Parallel()
 	valid := allocatedDeviceClaim(
 		"ns-a", "valid", "uid-valid", "request-a", false,
 	)
@@ -334,6 +345,7 @@ func TestNodePrepareResourcesReturnsOneResponsePerClaim(t *testing.T) {
 }
 
 func TestNodePrepareResourcesDoesNotBlockOtherClaims(t *testing.T) {
+	t.Parallel()
 	retrying := allocatedDeviceClaim(
 		"ns-a", "retrying", "uid-retrying", "request-a", false,
 	)
@@ -373,6 +385,7 @@ func TestNodePrepareResourcesDoesNotBlockOtherClaims(t *testing.T) {
 }
 
 func TestUnprepareOneIsIdempotent(t *testing.T) {
+	t.Parallel()
 	provider := &fakeProvider{}
 	plugin := newOperationTestPlugin(provider)
 	claim := allocatedDeviceClaim(

@@ -1,17 +1,35 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dra
 
 import (
 	"context"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/dra/state"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/stretchr/testify/require"
 	resourcev1 "k8s.io/api/resource/v1"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/dra/state"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 )
 
 func TestPreparePersistsOnlyCurrentDriverAndIgnoresForeignOverlap(t *testing.T) {
+	t.Parallel()
 	var dispatched []*resourcev1.ResourceClaim
 	backend := &fakeProvider{prepareFunc: func(c *resourcev1.ResourceClaim) (PrepareResult, error) {
 		dispatched = append(dispatched, c)
@@ -43,15 +61,17 @@ func TestPreparePersistsOnlyCurrentDriverAndIgnoresForeignOverlap(t *testing.T) 
 }
 
 func TestRestoredMixedCheckpointIsScopedBeforeBackendStart(t *testing.T) {
+	t.Parallel()
 	conf := &statedirectory.StateDirectoryConfiguration{StateFileDirectory: t.TempDir()}
 	checkpoint, err := state.NewCheckpointStateWithName(conf, "restore-test")
 	require.NoError(t, err)
 	claim := allocatedDeviceClaim("ns", "claim", "uid", "gpu", false)
+	claim.Status.Allocation.Devices.Results[0].Driver = "restore.dra.example.com"
 	claim.Status.Allocation.Devices.Results = append(claim.Status.Allocation.Devices.Results, resourcev1.DeviceRequestAllocationResult{Driver: "other.example.com", Pool: "node", Device: "foreign"})
 	require.NoError(t, checkpoint.SetPreparedClaim(state.NewPreparedClaim(claim, state.PrepareCompleted), true))
 	recorder := &lifecycleRecorder{}
 	backend := &lifecycleProvider{recorder: recorder}
-	p, err := NewStaticPolicy(Options{DriverName: "test.dra.example.com", CheckpointName: "restore-test", StateDirectoryConfiguration: conf, KubeClient: kubefake.NewSimpleClientset(), Backend: backend, ResourceSlicePublisher: &lifecyclePublisher{recorder: recorder}})
+	p, err := newStaticPolicy(Options{DriverName: "restore.dra.example.com", CheckpointName: "restore-test", StateDirectoryConfiguration: conf, KubeClient: kubefake.NewSimpleClientset(), Backend: backend, ResourceSlicePublisher: &lifecyclePublisher{recorder: recorder}})
 	require.NoError(t, err)
 	require.NoError(t, p.Start())
 	require.NoError(t, p.Stop())
@@ -64,6 +84,7 @@ func TestRestoredMixedCheckpointIsScopedBeforeBackendStart(t *testing.T) {
 }
 
 func TestDriverCheckpointsAndCleanupNamesAreIndependent(t *testing.T) {
+	t.Parallel()
 	conf := &statedirectory.StateDirectoryConfiguration{StateFileDirectory: t.TempDir()}
 	a, err := state.NewCheckpointStateWithName(conf, "driver-a")
 	require.NoError(t, err)

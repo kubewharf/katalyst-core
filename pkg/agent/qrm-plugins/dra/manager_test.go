@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dra
 
 import (
@@ -10,9 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/dra/state"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,7 +34,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	api "k8s.io/kubelet/pkg/apis/dra/v1"
+	beta "k8s.io/kubelet/pkg/apis/dra/v1beta1"
 	registration "k8s.io/kubelet/pkg/apis/pluginregistration/v1"
+
+	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/dra/state"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 )
 
 type testBackend struct {
@@ -36,6 +54,7 @@ func (*testBackend) Stop() error                              { return nil }
 func (*testBackend) Inventory(context.Context) (Inventory, error) {
 	return Inventory{PoolName: "node", Devices: []resourcev1.Device{{Name: "device"}}}, nil
 }
+
 func (b *testBackend) Prepare(_ context.Context, c *resourcev1.ResourceClaim) (PrepareResult, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -47,6 +66,7 @@ func (b *testBackend) Prepare(_ context.Context, c *resourcev1.ResourceClaim) (P
 	}
 	return PrepareResult{Devices: []state.PreparedDevice{{PoolName: "node", DeviceName: "device", Requests: []string{"request"}, CDIDeviceIDs: []string{b.driver + "/device=one"}}}, ProviderState: json.RawMessage(`{"fake":true}`)}, nil
 }
+
 func (b *testBackend) Unprepare(_ context.Context, c state.PreparedClaim) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -60,6 +80,7 @@ func (b *testBackend) Unprepare(_ context.Context, c state.PreparedClaim) error 
 }
 
 func TestTwoDriversRegisterAndServeIndependentUnixEndpoints(t *testing.T) {
+	t.Parallel()
 	root, err := os.MkdirTemp("/tmp", "dra-")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
@@ -71,11 +92,7 @@ func TestTwoDriversRegisterAndServeIndependentUnixEndpoints(t *testing.T) {
 		backend := &testBackend{driver: config.DriverName}
 		backends[config.DriverName] = backend
 		publisher := &Publisher{Config: &PublisherConfig{NodeName: "node", DriverName: config.DriverName, OwnerName: AgentName, ReconcilePeriod: time.Hour}, Client: kube, Inventory: backend.Inventory}
-		policy, err := NewStaticPolicy(Options{DriverName: config.DriverName, Backend: backend, ResourceSlicePublisher: publisher, KubeClient: kube, StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{StateFileDirectory: config.StateDir}})
-		if err != nil {
-			return nil, err
-		}
-		return NewRegisteredPlugin(policy, runtime.RegistrationDir), nil
+		return NewStaticPolicy(Options{DriverName: config.DriverName, RegistrationDir: runtime.RegistrationDir, Backend: backend, ResourceSlicePublisher: publisher, KubeClient: kube, StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{StateFileDirectory: config.StateDir}})
 	}
 	config := Config{RegistrationDir: root, StateDir: filepath.Join(root, "state")}
 	for i, driver := range drivers {
@@ -84,18 +101,25 @@ func TestTwoDriversRegisterAndServeIndependentUnixEndpoints(t *testing.T) {
 	m, err := NewManagerWithProviders(config, Runtime{NodeName: "node"}, map[string]ProviderFactory{"fake": factory})
 	require.NoError(t, err)
 	require.NoError(t, m.Start())
-	t.Cleanup(func() { require.NoError(t, m.Stop()) })
+	var stopOnce sync.Once
+	var stopErr error
+	stopManager := func() error {
+		stopOnce.Do(func() { stopErr = m.Stop() })
+		return stopErr
+	}
+	t.Cleanup(func() { require.NoError(t, stopManager()) })
 	endpoints := map[string]*grpc.ClientConn{}
 	for _, driver := range drivers {
 		conn, err := grpc.NewClient("unix:"+filepath.Join(root, driver+".sock"), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = conn.Close() })
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		info, err := registration.NewRegistrationClient(conn).GetInfo(ctx, &registration.InfoRequest{})
+		info, err := registration.NewRegistrationClient(conn).GetInfo(ctx, &registration.InfoRequest{}, grpc.WaitForReady(true))
 		require.NoError(t, err)
 		require.Equal(t, registration.DRAPlugin, info.Type)
 		require.Equal(t, driver, info.Name)
-		require.Equal(t, filepath.Join(root, driver+".sock"), info.Endpoint)
+		require.Empty(t, info.Endpoint)
+		require.ElementsMatch(t, []string{api.DRAPluginService, beta.DRAPluginService}, info.SupportedVersions)
 		_, err = registration.NewRegistrationClient(conn).NotifyRegistrationStatus(ctx, &registration.RegistrationStatus{PluginRegistered: true})
 		require.NoError(t, err)
 		cancel()
@@ -103,7 +127,9 @@ func TestTwoDriversRegisterAndServeIndependentUnixEndpoints(t *testing.T) {
 	}
 	request := &api.NodePrepareResourcesRequest{Claims: []*api.Claim{{Namespace: "ns", Name: "claim", Uid: "claim-uid"}}}
 	for _, driver := range drivers {
-		response, err := api.NewDRAPluginClient(endpoints[driver]).NodePrepareResources(context.Background(), request)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		response, err := api.NewDRAPluginClient(endpoints[driver]).NodePrepareResources(ctx, request)
+		cancel()
 		require.NoError(t, err)
 		require.Empty(t, response.Claims["claim-uid"].Error)
 		require.Equal(t, driver+"/device=one", response.Claims["claim-uid"].Devices[0].CdiDeviceIds[0])
@@ -113,13 +139,15 @@ func TestTwoDriversRegisterAndServeIndependentUnixEndpoints(t *testing.T) {
 	require.Len(t, slices.Items, 2)
 	require.NotEqual(t, slices.Items[0].Name, slices.Items[1].Name)
 	for _, driver := range drivers {
-		response, err := api.NewDRAPluginClient(endpoints[driver]).NodeUnprepareResources(context.Background(), &api.NodeUnprepareResourcesRequest{Claims: request.Claims})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		response, err := api.NewDRAPluginClient(endpoints[driver]).NodeUnprepareResources(ctx, &api.NodeUnprepareResourcesRequest{Claims: request.Claims})
+		cancel()
 		require.NoError(t, err)
 		require.Empty(t, response.Claims["claim-uid"].Error)
 		require.Equal(t, 1, backends[driver].prepared)
 		require.Equal(t, 1, backends[driver].unprepared)
 	}
-	require.NoError(t, m.Stop())
+	require.NoError(t, stopManager())
 	for _, driver := range drivers {
 		_, err := os.Stat(filepath.Join(root, driver+".sock"))
 		require.True(t, os.IsNotExist(err))
@@ -138,6 +166,7 @@ func (p *testPlugin) Start() error { return p.startErr }
 func (p *testPlugin) Stop() error  { p.stopped++; return p.stopErr }
 
 func TestManagerRejectsDuplicatesAndRollsBackRequiredFailure(t *testing.T) {
+	t.Parallel()
 	config := Config{RegistrationDir: "/tmp", StateDir: "/tmp/dra-state", Plugins: []PluginConfig{{ID: "first", Provider: "fake", Enabled: true, Required: true, DriverName: "a.example.com"}, {ID: "second", Provider: "fake", Enabled: true, Required: true, DriverName: "b.example.com"}}}
 	a := &testPlugin{name: "a.example.com"}
 	b := &testPlugin{name: "b.example.com", startErr: errors.New("failure")}
@@ -163,6 +192,7 @@ func TestManagerRejectsDuplicatesAndRollsBackRequiredFailure(t *testing.T) {
 }
 
 func TestUnsupportedAutodetectAndStrictConfiguration(t *testing.T) {
+	t.Parallel()
 	config := Config{RegistrationDir: "/tmp", StateDir: "/tmp/dra-state", Plugins: []PluginConfig{{ID: "fake", Enabled: true, AutoDetect: true, DriverName: "a.example.com"}}}
 	factories := map[string]ProviderFactory{"fake": func(PluginConfig, Runtime) (skeleton.GenericPlugin, error) { return nil, ErrUnsupportedNode }}
 	m, err := NewManagerWithProviders(config, Runtime{}, factories)
@@ -175,15 +205,16 @@ func TestUnsupportedAutodetectAndStrictConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, m.Start())
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("registrationDir: /tmp\nstateDir: /tmp/state\nplugins: []\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("registrationDir: /tmp\nstateDir: /tmp/state\nplugins: []\n"), 0o600))
 	_, err = LoadConfig(path)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path, []byte("stateDir: /tmp/state\nunknownField: true\n"), 0600))
+	require.NoError(t, os.WriteFile(path, []byte("stateDir: /tmp/state\nunknownField: true\n"), 0o600))
 	_, err = LoadConfig(path)
 	require.Error(t, err)
 }
 
 func TestInjectedFactoriesAndConfigurationAreSnapshots(t *testing.T) {
+	t.Parallel()
 	config := Config{RegistrationDir: "/tmp", StateDir: "/tmp/dra-state", Plugins: []PluginConfig{{ID: "fake", Enabled: true, Required: true, DriverName: DefaultDriverName, Config: map[string]json.RawMessage{"option": json.RawMessage(`"original"`)}}}}
 	var resolved PluginConfig
 	factories := map[string]ProviderFactory{"fake": func(p PluginConfig, _ Runtime) (skeleton.GenericPlugin, error) {
@@ -204,6 +235,7 @@ func TestInjectedFactoriesAndConfigurationAreSnapshots(t *testing.T) {
 }
 
 func TestIncompleteShutdownBlocksRestartUntilCleanupSucceeds(t *testing.T) {
+	t.Parallel()
 	config := Config{RegistrationDir: "/tmp", StateDir: "/tmp/dra-state", Plugins: []PluginConfig{{ID: "fake", Enabled: true, Required: true, DriverName: "a.example.com"}}}
 	plugin := &testPlugin{name: "a.example.com", stopErr: errors.New("cleanup failure")}
 	manager, err := NewManagerWithProviders(config, Runtime{}, map[string]ProviderFactory{"fake": func(PluginConfig, Runtime) (skeleton.GenericPlugin, error) { return plugin, nil }})

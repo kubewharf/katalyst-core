@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import (
 )
 
 func TestNonRetryableErrorClassification(t *testing.T) {
+	t.Parallel()
 	base := errors.New("invalid allocation")
 
 	require.Nil(t, NonRetryable(nil))

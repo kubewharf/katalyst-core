@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 )
 
 func TestNewPreparedClaimCopiesClaim(t *testing.T) {
+	t.Parallel()
 	claim := &resourcev1.ResourceClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:       types.UID("uid-a"),
@@ -48,6 +49,7 @@ func TestNewPreparedClaimCopiesClaim(t *testing.T) {
 }
 
 func TestMemoryStateClonesValues(t *testing.T) {
+	t.Parallel()
 	memoryState := NewMemoryState()
 	claim := PreparedClaim{
 		UID:           "uid-a",
@@ -80,6 +82,7 @@ func TestMemoryStateClonesValues(t *testing.T) {
 }
 
 func TestMemoryStateSetListDelete(t *testing.T) {
+	t.Parallel()
 	memoryState := NewMemoryState()
 
 	require.NoError(t, memoryState.SetPreparedClaims(map[string]PreparedClaim{

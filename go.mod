@@ -188,12 +188,12 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
+	sigs.k8s.io/yaml v1.6.0
 )
 
 replace (
 	github.com/cyphar/filepath-securejoin => github.com/cyphar/filepath-securejoin v0.4.1
-	github.com/kubewharf/katalyst-api => github.com/JustinChengLZ/katalyst-api v0.0.0-20261022071010-4d684f62c575
+	github.com/kubewharf/katalyst-api => github.com/JustinChengLZ/katalyst-api v0.0.0-20261118020426-3de6f8967b45
 	github.com/opencontainers/runc => github.com/opencontainers/runc v1.2.5
 	github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.11.1
 	k8s.io/api => k8s.io/api v0.35.9

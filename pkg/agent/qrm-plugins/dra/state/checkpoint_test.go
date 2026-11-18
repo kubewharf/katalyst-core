@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import (
 )
 
 func TestCheckpointStateHonorsPersistFlag(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	conf := &statedirectory.StateDirectoryConfiguration{StateFileDirectory: stateDir}
 
@@ -50,6 +51,7 @@ func TestCheckpointStateHonorsPersistFlag(t *testing.T) {
 }
 
 func TestCheckpointStatePersistsMutation(t *testing.T) {
+	t.Parallel()
 	conf := &statedirectory.StateDirectoryConfiguration{
 		StateFileDirectory: t.TempDir(),
 	}
@@ -75,6 +77,7 @@ func TestCheckpointStatePersistsMutation(t *testing.T) {
 }
 
 func TestCheckpointStateMigratesPreviousDirectory(t *testing.T) {
+	t.Parallel()
 	diskDir := t.TempDir()
 	memoryDir := t.TempDir()
 	diskConfig := &statedirectory.StateDirectoryConfiguration{
@@ -103,6 +106,7 @@ func TestCheckpointStateMigratesPreviousDirectory(t *testing.T) {
 }
 
 func TestDRAPluginCheckpointChecksum(t *testing.T) {
+	t.Parallel()
 	checkpoint := NewDRAPluginCheckpoint()
 	checkpoint.PreparedClaims["uid-a"] = PreparedClaim{UID: "uid-a"}
 
@@ -118,6 +122,7 @@ func TestDRAPluginCheckpointChecksum(t *testing.T) {
 }
 
 func TestCheckpointStateRejectsUnsupportedVersion(t *testing.T) {
+	t.Parallel()
 	checkpointState := &stateCheckpoint{cache: NewMemoryState()}
 	checkpoint := NewDRAPluginCheckpoint()
 	checkpoint.Version++
@@ -127,6 +132,7 @@ func TestCheckpointStateRejectsUnsupportedVersion(t *testing.T) {
 }
 
 func TestNewCheckpointStateRejectsNilConfiguration(t *testing.T) {
+	t.Parallel()
 	_, err := NewCheckpointState(nil)
 	require.ErrorContains(t, err, "state directory configuration is required")
 }

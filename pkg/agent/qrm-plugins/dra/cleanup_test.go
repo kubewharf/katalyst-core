@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -92,11 +92,14 @@ func (s *failingDeleteState) DeletePreparedClaim(
 }
 
 func TestCleanupResidualClaimWaitsForGracePeriod(t *testing.T) {
+	t.Parallel()
 	for _, phase := range []state.ClaimPhase{
 		state.PrepareStarted,
 		state.PrepareCompleted,
 	} {
+		phase := phase
 		t.Run(string(phase), func(t *testing.T) {
+			t.Parallel()
 			provider := &cleanupProvider{}
 			plugin := newCleanupTestPlugin(
 				provider,
@@ -121,6 +124,7 @@ func TestCleanupResidualClaimWaitsForGracePeriod(t *testing.T) {
 }
 
 func TestCleanupResidualClaimResetsWhenClaimReappears(t *testing.T) {
+	t.Parallel()
 	provider := &cleanupProvider{}
 	client := kubefake.NewSimpleClientset()
 	plugin := newCleanupTestPlugin(provider, client)
@@ -150,6 +154,7 @@ func TestCleanupResidualClaimResetsWhenClaimReappears(t *testing.T) {
 }
 
 func TestCleanupResidualClaimIgnoresTemporaryGetError(t *testing.T) {
+	t.Parallel()
 	provider := &cleanupProvider{}
 	client := kubefake.NewSimpleClientset()
 	temporaryFailure := true
@@ -176,6 +181,7 @@ func TestCleanupResidualClaimIgnoresTemporaryGetError(t *testing.T) {
 }
 
 func TestCleanupResidualClaimTreatsReplacementAsMissing(t *testing.T) {
+	t.Parallel()
 	provider := &cleanupProvider{}
 	client := kubefake.NewSimpleClientset(
 		allocatedClaim("ns-a", "claim-a", "uid-new"),
@@ -192,6 +198,7 @@ func TestCleanupResidualClaimTreatsReplacementAsMissing(t *testing.T) {
 }
 
 func TestCleanupResidualClaimRetriesFailedCleanup(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		providerError error
@@ -207,7 +214,9 @@ func TestCleanupResidualClaimRetriesFailedCleanup(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			provider := &cleanupProvider{
 				unprepareErrors: []error{tt.providerError},
 			}
@@ -246,6 +255,7 @@ func TestCleanupResidualClaimRetriesFailedCleanup(t *testing.T) {
 }
 
 func TestCleanupResidualClaimUsesPluginContext(t *testing.T) {
+	t.Parallel()
 	unprepareStarted := make(chan struct{})
 	provider := &cleanupProvider{
 		unprepareFunc: func(ctx context.Context) error {

@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import (
 )
 
 func TestResolveClaim(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		claim            *resourcev1.ResourceClaim
@@ -66,7 +67,9 @@ func TestResolveClaim(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			client := kubefake.NewSimpleClientset()
 			if tt.claim != nil {
 				_, err := client.ResourceV1().ResourceClaims(tt.claim.Namespace).
@@ -88,6 +91,7 @@ func TestResolveClaim(t *testing.T) {
 }
 
 func TestPreparedDeviceResponse(t *testing.T) {
+	t.Parallel()
 	response := preparedDeviceResponse(state.PreparedDevice{
 		Requests:     []string{"request-a/subrequest-a", "request-b"},
 		PoolName:     "pool-a",

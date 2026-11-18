@@ -9,9 +9,31 @@ Embedding agents supply their compiled vendor implementations using
 `NewManagerWithProviders`. The latter snapshots the factory map and configuration
 at construction. A `ProviderFactory` receives the resolved `PluginConfig` and
 node `Runtime`, and returns a `skeleton.GenericPlugin` whose `Name()` equals the
-configured driver. A factory typically builds a `ResourceBackend`, injects it
-and a `ResourceSlicePublisher` into `NewStaticPolicy`, then returns
-`NewRegisteredPlugin(policy, runtime.RegistrationDir)`.
+configured driver. A factory builds a `ResourceBackend` and a
+`ResourceSlicePublisher`, then returns the registered policy directly:
+
+```go
+return NewStaticPolicy(Options{
+    DriverName: config.DriverName,
+    RegistrationDir: runtime.RegistrationDir,
+    Backend: backend,
+    ResourceSlicePublisher: publisher,
+    KubeClient: kube,
+    StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
+        StateFileDirectory: config.StateDir,
+    },
+})
+```
+
+`NewStaticPolicy` constructs the shared Katalyst API registration wrapper, like
+CPU. Startup is asynchronous and retries initialization: successful
+`Manager.Start()` does not mean the driver is ready or accepted by kubelet.
+Factory errors remain visible to Manager, but asynchronous policy initialization
+failures do not trigger immediate required-provider rollback or optional-provider
+skipping. Normal shared-wrapper shutdown is terminal: stop it once and construct
+a fresh wrapper/Manager for another run. The former custom socket ownership and
+failed-shutdown retry guarantees are not provided; each driver endpoint must have
+one owning process.
 
 Use factory closures to inject environment-specific clients or configuration.
 Normalize migration defaults before creating the manager. Core does not import
@@ -31,4 +53,6 @@ socket, state/checkpoint, CDI and service resources.
 
 The dual-driver tests use real Unix gRPC endpoints with fake backends and API
 clients. They check registration, mixed-claim Prepare/Unprepare isolation,
-ResourceSlice separation, rollback, and retry after failed shutdown.
+ResourceSlice separation. Separate Manager tests use synchronous fake plugins to
+check rollback and failed-stop retention; they do not establish those guarantees
+for the asynchronous shared registration wrapper.

@@ -52,6 +52,9 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	conf.QRMPluginSocketDirs = []string{tmpDir}
 	conf.CheckpointManagerDir = tmpDir
 	conf.KubeletDevicePluginPath = tmpDir
+	// Allocation tests do not use CRI; an unsupported scheme fails immediately
+	// instead of blocking fixture construction on an empty Unix endpoint.
+	conf.RuntimeEndpoint = "unsupported://rdma-unit-test"
 
 	return conf
 }
@@ -641,79 +644,89 @@ func TestRDMADevicePlugin_HybridClassicTopologyMixedAllocations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			basePlugin := makeTestBasePlugin(t)
-			basePlugin.Conf.EnableHybridAccompanyResourceAllocation = true
-			basePlugin.Conf.AccompanyResourceSharedAnnotationKey = sharedAnnotationKey
-			basePlugin.PodAnnotationKeptKeys = append(basePlugin.PodAnnotationKeptKeys, sharedAnnotationKey)
-			devicePlugin := NewRDMADevicePlugin(basePlugin).(*RDMADevicePlugin)
-			registerTestRDMAAccompanyStrategy(t, basePlugin)
-			installClassicPluginTopology(t, basePlugin, tt.gpuCount, tt.rdmaCount)
-
 			for i, step := range tt.steps {
+				i := i
 				step := step
 				t.Run(step.name, func(t *testing.T) {
-					podUID := fmt.Sprintf("%s-pod-%d", tt.name, i)
-					containerName := "container"
-					seedGPUAllocation(t, basePlugin, podUID, containerName, step.gpus)
-					available := availableRDMADevices(t, basePlugin, tt.rdmaCount)
-					expected := rdmaDeviceIDs(step.expectedRDMAs)
-					annotations := map[string]string{}
-					if step.shared {
-						annotations[sharedAnnotationKey] = "true"
-					}
-					requestedRDMAs := (len(step.gpus)*tt.rdmaCount + tt.gpuCount - 1) / tt.gpuCount
-					previouslyOwned := make(map[string]bool, len(expected))
+					t.Parallel()
 
-					for _, id := range expected {
-						if rdmaHasOwners(basePlugin.GetState().GetMachineState()[gpuconsts.RDMADeviceType][id]) {
-							previouslyOwned[id] = true
-							assert.NotContains(t, available, id)
+					// Replay the sequence prefix in a private fixture, preserving prior owners.
+					basePlugin := makeTestBasePlugin(t)
+					basePlugin.Conf.EnableHybridAccompanyResourceAllocation = true
+					basePlugin.Conf.AccompanyResourceSharedAnnotationKey = sharedAnnotationKey
+					basePlugin.PodAnnotationKeptKeys = append(basePlugin.PodAnnotationKeptKeys, sharedAnnotationKey)
+					devicePlugin := NewRDMADevicePlugin(basePlugin).(*RDMADevicePlugin)
+					registerTestRDMAAccompanyStrategy(t, basePlugin)
+					installClassicPluginTopology(t, basePlugin, tt.gpuCount, tt.rdmaCount)
+
+					runStep := func(i int, step allocationStep) {
+						t.Helper()
+						podUID := fmt.Sprintf("%s-pod-%d", tt.name, i)
+						containerName := "container"
+						seedGPUAllocation(t, basePlugin, podUID, containerName, step.gpus)
+						available := availableRDMADevices(t, basePlugin, tt.rdmaCount)
+						expected := rdmaDeviceIDs(step.expectedRDMAs)
+						annotations := map[string]string{}
+						if step.shared {
+							annotations[sharedAnnotationKey] = "true"
+						}
+						requestedRDMAs := (len(step.gpus)*tt.rdmaCount + tt.gpuCount - 1) / tt.gpuCount
+						previouslyOwned := make(map[string]bool, len(expected))
+
+						for _, id := range expected {
+							if rdmaHasOwners(basePlugin.GetState().GetMachineState()[gpuconsts.RDMADeviceType][id]) {
+								previouslyOwned[id] = true
+								assert.NotContains(t, available, id)
+							}
+						}
+
+						resp, err := devicePlugin.AllocateAssociatedDevice(
+							context.Background(),
+							&pluginapi.ResourceRequest{
+								PodUid:        podUID,
+								ContainerName: containerName,
+								Annotations:   annotations,
+							},
+							&pluginapi.DeviceRequest{
+								DeviceName:       "test-rdma",
+								AvailableDevices: available,
+								DeviceRequest:    uint64(requestedRDMAs),
+							},
+							"test-gpu",
+						)
+						if step.expectError {
+							assert.Error(t, err)
+							assert.Nil(t, resp)
+							assert.Nil(t, basePlugin.GetState().GetAllocationInfo(
+								gpuconsts.RDMADeviceType, podUID, containerName))
+							assertRDMAOwnership(t, basePlugin, sharedAnnotationKey)
+							return
+						}
+
+						assert.NoError(t, err)
+						if !assert.NotNil(t, resp) {
+							return
+						}
+						assert.ElementsMatch(t, expected, resp.AllocationResult.AllocatedDevices)
+						allocationInfo := basePlugin.GetState().GetAllocationInfo(
+							gpuconsts.RDMADeviceType, podUID, containerName)
+						assert.NotNil(t, allocationInfo)
+						assert.Equal(t, float64(len(expected)), allocationInfo.AllocatedAllocation.Quantity)
+						assert.ElementsMatch(t, expected, allocationKeys(allocationInfo.TopologyAwareAllocations))
+						if step.shared {
+							assert.Equal(t, "true", allocationInfo.Annotations[sharedAnnotationKey])
+						} else {
+							assert.NotEqual(t, "true", allocationInfo.Annotations[sharedAnnotationKey])
+						}
+						assertRDMAOwnership(t, basePlugin, sharedAnnotationKey)
+						for id := range previouslyOwned {
+							assert.True(t, step.shared)
+							assert.GreaterOrEqual(t, rdmaOwnerCount(
+								basePlugin.GetState().GetMachineState()[gpuconsts.RDMADeviceType][id]), 2)
 						}
 					}
-
-					resp, err := devicePlugin.AllocateAssociatedDevice(
-						context.Background(),
-						&pluginapi.ResourceRequest{
-							PodUid:        podUID,
-							ContainerName: containerName,
-							Annotations:   annotations,
-						},
-						&pluginapi.DeviceRequest{
-							DeviceName:       "test-rdma",
-							AvailableDevices: available,
-							DeviceRequest:    uint64(requestedRDMAs),
-						},
-						"test-gpu",
-					)
-					if step.expectError {
-						assert.Error(t, err)
-						assert.Nil(t, resp)
-						assert.Nil(t, basePlugin.GetState().GetAllocationInfo(
-							gpuconsts.RDMADeviceType, podUID, containerName))
-						assertRDMAOwnership(t, basePlugin, sharedAnnotationKey)
-						return
-					}
-
-					assert.NoError(t, err)
-					if !assert.NotNil(t, resp) {
-						return
-					}
-					assert.ElementsMatch(t, expected, resp.AllocationResult.AllocatedDevices)
-					allocationInfo := basePlugin.GetState().GetAllocationInfo(
-						gpuconsts.RDMADeviceType, podUID, containerName)
-					assert.NotNil(t, allocationInfo)
-					assert.Equal(t, float64(len(expected)), allocationInfo.AllocatedAllocation.Quantity)
-					assert.ElementsMatch(t, expected, allocationKeys(allocationInfo.TopologyAwareAllocations))
-					if step.shared {
-						assert.Equal(t, "true", allocationInfo.Annotations[sharedAnnotationKey])
-					} else {
-						assert.NotEqual(t, "true", allocationInfo.Annotations[sharedAnnotationKey])
-					}
-					assertRDMAOwnership(t, basePlugin, sharedAnnotationKey)
-					for id := range previouslyOwned {
-						assert.True(t, step.shared)
-						assert.GreaterOrEqual(t, rdmaOwnerCount(
-							basePlugin.GetState().GetMachineState()[gpuconsts.RDMADeviceType][id]), 2)
+					for stepIndex, preceding := range tt.steps[:i+1] {
+						runStep(stepIndex, preceding)
 					}
 				})
 			}

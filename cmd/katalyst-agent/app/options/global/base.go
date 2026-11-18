@@ -37,8 +37,10 @@ const (
 	defaultAPIAuthTokenFile         = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 )
 
-const defaultRemoteRuntimeEndpoint = "unix:///run/containerd/containerd.sock"
-const defaultCompatibilityCheckpointDirectory = "/var/lib/katalyst/compatibility"
+const (
+	defaultRemoteRuntimeEndpoint            = "unix:///run/containerd/containerd.sock"
+	defaultCompatibilityCheckpointDirectory = "/var/lib/katalyst/compatibility"
+)
 
 // BaseOptions holds all the configurations for agent-base.
 // we will not try to separate this structure into several individual

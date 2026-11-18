@@ -1,8 +1,26 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dra
 
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -10,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
-	"testing"
 )
 
 func publisherTestInventory(n int) Inventory {
@@ -20,7 +37,9 @@ func publisherTestInventory(n int) Inventory {
 	}
 	return i
 }
+
 func TestShardsGenerationAndOwnership(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "node-uid"}}
 	client := kubefake.NewSimpleClientset(node)
@@ -48,7 +67,9 @@ func TestShardsGenerationAndOwnership(t *testing.T) {
 	require.Len(t, list.Items, 1)
 	require.Equal(t, int64(2), list.Items[0].Spec.Pool.Generation)
 }
+
 func TestForeignSlicePreventsConflictingPublication(t *testing.T) {
+	t.Parallel()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "node-uid"}}
 	foreign := BuildSlices(node, publisherTestInventory(1), 1, "test.example.com", AgentName)[0]
 	foreign.Name = "nvidia-existing"
@@ -64,6 +85,7 @@ func TestForeignSlicePreventsConflictingPublication(t *testing.T) {
 }
 
 func TestNativeSliceAdoptionRetainsIdentityAndMetadata(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "node-uid"}}
 	native := BuildSlices(node, publisherTestInventory(2), 7, "test.example.com", "native")[0]
@@ -101,12 +123,14 @@ func TestNativeSliceAdoptionRetainsIdentityAndMetadata(t *testing.T) {
 }
 
 func TestAdoptionCannotBypassLiveNodeOwnership(t *testing.T) {
+	t.Parallel()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "current-node"}}
 	native := BuildSlices(node, publisherTestInventory(1), 1, "test.example.com", "native")[0]
 	native.Labels = nil
 	native.OwnerReferences[0].UID = "deleted-node"
 	client := kubefake.NewSimpleClientset(node, &native)
-	p := &Publisher{Config: &PublisherConfig{NodeName: node.Name, DriverName: "test.example.com", OwnerName: AgentName,
+	p := &Publisher{Config: &PublisherConfig{
+		NodeName: node.Name, DriverName: "test.example.com", OwnerName: AgentName,
 		PreserveExistingNames: true, AdoptExisting: func(*corev1.Node, resourcev1.ResourceSlice) bool { return true },
 	}, Client: client}
 	require.ErrorContains(t, p.Reconcile(context.Background(), publisherTestInventory(1)), "different node owner")
@@ -116,6 +140,7 @@ func TestAdoptionCannotBypassLiveNodeOwnership(t *testing.T) {
 }
 
 func TestPublicationResumesPartiallyCommittedGeneration(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "node-uid"}}
 	client := kubefake.NewSimpleClientset(node)
@@ -162,6 +187,7 @@ func generatedPublisherClient(node *corev1.Node, failAt int) *kubefake.Clientset
 }
 
 func TestGeneratedSliceNamesPersistAcrossRestartAndResize(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "node-uid"}}
 	client := generatedPublisherClient(node, 0)
@@ -198,6 +224,7 @@ func TestGeneratedSliceNamesPersistAcrossRestartAndResize(t *testing.T) {
 }
 
 func TestGeneratedSlicesResumeAfterPartialCreate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", UID: "node-uid"}}
 	client := generatedPublisherClient(node, 2)

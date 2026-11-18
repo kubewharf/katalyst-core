@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -129,7 +129,8 @@ func (p *lifecyclePublisher) Stop() {
 }
 
 func TestNewStaticPolicyValidatesOptionsAndSetsDefaults(t *testing.T) {
-	valid := func() Options {
+	t.Parallel()
+	valid := func(t *testing.T) Options {
 		return Options{
 			StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
 				StateFileDirectory: t.TempDir(),
@@ -175,15 +176,17 @@ func TestNewStaticPolicyValidatesOptionsAndSetsDefaults(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			options := valid()
+			t.Parallel()
+			options := valid(t)
 			tt.mutate(&options)
-			_, err := NewStaticPolicy(options)
+			_, err := newStaticPolicy(options)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 
-	plugin, err := NewStaticPolicy(valid())
+	plugin, err := newStaticPolicy(valid(t))
 	require.NoError(t, err)
 	require.Equal(t, 45*time.Second, plugin.retryTimeout)
 	require.NotNil(t, plugin.stateDirectoryConfiguration)
@@ -194,6 +197,7 @@ func TestNewStaticPolicyValidatesOptionsAndSetsDefaults(t *testing.T) {
 }
 
 func TestPluginLifecycleRestoresPublishesStopsAndRestarts(t *testing.T) {
+	t.Parallel()
 	recorder := &lifecycleRecorder{}
 	inventory := Inventory{
 		PoolName: "pool-a",
@@ -215,7 +219,7 @@ func TestPluginLifecycleRestoresPublishesStopsAndRestarts(t *testing.T) {
 		state.PreparedClaim{UID: "uid-restored", Phase: state.PrepareStarted},
 		true,
 	))
-	plugin, err := NewStaticPolicy(Options{
+	plugin, err := newStaticPolicy(Options{
 		StateDirectoryConfiguration: stateDirectory,
 		KubeClient:                  kubefake.NewSimpleClientset(),
 		Backend:                     provider,
@@ -253,13 +257,14 @@ func TestPluginLifecycleRestoresPublishesStopsAndRestarts(t *testing.T) {
 }
 
 func TestPluginStartRollsBackProviderWhenPublisherFails(t *testing.T) {
+	t.Parallel()
 	recorder := &lifecycleRecorder{}
 	provider := &lifecycleProvider{recorder: recorder}
 	publisher := &lifecyclePublisher{
 		recorder: recorder,
 		startErr: errors.New("publish failed"),
 	}
-	plugin, err := NewStaticPolicy(Options{
+	plugin, err := newStaticPolicy(Options{
 		StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
 			StateFileDirectory: t.TempDir(),
 		},
@@ -277,13 +282,15 @@ func TestPluginStartRollsBackProviderWhenPublisherFails(t *testing.T) {
 }
 
 func TestPluginStopCanRetryProviderFailure(t *testing.T) {
+	t.Parallel()
 	recorder := &lifecycleRecorder{}
 	provider := &lifecycleProvider{
 		recorder:   recorder,
 		stopErrors: []error{errors.New("provider still running")},
 	}
 	publisher := &lifecyclePublisher{recorder: recorder}
-	plugin, err := NewStaticPolicy(Options{
+	plugin, err := newStaticPolicy(Options{
+		DriverName: "stop-retry.example.com",
 		StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
 			StateFileDirectory: t.TempDir(),
 		},
@@ -304,13 +311,14 @@ func TestPluginStopCanRetryProviderFailure(t *testing.T) {
 }
 
 func TestPluginStopWaitsForActiveProviderOperation(t *testing.T) {
+	t.Parallel()
 	recorder := &lifecycleRecorder{}
 	provider := &lifecycleProvider{
 		recorder:       recorder,
 		prepareStarted: make(chan struct{}),
 		prepareRelease: make(chan struct{}),
 	}
-	plugin, err := NewStaticPolicy(Options{
+	plugin, err := newStaticPolicy(Options{
 		DriverName: "test.dra.example.com",
 		StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
 			StateFileDirectory: t.TempDir(),

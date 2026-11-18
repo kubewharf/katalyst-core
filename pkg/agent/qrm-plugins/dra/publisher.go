@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 // Copyright 2026 The Katalyst Authors. SPDX-License-Identifier: Apache-2.0
 package dra
 
@@ -21,14 +37,18 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-const NodeLabel = "dra.katalyst.kubewharf.io/node"
-const InventoryAnnotation = "dra.katalyst.kubewharf.io/inventory-hash"
+const (
+	NodeLabel           = "dra.katalyst.kubewharf.io/node"
+	InventoryAnnotation = "dra.katalyst.kubewharf.io/inventory-hash"
+)
 
 func nodeKey(name string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(name)))[:16] }
 
-const ManagedLabel = "dra.katalyst.kubewharf.io/managed-by"
-const DriverLabel = "dra.katalyst.kubewharf.io/driver"
-const ShardLabel = "dra.katalyst.kubewharf.io/shard"
+const (
+	ManagedLabel = "dra.katalyst.kubewharf.io/managed-by"
+	DriverLabel  = "dra.katalyst.kubewharf.io/driver"
+	ShardLabel   = "dra.katalyst.kubewharf.io/shard"
+)
 
 type PublisherConfig struct {
 	NodeName        string
@@ -94,6 +114,7 @@ func (p *Publisher) Start(ctx context.Context, inventory Inventory) error {
 	}()
 	return nil
 }
+
 func (p *Publisher) Stop() {
 	p.mu.Lock()
 	if p.cancel != nil {
@@ -130,13 +151,18 @@ func (c *PublisherConfig) BuildSlices(node *corev1.Node, inventory Inventory, ge
 		if end > len(inventory.Devices) {
 			end = len(inventory.Devices)
 		}
-		out[i] = resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{
-			Labels:          map[string]string{ManagedLabel: ownerName, NodeLabel: nodeKey(node.Name)},
-			Annotations:     map[string]string{InventoryAnnotation: inventoryHash},
-			OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Node", Name: node.Name, UID: node.UID}}},
-			Spec: resourcev1.ResourceSliceSpec{Driver: driverName, NodeName: ptr.To(node.Name),
+		out[i] = resourcev1.ResourceSlice{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:          map[string]string{ManagedLabel: ownerName, NodeLabel: nodeKey(node.Name)},
+				Annotations:     map[string]string{InventoryAnnotation: inventoryHash},
+				OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Node", Name: node.Name, UID: node.UID}},
+			},
+			Spec: resourcev1.ResourceSliceSpec{
+				Driver: driverName, NodeName: ptr.To(node.Name),
 				Pool:    resourcev1.ResourcePool{Name: inventory.PoolName, Generation: generation, ResourceSliceCount: int64(count)},
-				Devices: inventory.Devices[start:end]}}
+				Devices: inventory.Devices[start:end],
+			},
+		}
 	}
 	for i := range out {
 		out[i].Labels[DriverLabel] = nodeKey(driverName)

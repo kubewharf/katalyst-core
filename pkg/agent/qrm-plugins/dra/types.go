@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -73,6 +73,7 @@ type ResourceSlicePublisher interface {
 type Options struct {
 	// DriverName identifies this instance; empty preserves the legacy NVIDIA driver.
 	DriverName                  string
+	RegistrationDir             string
 	CheckpointName              string
 	StateDirectoryConfiguration *statedirectory.StateDirectoryConfiguration
 	KubeClient                  kubernetes.Interface
