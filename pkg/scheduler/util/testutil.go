@@ -17,10 +17,12 @@ limitations under the License.
 package util
 
 import (
+	"context"
+
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
-	st "k8s.io/kubernetes/pkg/scheduler/testing"
+	st "k8s.io/kubernetes/pkg/scheduler/testing/framework"
 )
 
 // NewFramework is a variant version of st.NewFramework - with extra PluginConfig slice as input.
@@ -34,5 +36,5 @@ func NewFramework(fns []st.RegisterPluginFunc, cfgs []config.PluginConfig, profi
 		f(&registry, profile)
 	}
 	profile.PluginConfig = cfgs
-	return runtime.NewFramework(registry, profile, opts...)
+	return runtime.NewFramework(context.Background(), registry, profile, opts...)
 }

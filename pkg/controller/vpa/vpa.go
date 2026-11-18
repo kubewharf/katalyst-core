@@ -110,6 +110,10 @@ func NewVPAController(ctx context.Context, controlCtx *katalyst_base.GenericCont
 	vpaRecInformer := controlCtx.InternalInformerFactory.Autoscaling().V1alpha1().VerticalPodAutoscalerRecommendations()
 
 	genericClient := controlCtx.Client
+	if err := validatePodResizeSupport(genericClient.DiscoveryClient); err != nil {
+		return nil, err
+	}
+
 	vpaController := &VPAController{
 		ctx:                ctx,
 		conf:               vpaConf,

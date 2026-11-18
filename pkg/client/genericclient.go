@@ -147,3 +147,7 @@ func BuildGenericClient(config componentbaseconfig.ClientConnectionConfiguration
 
 	return newForConfigOrDie(cfg), nil
 }
+
+// RESTConfig returns a copy for out-of-tree typed clients (for example NVIDIA
+// ComputeDomain), preserving transport/auth configuration without exposing cfg.
+func (g *GenericClientSet) RESTConfig() *rest.Config { return rest.CopyConfig(g.cfg) }

@@ -18,16 +18,21 @@ package ihpa
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	v2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/pointer"
 
 	apiautoscaling "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha2"
@@ -35,6 +40,50 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 )
+
+type hpaDiscoveryFailure struct {
+	discovery.DiscoveryInterface
+}
+
+func (d *hpaDiscoveryFailure) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
+	if groupVersion == "autoscaling/v2" {
+		return nil, errors.New("temporary HPA discovery failure")
+	}
+	return d.DiscoveryInterface.ServerResourcesForGroupVersion(groupVersion)
+}
+
+func TestNewIHPAControllerDoesNotDiscoverHPAOnStartup(t *testing.T) {
+	t.Parallel()
+
+	controlCtx, err := katalystbase.GenerateFakeGenericContext(
+		[]runtime.Object{}, []runtime.Object{}, nil)
+	require.NoError(t, err)
+
+	baseDiscovery := &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{
+		Resources: []*metav1.APIResourceList{{
+			GroupVersion: "autoscaling/v2beta2",
+			APIResources: []metav1.APIResource{{
+				Name:  "horizontalpodautoscalers",
+				Verbs: metav1.Verbs{"get", "create", "patch"},
+			}},
+		}},
+	}}
+	controlCtx.Client.DiscoveryClient = &hpaDiscoveryFailure{
+		DiscoveryInterface: baseDiscovery,
+	}
+
+	ihpaController, err := NewIHPAController(
+		context.Background(),
+		controlCtx,
+		nil,
+		nil,
+		&controller.IHPAConfig{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ihpaController)
+}
 
 func TestResourcePortraitIndicatorPlugin(t *testing.T) {
 	t.Parallel()
@@ -126,6 +175,15 @@ func TestResourcePortraitIndicatorPlugin(t *testing.T) {
 
 			controlCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{}, []runtime.Object{}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
+			controlCtx.Client.DiscoveryClient = &fakediscovery.FakeDiscovery{Fake: &k8stesting.Fake{
+				Resources: []*metav1.APIResourceList{{
+					GroupVersion: "autoscaling/v2beta2",
+					APIResources: []metav1.APIResource{{
+						Name:  "horizontalpodautoscalers",
+						Verbs: metav1.Verbs{"get", "create", "patch"},
+					}},
+				}},
+			}}
 
 			ctrl, err := NewIHPAController(context.Background(), controlCtx, nil, nil, tt.fields.ihpaConfig, nil, nil)
 			if tt.wantNil {

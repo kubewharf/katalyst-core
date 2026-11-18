@@ -22,14 +22,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"k8s.io/kube-scheduler/framework"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
+func (tm *TopologyMatch) Reserve(ctx context.Context, state framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
 	if tm.topologyMatchSupport(pod) {
 		podCopy := pod.DeepCopy()
 		if util.IsNumaBinding(pod) && util.IsExclusive(pod) {
@@ -62,7 +62,7 @@ func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleStat
 	return framework.NewStatus(framework.Success, "")
 }
 
-func (tm *TopologyMatch) Unreserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) {
+func (tm *TopologyMatch) Unreserve(ctx context.Context, state framework.CycleState, pod *corev1.Pod, nodeName string) {
 	if tm.topologyMatchSupport(pod) {
 		cache.GetCache().UnreserveNodeResource(nodeName, pod)
 	}

@@ -20,27 +20,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
+	prometheusclient "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/metric/prometheus"
+	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/number"
-	export "go.opentelemetry.io/otel/sdk/export/metric"
-	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
-	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
-	controllerTime "go.opentelemetry.io/otel/sdk/metric/controller/time"
-	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
-	selector "go.opentelemetry.io/otel/sdk/metric/selector/simple"
-	"go.opentelemetry.io/otel/sdk/resource"
-	"k8s.io/apimachinery/pkg/util/wait"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-)
-
-const (
-	openTelemetryPrometheusCollectPeriod = time.Second * 3
 )
 
 type PrometheusMetricPathName string
@@ -50,96 +39,34 @@ const (
 	PrometheusMetricPathNameCustomMetric PrometheusMetricPathName = "/custom_metric"
 )
 
-type prometheusClockTicker struct {
-	ticker *time.Ticker
-}
-
-func (t *prometheusClockTicker) Stop() {
-	t.ticker.Stop()
-}
-
-func (t *prometheusClockTicker) C() <-chan time.Time {
-	return t.ticker.C
-}
-
-type prometheusClock struct {
-	last time.Time
-	t    *prometheusClockTicker
-}
-
-func (c *prometheusClock) Now() time.Time {
-	c.last = time.Now()
-	return c.last
-}
-
-func (c *prometheusClock) Ticker(period time.Duration) controllerTime.Ticker {
-	c.t = &prometheusClockTicker{ticker: time.NewTicker(period)}
-	return c.t
-}
-
-func (c *prometheusClock) Stop() {
-	c.t.Stop()
-}
-
-func (c *prometheusClock) C() <-chan time.Time {
-	return c.t.C()
-}
-
 type openTelemetryPrometheusMetricsEmitter struct {
-	c           *prometheusClock
-	pathName    PrometheusMetricPathName
-	metricsConf *generic.MetricsConfiguration
-
-	exporter *prometheus.Exporter
+	provider *sdkmetric.MeterProvider
 	meter    metric.Meter
 }
 
 var _ MetricEmitter = &openTelemetryPrometheusMetricsEmitter{}
 
-type customExportKindSelectorWrapper struct {
-	export.ExportKindSelector
-}
-
-// ExportKindFor implements ExportKindSelector.
-// we only use counter and up down counter as CumulativeExportKind to save memory
-func (c customExportKindSelectorWrapper) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kind) export.ExportKind {
-	switch desc.InstrumentKind() {
-	case metric.CounterInstrumentKind, metric.UpDownCounterInstrumentKind:
-		return export.CumulativeExportKind
-	default:
-		return c.ExportKindSelector.ExportKindFor(desc, kind)
-	}
-}
-
 // NewOpenTelemetryPrometheusMetricsEmitter implement a MetricEmitter use open-telemetry sdk.
-func NewOpenTelemetryPrometheusMetricsEmitter(metricsConf *generic.MetricsConfiguration, pathName PrometheusMetricPathName,
+func NewOpenTelemetryPrometheusMetricsEmitter(_ *generic.MetricsConfiguration, pathName PrometheusMetricPathName,
 	mux *http.ServeMux,
 ) (MetricEmitter, error) {
-	exporter, err := prometheus.NewExporter(prometheus.Config{}, controller.New(
-		processor.New(
-			selector.NewWithInexpensiveDistribution(),
-			customExportKindSelectorWrapper{export.StatelessExportKindSelector()},
-			processor.WithMemory(false),
-		),
-		controller.WithCollectPeriod(openTelemetryPrometheusCollectPeriod),
-		controller.WithResource(resource.NewWithAttributes()),
-	))
+	registry := prometheusclient.NewRegistry()
+	exporter, err := prometheus.New(
+		prometheus.WithRegisterer(registry),
+		prometheus.WithoutCounterSuffixes(),
+		prometheus.WithoutScopeInfo(),
+		prometheus.WithoutTargetInfo(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize prometheus exporter: %w", err)
 	}
-	c := &prometheusClock{last: time.Now()}
-	exporter.Controller().SetClock(c)
 
-	mux.HandleFunc(fmt.Sprintf("%v", pathName), exporter.ServeHTTP)
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
+	mux.Handle(string(pathName), promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 
-	meter := exporter.MeterProvider().Meter("")
 	p := &openTelemetryPrometheusMetricsEmitter{
-		c:           c,
-		pathName:    pathName,
-		metricsConf: metricsConf,
-
-		exporter: exporter,
-		meter:    meter,
+		provider: provider,
+		meter:    provider.Meter(""),
 	}
 
 	return p, nil
@@ -166,18 +93,7 @@ func (p *openTelemetryPrometheusMetricsEmitter) WithTags(
 	return newMetricTagWrapper.WithTags(unit, commonTags...)
 }
 
-func (p *openTelemetryPrometheusMetricsEmitter) Run(ctx context.Context) {
-	klog.Infof("openTelemetry runs")
-	go wait.Until(p.gc, time.Minute, ctx.Done())
-}
-
-func (p *openTelemetryPrometheusMetricsEmitter) gc() {
-	// usw c.clock.Now() to judge whether we have collected
-	if time.Since(p.c.last) > p.metricsConf.EmitterPrometheusGCTimeout {
-		klog.Infof("trigger manual gc for %v", p.pathName)
-		_ = p.exporter.Controller().Collect(context.Background())
-	}
-}
+func (p *openTelemetryPrometheusMetricsEmitter) Run(_ context.Context) {}
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeInt64(
 	key string, val int64, emitType MetricTypeName, tags map[string]string,
@@ -226,58 +142,58 @@ func (p *openTelemetryPrometheusMetricsEmitter) storeFloat64(key string,
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeRawInt64(key string, val int64, tags map[string]string) error {
-	instrument, err := p.meter.MeterImpl().NewSyncInstrument(metric.NewDescriptor(key, metric.ValueObserverInstrumentKind, number.Int64Kind))
+	instrument, err := p.meter.Int64Gauge(key)
 	if err != nil {
 		return err
 	}
 
-	instrument.RecordOne(context.TODO(), number.NewInt64Number(val), p.convertMapToKeyValues(tags))
-	return err
+	instrument.Record(context.TODO(), val, metric.WithAttributes(p.convertMapToKeyValues(tags)...))
+	return nil
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeRawFloat64(key string, val float64, tags map[string]string) error {
-	instrument, err := p.meter.MeterImpl().NewSyncInstrument(metric.NewDescriptor(key, metric.ValueObserverInstrumentKind, number.Float64Kind))
+	instrument, err := p.meter.Float64Gauge(key)
 	if err != nil {
 		return err
 	}
 
-	instrument.RecordOne(context.TODO(), number.NewFloat64Number(val), p.convertMapToKeyValues(tags))
-	return err
+	instrument.Record(context.TODO(), val, metric.WithAttributes(p.convertMapToKeyValues(tags)...))
+	return nil
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeCountInt64(key string, val int64, tags map[string]string) error {
-	counter, err := p.meter.NewInt64Counter(key)
+	counter, err := p.meter.Int64Counter(key)
 	if err != nil {
 		return err
 	}
-	counter.Add(context.TODO(), val, p.convertMapToKeyValues(tags)...)
+	counter.Add(context.TODO(), val, metric.WithAttributes(p.convertMapToKeyValues(tags)...))
 	return nil
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeCountFloat64(key string, val float64, tags map[string]string) error {
-	counter, err := p.meter.NewFloat64Counter(key)
+	counter, err := p.meter.Float64Counter(key)
 	if err != nil {
 		return err
 	}
-	counter.Add(context.TODO(), val, p.convertMapToKeyValues(tags)...)
+	counter.Add(context.TODO(), val, metric.WithAttributes(p.convertMapToKeyValues(tags)...))
 	return nil
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeUpDownCountInt64(key string, val int64, tags map[string]string) error {
-	counter, err := p.meter.NewInt64UpDownCounter(key)
+	counter, err := p.meter.Int64UpDownCounter(key)
 	if err != nil {
 		return err
 	}
-	counter.Add(context.TODO(), val, p.convertMapToKeyValues(tags)...)
+	counter.Add(context.TODO(), val, metric.WithAttributes(p.convertMapToKeyValues(tags)...))
 	return nil
 }
 
 func (p *openTelemetryPrometheusMetricsEmitter) storeUpDownCountFloat64(key string, val float64, tags map[string]string) error {
-	counter, err := p.meter.NewFloat64UpDownCounter(key)
+	counter, err := p.meter.Float64UpDownCounter(key)
 	if err != nil {
 		return err
 	}
-	counter.Add(context.TODO(), val, p.convertMapToKeyValues(tags)...)
+	counter.Add(context.TODO(), val, metric.WithAttributes(p.convertMapToKeyValues(tags)...))
 	return nil
 }
 
