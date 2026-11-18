@@ -6,13 +6,23 @@ on:
   pull_request: {}
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
+# Lint/Parallel and other checks use GitHub-hosted runners.
+# Unit Test retains the internal path for upstream same-repository PRs and
+# main-branch push/manual runs only after CI_INTERNAL_RUNNER_ENABLED is true.
+# Before enabling it, admins must restrict trusted actors/workflow revisions
+# and runner access outside this PR-editable YAML. Unset/false uses hosted.
 jobs:
   fmt:
     name: Format
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
@@ -31,8 +41,10 @@ jobs:
     name: Vet
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
@@ -43,25 +55,33 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: vci-self-hosted
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
-      - uses: golangci/golangci-lint-action@v3
-        with:
-          args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
-          version: v1.52.2
-          skip-cache: true
+      - name: Verify golangci-lint
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          curl --fail --location --silent --show-error -o golangci-lint.tar.gz https://github.com/golangci/golangci-lint/releases/download/v1.52.2/golangci-lint-1.52.2-linux-amd64.tar.gz
+          printf '%s  golangci-lint.tar.gz\n' c9cf72d12058a131746edd409ed94ccd578fbd178899d1ed41ceae3ce5f54501 | sha256sum --check
+          tar -xzf golangci-lint.tar.gz
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/golangci-lint-1.52.2-linux-amd64/golangci-lint" run --verbose --out-format=github-actions,colored-line-number --config .golangci.yml
 
   build:
     name: Build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Build
@@ -69,10 +89,12 @@ jobs:
 
   parallel:
     name: Parallel
-    runs-on: vci-self-hosted
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
@@ -84,29 +106,50 @@ jobs:
 
   unit-test:
     name: Unit Test
-    runs-on: vke-self-hosted
+    runs-on: ${{ vars.CI_INTERNAL_RUNNER_ENABLED == 'true' && github.repository == 'kubewharf/katalyst-core' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main')) && 'vke-self-hosted' || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v1
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Run unit tests
+        shell: bash
         run: |
-          go install github.com/jstemmer/go-junit-report/v2@latest &&
-          sudo make test 2>&1 | go-junit-report -parser gojson --set-exit-code -iocopy -out report.xml
+          set -euo pipefail
+          go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+          sudo env "PATH=$PATH" make test 2>&1 | go-junit-report -parser gotest -set-exit-code -iocopy -out report.xml
+      - name: Verify tests ran
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          report = ET.parse("report.xml")
+          executed = [case for case in report.iter("testcase") if case.find("skipped") is None]
+          if not executed:
+              raise SystemExit("No executed test cases found in report.xml")
+          print(f"Executed test cases: {len(executed)}")
+          PY
       - name: Test summary
         uses: test-summary/action@v2
         with:
           paths: report.xml
         if: always()
       - name: Check the number of changed lines
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          LINES_ADDED=$(git diff --numstat ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} pkg/ | awk '{ add += $1 } END { printf add }')
+          LINES_ADDED=$(git diff --numstat "$BASE_SHA" "$HEAD_SHA" -- pkg/ | awk '{ add += $1 } END { printf "%d", add }')
           echo "lines added: $LINES_ADDED"
           if [[ $LINES_ADDED -lt 10 ]]; then
-            echo "NEED_TO_CHECK=false" >> $GITHUB_ENV
+            echo "NEED_TO_CHECK=false" >> "$GITHUB_ENV"
           else
-            echo "NEED_TO_CHECK=true" >> $GITHUB_ENV
+            echo "NEED_TO_CHECK=true" >> "$GITHUB_ENV"
           fi
       - name: Upload coverage to Codecov
         if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
@@ -115,7 +158,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           flags: unittest
-          file: coverage.txt
+          files: coverage.txt
           fail_ci_if_error: true
           verbose: true
 
@@ -123,7 +166,9 @@ jobs:
     name: License
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check license header
         run: |
           make license && git add pkg cmd &&
