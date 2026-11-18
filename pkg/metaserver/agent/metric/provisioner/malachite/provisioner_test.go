@@ -25,6 +25,7 @@ import (
 
 	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
@@ -218,6 +219,69 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 		"d1", "d2", "d3", "/kubepods/burstable", "/kubepods/besteffort",
 		"test", "test-0", "test-1", "test-2", "test-3",
 	})
+}
+
+func TestProcessContainerBlkIODataLocalSnapshot(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []string{"V1", "V2"} {
+		version := version
+		t.Run(version, func(t *testing.T) {
+			t.Parallel()
+
+			store := utilmetric.NewMetricStore()
+			provisioner := &MalachiteMetricsProvisioner{metricStore: store}
+			metricNames := []string{
+				consts.MetricBlkioReadIopsContainer, consts.MetricBlkioWriteIopsContainer,
+				consts.MetricBlkioReadBpsContainer, consts.MetricBlkioWriteBpsContainer,
+			}
+			initial := malachitetypes.BpfFsData{FsRead: 10, FsWrite: 20, FsReadBytes: 1000, FsWriteBytes: 2000}
+			increased := malachitetypes.BpfFsData{FsRead: 14, FsWrite: 26, FsReadBytes: 1600, FsWriteBytes: 3000}
+
+			// Keep Malachite's old snapshot stale; rates must use our previous current snapshot.
+			for _, sample := range []struct {
+				name       string
+				updateTime int64
+				current    malachitetypes.BpfFsData
+				expected   []float64
+			}{
+				{"first sample", 100, initial, nil},
+				{"counters increase", 102, increased, []float64{2, 3, 300, 500}},
+				{"only time advances", 104, increased, []float64{0, 0, 0, 0}},
+				{
+					"counters resume", 106,
+					malachitetypes.BpfFsData{FsRead: 20, FsWrite: 36, FsReadBytes: 3000, FsWriteBytes: 4800},
+					[]float64{3, 5, 700, 900},
+				},
+				{"counters reset", 108, malachitetypes.BpfFsData{}, []float64{0, 0, 0, 0}},
+			} {
+				provisioner.processContainerBlkIOData("pod", "container", &malachitetypes.MalachiteCgroupInfo{
+					CgroupType: version,
+					V1: &malachitetypes.MalachiteCgroupV1Info{
+						Blkio: &malachitetypes.BlkIOCgDataV1{
+							UpdateTime: sample.updateTime, BpfFsData: sample.current, OldBpfFsData: initial,
+						},
+					},
+					V2: &malachitetypes.MalachiteCgroupV2Info{
+						Blkio: &malachitetypes.BlkIOCgDataV2{
+							UpdateTime: sample.updateTime, BpfFsData: sample.current, OldBpfFsData: initial,
+						},
+					},
+				})
+
+				for i, name := range metricNames {
+					metric, err := store.GetContainerMetric("pod", "container", name)
+					if sample.expected == nil {
+						assert.Error(t, err, "%s: %s", sample.name, name)
+						continue
+					}
+					require.NoError(t, err, "%s: %s", sample.name, name)
+					assert.Equal(t, sample.expected[i], metric.Value, "%s: %s", sample.name, name)
+					assert.Equal(t, time.Unix(sample.updateTime, 0), *metric.Time, "%s: %s", sample.name, name)
+				}
+			}
+		})
+	}
 }
 
 func Test_getCPI(t *testing.T) {
