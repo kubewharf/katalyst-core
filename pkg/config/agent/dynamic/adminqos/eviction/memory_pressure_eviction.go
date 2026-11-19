@@ -17,8 +17,11 @@ limitations under the License.
 package eviction
 
 import (
+	"math"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -79,6 +82,41 @@ type MemoryPressureEvictionConfiguration struct {
 	ReclaimedGracePeriod                          int64
 	EvictNonReclaimedAnnotationSelector           string
 	EvictNonReclaimedLabelSelector                string
+
+	// EnableReclaimedMemorySafeZoneGate controls whether the reclaimed-memory
+	// NUMA safe-zone gate may really skip actionReclaimedEviction on a NUMA when
+	// the memory held by reclaimed_cores pods on that NUMA is small relative to
+	// the NUMA's total memory (mem.total.numa). It defaults to false. The gate
+	// state machine is keyed off (EnableReclaimedMemorySafeZoneGate,
+	// ReclaimedMemoryUsageRatioThreshold) and has three closed/shadow/armed
+	// states:
+	//   - ratio <= 0:   fully closed. The safe zone is not even evaluated: no
+	//                   observation, no would-skip decision, and no skip.
+	//                   gate_state=closed.
+	//   - ratio > 0 && Enable == false: auto-shadow arm. The safe-zone decision is
+	//                   evaluated and a would-skip hit is recorded
+	//                   (auto_shadow_would_skip) but never applied.
+	//                   gate_state=auto_shadow. A nil CR field resolves to
+	//                   false here.
+	//   - ratio > 0 && Enable == true:  the only arm that really skips on a low
+	//                   reclaimed-usage ratio. gate_state=enabled.
+	// There is no "unknown" mode: the arm is a plain bool, so an omitted / old-CR
+	// field always means "do not really skip".
+	//
+	// Regardless of arm, danger watermarks (free < min, or additional pressure)
+	// always bypass the gate, and actionEviction (evicting all pods) is never
+	// affected by it. Every failure path (missing watermark snapshot, metric /
+	// QoS errors, invalid threshold) fails safe by NOT skipping, i.e. falling
+	// back to the regular eviction path.
+	EnableReclaimedMemorySafeZoneGate bool
+	// ReclaimedMemoryUsageRatioThreshold is the fraction of a NUMA's total memory
+	// (mem.total.numa) currently held by reclaimed_cores pods (sum of
+	// mem.total.numa.container over reclaimed pods on that NUMA) below which the
+	// safe-zone skip fires when the gate is armed. It must be a finite value
+	// within [0,1]; a non-positive value (the default 0.0) keeps the gate fully
+	// closed regardless of EnableReclaimedMemorySafeZoneGate, and an invalid
+	// (NaN / Inf / out-of-range) value fails closed to 0.0.
+	ReclaimedMemoryUsageRatioThreshold float64
 }
 
 func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionConfiguration {
@@ -157,5 +195,33 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 		if len(config.EvictNonReclaimedLabelSelector) > 0 {
 			c.EvictNonReclaimedLabelSelector = config.EvictNonReclaimedLabelSelector
 		}
+
+		// A nil CR field (omitted / old CR) leaves the default false untouched,
+		// which is the auto-shadow / do-not-really-skip arm once the ratio is
+		// positive.
+		if config.EnableReclaimedMemorySafeZoneGate != nil {
+			c.EnableReclaimedMemorySafeZoneGate = *config.EnableReclaimedMemorySafeZoneGate
+		}
+
+		if config.ReclaimedMemoryUsageRatioThreshold != nil {
+			threshold := *config.ReclaimedMemoryUsageRatioThreshold
+			if validReclaimedMemoryUsageRatio(threshold) {
+				c.ReclaimedMemoryUsageRatioThreshold = threshold
+			} else {
+				// Fail closed: an invalid (NaN / Inf / outside [0,1]) threshold
+				// must not arm the gate. Reset to the closed default 0.0 and log
+				// observably; this never panics and never changes default
+				// behavior.
+				general.Warningf("ignore invalid ReclaimedMemoryUsageRatioThreshold %v: not finite within [0,1], reclaimed-memory safe-zone gate stays closed", threshold)
+				c.ReclaimedMemoryUsageRatioThreshold = 0.0
+			}
+		}
 	}
+}
+
+// validReclaimedMemoryUsageRatio reports whether r is a finite fraction within
+// the documented [0,1] range. NaN, Inf and out-of-range values are invalid and
+// make the gate fail closed rather than being silently armed.
+func validReclaimedMemoryUsageRatio(r float64) bool {
+	return !math.IsNaN(r) && !math.IsInf(r, 0) && r >= 0 && r <= 1
 }

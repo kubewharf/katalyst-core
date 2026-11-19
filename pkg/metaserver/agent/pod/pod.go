@@ -102,6 +102,8 @@ func NewPodFetcher(
 
 	RegisterKataContainerFetcher(runtimePodFetcher)
 
+	initializeRuntimeCgroupPathHandlers(runtimePodFetcher)
+
 	return &podFetcherImpl{
 		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
 		runtimePodFetcher: runtimePodFetcher,
