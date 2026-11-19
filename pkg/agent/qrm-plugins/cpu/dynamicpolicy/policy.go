@@ -36,6 +36,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -336,6 +337,8 @@ type adjustmentComponent struct {
 	cpuSetAdjustmentRetryWG       sync.WaitGroup
 	cpuSetAdjustmentGeneration    uint64
 	advisorPostCommitTarget       *advisorPostCommitTarget
+	// Only recovered legacy WAL can own controls that must finish before cleanup.
+	legacyAdvisorControls         map[*advisorPostCommitTarget][]*advisorsvc.CalculationInfo
 	advisorPostCommitTargetChange chan struct{}
 	advisorStateWritePermits      map[*state.WritePermit]*advisorPostCommitTarget
 	// stagedPendingSharedProjection carries the per-container pending shared
@@ -498,14 +501,7 @@ func (p *DynamicPolicy) rollbackAllocationState(
 		return nil
 	}
 
-	err := p.state.CommitAdvisorStateIfRevision(
-		snapshot.revision,
-		snapshot.podEntries,
-		snapshot.machineState,
-		snapshot.allowOverlap,
-		snapshot.disableDedicatedOverlap,
-		true,
-	)
+	err := p.state.Commit(state.StateUpdate{PodEntries: snapshot.podEntries, MachineState: snapshot.machineState, AllowSharedCoresOverlapReclaimedCores: snapshot.allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: snapshot.disableDedicatedOverlap}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](snapshot.revision), Persist: true})
 	if err == nil {
 		return nil
 	}
@@ -540,13 +536,7 @@ func (p *DynamicPolicy) rollbackAllocationState(
 	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
 	planningState := state.NewTransientState(p.machine.machineInfo.CPUTopology)
-	if err := planningState.CommitAdvisorState(
-		currentPodEntries,
-		currentMachineState,
-		allowOverlap,
-		disableDedicatedOverlap,
-		false,
-	); err != nil {
+	if err := planningState.Commit(state.StateUpdate{PodEntries: currentPodEntries, MachineState: currentMachineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{Persist: false}); err != nil {
 		return fmt.Errorf("initialize stale allocation rollback planning state: %w", err)
 	}
 
@@ -563,14 +553,7 @@ func (p *DynamicPolicy) rollbackAllocationState(
 		return fmt.Errorf("replan pools for stale allocation rollback: %w", err)
 	}
 
-	if err := p.state.CommitAdvisorStateIfRevision(
-		currentRevision,
-		planningState.GetPodEntries(),
-		planningState.GetMachineState(),
-		allowOverlap,
-		disableDedicatedOverlap,
-		true,
-	); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: planningState.GetPodEntries(), MachineState: planningState.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](currentRevision), Persist: true}); err != nil {
 		return fmt.Errorf("persist stale allocation rollback: %w", err)
 	}
 	return nil
@@ -1844,12 +1827,17 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				respErr = fmt.Errorf("add container to qos aware server failed with error: %v", err)
 			}
 		}
+		var rollbackPersisted bool
 		if respErr != nil {
 			inplaceUpdateResizing := util.PodInplaceUpdateResizing(req)
 			var compensated *requestStateCompensatedError
 			if rollbackSnapshot != nil && !errors.As(respErr, &compensated) {
 				if err := p.rollbackAllocationState(req, *rollbackSnapshot); err != nil {
 					respErr = fmt.Errorf("%w; allocation rollback failed: %v", respErr, err)
+				} else {
+					// A changed revision was durably restored by rollback. Saving it
+					// again only prolongs the policy/execution lease after failure.
+					rollbackPersisted = p.state.GetRevision() != rollbackSnapshot.revision
 				}
 			}
 
@@ -1862,7 +1850,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			}
 			_ = p.emitter.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw, metricTags...)
 		}
-		if rollbackSnapshot != nil {
+		if rollbackSnapshot != nil && !rollbackPersisted {
 			if err := p.state.StoreState(); err != nil {
 				general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
 				resp = nil
@@ -2660,8 +2648,7 @@ func (p *DynamicPolicy) ensureInitialReclaimPool() (retErr error) {
 	if err := validateRequiredReclaimPool(podEntries); err != nil {
 		return err
 	}
-	return p.state.CommitAdvisorStateIfRevision(revision, podEntries, updatedMachineState,
-		allowOverlap, disableDedicatedOverlap, true)
+	return p.state.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: true})
 }
 
 func (p *DynamicPolicy) initInterruptPool() error {
@@ -2988,7 +2975,7 @@ func (p *DynamicPolicy) stampMirrorAndCommit(rev uint64, podEntries state.PodEnt
 
 	allowOverlap := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 	disableDedicatedOverlap := p.state.GetDisableDedicatedCoresOverlapReclaimedCores()
-	if err := p.state.CommitAdvisorStateIfRevision(rev, podEntries, machineState, allowOverlap, disableDedicatedOverlap, persist); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](rev), Persist: persist}); err != nil {
 		return fmt.Errorf("commit cpuset exposure demote: %w", err)
 	}
 	return nil

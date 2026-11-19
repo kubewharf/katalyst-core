@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
 	advisorsvc "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -63,7 +62,7 @@ func TestWALRecoveryReplayableStagingReplacesCorruptActive(t *testing.T) {
 	restored := p.currentAdvisorPostCommitTarget()
 	require.NotNil(t, restored)
 	require.Equal(t, post, restored.revision)
-	require.True(t, proto.Equal(resp, restored.response))
+	requireAdvisorTargetResponse(t, resp, restored)
 	require.FileExists(t, p.advisorPostCommitCheckpointPath())
 	require.NoFileExists(t, p.advisorPostCommitStagingPath())
 }
@@ -96,7 +95,7 @@ func TestWALRecoveryReplayableActiveRemovesCorruptStaging(t *testing.T) {
 	restored := p.currentAdvisorPostCommitTarget()
 	require.NotNil(t, restored)
 	require.Equal(t, post, restored.revision)
-	require.True(t, proto.Equal(resp, restored.response))
+	requireAdvisorTargetResponse(t, resp, restored)
 	require.FileExists(t, p.advisorPostCommitCheckpointPath())
 	require.NoFileExists(t, p.advisorPostCommitStagingPath())
 }
@@ -329,7 +328,7 @@ func TestWALRecoveryCrashAfterCommitBeforePromoteReplaysStaging(t *testing.T) {
 	restored := p.currentAdvisorPostCommitTarget()
 	require.NotNil(t, restored)
 	require.Equal(t, post, restored.revision)
-	require.True(t, proto.Equal(resp, restored.response))
+	requireAdvisorTargetResponse(t, resp, restored)
 	require.FileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName))
 	require.NoFileExists(t, filepath.Join(dir, advisorPostCommitStagingName))
 }

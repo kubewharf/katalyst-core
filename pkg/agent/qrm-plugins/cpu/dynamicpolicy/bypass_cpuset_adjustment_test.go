@@ -913,13 +913,7 @@ type bypassTrackingState struct {
 	bumpBeforeCommit      bool
 }
 
-func (s *bypassTrackingState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *bypassTrackingState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.commitIfRevisionCalls++
 	if s.bumpBeforeCommit {
 		// Advance revision by doing an unrelated write before the CAS check.
@@ -928,8 +922,7 @@ func (s *bypassTrackingState) CommitAdvisorStateIfRevision(
 			AllocationMeta: commonstate.AllocationMeta{PodUid: "bump-pod", ContainerName: "bump-container"},
 		}, false)
 	}
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, podEntries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
 // --- A) Persistence failure via SetWritePermit ---
@@ -940,10 +933,10 @@ func TestGRA_PersistenceFailure_ReturnsErrorAndNilResponse(t *testing.T) {
 
 	seedSharedMain(t, p, "fail-pod", nil)
 
-	// Inject write failure on CommitAdvisorStateIfRevision
+	// Inject write failure on Commit
 	injectedErr := fmt.Errorf("injected checkpoint failure")
 	p.state.SetWritePermit(func(rev uint64, op string, _ *state.WritePermit) error {
-		if op == "CommitAdvisorStateIfRevision" {
+		if op == "Commit" {
 			return injectedErr
 		}
 		return nil
@@ -960,7 +953,7 @@ func TestGRA_PersistenceFailure_ReturnsErrorAndNilResponse(t *testing.T) {
 	assert.False(t, present, "on persistence failure, annotation should not be written")
 }
 
-// --- E) GRA batch: exactly 1 CommitAdvisorStateIfRevision call ---
+// --- E) GRA batch: exactly 1 Commit call ---
 
 func TestGRA_BatchDemotion_OneCommitCall(t *testing.T) {
 	t.Parallel()
@@ -979,16 +972,16 @@ func TestGRA_BatchDemotion_OneCommitCall(t *testing.T) {
 	_, err := p.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	require.NoError(t, err)
 
-	// Should have exactly 1 CommitAdvisorStateIfRevision call for the batch demotion
+	// Should have exactly 1 Commit call for the batch demotion
 	assert.Equal(t, 1, tracked.commitIfRevisionCalls,
-		"batch demotion should make exactly 1 CommitAdvisorStateIfRevision call")
+		"batch demotion should make exactly 1 Commit call")
 
 	// Second GRA: already false, 0 new calls
 	tracked.commitIfRevisionCalls = 0
 	_, err = p.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, 0, tracked.commitIfRevisionCalls,
-		"second GRA with nothing to demote should make 0 CommitAdvisorStateIfRevision calls")
+		"second GRA with nothing to demote should make 0 Commit calls")
 }
 
 // --- 1) reuse fast-return persistence failure ---
@@ -1015,7 +1008,7 @@ func TestReuseFastReturn_PersistenceFailure_ReturnsError(t *testing.T) {
 	p.config.dynamicConfig.GetDynamicConfiguration().EnableBypassCPUSetAdjustment = false
 	injectedErr := fmt.Errorf("injected commit failure")
 	p.state.SetWritePermit(func(rev uint64, op string, _ *state.WritePermit) error {
-		if op == "CommitAdvisorStateIfRevision" {
+		if op == "Commit" {
 			return injectedErr
 		}
 		return nil
@@ -1712,16 +1705,9 @@ func (s *readCountingState) GetRevision() uint64 {
 	return s.State.GetRevision()
 }
 
-func (s *readCountingState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *readCountingState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.commitCalls++
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, podEntries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
 func TestGRAStateSnapshotLifecycle(t *testing.T) {
@@ -2203,7 +2189,7 @@ func (s *alwaysStaleSource) GetAdvisorStateSnapshot() (state.PodEntries, state.N
 }
 func (s *alwaysStaleSource) GetAllowSharedCoresOverlapReclaimedCores() bool      { return false }
 func (s *alwaysStaleSource) GetDisableDedicatedCoresOverlapReclaimedCores() bool { return false }
-func (s *alwaysStaleSource) CommitAdvisorStateIfRevision(uint64, state.PodEntries, state.NUMANodeMap, bool, bool, bool, ...*state.WritePermit) error {
+func (s *alwaysStaleSource) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.commits++
 	return fmt.Errorf("%w: expected=%d actual=%d", state.ErrStaleStateRevision, 1, s.revision)
 }

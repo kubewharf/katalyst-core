@@ -47,7 +47,7 @@ func TestExclusiveDNBHintsSeparateNewRequestFromExistingAllocation(t *testing.T)
 	}
 	machineState, err := generateMachineStateFromPodEntries(topology, entries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	newRequest := newExclusiveDNBHintRequest("dnb-c", 6)
 	beforeRevision := policy.state.GetRevision()
@@ -101,7 +101,7 @@ func TestExistingShortDNBAllocateReturnsWithoutReplanningAfterHardPartitionDisab
 	entries := state.PodEntries{"dnb-a": {"main": allocation}}
 	machineState, err := generateMachineStateFromPodEntries(topology, entries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	// The allocation identity survives dynamic configuration changes. Re-entry
 	// must reuse the committed short result instead of trying to grow it again.
@@ -146,7 +146,7 @@ func TestExistingExclusiveDNBAllocateReturnsWithoutReplanning(t *testing.T) {
 	entries := state.PodEntries{"dnb-a": {"main": allocation}}
 	machineState, err := generateMachineStateFromPodEntries(topology, entries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	handlerCalled := false
 	policy.allocation.allocationHandlers[apiconsts.PodAnnotationQoSLevelDedicatedCores] = func(

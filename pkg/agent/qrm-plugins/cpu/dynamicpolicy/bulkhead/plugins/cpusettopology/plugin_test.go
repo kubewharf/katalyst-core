@@ -50,6 +50,31 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+func TestWriteAheadRequirementFollowsConfigurationWithoutLifecycleChanges(t *testing.T) {
+	t.Parallel()
+	plugin := &CPUSetTopologyPlugin{lastEnabled: true, resetComplete: true}
+	var requirement bulkheadapi.WriteAheadRequired = plugin
+	conf := dynamicconfig.NewDynamicAgentConfiguration().GetDynamicConfiguration()
+	if requirement.RequiresWriteAhead(conf) {
+		t.Fatal("disabled cpuset must not require WAL")
+	}
+	conf.BulkheadConfig.EnableBulkheadCpusetTopology = true
+	if !requirement.RequiresWriteAhead(conf) {
+		t.Fatal("configured cpuset must require WAL")
+	}
+	if !plugin.lastEnabled || !plugin.resetComplete {
+		t.Fatal("requirement query mutated lifecycle")
+	}
+	if requirement.RequiresWriteAhead(nil) {
+		t.Fatal("absent plugin configuration is disabled")
+	}
+	conf.BulkheadConfig.EnableBulkheadCpusetTopology = false
+	plugin.cfg.PreserveReclaimCPUSetWhenTopologyDisabled = true
+	if !requirement.RequiresWriteAhead(conf) {
+		t.Fatal("configured reclaim preservation must retain WAL protection")
+	}
+}
+
 func TestTopologyResultAndDAGApplyResultPreserveExecutionStatistics(t *testing.T) {
 	t.Parallel()
 	convergence := topology.ConvergenceResult{

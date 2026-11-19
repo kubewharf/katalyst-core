@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -916,8 +917,7 @@ func (p *DynamicPolicy) applySystemExclusivePoolChanges(toCreate, toUpdate map[s
 			state.ErrStaleStateRevision, revision, currentRevision)
 	}
 	candidateState := state.NewTransientState(p.machine.machineInfo.CPUTopology)
-	if err := candidateState.CommitAdvisorState(
-		podEntries, machineState, allowOverlap, disableDedicatedOverlap, false); err != nil {
+	if err := candidateState.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{Persist: false}); err != nil {
 		return fmt.Errorf("initialize system exclusive pool candidate state: %w", err)
 	}
 
@@ -953,14 +953,7 @@ func (p *DynamicPolicy) applySystemExclusivePoolChanges(toCreate, toUpdate map[s
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed: %v", err)
 	}
-	if err := p.state.CommitAdvisorStateIfRevision(
-		revision,
-		candidateEntries,
-		updatedMachineState,
-		allowOverlap,
-		disableDedicatedOverlap,
-		true,
-	); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: candidateEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: true}); err != nil {
 		return fmt.Errorf("commit system exclusive pool state: %w", err)
 	}
 

@@ -343,7 +343,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesSkipsWhenResponseAllowsOverl
 
 	// The advisor response mode is the source of truth for the pending
 	// transaction. A stale checkpoint value must not clip reclaim in overlap
-	// mode before CommitAdvisorState persists the new mode.
+	// mode before Commit persists the new mode.
 	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, true, false)
 	require.NoError(t, err)
 	require.Nil(t, override)

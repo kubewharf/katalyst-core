@@ -83,19 +83,12 @@ func (s *irqStateMutationRecorder) SetMachineState(machineState state.NUMANodeMa
 	return s.State.SetMachineState(machineState, persist)
 }
 
-func (s *irqStateMutationRecorder) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *irqStateMutationRecorder) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.mu.Lock()
 	s.commitCalls++
-	s.commitPersist = persist
+	s.commitPersist = options.Persist
 	s.mu.Unlock()
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
 func (s *irqStateMutationRecorder) mutationCalls() (int, int, int, bool) {

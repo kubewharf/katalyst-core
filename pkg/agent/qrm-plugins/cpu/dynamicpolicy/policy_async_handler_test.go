@@ -210,28 +210,12 @@ func TestClearResidualStateNeverMutatesWhileFenced(t *testing.T) {
 	require.Contains(t, p.state.GetPodEntries(), podUID)
 }
 
-func (s *systemExclusiveCommitFailureState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *systemExclusiveCommitFailureState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.attempts++
 	if s.attempts == 1 {
 		return s.err
 	}
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision,
-		podEntries,
-		machineState,
-		allowSharedCoresOverlapReclaimedCores,
-		disableDedicatedCoresOverlapReclaimedCores,
-		persist,
-		permits...,
-	)
+	return s.State.Commit(update, options, permits...)
 }
 
 func TestCheckCPUSetHealth(t *testing.T) {

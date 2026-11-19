@@ -772,8 +772,13 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 	pending.enforceSteadyReclaim = !hardActive &&
 		advisorResponseHasFakeNUMAMandatoryReclaim(resp)
 	pending.migrationCheckpointTransition = checkpointTransition
+	headroom, err := getAdvisorNUMAHeadroom(resp)
+	if err != nil {
+		return fmt.Errorf("parse cpu NUMA headroom before commit: %w", err)
+	}
+	pending.numaHeadroom = headroom
 	if p.pendingAdvisorStateMatchesCommitted(pending) &&
-		len(resp.ExtraEntries) == 0 &&
+		headroom == nil &&
 		!p.hasAnyPendingAdvisorPostCommitTarget() {
 		if err := p.validateAdvisorPartitionBeforeCommitWithDynamicConfig(
 			pending.entries,
@@ -788,12 +793,17 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 			pending.migrationCheckpointTransition); err != nil {
 			return fmt.Errorf("apply converged migration checkpoint transition: %w", err)
 		}
+		if controlErr := p.applyCgroupConfigs(resp); controlErr != nil {
+			return fmt.Errorf("applyCgroupConfigs failed with error: %w", controlErr)
+		}
 		return nil
 	}
-	target, applyErr := p.commitAdvisorResponseWithWriteAheadTransition(
+	requiresWriteAhead := p.advisorWriteAheadRequired(pending)
+	target, applyErr := p.commitAdvisorResponse(
 		resp,
 		pending.migrationCheckpointTransition,
 		pending.preCommitRevision,
+		requiresWriteAhead,
 		func(target *advisorPostCommitTarget) error {
 			return p.commitPendingAdvisorState(pending, target)
 		},
@@ -802,13 +812,46 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 		return fmt.Errorf("applyBlocks failed with error: %w", applyErr)
 	}
 
+	controlErr := p.applyCgroupConfigs(resp)
 	ctx, cancel := context.WithTimeout(executionCtx, cpuSetAdjustmentHandlerTimeout(p.config.conf))
 	defer cancel()
-	if err := p.reconcileAdvisorPostCommitTarget(ctx, target); err != nil {
-		return err
+	if partitionErr := p.reconcileAdvisorPostCommitTarget(ctx, target); partitionErr != nil {
+		if controlErr != nil {
+			return fmt.Errorf("%w; applyCgroupConfigs failed with error: %v", partitionErr, controlErr)
+		}
+		return partitionErr
 	}
-
+	if controlErr != nil {
+		return fmt.Errorf("applyCgroupConfigs failed with error: %w", controlErr)
+	}
 	return nil
+}
+
+// getAdvisorNUMAHeadroom returns the last headroom update in response order.
+// Nil means absent; an empty map means an explicit clear, including JSON null.
+func getAdvisorNUMAHeadroom(resp *advisorapi.ListAndWatchResponse) (map[int]float64, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("getAdvisorNUMAHeadroom got nil response")
+	}
+	var headroom map[int]float64
+	for _, extra := range resp.ExtraEntries {
+		if extra == nil || extra.CalculationResult == nil {
+			continue
+		}
+		value, ok := extra.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
+		if !ok {
+			continue
+		}
+		var parsed map[int]float64
+		if err := json.Unmarshal([]byte(value), &parsed); err != nil {
+			return nil, err
+		}
+		headroom = parsed
+		if headroom == nil {
+			headroom = map[int]float64{}
+		}
+	}
+	return headroom, nil
 }
 
 func (p *DynamicPolicy) validateAdvisorResponse(resp *advisorapi.ListAndWatchResponse) error {
@@ -830,6 +873,9 @@ func (p *DynamicPolicy) validateAdvisorResponseWithDynamicConfig(
 }
 
 func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
+	if len(resp.ExtraEntries) == 0 {
+		return nil
+	}
 	if p.applyCgroupConfigsHook != nil {
 		return p.applyCgroupConfigsHook(resp)
 	}
@@ -2262,6 +2308,7 @@ func buildLegacyMandatoryReclaimDescriptors(
 }
 
 type pendingAdvisorState struct {
+	numaHeadroom                  map[int]float64
 	preCommitRevision             uint64
 	entries                       state.PodEntries
 	allowOverlap                  bool
@@ -2270,6 +2317,16 @@ type pendingAdvisorState struct {
 	residualFloor                 machine.CPUSet
 	dynamicConfig                 *dynamicconfig.Configuration
 	migrationCheckpointTransition steadyFakeNUMAMigrationCheckpointTransition
+}
+
+// advisorWriteAheadRequired keeps transaction recovery in the policy and
+// delegates new transaction requirements to the registered plugin capabilities.
+func (p *DynamicPolicy) advisorWriteAheadRequired(pending *pendingAdvisorState) bool {
+	return p.hasAnyPendingAdvisorPostCommitTarget() ||
+		pending.migrationCheckpointTransition.kind != steadyFakeNUMAMigrationCheckpointKeep ||
+		(p.steadyFakeNUMAMigration != nil && p.steadyFakeNUMAMigration.current() != nil) ||
+		p.bulkhead.bulkheadManager == nil ||
+		p.bulkhead.bulkheadManager.RequiresWriteAhead(pending.dynamicConfig)
 }
 
 func (p *DynamicPolicy) pendingAdvisorStateMatchesCommitted(pending *pendingAdvisorState) bool {
@@ -3080,16 +3137,17 @@ func (p *DynamicPolicy) commitPendingAdvisorState(
 		target = targets[0]
 	}
 	entries, _, err := p.commitPendingCPUPartitionForAdvisorTarget(pendingCPUPartition{
-		expectedRevision:          pending.preCommitRevision,
-		entries:                   pending.entries,
-		allowOverlap:              pending.allowOverlap,
-		disableDedicated:          pending.disableDedicated,
-		persist:                   true,
-		source:                    "advisor apply",
-		requireCoreAlignedReclaim: pending.disableDedicated,
-		enforceSteadyReclaim:      pending.enforceSteadyReclaim,
-		residualFloor:             pending.residualFloor,
-		dynamicConfig:             pending.dynamicConfig,
+		numaHeadroom:                 pending.numaHeadroom,
+		expectedRevision:             pending.preCommitRevision,
+		entries:                      pending.entries,
+		allowOverlap:                 pending.allowOverlap,
+		disableDedicated:             pending.disableDedicated,
+		persist:                      true,
+		source:                       "advisor apply",
+		requireCoreAlignedReclaim:    pending.disableDedicated,
+		enforceSteadyReclaim:         pending.enforceSteadyReclaim,
+		residualFloor:                pending.residualFloor,
+		dynamicConfig:                pending.dynamicConfig,
 	}, target)
 	if err == nil {
 		pending.entries = entries
@@ -3157,7 +3215,7 @@ func (p *DynamicPolicy) buildAdjustmentCommitOverrideFromPodEntriesWithDynamicCo
 	}
 	snapshot.podEntries = newEntries.Clone()
 	// The advisor response mode is the pending transaction's source of truth.
-	// The checkpoint may still hold the previous mode until CommitAdvisorState
+	// The checkpoint may still hold the previous mode until Commit
 	// persists pod entries, machine state, and the mode atomically.
 	snapshot.allowOverlap = allowSharedCoresOverlapReclaimedCores
 	snapshot.disableDedicated = disableDedicatedCoresOverlapReclaimedCores

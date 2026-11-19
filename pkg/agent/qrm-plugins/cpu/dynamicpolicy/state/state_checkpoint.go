@@ -383,72 +383,21 @@ func (sc *stateCheckpoint) SetDisableDedicatedCoresOverlapReclaimedCores(disable
 	return nil
 }
 
-// CommitAdvisorState atomically updates all state derived from one advisor response.
-func (sc *stateCheckpoint) CommitAdvisorState(
-	podEntries PodEntries,
-	machineState NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	persist bool,
-	permits ...*WritePermit,
-) error {
+func (sc *stateCheckpoint) Commit(update StateUpdate, options CommitOptions, permits ...*WritePermit) error {
 	sc.Lock()
 	defer sc.Unlock()
 
-	if err := sc.permitWrite("CommitAdvisorState", permits...); err != nil {
+	if err := sc.permitWrite("Commit", permits...); err != nil {
 		return err
 	}
 	var oldState cpuPluginStateData
-	if persist {
+	if options.Persist {
 		oldState = sc.cache.snapshotData()
 	}
-
-	if err := sc.cache.CommitAdvisorState(
-		podEntries,
-		machineState,
-		allowSharedCoresOverlapReclaimedCores,
-		disableDedicatedCoresOverlapReclaimedCores,
-		false,
-	); err != nil {
+	if err := sc.cache.Commit(update, options); err != nil {
 		return err
 	}
-	if persist {
-		return sc.storeStateOrRestore(oldState)
-	}
-	return nil
-}
-
-func (sc *stateCheckpoint) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries PodEntries,
-	machineState NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	persist bool,
-	permits ...*WritePermit,
-) error {
-	sc.Lock()
-	defer sc.Unlock()
-
-	if err := sc.permitWrite("CommitAdvisorStateIfRevision", permits...); err != nil {
-		return err
-	}
-	var oldState cpuPluginStateData
-	if persist {
-		oldState = sc.cache.snapshotData()
-	}
-
-	if err := sc.cache.CommitAdvisorStateIfRevision(
-		expectedRevision,
-		podEntries,
-		machineState,
-		allowSharedCoresOverlapReclaimedCores,
-		disableDedicatedCoresOverlapReclaimedCores,
-		false,
-	); err != nil {
-		return err
-	}
-	if persist {
+	if options.Persist {
 		return sc.storeStateOrRestore(oldState)
 	}
 	return nil

@@ -242,6 +242,14 @@ func (p *CPUSetTopologyPlugin) CurrentEnabled(in bulkheadapi.HandlerContext) boo
 	return enableBulkheadCpusetTopology(in)
 }
 
+var _ bulkheadapi.WriteAheadRequired = (*CPUSetTopologyPlugin)(nil)
+
+// RequiresWriteAhead follows configuration rather than the live overlap/cgroup
+// gates: a configured transaction remains protected across runtime transitions.
+func (p *CPUSetTopologyPlugin) RequiresWriteAhead(conf *dynamicconfig.Configuration) bool {
+	return p.cfg.PreserveReclaimCPUSetWhenTopologyDisabled || enableBulkheadCpusetTopologyByDynamicConf(conf)
+}
+
 func (p *CPUSetTopologyPlugin) Enable(in bulkheadapi.HandlerContext) bool {
 	curr := p.CurrentEnabled(in)
 	if !curr && p.lastEnabled {

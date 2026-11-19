@@ -38,6 +38,53 @@ import (
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
+type writeAheadTestPlugin struct {
+	*fakePlugin
+	required bool
+	queries  int
+}
+
+func (p *writeAheadTestPlugin) RequiresWriteAhead(*dynamicconfig.Configuration) bool {
+	p.queries++
+	return p.required
+}
+
+func TestManagerRequiresWriteAheadUsesOptionalCapabilities(t *testing.T) {
+	t.Parallel()
+	first := &writeAheadTestPlugin{fakePlugin: &fakePlugin{name: "first"}}
+	second := &writeAheadTestPlugin{fakePlugin: &fakePlugin{name: "second"}, required: true}
+	plain := &fakePlugin{name: "ordinary", enabled: true}
+	m := &Manager{plugins: []bulkheadapi.Plugin{plain, first, second}}
+	conf := dynamicBulkheadConf(true)
+	// A query must not wait on Apply's lock or mutate lifecycle via Enable.
+	if err := m.mu.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer m.mu.Unlock()
+	if !m.RequiresWriteAhead(conf) {
+		t.Fatal("any opted-in plugin must require WAL")
+	}
+	if first.queries != 1 || second.queries != 1 {
+		t.Fatal("requirements were not queried")
+	}
+	if len(plain.enableStates) != 0 || len(first.enableStates) != 0 || len(second.enableStates) != 0 {
+		t.Fatal("requirement query called mutable Enable")
+	}
+	second.required = false
+	if m.RequiresWriteAhead(conf) {
+		t.Fatal("ordinary plugins must not force WAL")
+	}
+	if m.RequiresWriteAhead(dynamicBulkheadConf(false)) {
+		t.Fatal("closed global gate must not query plugin requirements")
+	}
+	if first.queries != 2 || second.queries != 2 {
+		t.Fatal("closed global gate queried capabilities")
+	}
+	if !m.RequiresWriteAhead(nil) {
+		t.Fatal("unknown configuration must retain protection")
+	}
+}
+
 func TestPrepareApplyPreservesCanonicalPartitionIntent(t *testing.T) {
 	t.Parallel()
 	for _, canonical := range []bool{false, true} {

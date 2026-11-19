@@ -113,31 +113,11 @@ func (s *transientState) SetDisableDedicatedCoresOverlapReclaimedCores(v bool, _
 	return s.cpuPluginState.SetDisableDedicatedCoresOverlapReclaimedCores(v)
 }
 
-func (s *transientState) CommitAdvisorState(
-	podEntries PodEntries,
-	machineState NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, _ bool,
-	permits ...*WritePermit,
-) error {
-	if err := s.permitWrite("CommitAdvisorState", permits...); err != nil {
+func (s *transientState) Commit(update StateUpdate, options CommitOptions, permits ...*WritePermit) error {
+	if err := s.permitWrite("Commit", permits...); err != nil {
 		return err
 	}
-	return s.cpuPluginState.CommitAdvisorState(
-		podEntries, machineState, allowOverlap, disableDedicatedOverlap, false)
-}
-
-func (s *transientState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries PodEntries,
-	machineState NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, _ bool,
-	permits ...*WritePermit,
-) error {
-	if err := s.permitWrite("CommitAdvisorStateIfRevision", permits...); err != nil {
-		return err
-	}
-	return s.cpuPluginState.CommitAdvisorStateIfRevision(
-		expectedRevision, podEntries, machineState, allowOverlap, disableDedicatedOverlap, false)
+	return s.cpuPluginState.Commit(update, options)
 }
 
 func (s *transientState) Delete(podUID, containerName string, _ bool) error {

@@ -86,25 +86,8 @@ func (m *MockState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOve
 	return nil
 }
 
-func (m *MockState) CommitAdvisorState(
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
-	_ ...*state.WritePermit,
-) error {
+func (m *MockState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	return nil
-}
-
-func (m *MockState) CommitAdvisorStateIfRevision(
-	_ uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool,
-	permits ...*state.WritePermit,
-) error {
-	return m.CommitAdvisorState(
-		podEntries, machineState, allowSharedCoresOverlapReclaimedCores,
-		disableDedicatedCoresOverlapReclaimedCores, persist, permits...)
 }
 
 func (m *MockState) Delete(podUID string, containerName string, persist bool) error {

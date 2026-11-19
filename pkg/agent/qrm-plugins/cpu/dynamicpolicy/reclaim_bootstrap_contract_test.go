@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -121,7 +122,7 @@ func TestInitialReclaimPoolRepairsWholeCoreFromExclusiveDedicatedSurplus(t *test
 	machineState, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
 	machineState[1].PreOccPodEntries = state.PodEntries{"pre-occ": {"main": preOcc}}
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	persistedPreOcc := p.state.GetMachineState()[1].PreOccPodEntries.Clone()
 	persistedFirst := p.state.GetAllocationInfo("dedicated-a", "main")
 	require.True(t, persistedFirst.CheckDedicatedNUMABindingNUMAExclusive())
@@ -235,8 +236,7 @@ func TestInitialReclaimPoolRepairsUnderfilledAccordingToDedicatedOverlapMode(t *
 			machineState, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 			require.NoError(t, err)
 			machineState[1].PreOccPodEntries = state.PodEntries{"pre-occ": {"main": preOcc}}
-			require.NoError(t, p.state.CommitAdvisorState(
-				entries, machineState, false, tc.disableDedicatedOverlap, true))
+			require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: tc.disableDedicatedOverlap}, state.CommitOptions{Persist: true}))
 			persistedPreOcc := p.state.GetMachineState()[1].PreOccPodEntries.Clone()
 
 			before := p.state.GetRevision()
@@ -359,7 +359,7 @@ func TestInitialReclaimDedicatedRepairStaleRevisionDoesNotPublish(t *testing.T) 
 	}
 	machineState, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	underlying := p.state
 	tracked := &bypassTrackingState{State: underlying, bumpBeforeCommit: true}
 	p.state = tracked
@@ -430,7 +430,7 @@ func TestInitialReclaimPoolRejectsUnsafeDedicatedRepair(t *testing.T) {
 					"protected": {PinnedCPUSet: machine.NewCPUSet(1)},
 				}
 			}
-			require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, true))
+			require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 			beforeEntries, beforeMachineState, beforeRevision := p.state.GetAdvisorStateSnapshot()
 
 			err = p.ensureInitialReclaimPool()
@@ -566,7 +566,7 @@ func TestInitialReclaimPoolPreservesShareScalarWithStaleBuckets(t *testing.T) {
 	entries := state.PodEntries{commonstate.PoolNameShare: {commonstate.FakedContainerName: share}, "shared-pod": {"main": main}}
 	ms, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, ms, false, false, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: ms, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	ok, _, err := NewDynamicPolicy(freshRealConstructorContext(t, topology, stateDir), freshRealConstructorConf(t, stateDir), nil, "stale-pool-buckets")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -598,7 +598,7 @@ func TestInitialReclaimPoolBacksActiveRNBBeforePreference(t *testing.T) {
 	entries := state.PodEntries{"rnb-pod": {"main": member, "sidecar": sidecar}}
 	ms, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, ms, false, false, false))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: ms, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 	before := p.state.GetRevision()
 	require.NoError(t, p.ensureInitialReclaimPool())
 	require.Equal(t, before+1, p.state.GetRevision())
@@ -727,7 +727,7 @@ func stageEmptyReclaimUnderWAL(t *testing.T, topology *machine.CPUTopology, p *D
 	}
 	ms, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, ms, false, true, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: ms, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: true}, state.CommitOptions{Persist: true}))
 	revision = p.state.GetRevision()
 
 	p.publishAdvisorPostCommitTarget(nil, revision)
@@ -789,14 +789,7 @@ func TestReconcileAdvisorPostCommitCompletesWithNonEmptyReclaim(t *testing.T) {
 	preEntry := first.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	require.NotNil(t, preEntry)
 	require.False(t, preEntry.AllocationResult.IsEmpty())
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	revision := first.state.GetRevision()
 
 	target := first.publishAdvisorPostCommitTarget(nil, revision)

@@ -26,6 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -620,14 +621,7 @@ func (p *NativePolicy) removePod(podUID string) error {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	if err := p.state.CommitAdvisorStateIfRevision(
-		revision,
-		podEntries,
-		updatedMachineState,
-		allowOverlap,
-		disableDedicatedOverlap,
-		true,
-	); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: disableDedicatedOverlap}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: true}); err != nil {
 		return fmt.Errorf("persist native pod removal atomically: %w", err)
 	}
 	return nil

@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
@@ -58,6 +60,23 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+// Legacy test adapters keep the durable-transaction matrix off production APIs.
+func (p *DynamicPolicy) commitAdvisorResponseWithWriteAhead(
+	resp *advisorapi.ListAndWatchResponse, preCommitRevision uint64,
+	commitDesired func(*advisorPostCommitTarget) error,
+) (*advisorPostCommitTarget, error) {
+	return p.commitAdvisorResponseWithWriteAheadTransition(resp,
+		steadyFakeNUMAMigrationCheckpointTransition{kind: steadyFakeNUMAMigrationCheckpointKeep},
+		preCommitRevision, commitDesired)
+}
+
+func (p *DynamicPolicy) commitAdvisorResponseWithWriteAheadTransition(
+	resp *advisorapi.ListAndWatchResponse, transition steadyFakeNUMAMigrationCheckpointTransition,
+	preCommitRevision uint64, commitDesired func(*advisorPostCommitTarget) error,
+) (*advisorPostCommitTarget, error) {
+	return p.commitAdvisorResponse(resp, transition, preCommitRevision, true, commitDesired)
+}
+
 type cacheSyncRegistrarPodFetcher struct {
 	*podmeta.PodFetcherStub
 	events       chan podmeta.KubeletPodCacheSyncEvent
@@ -69,6 +88,37 @@ type cpusetOverrideCommitGuardState struct {
 	unconditionalCommitCalls int
 	conditionalCommitCalls   int
 	conditionalRevision      uint64
+}
+
+func TestAdvisorWALStateActivationSurvivesDisable(t *testing.T) {
+	t.Parallel()
+
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.adjustment.cpuSetAdjustmentRetryStopping = true
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}
+	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+		"failure": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			return fmt.Errorf("physical failure")
+		},
+	}
+	require.ErrorContains(t, p.allocateByCPUAdvisor(nil, resp, nil), "physical failure")
+	target := p.currentAdvisorPostCommitTarget()
+	require.Equal(t, advisorWALNotRequired, target.walState)
+	on := dynamicconfig.NewConfiguration()
+	on.BulkheadConfig.Enable = true
+	on.BulkheadConfig.EnableBulkheadCpusetTopology = true
+	require.NoError(t, os.Mkdir(p.advisorPostCommitCheckpointPath(), 0o700))
+	require.ErrorContains(t, p.ensureAdvisorAdjustmentWriteAhead(target, on), "activate advisor write-ahead")
+	require.Equal(t, advisorWALPending, target.walState)
+	require.NoError(t, os.Remove(p.advisorPostCommitCheckpointPath()))
+	off := dynamicconfig.NewConfiguration()
+	require.NoError(t, p.ensureAdvisorAdjustmentWriteAhead(target, off))
+	require.Equal(t, advisorWALPersisted, target.walState)
+	recovered, err := p.recoverAdvisorPostCommitName(advisorPostCommitCheckpointName)
+	require.NoError(t, err)
+	require.NotNil(t, recovered)
+	require.Equal(t, advisorWALPersisted, recovered.walState)
 }
 
 func TestCPUSetAdjustmentStateSnapshotMatchesSameRevision(t *testing.T) {
@@ -176,31 +226,15 @@ func TestCPUSetAdjustmentExecutionLeaseStaleContextAfterRelease(t *testing.T) {
 	}
 }
 
-func (s *cpusetOverrideCommitGuardState) CommitAdvisorState(
-	state.PodEntries,
-	state.NUMANodeMap,
-	bool,
-	bool,
-	bool,
-	...*state.WritePermit,
-) error {
-	s.unconditionalCommitCalls++
-	return fmt.Errorf("cpuset adjustment override must use CommitAdvisorStateIfRevision")
-}
+func (s *cpusetOverrideCommitGuardState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
+	if options.ExpectedRevision == nil {
+		s.unconditionalCommitCalls++
+		return fmt.Errorf("commit must use expected revision")
+	}
 
-func (s *cpusetOverrideCommitGuardState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap bool,
-	disableDedicatedOverlap bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
 	s.conditionalCommitCalls++
-	s.conditionalRevision = expectedRevision
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, podEntries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	s.conditionalRevision = *options.ExpectedRevision
+	return s.State.Commit(update, options, permits...)
 }
 
 func (f *cacheSyncRegistrarPodFetcher) RegisterKubeletPodCacheSyncListener(string) (
@@ -1175,6 +1209,7 @@ func TestPostAdvisorCommitApplyFailureRunsInOrderAndMarksRevisionOnce(t *testing
 
 			p.Lock()
 			target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
+			retainLegacyAdvisorControlsForTest(p, target)
 			err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
 			p.Unlock()
 
@@ -1189,11 +1224,66 @@ func TestPostAdvisorCommitApplyFailureRunsInOrderAndMarksRevisionOnce(t *testing
 	}
 }
 
-func TestAdvisorPostCommitTargetClonesResponseExtraEntries(t *testing.T) {
+func retainLegacyAdvisorControlsForTest(p *DynamicPolicy, target *advisorPostCommitTarget, extra ...*advisorsvc.CalculationInfo) {
+	if len(extra) == 0 {
+		extra = []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{}}}
+	}
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	defer p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+	if p.adjustment.legacyAdvisorControls == nil {
+		p.adjustment.legacyAdvisorControls = make(map[*advisorPostCommitTarget][]*advisorsvc.CalculationInfo)
+	}
+	p.adjustment.legacyAdvisorControls[target] = extra
+}
+
+// requireAdvisorTargetResponse checks the partition data independently.
+func requireAdvisorTargetResponse(t *testing.T, resp *advisorapi.ListAndWatchResponse, target *advisorPostCommitTarget) {
+	t.Helper()
+	require.NotNil(t, target)
+	require.True(t, proto.Equal(&advisorapi.ListAndWatchResponse{
+		Entries:                               resp.Entries,
+		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
+		DisableDedicatedCoresOverlapReclaimedCores: resp.DisableDedicatedCoresOverlapReclaimedCores,
+	}, target.partition.walResponse()))
+	if len(resp.ExtraEntries) > 0 {
+		require.Empty(t, target.partition.walResponse().ExtraEntries)
+	}
+}
+
+func TestAdvisorPostCommitPartitionDataBoundary(t *testing.T) {
+	t.Parallel()
+
+	partitionType := reflect.TypeOf(advisorPartition{})
+	require.Equal(t, 3, partitionType.NumField())
+	for _, name := range []string{"entries", "allowSharedOverlap", "disableDedicatedOverlap"} {
+		_, ok := partitionType.FieldByName(name)
+		require.True(t, ok, "missing partition field %s", name)
+		_, retained := reflect.TypeOf(advisorPostCommitTarget{}).FieldByName(name)
+		require.False(t, retained, "partition field %s must not be duplicated in target", name)
+	}
+}
+
+func TestAdvisorPostCommitTargetDoesNotRetainProtocolResponse(t *testing.T) {
+	t.Parallel()
+
+	targetType := reflect.TypeOf(advisorPostCommitTarget{})
+	responseType := reflect.TypeOf((*advisorapi.ListAndWatchResponse)(nil))
+	for i := 0; i < targetType.NumField(); i++ {
+		require.NotEqual(t, responseType, targetType.Field(i).Type,
+			"post-commit state must not retain the complete transport response")
+	}
+}
+
+func TestAdvisorPostCommitTargetClonesOnlyPartition(t *testing.T) {
 	t.Parallel()
 
 	p := &DynamicPolicy{}
 	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{"pool": {Entries: map[string]*advisorapi.CalculationInfo{
+			"container": {OwnerPoolName: "original"},
+		}}},
+		AllowSharedCoresOverlapReclaimedCores:      true,
+		DisableDedicatedCoresOverlapReclaimedCores: true,
 		ExtraEntries: []*advisorsvc.CalculationInfo{{
 			CgroupPath: "/old",
 			CalculationResult: &advisorsvc.CalculationResult{
@@ -1203,14 +1293,55 @@ func TestAdvisorPostCommitTargetClonesResponseExtraEntries(t *testing.T) {
 	}
 
 	target := p.publishAdvisorPostCommitTarget(resp, 7)
+	resp.Entries["pool"].Entries["container"].OwnerPoolName = "mutated"
+	resp.Entries = nil
+	resp.AllowSharedCoresOverlapReclaimedCores = false
+	resp.DisableDedicatedCoresOverlapReclaimedCores = false
 	resp.ExtraEntries[0].CgroupPath = "/mutated"
 	resp.ExtraEntries[0].CalculationResult.Values["key"] = "mutated"
 	resp.ExtraEntries = nil
 
 	require.Equal(t, uint64(7), target.revision)
-	require.Len(t, target.response.ExtraEntries, 1)
-	require.Equal(t, "/old", target.response.ExtraEntries[0].CgroupPath)
-	require.Equal(t, "old", target.response.ExtraEntries[0].CalculationResult.Values["key"])
+	require.Equal(t, "original", target.partition.entries["pool"].Entries["container"].OwnerPoolName)
+	require.True(t, target.partition.allowSharedOverlap)
+	require.True(t, target.partition.disableDedicatedOverlap)
+	require.Empty(t, target.partition.walResponse().ExtraEntries)
+	_, retained := reflect.TypeOf(*target).FieldByName("extraEntries")
+	require.False(t, retained)
+}
+
+func TestAdvisorPostCommitHandlersReceiveOnlyExtraEntries(t *testing.T) {
+	t.Parallel()
+
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.adjustment.cpuSetAdjustmentRetryStopping = true
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries:                               map[string]*advisorapi.CalculationEntries{"pool": {}},
+		AllowSharedCoresOverlapReclaimedCores: true,
+		DisableDedicatedCoresOverlapReclaimedCores: true,
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/controls"}},
+	}
+	target := p.publishAdvisorPostCommitTarget(resp, p.state.GetRevision())
+	p.adjustment.legacyAdvisorControls = map[*advisorPostCommitTarget][]*advisorsvc.CalculationInfo{target: resp.ExtraEntries}
+	calls := 0
+	observe := func(got *advisorapi.ListAndWatchResponse) error {
+		calls++
+		require.Nil(t, got.Entries)
+		require.False(t, got.AllowSharedCoresOverlapReclaimedCores)
+		require.False(t, got.DisableDedicatedCoresOverlapReclaimedCores)
+		require.Equal(t, resp.ExtraEntries, got.ExtraEntries)
+		return nil
+	}
+	p.applyHeadroomHook = observe
+	p.applyCgroupConfigsHook = observe
+	p.runCPUSetAdjustmentHandlersHook = func(context.Context, ...cpusetutil.CPUSetAdjustmentMode) error { return nil }
+	p.Lock()
+	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
+	p.Unlock()
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Nil(t, p.currentAdvisorPostCommitTarget())
 }
 
 func TestAdvisorPostCommitRetryReplaysAllStagesUntilConverged(t *testing.T) {
@@ -1240,6 +1371,7 @@ func TestAdvisorPostCommitRetryReplaysAllStagesUntilConverged(t *testing.T) {
 
 	p.Lock()
 	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	retainLegacyAdvisorControlsForTest(p, target)
 	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
 	p.Unlock()
 	require.ErrorContains(t, err, "transient cgroup failure")
@@ -1370,6 +1502,7 @@ func TestAdvisorPostCommitConvergenceDeadlineWithStageFailureKeepsWriterFence(t 
 
 	p.Lock()
 	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	retainLegacyAdvisorControlsForTest(p, target)
 	err := p.reconcileAdvisorPostCommitTarget(context.Background(), target)
 	p.Unlock()
 
@@ -1404,6 +1537,7 @@ func TestAdvisorPostCommitNewRevisionSupersedesStaleTarget(t *testing.T) {
 		ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/new"}},
 	}, p.state.GetRevision())
 
+	retainLegacyAdvisorControlsForTest(p, newTarget, &advisorsvc.CalculationInfo{CgroupPath: "/new"})
 	p.Lock()
 	require.NoError(t, p.reconcileAdvisorPostCommitTarget(context.Background(), oldTarget))
 	require.NoError(t, p.reconcileAdvisorPostCommitTarget(context.Background(), newTarget))
@@ -1456,6 +1590,7 @@ func TestAdvisorPostCommitTargetPreservesWALWhenRevisionChangesBetweenStages(t *
 
 			target := p.publishAdvisorPostCommitTarget(
 				&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+			retainLegacyAdvisorControlsForTest(p, target)
 			if tc.advanceAfter == "publish" {
 				advanceRevision()
 			}
@@ -1499,6 +1634,7 @@ func TestAdvisorPostCommitTargetChecksCurrentPointerBetweenStages(t *testing.T) 
 	old := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{
 		ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/old"}},
 	}, p.state.GetRevision())
+	retainLegacyAdvisorControlsForTest(p, old)
 	p.Lock()
 	require.NoError(t, p.reconcileAdvisorPostCommitTarget(context.Background(), old))
 	p.Unlock()
@@ -1536,8 +1672,9 @@ func TestAdvisorPostCommitCheckpointCrashRecoveryAndSuccessfulCleanup(t *testing
 	restored := restarted.currentAdvisorPostCommitTarget()
 	require.NotNil(t, restored)
 	require.Equal(t, revision, restored.revision)
-	require.True(t, proto.Equal(target.response, restored.response),
-		"checkpoint must retain the complete proto response")
+	require.True(t, proto.Equal(target.partition.walResponse(), restored.partition.walResponse()),
+		"checkpoint must retain the partition response without ExtraEntries")
+	require.Empty(t, p.adjustment.legacyAdvisorControls[restored])
 
 	restarted.Lock()
 	require.NoError(t, restarted.reconcileAdvisorPostCommitTarget(context.Background(), restored))
@@ -1801,9 +1938,7 @@ func runAdvisorCheckpointWriter(t *testing.T, dir string) {
 		},
 		preCommitRevision,
 		func(target *advisorPostCommitTarget) error {
-			return p.state.CommitAdvisorStateIfRevision(
-				preCommitRevision, entries, machineState, false, true, true,
-				p.newAdvisorStateWritePermit(target))
+			return p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: true}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}, p.newAdvisorStateWritePermit(target))
 		},
 	)
 	require.NoError(t, err)
@@ -1931,18 +2066,13 @@ func TestAdvisorMigrationTransitionFailureRetainsWALAndStopsLaterSideEffects(t *
 		},
 		preCommitRevision,
 		func(target *advisorPostCommitTarget) error {
-			return p.state.CommitAdvisorStateIfRevision(
-				preCommitRevision,
-				p.state.GetPodEntries(),
-				p.state.GetMachineState(),
-				p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-				p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-				p.newAdvisorStateWritePermit(target),
-			)
+			return p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}, p.newAdvisorStateWritePermit(target))
 		},
 	)
 	require.NoError(t, err)
+	retainLegacyAdvisorControlsForTest(p, target, &advisorsvc.CalculationInfo{CalculationResult: &advisorsvc.CalculationResult{
+		Values: map[string]string{string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":7.5}`},
+	}})
 	require.Equal(t, oldTarget, p.steadyFakeNUMAMigration.current().target,
 		"CAS must not perform migration checkpoint I/O")
 
@@ -2006,15 +2136,7 @@ func TestAdvisorMigrationTransitionSurvivesCommitCrashAndRestart(t *testing.T) {
 		},
 		preCommitRevision,
 		func(target *advisorPostCommitTarget) error {
-			return first.state.CommitAdvisorStateIfRevision(
-				preCommitRevision,
-				first.state.GetPodEntries(),
-				first.state.GetMachineState(),
-				first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-				first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-				first.newAdvisorStateWritePermit(target),
-			)
+			return first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}, first.newAdvisorStateWritePermit(target))
 		},
 	)
 	require.NoError(t, err)
@@ -2126,7 +2248,8 @@ func TestAdvisorWALV2IsVersionedChecksummedAndFencedFromLegacyReaders(t *testing
 	restored := p.currentAdvisorPostCommitTarget()
 	require.NotNil(t, restored)
 	require.Equal(t, target.preCommitRevision, restored.preCommitRevision)
-	require.True(t, proto.Equal(response, restored.response))
+	require.True(t, proto.Equal(cloneAdvisorPostCommitTarget(response, 0).partition.walResponse(), restored.partition.walResponse()))
+	require.Empty(t, p.adjustment.legacyAdvisorControls[restored])
 	require.Equal(t, steadyFakeNUMAMigrationCheckpointReplace,
 		restored.migrationCheckpointTransition.kind)
 	require.Equal(t, "v2", restored.migrationCheckpointTransition.target.constraintDigest)
@@ -2432,15 +2555,7 @@ func TestAdvisorMigrationTransitionStaleCASDoesNotApplyAndRemovesStagingWAL(t *t
 		},
 		revision,
 		func(target *advisorPostCommitTarget) error {
-			return p.state.CommitAdvisorStateIfRevision(
-				revision+1,
-				p.state.GetPodEntries(),
-				p.state.GetMachineState(),
-				p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-				p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-				p.newAdvisorStateWritePermit(target),
-			)
+			return p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision + 1), Persist: true}, p.newAdvisorStateWritePermit(target))
 		},
 	)
 
@@ -2486,19 +2601,11 @@ func TestAdvisorWriteAheadPromoteFailureKeepsCommittedTargetPendingAndRecoverabl
 
 	target, err := p.commitAdvisorResponseWithWriteAhead(
 		&advisorapi.ListAndWatchResponse{
-			ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/committed"}},
+			Entries: map[string]*advisorapi.CalculationEntries{"committed": {}},
 		},
 		preCommitRevision,
 		func(target *advisorPostCommitTarget) error {
-			if err := p.state.CommitAdvisorStateIfRevision(
-				preCommitRevision,
-				p.state.GetPodEntries(),
-				p.state.GetMachineState(),
-				p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-				p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-				p.newAdvisorStateWritePermit(target),
-			); err != nil {
+			if err := p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}, p.newAdvisorStateWritePermit(target)); err != nil {
 				return err
 			}
 			return os.Mkdir(activePath, 0o700)
@@ -2527,8 +2634,8 @@ func TestAdvisorWriteAheadPromoteFailureKeepsCommittedTargetPendingAndRecoverabl
 	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
 	require.NoError(t, p.restoreAdvisorPostCommitTarget())
 	require.NotNil(t, p.currentAdvisorPostCommitTarget())
-	require.Equal(t, "/committed",
-		p.currentAdvisorPostCommitTarget().response.ExtraEntries[0].CgroupPath)
+	require.Contains(t, p.currentAdvisorPostCommitTarget().partition.entries, "committed")
+	require.Empty(t, p.adjustment.legacyAdvisorControls)
 	require.FileExists(t, activePath)
 	require.NoFileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName+".staging"))
 }
@@ -2567,15 +2674,7 @@ func TestAdvisorWriteAheadPromoteFailureRetriesPublicationBeforeApply(t *testing
 		},
 		preCommitRevision,
 		func(target *advisorPostCommitTarget) error {
-			if err := p.state.CommitAdvisorStateIfRevision(
-				preCommitRevision,
-				p.state.GetPodEntries(),
-				p.state.GetMachineState(),
-				p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-				p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-				p.newAdvisorStateWritePermit(target),
-			); err != nil {
+			if err := p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), NUMAHeadroom: map[int]float64{0: 7.5}, AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}, p.newAdvisorStateWritePermit(target)); err != nil {
 				return err
 			}
 			return os.Mkdir(activePath, 0o700)
@@ -2750,15 +2849,7 @@ func TestAdvisorWriteAheadPreparedTargetFencesConcurrentStateWriter(t *testing.T
 			func(target *advisorPostCommitTarget) error {
 				prepared <- target
 				<-releaseCommit
-				return p.state.CommitAdvisorStateIfRevision(
-					preCommitRevision,
-					p.state.GetPodEntries(),
-					p.state.GetMachineState(),
-					p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-					p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-					true,
-					p.newAdvisorStateWritePermit(target),
-				)
+				return p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}, p.newAdvisorStateWritePermit(target))
 			},
 		)
 		committed <- commitResult{target: target, err: err}
@@ -2793,14 +2884,14 @@ func TestAdvisorWriteAheadCommitFailurePreservesActiveTarget(t *testing.T) {
 	revision := p.state.GetRevision()
 	active := p.publishAdvisorPostCommitTarget(
 		&advisorapi.ListAndWatchResponse{
-			ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/active"}},
+			Entries: map[string]*advisorapi.CalculationEntries{"active": {}},
 		},
 		revision,
 	)
 
 	_, err := p.commitAdvisorResponseWithWriteAhead(
 		&advisorapi.ListAndWatchResponse{
-			ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/staging"}},
+			Entries: map[string]*advisorapi.CalculationEntries{"staging": {}},
 		},
 		revision,
 		func(target *advisorPostCommitTarget) error {
@@ -2820,7 +2911,7 @@ func TestAdvisorWriteAheadCommitFailurePreservesActiveTarget(t *testing.T) {
 	p.adjustment.advisorPostCommitTarget = nil
 	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
 	require.NoError(t, p.restoreAdvisorPostCommitTarget())
-	require.Equal(t, "/active", p.currentAdvisorPostCommitTarget().response.ExtraEntries[0].CgroupPath)
+	require.Contains(t, p.currentAdvisorPostCommitTarget().partition.entries, "active")
 }
 
 func TestAdvisorWriteAheadRecoverySelectsMainRevisionAndCleansOtherSlot(t *testing.T) {
@@ -2830,8 +2921,8 @@ func TestAdvisorWriteAheadRecoverySelectsMainRevisionAndCleansOtherSlot(t *testi
 		commitDesired bool
 		wantPath      string
 	}{
-		{name: "old active survives crash before desired commit", wantPath: "/active"},
-		{name: "staging is promoted after desired commit", commitDesired: true, wantPath: "/staging"},
+		{name: "old active survives crash before desired commit", wantPath: "active"},
+		{name: "staging is promoted after desired commit", commitDesired: true, wantPath: "staging"},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -2848,24 +2939,17 @@ func TestAdvisorWriteAheadRecoverySelectsMainRevisionAndCleansOtherSlot(t *testi
 				state:                          firstState,
 				advisorPostCommitCheckpointDir: dir,
 			}
-			require.NoError(t, firstState.CommitAdvisorStateIfRevision(
-				firstState.GetRevision(),
-				firstState.GetPodEntries(),
-				firstState.GetMachineState(),
-				firstState.GetAllowSharedCoresOverlapReclaimedCores(),
-				firstState.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-			))
+			require.NoError(t, firstState.Commit(state.StateUpdate{PodEntries: firstState.GetPodEntries(), MachineState: firstState.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: firstState.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: firstState.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](firstState.GetRevision()), Persist: true}))
 			revision := firstState.GetRevision()
 			first.publishAdvisorPostCommitTarget(
 				&advisorapi.ListAndWatchResponse{
-					ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/active"}},
+					Entries: map[string]*advisorapi.CalculationEntries{"active": {}},
 				},
 				revision,
 			)
 			stagingTarget := cloneAdvisorPostCommitTarget(
 				&advisorapi.ListAndWatchResponse{
-					ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/staging"}},
+					Entries: map[string]*advisorapi.CalculationEntries{"staging": {}},
 				},
 				revision+1,
 			)
@@ -2876,14 +2960,7 @@ func TestAdvisorWriteAheadRecoverySelectsMainRevisionAndCleansOtherSlot(t *testi
 			require.FileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName+".staging"))
 
 			if tc.commitDesired {
-				require.NoError(t, firstState.CommitAdvisorStateIfRevision(
-					revision,
-					firstState.GetPodEntries(),
-					firstState.GetMachineState(),
-					firstState.GetAllowSharedCoresOverlapReclaimedCores(),
-					firstState.GetDisableDedicatedCoresOverlapReclaimedCores(),
-					true,
-				))
+				require.NoError(t, firstState.Commit(state.StateUpdate{PodEntries: firstState.GetPodEntries(), MachineState: firstState.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: firstState.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: firstState.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: true}))
 			}
 
 			restartedState, err := state.NewCheckpointState(
@@ -2896,8 +2973,8 @@ func TestAdvisorWriteAheadRecoverySelectsMainRevisionAndCleansOtherSlot(t *testi
 			}
 			require.NoError(t, restarted.restoreAdvisorPostCommitTarget())
 			require.NotNil(t, restarted.currentAdvisorPostCommitTarget())
-			require.Equal(t, tc.wantPath,
-				restarted.currentAdvisorPostCommitTarget().response.ExtraEntries[0].CgroupPath)
+			require.Contains(t, restarted.currentAdvisorPostCommitTarget().partition.entries, tc.wantPath)
+			require.Empty(t, restarted.adjustment.legacyAdvisorControls)
 			require.FileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName))
 			require.NoFileExists(t, filepath.Join(dir, advisorPostCommitCheckpointName+".staging"))
 		})
@@ -2940,28 +3017,22 @@ func TestAdvisorWALRecoveryUsesPreCommitRevisionOnlyForV2(t *testing.T) {
 		require.NoError(t, err)
 		target := cloneAdvisorPostCommitTarget(
 			&advisorapi.ListAndWatchResponse{
-				ExtraEntries: []*advisorsvc.CalculationInfo{{CgroupPath: "/v2-committed"}},
+				Entries: map[string]*advisorapi.CalculationEntries{"committed": {}},
 			},
 			postCommitRevision,
 		)
 		target.preCommitRevision = preCommitRevision
 		require.NoError(t, p.storeAdvisorPostCommitTarget(
 			target, p.advisorPostCommitStagingPath()))
-		require.NoError(t, p.state.CommitAdvisorStateIfRevision(
-			preCommitRevision,
-			p.state.GetPodEntries(),
-			p.state.GetMachineState(),
-			p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-			p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-			true,
-		))
+		require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](preCommitRevision), Persist: true}))
 
 		require.NoError(t, p.restoreAdvisorPostCommitTarget())
 		restored := p.currentAdvisorPostCommitTarget()
 		require.NotNil(t, restored)
 		require.Equal(t, preCommitRevision, restored.preCommitRevision)
 		require.Equal(t, postCommitRevision, restored.revision)
-		require.Equal(t, "/v2-committed", restored.response.ExtraEntries[0].CgroupPath)
+		require.Contains(t, restored.partition.entries, "committed")
+		require.Empty(t, p.adjustment.legacyAdvisorControls[restored])
 		require.FileExists(t, p.advisorPostCommitCheckpointPath())
 		require.NoFileExists(t, p.advisorPostCommitStagingPath())
 	})
@@ -2986,7 +3057,7 @@ func TestAdvisorWALRecoveryUsesPreCommitRevisionOnlyForV2(t *testing.T) {
 		require.NoError(t, p.restoreAdvisorPostCommitTarget())
 		restored := p.currentAdvisorPostCommitTarget()
 		require.NotNil(t, restored)
-		require.Equal(t, "/legacy", restored.response.ExtraEntries[0].CgroupPath)
+		require.Equal(t, "/legacy", p.adjustment.legacyAdvisorControls[restored][0].CgroupPath)
 		require.FileExists(t, p.advisorPostCommitCheckpointPath())
 		require.NoFileExists(t, p.advisorPostCommitStagingPath())
 	})
@@ -3091,13 +3162,7 @@ func TestAdvisorWriteAheadTargetRealRestartAtCommitCrashPoints(t *testing.T) {
 			require.NotNil(t, target)
 
 			if tc.commitDesired {
-				require.NoError(t, firstState.CommitAdvisorStateIfRevision(
-					firstState.GetRevision(),
-					firstState.GetPodEntries(),
-					firstState.GetMachineState(),
-					firstState.GetAllowSharedCoresOverlapReclaimedCores(),
-					firstState.GetDisableDedicatedCoresOverlapReclaimedCores(),
-					true))
+				require.NoError(t, firstState.Commit(state.StateUpdate{PodEntries: firstState.GetPodEntries(), MachineState: firstState.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: firstState.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: firstState.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](firstState.GetRevision()), Persist: true}))
 				require.Equal(t, postCommitRevision, firstState.GetRevision())
 			}
 			if tc.publishTarget {
@@ -3579,6 +3644,7 @@ func TestRecoverStuckAdvisorPostCommitTargetRetainsWALWhenPayloadReplayFails(t *
 
 	target := p.publishAdvisorPostCommitTarget(
 		&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
+	retainLegacyAdvisorControlsForTest(p, target)
 	p.recordAdvisorPostCommitProgress(target, advisorPostCommitPhasePhysicalApply)
 
 	p.applyHeadroomHook = func(_ *advisorapi.ListAndWatchResponse) error {
@@ -3603,8 +3669,7 @@ func TestRecoverStuckAdvisorPostCommitTargetRestoresDurableReplayAfterRestart(t 
 	dir := t.TempDir()
 	first, err := getTestDynamicPolicyWithoutInitialization(topology, dir)
 	require.NoError(t, err)
-	require.NoError(t, first.state.CommitAdvisorState(
-		first.state.GetPodEntries(), first.state.GetMachineState(), false, false, true))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	require.NotZero(t, first.state.GetRevision())
 	target := first.publishAdvisorPostCommitTarget(
 		&advisorapi.ListAndWatchResponse{}, first.state.GetRevision())
@@ -3613,8 +3678,7 @@ func TestRecoverStuckAdvisorPostCommitTargetRestoresDurableReplayAfterRestart(t 
 	require.NoError(t, err)
 	require.True(t, released)
 	require.FileExists(t, first.advisorPostCommitCheckpointPath())
-	require.NoError(t, first.state.CommitAdvisorState(
-		first.state.GetPodEntries(), first.state.GetMachineState(), false, false, true))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	require.Greater(t, first.state.GetRevision(), target.revision)
 
 	restarted, err := getTestDynamicPolicyWithoutInitialization(topology, dir)
@@ -3641,8 +3705,7 @@ func TestRetrySupersededAdvisorPostCommitTargetReconcilesLatestCanonicalState(t 
 	released, err := recoverStuckAdvisorPostCommitTargetForTest(p, target)
 	require.NoError(t, err)
 	require.True(t, released)
-	require.NoError(t, p.state.CommitAdvisorState(
-		p.state.GetPodEntries(), p.state.GetMachineState(), false, false, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	require.Greater(t, p.state.GetRevision(), target.revision)
 	reconciled := 0
 	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{

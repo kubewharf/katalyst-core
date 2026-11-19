@@ -52,6 +52,7 @@ import (
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -644,6 +645,605 @@ func testSteadyJointTargetsRecoverShortDNBAndConverge(t *testing.T) {
 	}
 }
 
+func TestAdvisorWriteAheadFollowsCPUSetPluginConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name                               string
+		enable, cpuset, workqueue, wantWAL bool
+	}{
+		{name: "all disabled"},
+		{name: "other plugin enabled", enable: true, workqueue: true},
+		{name: "global gate closed", cpuset: true},
+		{name: "cpuset enabled", enable: true, cpuset: true, wantWAL: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy, cleanup := newReclaimReuseTestPolicy(t)
+			defer cleanup()
+			cfg := &policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig
+			cfg.Enable, cfg.EnableBulkheadCpusetTopology, cfg.EnableBulkheadWorkqueue = tc.enable, tc.cpuset, tc.workqueue
+			// Failure injection applies only to a WAL attempt, not CPU checkpoint I/O.
+			require.NoError(t, os.Mkdir(policy.advisorPostCommitStagingPath(), 0o700))
+			resp := &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{},
+				ExtraEntries: []*advisorsvc.CalculationInfo{{
+					CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
+						string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":2.5}`,
+					}},
+				}},
+			}
+			calls := 0
+			policy.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+				"recorder": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error { calls++; return nil },
+			}
+			before := policy.state.GetRevision()
+			err := policy.allocateByCPUAdvisor(nil, resp, nil)
+			if tc.wantWAL {
+				require.ErrorContains(t, err, "persist advisor post-commit target")
+				require.Equal(t, before, policy.state.GetRevision())
+				require.Zero(t, calls)
+				return
+			}
+			require.NoError(t, err)
+			require.Greater(t, policy.state.GetRevision(), before)
+			require.Equal(t, map[int]float64{0: 2.5}, policy.state.GetNUMAHeadroom())
+			require.False(t, policy.hasAnyPendingAdvisorPostCommitTarget())
+			require.Equal(t, 1, calls, "non-WAL path must still run other adjustment handlers")
+			restored, err := state.NewCheckpointState(&statedirectory.StateDirectoryConfiguration{
+				StateFileDirectory: policy.advisorPostCommitCheckpointDir,
+			}, cpuPluginStateFileName, cpuconsts.CPUResourcePluginPolicyNameDynamic,
+				policy.machine.machineInfo.CPUTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+			require.NoError(t, err)
+			require.Equal(t, policy.state.GetPodEntries(), restored.GetPodEntries())
+			require.Equal(t, policy.state.GetNUMAHeadroom(), restored.GetNUMAHeadroom())
+			require.Equal(t, policy.state.GetRevision(), restored.GetRevision())
+		})
+	}
+}
+
+func TestAdvisorVolatileTargetRetriesFailedApply(t *testing.T) {
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.adjustment.cpuSetAdjustmentRetryStopping = true
+	fail, calls := true, 0
+	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+		"recorder": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			calls++
+			if fail {
+				return fmt.Errorf("injected apply failure")
+			}
+			return nil
+		},
+	}
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}
+	require.ErrorContains(t, p.allocateByCPUAdvisor(nil, resp, nil), "injected apply failure")
+	target := p.currentAdvisorPostCommitTarget()
+	require.NotNil(t, target)
+	require.True(t, target.walState == advisorWALNotRequired)
+	require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+	revision := p.state.GetRevision()
+	fail = false
+	require.NoError(t, p.allocateByCPUAdvisor(nil, resp, nil))
+	require.Equal(t, revision, p.state.GetRevision())
+	require.Equal(t, 2, calls)
+	require.Nil(t, p.currentAdvisorPostCommitTarget())
+}
+
+func TestAdvisorVolatileTargetActivatesWALBeforeLivePluginEnable(t *testing.T) {
+	for _, failPersist := range []bool{false, true} {
+		t.Run(fmt.Sprint(failPersist), func(t *testing.T) {
+			p, cleanup := newReclaimReuseTestPolicy(t)
+			defer cleanup()
+			p.adjustment.cpuSetAdjustmentRetryStopping = true
+			p.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error {
+				next := dynamicconfig.NewConfiguration()
+				next.EnableReclaim = true
+				next.BulkheadConfig.Enable = true
+				next.BulkheadConfig.EnableBulkheadCpusetTopology = true
+				p.config.dynamicConfig.SetDynamicConfiguration(next)
+				if failPersist {
+					return os.Mkdir(p.advisorPostCommitCheckpointPath(), 0o700)
+				}
+				return nil
+			}
+			calls := 0
+			p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+				"recorder": func(_ context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+					calls++
+					require.True(t, in.DynamicConf.BulkheadConfig.EnableBulkheadCpusetTopology)
+					require.FileExists(t, p.advisorPostCommitCheckpointPath())
+					return nil
+				},
+			}
+			resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{},
+				ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{}}},
+			}
+			err := p.allocateByCPUAdvisor(nil, resp, nil)
+			if failPersist {
+				require.ErrorContains(t, err, "activate advisor write-ahead")
+				require.Zero(t, calls)
+				require.True(t, p.currentAdvisorPostCommitTarget().walState == advisorWALPending)
+				p.applyCgroupConfigsHook = nil
+				require.NoError(t, os.Remove(p.advisorPostCommitCheckpointPath()))
+				require.NoError(t, p.allocateByCPUAdvisor(nil, resp, nil))
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, 1, calls)
+			require.Nil(t, p.currentAdvisorPostCommitTarget())
+		})
+	}
+}
+
+func TestAdvisorVolatileHeadroomSharesCanonicalCheckpoint(t *testing.T) {
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{},
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":2.5}`},
+		}}},
+	}
+	writes := 0
+	var origin func(*state.CPUPluginCheckpoint) ([]byte, error)
+	mock := mockey.Mock((*state.CPUPluginCheckpoint).MarshalCheckpoint).To(func(cp *state.CPUPluginCheckpoint) ([]byte, error) {
+		writes++
+		return origin(cp)
+	}).Origin(&origin).Build()
+	defer mock.UnPatch()
+	require.NoError(t, p.allocateByCPUAdvisor(nil, resp, nil))
+	require.Equal(t, 1, writes)
+	require.Equal(t, map[int]float64{0: 2.5}, p.state.GetNUMAHeadroom())
+	require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+}
+
+func TestGetAdvisorNUMAHeadroom(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		values  []string
+		want    map[int]float64
+		wantErr bool
+	}{
+		{name: "missing"},
+		{name: "null clears", values: []string{"null"}, want: map[int]float64{}},
+		{name: "empty clears", values: []string{`{}`}, want: map[int]float64{}},
+		{name: "last replaces", values: []string{`{"0":2}`, `{"1":3}`}, want: map[int]float64{1: 3}},
+		{name: "last null clears", values: []string{`{"0":2}`, "null"}, want: map[int]float64{}},
+		{name: "invalid before valid", values: []string{"invalid", `{"0":2}`}, wantErr: true},
+		{name: "valid before invalid", values: []string{`{"0":2}`, "invalid"}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := &advisorapi.ListAndWatchResponse{ExtraEntries: []*advisorsvc.CalculationInfo{
+				nil, {}, {CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{"other": "ignored"}}},
+			}}
+			for _, value := range tc.values {
+				resp.ExtraEntries = append(resp.ExtraEntries, &advisorsvc.CalculationInfo{CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): value},
+				}})
+			}
+			before := proto.Clone(resp)
+			got, err := getAdvisorNUMAHeadroom(resp)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			}
+			require.Equal(t, before, resp)
+		})
+	}
+	_, err := getAdvisorNUMAHeadroom(nil)
+	require.Error(t, err)
+}
+
+func TestAdvisorHeadroomCheckpointIndependentOfWriteAhead(t *testing.T) {
+	for _, mode := range []string{"disabled", "cpuset", "preserve", "cgroup"} {
+		t.Run(mode, func(t *testing.T) {
+			p, cleanup := newReclaimReuseTestPolicy(t)
+			defer cleanup()
+			p.adjustment.cpuSetAdjustmentRetryStopping = true
+			conf := p.config.dynamicConfig.GetDynamicConfiguration()
+			conf.BulkheadConfig.Enable = mode == "cpuset" || mode == "preserve"
+			conf.BulkheadConfig.EnableBulkheadCpusetTopology = mode == "cpuset"
+			p.config.conf.PreserveReclaimCPUSetWhenTopologyDisabled = mode == "preserve"
+			manager, err := bulkhead.NewManagerWithCgroupClientFactory(p.config.conf, nil)
+			require.NoError(t, err)
+			p.bulkhead.bulkheadManager = manager
+			values := map[string]string{string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":2.5}`}
+			if mode == "cgroup" {
+				values[string(advisorapi.ControlKnobKeyCgroupConfig)] = `{}`
+			}
+			resp := &advisorapi.ListAndWatchResponse{
+				Entries:      map[string]*advisorapi.CalculationEntries{},
+				ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: values}}},
+			}
+			writes, calls := 0, 0
+			var origin func(*state.CPUPluginCheckpoint) ([]byte, error)
+			mock := mockey.Mock((*state.CPUPluginCheckpoint).MarshalCheckpoint).To(func(cp *state.CPUPluginCheckpoint) ([]byte, error) {
+				writes++
+				return origin(cp)
+			}).Origin(&origin).Build()
+			defer mock.UnPatch()
+			p.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error { return nil }
+			p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+				"observer": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+					calls++
+					target := p.currentAdvisorPostCommitTarget()
+					if (target.walState == advisorWALNotRequired) != (mode == "disabled" || mode == "cgroup") {
+						return fmt.Errorf("unexpected WAL mode: volatile=%t mode=%s", target.walState == advisorWALNotRequired, mode)
+					}
+					if !assert.Equal(t, map[int]float64{0: 2.5}, p.state.GetNUMAHeadroom()) {
+						return fmt.Errorf("headroom missing from committed state")
+					}
+					if len(p.adjustment.legacyAdvisorControls) != 0 {
+						return fmt.Errorf("new target retained legacy controls")
+					}
+					if target.walState != advisorWALNotRequired {
+						recovered, err := p.recoverAdvisorPostCommitName(advisorPostCommitCheckpointName)
+						if err != nil {
+							return err
+						}
+						if len(p.adjustment.legacyAdvisorControls[recovered]) != 0 {
+							return fmt.Errorf("extra controls remain in new persisted WAL")
+						}
+					}
+					return nil
+				},
+			}
+			require.NoError(t, p.allocateByCPUAdvisor(nil, resp, nil))
+			require.Equal(t, 1, calls)
+			require.Equal(t, 1, writes)
+			require.Equal(t, `{"0":2.5}`, values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)], "caller response must remain unchanged")
+		})
+	}
+}
+
+func TestAdvisorHeadroomInputBoundaryBeforeCommit(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, input := range []string{"null", "ordered", "invalid"} {
+			t.Run(fmt.Sprintf("%t/%s", enabled, input), func(t *testing.T) {
+				p, cleanup := newReclaimReuseTestPolicy(t)
+				defer cleanup()
+				conf := p.config.dynamicConfig.GetDynamicConfiguration()
+				conf.BulkheadConfig.Enable = enabled
+				conf.BulkheadConfig.EnableBulkheadCpusetTopology = enabled
+				entries, machineState, revision := p.state.GetAdvisorStateSnapshot()
+				require.NoError(t, p.state.SetNUMAHeadroom(map[int]float64{0: 1}, true))
+				values := []string{"null"}
+				if input == "ordered" {
+					values = []string{`{"0":2}`, `{"1":3}`}
+				} else if input == "invalid" {
+					values = []string{"invalid"}
+				}
+				resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}
+				for _, value := range values {
+					resp.ExtraEntries = append(resp.ExtraEntries, &advisorsvc.CalculationInfo{CalculationResult: &advisorsvc.CalculationResult{
+						Values: map[string]string{string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): value},
+					}})
+				}
+				err := p.allocateByCPUAdvisor(nil, resp, nil)
+				if input == "invalid" {
+					require.ErrorContains(t, err, "parse cpu NUMA headroom before commit")
+					require.Equal(t, entries, p.state.GetPodEntries())
+					require.Equal(t, machineState, p.state.GetMachineState())
+					require.Equal(t, revision, p.state.GetRevision())
+					require.Equal(t, map[int]float64{0: 1}, p.state.GetNUMAHeadroom())
+					require.Nil(t, p.currentAdvisorPostCommitTarget())
+				} else {
+					require.NoError(t, err)
+					if input == "null" {
+						require.Empty(t, p.state.GetNUMAHeadroom())
+					} else {
+						require.Equal(t, map[int]float64{1: 3}, p.state.GetNUMAHeadroom())
+					}
+				}
+				require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+				require.NoFileExists(t, p.advisorPostCommitStagingPath())
+			})
+		}
+	}
+}
+
+func TestAdvisorHeadroomCheckpointFailureRollsBackBeforeEffects(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			p, cleanup := newReclaimReuseTestPolicy(t)
+			defer cleanup()
+			conf := p.config.dynamicConfig.GetDynamicConfiguration()
+			conf.BulkheadConfig.Enable = enabled
+			conf.BulkheadConfig.EnableBulkheadCpusetTopology = enabled
+			require.NoError(t, p.state.StoreState())
+			entries, machineState, revision := p.state.GetAdvisorStateSnapshot()
+			headroom := p.state.GetNUMAHeadroom()
+			calls := 0
+			p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+				"observer": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error { calls++; return nil },
+			}
+			resp := &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{},
+				ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":2.5}`},
+				}}},
+			}
+			mock := mockey.Mock((*state.CPUPluginCheckpoint).MarshalCheckpoint).Return(nil, fmt.Errorf("checkpoint failure")).Build()
+			defer mock.UnPatch()
+			err := p.allocateByCPUAdvisor(nil, resp, nil)
+			mock.UnPatch()
+			require.ErrorContains(t, err, "checkpoint failure")
+			require.Zero(t, calls)
+			require.Equal(t, entries, p.state.GetPodEntries())
+			require.Equal(t, machineState, p.state.GetMachineState())
+			require.Equal(t, revision, p.state.GetRevision())
+			require.Equal(t, headroom, p.state.GetNUMAHeadroom())
+			require.Nil(t, p.currentAdvisorPostCommitTarget())
+			require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+			require.NoFileExists(t, p.advisorPostCommitStagingPath())
+			restarted, err := getTestDynamicPolicyWithoutInitialization(p.machine.machineInfo.CPUTopology, p.advisorPostCommitCheckpointDir)
+			require.NoError(t, err)
+			require.Equal(t, entries, restarted.state.GetPodEntries())
+			require.Equal(t, headroom, restarted.state.GetNUMAHeadroom())
+			require.NoError(t, p.allocateByCPUAdvisor(nil, resp, nil))
+			require.Equal(t, 1, calls)
+		})
+	}
+}
+
+func TestAdvisorVolatileReplanActivatesWriteAhead(t *testing.T) {
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	calls := 0
+	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+		"recorder": func(_ context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			calls++
+			if calls == 1 {
+				next := dynamicconfig.NewConfiguration()
+				next.EnableReclaim = true
+				next.BulkheadConfig.Enable = true
+				next.BulkheadConfig.EnableBulkheadCpusetTopology = true
+				p.config.dynamicConfig.SetDynamicConfiguration(next)
+				require.False(t, in.CommitIfGenerationCurrent(in.Generation, func() {}))
+				return nil
+			}
+			require.True(t, in.DynamicConf.BulkheadConfig.EnableBulkheadCpusetTopology)
+			require.FileExists(t, p.advisorPostCommitCheckpointPath())
+			return nil
+		},
+	}
+	require.NoError(t, p.allocateByCPUAdvisor(nil, &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}, nil))
+	require.Equal(t, 2, calls)
+}
+
+func TestAdvisorVolatileCheckpointRecoveryNeedsNoResponseWAL(t *testing.T) {
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.adjustment.cpuSetAdjustmentRetryStopping = true
+	p.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+		"failure": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			return fmt.Errorf("physical failure")
+		},
+	}
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{},
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
+			string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":2.5}`,
+		}}}},
+	}
+	require.ErrorContains(t, p.allocateByCPUAdvisor(nil, resp, nil), "physical failure")
+	restarted, err := getTestDynamicPolicyWithoutInitialization(p.machine.machineInfo.CPUTopology, p.advisorPostCommitCheckpointDir)
+	require.NoError(t, err)
+	require.NoError(t, restarted.restoreAdvisorPostCommitTarget())
+	require.Nil(t, restarted.currentAdvisorPostCommitTarget())
+	require.Equal(t, p.state.GetPodEntries(), restarted.state.GetPodEntries())
+	require.Equal(t, map[int]float64{0: 2.5}, restarted.state.GetNUMAHeadroom())
+	calls := 0
+	restarted.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
+		"recorder": func(_ context.Context, in cpusetutil.CPUSetAdjustmentHandlerCtx) error {
+			calls++
+			require.Equal(t, p.state.GetPodEntries(), in.State.GetPodEntries())
+			return nil
+		},
+	}
+	restarted.Lock()
+	require.NoError(t, restarted.retryLatestCPUSetAdjustment(context.Background(), cpusetutil.CPUSetAdjustmentModeRetry))
+	restarted.Unlock()
+	require.Equal(t, 1, calls)
+}
+
+func TestAdvisorExtraControlFailureDoesNotFencePartition(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wal=%t", enabled), func(t *testing.T) {
+			p, cleanup := newReclaimReuseTestPolicy(t)
+			defer cleanup()
+			p.adjustment.cpuSetAdjustmentRetryStopping = true
+			conf := p.config.dynamicConfig.GetDynamicConfiguration()
+			conf.BulkheadConfig.Enable = enabled
+			conf.BulkheadConfig.EnableBulkheadCpusetTopology = enabled
+			controls, physical := 0, 0
+			p.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error {
+				controls++
+				return fmt.Errorf("independent control failure")
+			}
+			p.runCPUSetAdjustmentHandlersHook = func(context.Context, ...cpusetutil.CPUSetAdjustmentMode) error {
+				physical++
+				return nil
+			}
+			resp := &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{},
+				ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
+					string(advisorapi.ControlKnobKeyCgroupConfig): `{}`,
+				}}}},
+			}
+			require.ErrorContains(t, p.allocateByCPUAdvisor(nil, resp, nil), "independent control failure")
+			require.Equal(t, 1, physical)
+			require.Nil(t, p.currentAdvisorPostCommitTarget(), "control failure must not retain partition fence")
+			require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+			require.NoError(t, p.state.SetMachineState(p.state.GetMachineState(), false))
+			p.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error { controls++; return nil }
+			require.NoError(t, p.allocateByCPUAdvisor(nil, &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}, nil))
+			require.Equal(t, 1, controls, "new frame without controls must not replay the failed original controls")
+		})
+	}
+}
+
+func TestAdvisorControlFailureDoesNotSkipPhysicalRetry(t *testing.T) {
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.adjustment.cpuSetAdjustmentRetryStopping = true
+	controls, physical := 0, 0
+	p.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error {
+		controls++
+		return fmt.Errorf("independent control failure")
+	}
+	p.runCPUSetAdjustmentHandlersHook = func(context.Context, ...cpusetutil.CPUSetAdjustmentMode) error {
+		physical++
+		if physical == 1 {
+			return fmt.Errorf("physical failure")
+		}
+		return nil
+	}
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{},
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
+			string(advisorapi.ControlKnobKeyCgroupConfig): `{}`,
+		}}}},
+	}
+	err := p.allocateByCPUAdvisor(nil, resp, nil)
+	require.ErrorContains(t, err, "independent control failure")
+	require.ErrorContains(t, err, "physical failure")
+	require.Equal(t, 1, physical)
+	target := p.currentAdvisorPostCommitTarget()
+	require.NotNil(t, target)
+	require.Empty(t, p.adjustment.legacyAdvisorControls)
+	p.Lock()
+	err = p.reconcileAdvisorPostCommitTarget(context.Background(), target)
+	p.Unlock()
+	require.NoError(t, err)
+	require.Equal(t, 2, physical)
+	require.Equal(t, 1, controls, "partition retry must not retry failed independent controls")
+	require.Nil(t, p.currentAdvisorPostCommitTarget())
+}
+
+func TestAdvisorExtraControlsRequireRedelivery(t *testing.T) {
+	p, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	p.adjustment.cpuSetAdjustmentRetryStopping = true
+	calls := 0
+	p.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error {
+		calls++
+		if calls == 1 {
+			return fmt.Errorf("control failure")
+		}
+		return nil
+	}
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{},
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
+			string(advisorapi.ControlKnobKeyCgroupConfig): `{}`,
+		}}}},
+	}
+	require.ErrorContains(t, p.allocateByCPUAdvisor(nil, resp, nil), "control failure")
+	require.Nil(t, p.currentAdvisorPostCommitTarget())
+	require.Empty(t, p.adjustment.legacyAdvisorControls)
+	require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+	require.NoFileExists(t, p.advisorPostCommitStagingPath())
+	require.NoError(t, p.allocateByCPUAdvisor(nil, &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}, nil))
+	require.Equal(t, 1, calls)
+	require.NoError(t, p.allocateByCPUAdvisor(nil, resp, nil))
+	require.Equal(t, 2, calls, "controls execute only when the advisor sends them again")
+}
+
+func TestAdvisorWriteAheadRetainsIndependentMigration(t *testing.T) {
+	policy, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	pending := &pendingAdvisorState{dynamicConfig: policy.config.dynamicConfig.GetDynamicConfiguration()}
+	require.False(t, policy.advisorWriteAheadRequired(pending))
+	pending.migrationCheckpointTransition.kind = steadyFakeNUMAMigrationCheckpointReplace
+	require.True(t, policy.advisorWriteAheadRequired(pending))
+	pending.migrationCheckpointTransition.kind = steadyFakeNUMAMigrationCheckpointRemove
+	require.True(t, policy.advisorWriteAheadRequired(pending))
+	pending.migrationCheckpointTransition.kind = steadyFakeNUMAMigrationCheckpointKeep
+	policy.steadyFakeNUMAMigration.intent = &steadyFakeNUMAMigrationIntent{target: machine.NewCPUSet(1, 49)}
+	require.True(t, policy.advisorWriteAheadRequired(pending))
+}
+
+func TestDisabledAdvisorReplaysExistingWriteAheadBeforeNewFrame(t *testing.T) {
+	policy, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	policy.adjustment.cpuSetAdjustmentRetryStopping = true
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}
+	target := policy.publishAdvisorPostCommitTarget(resp, policy.state.GetRevision())
+	calls := 0
+	fail := true
+	policy.runCPUSetAdjustmentHandlersHook = func(context.Context, ...cpusetutil.CPUSetAdjustmentMode) error {
+		calls++
+		if fail {
+			return fmt.Errorf("pending apply failed")
+		}
+		return nil
+	}
+	before := policy.state.GetRevision()
+	err := policy.allocateByCPUAdvisor(nil, resp, nil)
+	require.ErrorContains(t, err, "pending apply failed")
+	require.Same(t, target, policy.currentAdvisorPostCommitTarget())
+	require.Equal(t, before, policy.state.GetRevision())
+	require.FileExists(t, policy.advisorPostCommitCheckpointPath())
+	fail = false
+	require.NoError(t, policy.allocateByCPUAdvisor(nil, resp, nil))
+	require.Nil(t, policy.currentAdvisorPostCommitTarget())
+	require.NoFileExists(t, policy.advisorPostCommitCheckpointPath())
+	require.GreaterOrEqual(t, calls, 2)
+}
+
+func TestDisabledAdvisorControlFailurePreservesCommittedState(t *testing.T) {
+	policy, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	policy.adjustment.cpuSetAdjustmentRetryStopping = true
+	failure := fmt.Errorf("cgroup failure")
+	policy.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error { return failure }
+	before := policy.state.GetRevision()
+	err := policy.allocateByCPUAdvisor(nil, &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{},
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{
+				string(advisorapi.ControlKnobKeyCPUNUMAHeadroom): `{"0":2.5}`,
+				string(advisorapi.ControlKnobKeyCgroupConfig):    `{}`,
+			},
+		}}},
+	}, nil)
+	require.ErrorIs(t, err, failure)
+	require.Greater(t, policy.state.GetRevision(), before)
+	require.False(t, policy.hasAnyPendingAdvisorPostCommitTarget())
+	require.NoFileExists(t, policy.advisorPostCommitCheckpointPath())
+	restored, err := state.NewCheckpointState(&statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: policy.advisorPostCommitCheckpointDir,
+	}, cpuPluginStateFileName, cpuconsts.CPUResourcePluginPolicyNameDynamic,
+		policy.machine.machineInfo.CPUTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	require.NoError(t, err)
+	require.Equal(t, policy.state.GetPodEntries(), restored.GetPodEntries())
+	require.Equal(t, policy.state.GetRevision(), restored.GetRevision())
+	require.Equal(t, map[int]float64{0: 2.5}, restored.GetNUMAHeadroom())
+}
+
+func TestDisabledAdvisorCheckpointFailureDoesNotApplyControls(t *testing.T) {
+	policy, cleanup := newReclaimReuseTestPolicy(t)
+	defer cleanup()
+	beforeEntries, beforeMachine, beforeRevision := policy.state.GetAdvisorStateSnapshot()
+	checkpointPath := filepath.Join(policy.advisorPostCommitCheckpointDir, cpuPluginStateFileName)
+	require.NoError(t, os.Remove(checkpointPath))
+	require.NoError(t, os.Mkdir(checkpointPath, 0o700))
+	controls := 0
+	policy.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error { controls++; return nil }
+	err := policy.allocateByCPUAdvisor(nil, &advisorapi.ListAndWatchResponse{
+		Entries:      map[string]*advisorapi.CalculationEntries{},
+		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{}}},
+	}, nil)
+	require.Error(t, err)
+	require.Zero(t, controls)
+	require.Equal(t, beforeEntries, policy.state.GetPodEntries())
+	require.Equal(t, beforeMachine, policy.state.GetMachineState())
+	require.Equal(t, beforeRevision, policy.state.GetRevision())
+	require.False(t, policy.hasAnyPendingAdvisorPostCommitTarget())
+	require.NoFileExists(t, policy.advisorPostCommitCheckpointPath())
+}
+
 func TestAllocateByCPUAdvisorConvergedFrameIsStrictNoOp(t *testing.T) {
 	t.Parallel()
 	policy, cleanup := newReclaimReuseTestPolicy(t)
@@ -737,6 +1337,8 @@ func TestAllocateByCPUAdvisorPendingPostCommitApplyBlocksStageAdvanceAndRetriesS
 	t.Parallel()
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.Enable = true
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.EnableBulkheadCpusetTopology = true
 
 	policy.adjustment.cpuSetAdjustmentRetryMu.Lock()
 	policy.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -862,7 +1464,7 @@ func TestAdvisorReplacementTransactionRetainsExactTargetAcrossRetry(t *testing.T
 			"the active WAL must not be published before the canonical CAS")
 		require.Equal(t, preCommitRevision, current.preCommitRevision)
 		require.Equal(t, preCommitRevision+1, current.revision)
-		require.True(t, proto.Equal(resp, current.response))
+		requireAdvisorTargetResponse(t, resp, current)
 		staged, loadErr := loadAdvisorPostCommitTarget(
 			stagingPath, policy.machine.machineInfo.CPUTopology)
 		require.NoError(t, loadErr)
@@ -898,7 +1500,7 @@ func TestAdvisorReplacementTransactionRetainsExactTargetAcrossRetry(t *testing.T
 	active, err := loadAdvisorPostCommitTarget(activePath, policy.machine.machineInfo.CPUTopology)
 	require.NoError(t, err)
 	require.Equal(t, target.revision, active.revision)
-	require.True(t, proto.Equal(resp, active.response))
+	requireAdvisorTargetResponse(t, resp, active)
 	requireMigrationCheckpointTransitionEqual(
 		t, target.migrationCheckpointTransition, active.migrationCheckpointTransition)
 	firstAttempt := append([]replacementHierarchyWrite(nil), hierarchy.writes...)
@@ -918,7 +1520,7 @@ func TestAdvisorReplacementTransactionRetainsExactTargetAcrossRetry(t *testing.T
 	require.Equal(t, reconciledRevision, policy.state.GetRevision(),
 		"the successful physical retry must commit its adjustment override exactly once")
 	require.Equal(t, target.revision, policy.currentAdvisorPostCommitTarget().revision)
-	require.True(t, proto.Equal(resp, policy.currentAdvisorPostCommitTarget().response))
+	requireAdvisorTargetResponse(t, resp, policy.currentAdvisorPostCommitTarget())
 	requireMigrationCheckpointTransitionEqual(t, target.migrationCheckpointTransition,
 		policy.currentAdvisorPostCommitTarget().migrationCheckpointTransition)
 	retryWrites := hierarchy.writes[len(firstAttempt):]
@@ -940,7 +1542,7 @@ func TestAdvisorReplacementTransactionRetainsExactTargetAcrossRetry(t *testing.T
 	require.NoError(t, err)
 	require.True(t, marked.applied, "applied marker must be durable before cleanup")
 	require.Equal(t, target.revision, marked.revision)
-	require.True(t, proto.Equal(resp, marked.response))
+	requireAdvisorTargetResponse(t, resp, marked)
 	requireMigrationCheckpointTransitionEqual(
 		t, target.migrationCheckpointTransition, marked.migrationCheckpointTransition)
 	require.Error(t, policy.state.SetMachineState(policy.state.GetMachineState(), false),
@@ -1316,8 +1918,7 @@ func TestAllocateByCPUAdvisorDisabledReclaimConvergesAfterCanonicalFreeze(t *tes
 	committedMachineState, err := generateMachineStateFromPodEntries(
 		policy.machine.machineInfo.CPUTopology, committedEntries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(
-		committedEntries, committedMachineState, false, false, false))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: committedEntries, MachineState: committedMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	handlersRun := 0
 	policy.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
@@ -1350,6 +1951,8 @@ func TestAllocateByCPUAdvisorConcurrentFrameCannotOvertakePendingPostCommitApply
 	t.Parallel()
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.Enable = true
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.EnableBulkheadCpusetTopology = true
 
 	policy.adjustment.cpuSetAdjustmentRetryMu.Lock()
 	policy.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1400,6 +2003,8 @@ func TestAdvisorAndRetrySameTargetShareExecutionLease(t *testing.T) {
 	t.Parallel()
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.Enable = true
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.EnableBulkheadCpusetTopology = true
 
 	policy.adjustment.cpuSetAdjustmentRetryMu.Lock()
 	policy.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1408,7 +2013,7 @@ func TestAdvisorAndRetrySameTargetShareExecutionLease(t *testing.T) {
 	firstHandlerEntered := make(chan struct{})
 	releaseFirstHandler := make(chan struct{})
 	var callsMu sync.Mutex
-	headroomCalls := 0
+	controlCalls := 0
 	handlerCalls := 0
 	policy.adjustment.cpuSetAdjustmentHandlers = map[string]cpusetutil.CPUSetAdjustmentHandler{
 		"controlled": func(context.Context, cpusetutil.CPUSetAdjustmentHandlerCtx) error {
@@ -1423,13 +2028,13 @@ func TestAdvisorAndRetrySameTargetShareExecutionLease(t *testing.T) {
 			return nil
 		},
 	}
-	policy.applyHeadroomHook = func(*advisorapi.ListAndWatchResponse) error {
+	policy.applyCgroupConfigsHook = func(*advisorapi.ListAndWatchResponse) error {
 		callsMu.Lock()
-		headroomCalls++
+		controlCalls++
 		callsMu.Unlock()
 		return nil
 	}
-	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}}
+	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{}, ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{}}}}
 
 	advisorDone := make(chan error, 1)
 	go func() {
@@ -1461,7 +2066,7 @@ func TestAdvisorAndRetrySameTargetShareExecutionLease(t *testing.T) {
 	// retry goroutine has released the execution lease).
 	policy.Lock()
 	callsMu.Lock()
-	require.Equal(t, 1, headroomCalls)
+	require.Equal(t, 1, controlCalls)
 	require.Equal(t, 1, handlerCalls)
 	callsMu.Unlock()
 	policy.Unlock()
@@ -1471,7 +2076,7 @@ func TestAdvisorAndRetrySameTargetShareExecutionLease(t *testing.T) {
 	require.NoError(t, <-retryDone)
 
 	callsMu.Lock()
-	require.Equal(t, 1, headroomCalls, "the retry must not re-enter a completed target")
+	require.Equal(t, 1, controlCalls, "the retry must not re-enter a completed target")
 	require.Equal(t, 1, handlerCalls, "the retry must not replay cpuset side effects")
 	callsMu.Unlock()
 	require.Nil(t, policy.currentAdvisorPostCommitTarget())
@@ -1491,6 +2096,8 @@ func TestAllocateByCPUAdvisorExecutionLeaseTimeoutLeavesCommittedTransactionUnto
 	t.Parallel()
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.Enable = true
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.EnableBulkheadCpusetTopology = true
 
 	policy.adjustment.cpuSetAdjustmentRetryMu.Lock()
 	policy.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1975,6 +2582,8 @@ func TestExclusiveDisjointPartitionLifecycleAndFlagTransitions(t *testing.T) {
 	checkpointDir := t.TempDir()
 	policy, err := getTestDynamicPolicyWithoutInitialization(topology, checkpointDir)
 	require.NoError(t, err)
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.Enable = true
+	policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig.EnableBulkheadCpusetTopology = true
 	policy.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 	policy.advisorPostCommitCheckpointDir = checkpointDir
 
@@ -2058,7 +2667,7 @@ func TestExclusiveDisjointPartitionLifecycleAndFlagTransitions(t *testing.T) {
 			target := policy.currentAdvisorPostCommitTarget()
 			require.NotNil(t, target, "target must remain pending while reconcile is running")
 			require.Equal(t, policy.state.GetRevision(), target.revision)
-			require.Equal(t, reconciling, target.response)
+			requireAdvisorTargetResponse(t, reconciling, target)
 			require.FileExists(t, filepath.Join(checkpointDir, advisorPostCommitCheckpointName),
 				"WAL must remain durable until reconcile is applied")
 			appliedFrames++
@@ -4029,81 +4638,32 @@ func TestDefaultShareEligibleCPUSetUsesCurrentMachineStateGuards(t *testing.T) {
 		"eligible must exclude reserved, forbidden, system, pinned, and ramp-floor CPUs, got %s", got)
 }
 
-func (s *advisorCommitRecordingState) CommitAdvisorState(
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap bool,
-	disableDedicatedOverlap bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *advisorCommitRecordingState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.calls++
 	if s.err != nil {
 		return s.err
 	}
-	return s.State.CommitAdvisorState(entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
-func (s *advisorCommitRecordingState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap bool,
-	disableDedicatedOverlap bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
-	s.calls++
-	if s.err != nil {
-		return s.err
+func (s *advisorCommitGuardState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
+	if options.ExpectedRevision == nil {
+		s.unconditionalCommitCalls++
+		return fmt.Errorf("commit must use expected revision")
 	}
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
-}
 
-func (s *advisorCommitGuardState) CommitAdvisorState(
-	state.PodEntries,
-	state.NUMANodeMap,
-	bool,
-	bool,
-	bool,
-	...*state.WritePermit,
-) error {
-	s.unconditionalCommitCalls++
-	return fmt.Errorf("advisor applyBlocks must use CommitAdvisorStateIfRevision")
-}
-
-func (s *advisorCommitGuardState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap bool,
-	disableDedicatedOverlap bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
 	s.conditionalCommitCalls++
-	s.conditionalRevision = expectedRevision
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	s.conditionalRevision = *options.ExpectedRevision
+	return s.State.Commit(update, options, permits...)
 }
 
-func (s *staleAdvisorCommitState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap bool,
-	disableDedicatedOverlap bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *staleAdvisorCommitState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	if !s.injected {
 		s.injected = true
 		s.State.SetAllowSharedCoresOverlapReclaimedCores(
 			!s.State.GetAllowSharedCoresOverlapReclaimedCores(), false)
 	}
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
 func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {

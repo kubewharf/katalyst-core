@@ -186,35 +186,13 @@ func (s *missingAllocationInfoState) GetAllocationInfo(podUID string, containerN
 	return s.State.GetAllocationInfo(podUID, containerName)
 }
 
-func (s *atomicCommitTrackingState) CommitAdvisorState(
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *atomicCommitTrackingState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.commitCalls++
-	s.commitPersists = append(s.commitPersists, persist)
+	s.commitPersists = append(s.commitPersists, options.Persist)
 	if s.commitErr != nil && (s.failCommits < 0 || s.commitCalls <= s.failCommits) {
 		return s.commitErr
 	}
-	return s.State.CommitAdvisorState(
-		podEntries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
-}
-
-func (s *atomicCommitTrackingState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, persist bool,
-	permits ...*state.WritePermit,
-) error {
-	s.commitCalls++
-	s.commitPersists = append(s.commitPersists, persist)
-	if s.commitErr != nil && (s.failCommits < 0 || s.commitCalls <= s.failCommits) {
-		return s.commitErr
-	}
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, podEntries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
 func (s *atomicCommitTrackingState) StoreState() error {
@@ -371,24 +349,17 @@ func (s *applyPoolsCommitGuardState) StoreState() error {
 	return s.State.StoreState()
 }
 
-func (s *applyPoolsCommitGuardState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowOverlap, disableDedicatedOverlap, persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *applyPoolsCommitGuardState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.conditionalCalls++
-	s.conditionalRevision = expectedRevision
-	s.conditionalAllow = allowOverlap
-	s.conditionalDisable = disableDedicatedOverlap
-	s.conditionalPersist = persist
+	s.conditionalRevision = *options.ExpectedRevision
+	s.conditionalAllow = update.AllowSharedCoresOverlapReclaimedCores
+	s.conditionalDisable = update.DisableDedicatedCoresOverlapReclaimedCores
+	s.conditionalPersist = options.Persist
 	if s.injectRevisionAdvance {
 		s.State.SetAllowSharedCoresOverlapReclaimedCores(
 			!s.State.GetAllowSharedCoresOverlapReclaimedCores(), false)
 	}
-	return s.State.CommitAdvisorStateIfRevision(
-		expectedRevision, entries, machineState, allowOverlap, disableDedicatedOverlap, persist, permits...)
+	return s.State.Commit(update, options, permits...)
 }
 
 func TestDynamicPolicy_getReclaimOverlapShareRatio(t *testing.T) {
@@ -3794,7 +3765,7 @@ func TestApplyPoolsAndIsolatedInfoUsesCandidateMachineStateForRNBTransitions(t *
 		initialMachineState, err := generateMachineStateFromPodEntries(
 			p.machine.machineInfo.CPUTopology, initialEntries, p.state.GetMachineState())
 		require.NoError(t, err)
-		require.NoError(t, p.state.CommitAdvisorState(initialEntries, initialMachineState, false, false, false))
+		require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: initialEntries, MachineState: initialMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 		candidate := initialEntries.Clone()
 		delete(candidate, "rnb")
@@ -3811,7 +3782,7 @@ func TestApplyPoolsAndIsolatedInfoUsesCandidateMachineStateForRNBTransitions(t *
 		initialMachineState, err := generateMachineStateFromPodEntries(
 			p.machine.machineInfo.CPUTopology, initialEntries, p.state.GetMachineState())
 		require.NoError(t, err)
-		require.NoError(t, p.state.CommitAdvisorState(initialEntries, initialMachineState, false, false, false))
+		require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: initialEntries, MachineState: initialMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 		candidate := initialEntries.Clone()
 		candidate["rnb"] = state.ContainerEntries{
@@ -7812,7 +7783,7 @@ func TestAdjustAllocationEntriesForRecoveryPreservesLiveDefaultShareResidual(t *
 	machineState, err := generateMachineStateFromPodEntries(
 		topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 	trackingState := &applyPoolsCommitGuardState{State: p.state}
 	p.state = trackingState
 
@@ -7863,7 +7834,7 @@ func TestAdjustAllocationEntriesForRecoveryMarksLatestStateRetry(t *testing.T) {
 	machineState, err := generateMachineStateFromPodEntries(
 		topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	handlerCalls := 0
 	p.adjustment.cpuSetAdjustmentHandlers = map[string]dynamicpolicyutil.CPUSetAdjustmentHandler{
@@ -7920,7 +7891,7 @@ func TestAdjustAllocationEntriesForRecoveryConcurrentCASHasSingleOutcome(t *test
 	machineState, err := generateMachineStateFromPodEntries(
 		topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 	revision := p.state.GetRevision()
 
 	start := make(chan struct{})
@@ -8041,7 +8012,7 @@ func TestAdjustAllocationEntriesForRecoveryAllowsDefaultShareFallbackWithoutHeal
 	machineState, err := generateMachineStateFromPodEntries(
 		topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, false))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	err = p.adjustAllocationEntriesForRecoveryAtRevision(
 		entries, machineState, true, p.state.GetRevision())

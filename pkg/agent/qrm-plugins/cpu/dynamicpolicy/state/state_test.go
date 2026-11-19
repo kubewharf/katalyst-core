@@ -37,6 +37,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
+	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -46,6 +47,157 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+func TestStateCommitContract(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	for _, backend := range []string{"memory", "transient", "checkpoint"} {
+		for _, persist := range []bool{false, true} {
+			backend, persist := backend, persist
+			t.Run(fmt.Sprintf("%s/%t", backend, persist), func(t *testing.T) {
+				t.Parallel()
+				manager := &advisorCommitCheckpointManager{}
+				var s interface {
+					Commit(StateUpdate, CommitOptions, ...*WritePermit) error
+					ReadonlyState
+					SetWritePermit(WriteGate)
+				}
+				switch backend {
+				case "memory":
+					s = NewCPUPluginState(topology)
+				case "transient":
+					s = NewTransientState(topology).(*transientState)
+				default:
+					s = &stateCheckpoint{
+						cache: NewCPUPluginState(topology), checkpointManager: manager,
+						checkpointName: cpuPluginStateFileName, emitter: metrics.DummyMetrics{},
+					}
+				}
+				expected := uint64(0)
+				update := StateUpdate{
+					PodEntries:                            PodEntries{"pod": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}},
+					MachineState:                          NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}},
+					AllowSharedCoresOverlapReclaimedCores: true, NUMAHeadroom: map[int]float64{0: 2.5},
+				}
+				options := CommitOptions{ExpectedRevision: &expected, Persist: persist}
+				require.NoError(t, s.Commit(update, options))
+				require.Equal(t, uint64(1), s.GetRevision())
+				writes := 0
+				if backend == "checkpoint" && persist {
+					writes = 1
+					require.Equal(t, update.NUMAHeadroom, manager.lastCheckpoint().NUMAHeadroom)
+				}
+				require.Equal(t, writes, manager.calls())
+				update.PodEntries["pod"]["main"].AllocationResult = machine.NewCPUSet(0)
+				update.MachineState[0].AllocatedCPUSet = machine.NewCPUSet(0)
+				update.NUMAHeadroom[0] = 99
+				require.True(t, s.GetAllocationInfo("pod", "main").AllocationResult.Equals(machine.NewCPUSet(1)))
+				require.True(t, s.GetMachineState()[0].AllocatedCPUSet.Equals(machine.NewCPUSet(1)))
+				require.Equal(t, 2.5, s.GetNUMAHeadroom()[0])
+
+				entries, machineState, revision := s.GetAdvisorStateSnapshot()
+				require.ErrorIs(t, s.Commit(update, options), ErrStaleStateRevision)
+				require.Equal(t, revision, s.GetRevision())
+				require.Equal(t, entries, s.GetPodEntries())
+				require.Equal(t, machineState, s.GetMachineState())
+				require.Equal(t, writes, manager.calls())
+				require.ErrorContains(t, s.Commit(update, CommitOptions{}, NewWritePermit(), NewWritePermit()), "write permits")
+
+				update = StateUpdate{PodEntries: entries, MachineState: machineState}
+				require.NoError(t, s.Commit(update, CommitOptions{}))
+				require.Equal(t, map[int]float64{0: 2.5}, s.GetNUMAHeadroom(), "nil preserves auxiliary state")
+				update.NUMAHeadroom = map[int]float64{}
+				require.NoError(t, s.Commit(update, CommitOptions{}))
+				require.Empty(t, s.GetNUMAHeadroom(), "empty explicitly clears auxiliary state")
+				revision = s.GetRevision()
+				denied := fmt.Errorf("write denied")
+				s.SetWritePermit(func(_ uint64, operation string, _ *WritePermit) error {
+					assert.Equal(t, "Commit", operation)
+					return denied
+				})
+				require.ErrorIs(t, s.Commit(update, CommitOptions{Persist: true}), denied)
+				require.Equal(t, revision, s.GetRevision())
+				require.Equal(t, writes, manager.calls())
+			})
+		}
+	}
+}
+
+func TestStateCommitPreservesAuxiliaryGenerationAtomically(t *testing.T) {
+	t.Parallel()
+	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
+	require.NoError(t, err)
+	s := NewCPUPluginState(topology)
+	makeUpdate := func(id int) StateUpdate {
+		return StateUpdate{
+			PodEntries:   PodEntries{fmt.Sprint(id): {}},
+			MachineState: NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(id)}},
+			NUMAHeadroom: map[int]float64{0: float64(id)},
+		}
+	}
+	require.NoError(t, s.Commit(makeUpdate(0), CommitOptions{}))
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 1000; i++ {
+			if err := s.Commit(makeUpdate(i%2), CommitOptions{}); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for i := 0; i < 1000; i++ {
+		snapshot := s.snapshotData()
+		id := int(snapshot.numaHeadroom[0])
+		assert.Contains(t, snapshot.podEntries, fmt.Sprint(id))
+		assert.True(t, snapshot.machineState[0].AllocatedCPUSet.Equals(machine.NewCPUSet(id)))
+	}
+	require.NoError(t, <-done)
+	s.revision = math.MaxUint64
+	require.ErrorIs(t, s.Commit(makeUpdate(0), CommitOptions{}), ErrStateRevisionOverflow)
+}
+
+func TestAdvisorHeadroomCommitPersistsOneCompleteSnapshot(t *testing.T) {
+	t.Parallel()
+
+	for _, fail := range []bool{false, true} {
+		fail := fail
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			t.Parallel()
+			topology, err := machine.GenerateDummyCPUTopologyWithoutSMT(4, 1, 1)
+			require.NoError(t, err)
+			manager := &advisorCommitCheckpointManager{}
+			if fail {
+				manager.createErr = fmt.Errorf("injected checkpoint failure")
+			}
+			s := &stateCheckpoint{
+				cache: NewCPUPluginState(topology), checkpointManager: manager,
+				policyName: policyName, checkpointName: cpuPluginStateFileName, emitter: metrics.DummyMetrics{},
+			}
+			before := s.cache.snapshotData()
+			headroom := map[int]float64{0: 2.5}
+			expected := uint64(0)
+			err = s.Commit(StateUpdate{
+				PodEntries: before.podEntries, MachineState: before.machineState,
+				AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: true,
+				NUMAHeadroom: headroom,
+			}, CommitOptions{ExpectedRevision: &expected, Persist: true})
+			if fail {
+				require.ErrorContains(t, err, "injected checkpoint failure")
+				require.Equal(t, before, s.cache.snapshotData())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, uint64(1), s.GetRevision())
+				require.Equal(t, headroom, s.GetNUMAHeadroom())
+				require.Equal(t, headroom, manager.lastCheckpoint().NUMAHeadroom)
+				headroom[0] = 99
+				require.Equal(t, 2.5, s.GetNUMAHeadroom()[0])
+			}
+			require.Equal(t, 1, manager.calls())
+		})
+	}
+}
 
 const (
 	cpuPluginStateFileName = "cpu_plugin_state"
@@ -93,7 +245,7 @@ func (m *advisorCommitCheckpointManager) lastCheckpoint() *CPUPluginCheckpoint {
 	return m.checkpoint
 }
 
-func TestCPUPluginStateCommitAdvisorStateIsAtomic(t *testing.T) {
+func TestCPUPluginStateCommitIsAtomic(t *testing.T) {
 	t.Parallel()
 	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
 	require.NoError(t, err)
@@ -114,7 +266,7 @@ func TestCPUPluginStateCommitAdvisorStateIsAtomic(t *testing.T) {
 	}
 
 	entries, machineState, allowOverlap := makeVersion(0)
-	require.NoError(t, s.CommitAdvisorState(entries, machineState, allowOverlap, false, false))
+	require.NoError(t, s.Commit(StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false}))
 
 	const iterations = 1000
 	var wg sync.WaitGroup
@@ -124,7 +276,7 @@ func TestCPUPluginStateCommitAdvisorStateIsAtomic(t *testing.T) {
 		defer wg.Done()
 		for i := 1; i <= iterations; i++ {
 			entries, machineState, allowOverlap := makeVersion(i)
-			if err := s.CommitAdvisorState(entries, machineState, allowOverlap, false, false); err != nil {
+			if err := s.Commit(StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: allowOverlap, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false}); err != nil {
 				errCh <- err
 				return
 			}
@@ -154,7 +306,7 @@ func TestCPUPluginStateCommitAdvisorStateIsAtomic(t *testing.T) {
 	}
 }
 
-func TestCPUPluginStateCommitAdvisorStateGateOperationName(t *testing.T) {
+func TestCPUPluginStateCommitGateOperationName(t *testing.T) {
 	t.Parallel()
 	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
 	require.NoError(t, err)
@@ -167,11 +319,11 @@ func TestCPUPluginStateCommitAdvisorStateGateOperationName(t *testing.T) {
 	})
 
 	entries := PodEntries{"pod": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)}}}
-	require.NoError(t, s.CommitAdvisorState(entries, NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)}}, false, false, false))
-	require.Equal(t, "CommitAdvisorState", gotOperation)
+	require.NoError(t, s.Commit(StateUpdate{PodEntries: entries, MachineState: NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)}}, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false}))
+	require.Equal(t, "Commit", gotOperation)
 }
 
-func TestCPUPluginStateCommitAdvisorStateIfRevisionRejectsStaleSnapshot(t *testing.T) {
+func TestCPUPluginStateCommitRejectsStaleSnapshot(t *testing.T) {
 	t.Parallel()
 	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
 	require.NoError(t, err)
@@ -185,7 +337,7 @@ func TestCPUPluginStateCommitAdvisorStateIfRevisionRejectsStaleSnapshot(t *testi
 	baseMachineState := NUMANodeMap{
 		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)},
 	}
-	require.NoError(t, s.CommitAdvisorState(baseEntries, baseMachineState, false, false, false))
+	require.NoError(t, s.Commit(StateUpdate{PodEntries: baseEntries, MachineState: baseMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false}))
 
 	staleRevision := s.GetRevision()
 	staleEntries := s.GetPodEntries()
@@ -196,7 +348,7 @@ func TestCPUPluginStateCommitAdvisorStateIfRevisionRejectsStaleSnapshot(t *testi
 	})
 	require.NotNil(t, s.GetAllocationInfo("new-pod", "main"))
 
-	err = s.CommitAdvisorStateIfRevision(staleRevision, staleEntries, staleMachineState, false, false, false)
+	err = s.Commit(StateUpdate{PodEntries: staleEntries, MachineState: staleMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{ExpectedRevision: ptr.To[uint64](staleRevision), Persist: false})
 	require.Error(t, err)
 	require.True(t, stderrors.Is(err, ErrStaleStateRevision), "err=%v", err)
 	require.NotNil(t, s.GetAllocationInfo("new-pod", "main"), "stale commit must not drop newer pod entry")
@@ -221,8 +373,7 @@ func TestNUMAHeadroomDoesNotAdvanceAllocationRevisionOrBreakCASIsolation(t *test
 	machineState := NUMANodeMap{
 		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)},
 	}
-	require.NoError(t, s.CommitAdvisorStateIfRevision(
-		revision, entries, machineState, true, false, false))
+	require.NoError(t, s.Commit(StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: false}))
 	require.Equal(t, map[int]float64{0: 1.5}, s.GetNUMAHeadroom(),
 		"allocation CAS must not overwrite independently updated headroom")
 }
@@ -253,7 +404,7 @@ func TestCheckpointStateRestoresPersistedRevisionIntoFreshState(t *testing.T) {
 		"a fresh state must restore the exact durable revision")
 }
 
-func TestCheckpointStateCommitAdvisorState(t *testing.T) {
+func TestCheckpointStateCommit(t *testing.T) {
 	t.Parallel()
 	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
 	require.NoError(t, err)
@@ -277,7 +428,7 @@ func TestCheckpointStateCommitAdvisorState(t *testing.T) {
 			emitter:           metrics.DummyMetrics{},
 		}
 
-		require.NoError(t, sc.CommitAdvisorState(newEntries, newMachineState, true, false, true))
+		require.NoError(t, sc.Commit(StateUpdate{PodEntries: newEntries, MachineState: newMachineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: true}))
 		require.Equal(t, 1, manager.calls())
 		require.True(t, sc.GetAllocationInfo("new", "main").AllocationResult.Equals(machine.NewCPUSet(1)))
 		require.True(t, sc.GetMachineState()[0].AllocatedCPUSet.Equals(machine.NewCPUSet(1)))
@@ -294,7 +445,7 @@ func TestCheckpointStateCommitAdvisorState(t *testing.T) {
 			emitter:           metrics.DummyMetrics{},
 		}
 
-		require.NoError(t, sc.CommitAdvisorState(newEntries, newMachineState, true, false, false))
+		require.NoError(t, sc.Commit(StateUpdate{PodEntries: newEntries, MachineState: newMachineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false}))
 		require.Equal(t, 0, manager.calls())
 	})
 
@@ -312,7 +463,7 @@ func TestCheckpointStateCommitAdvisorState(t *testing.T) {
 		oldAllowOverlap := sc.GetAllowSharedCoresOverlapReclaimedCores()
 		oldRevision := sc.GetRevision()
 
-		err := sc.CommitAdvisorState(newEntries, newMachineState, true, false, true)
+		err := sc.Commit(StateUpdate{PodEntries: newEntries, MachineState: newMachineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: true})
 		require.EqualError(t, err, "store failed")
 		require.Equal(t, 1, manager.calls())
 		require.Equal(t, oldEntries, sc.GetPodEntries())
@@ -337,8 +488,7 @@ func TestCheckpointStateCommitAdvisorState(t *testing.T) {
 		oldDisableDedicatedOverlap := sc.GetDisableDedicatedCoresOverlapReclaimedCores()
 		oldRevision := sc.GetRevision()
 
-		err := sc.CommitAdvisorStateIfRevision(
-			oldRevision, newEntries, newMachineState, true, true, true)
+		err := sc.Commit(StateUpdate{PodEntries: newEntries, MachineState: newMachineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: true}, CommitOptions{ExpectedRevision: ptr.To[uint64](oldRevision), Persist: true})
 		require.EqualError(t, err, "store failed")
 		require.Equal(t, 1, manager.calls())
 		require.Equal(t, oldEntries, sc.GetPodEntries())
@@ -349,7 +499,7 @@ func TestCheckpointStateCommitAdvisorState(t *testing.T) {
 	})
 }
 
-func TestCheckpointStateCommitAdvisorStateRollsBackMemoryOnFilesystemFailure(t *testing.T) {
+func TestCheckpointStateCommitRollsBackMemoryOnFilesystemFailure(t *testing.T) {
 	t.Parallel()
 	topology, err := machine.GenerateDummyCPUTopology(2, 1, 1)
 	require.NoError(t, err)
@@ -368,7 +518,7 @@ func TestCheckpointStateCommitAdvisorStateRollsBackMemoryOnFilesystemFailure(t *
 	oldMachineState := NUMANodeMap{
 		0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)},
 	}
-	require.NoError(t, st.CommitAdvisorState(oldEntries, oldMachineState, false, false, true))
+	require.NoError(t, st.Commit(StateUpdate{PodEntries: oldEntries, MachineState: oldMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: true}))
 	oldEntries = st.GetPodEntries()
 	oldMachineState = st.GetMachineState()
 	oldRevision := st.GetRevision()
@@ -376,14 +526,7 @@ func TestCheckpointStateCommitAdvisorStateRollsBackMemoryOnFilesystemFailure(t *
 	require.NoError(t, os.RemoveAll(stateDir))
 	require.NoError(t, os.WriteFile(stateDir, []byte("not a directory"), 0o600))
 
-	err = st.CommitAdvisorStateIfRevision(
-		oldRevision,
-		PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}},
-		NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}},
-		true,
-		true,
-		true,
-	)
+	err = st.Commit(StateUpdate{PodEntries: PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}}, MachineState: NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}}, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: true}, CommitOptions{ExpectedRevision: ptr.To[uint64](oldRevision), Persist: true})
 	require.Error(t, err)
 	require.Equal(t, oldEntries, st.GetPodEntries())
 	require.Equal(t, oldMachineState, st.GetMachineState())
@@ -463,17 +606,11 @@ func TestCheckpointStatePersistentMutationsRollBackMemoryOnStoreFailure(t *testi
 			t.Parallel()
 			manager := &advisorCommitCheckpointManager{createErr: stderrors.New("store failed")}
 			cache := NewCPUPluginState(topology)
-			require.NoError(t, cache.CommitAdvisorState(
-				PodEntries{
-					"old-pod": {
-						"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)},
-					},
+			require.NoError(t, cache.Commit(StateUpdate{PodEntries: PodEntries{
+				"old-pod": {
+					"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(0)},
 				},
-				NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)}},
-				false,
-				false,
-				false,
-			))
+			}, MachineState: NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(0)}}, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false}))
 			require.NoError(t, cache.SetNUMAHeadroom(map[int]float64{0: 1}))
 			sc := &stateCheckpoint{
 				cache:             cache,
@@ -511,14 +648,7 @@ func TestCPUPluginStateRejectsRevisionOverflowWithoutMutation(t *testing.T) {
 	oldEntries := s.GetPodEntries()
 	oldMachineState := s.GetMachineState()
 
-	err = s.CommitAdvisorStateIfRevision(
-		math.MaxUint64,
-		PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}},
-		NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}},
-		true,
-		false,
-		false,
-	)
+	err = s.Commit(StateUpdate{PodEntries: PodEntries{"new": {"main": &AllocationInfo{AllocationResult: machine.NewCPUSet(1)}}}, MachineState: NUMANodeMap{0: &NUMANodeState{AllocatedCPUSet: machine.NewCPUSet(1)}}, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{ExpectedRevision: ptr.To[uint64](math.MaxUint64), Persist: false})
 	require.ErrorContains(t, err, "revision overflow")
 	require.Equal(t, uint64(math.MaxUint64), s.GetRevision())
 	require.Equal(t, oldEntries, s.GetPodEntries())
@@ -713,17 +843,16 @@ func TestCheckpointStateWritePermitGuardsAdvisorCommits(t *testing.T) {
 	}{
 		{
 			name:      "unconditional",
-			operation: "CommitAdvisorState",
+			operation: "Commit",
 			commit: func(sc *stateCheckpoint, entries PodEntries, machineState NUMANodeMap) error {
-				return sc.CommitAdvisorState(entries, machineState, true, false, false)
+				return sc.Commit(StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{Persist: false})
 			},
 		},
 		{
 			name:      "revision conditional",
-			operation: "CommitAdvisorStateIfRevision",
+			operation: "Commit",
 			commit: func(sc *stateCheckpoint, entries PodEntries, machineState NUMANodeMap) error {
-				return sc.CommitAdvisorStateIfRevision(
-					sc.GetRevision(), entries, machineState, true, false, false)
+				return sc.Commit(StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: true, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{ExpectedRevision: ptr.To[uint64](sc.GetRevision()), Persist: false})
 			},
 		},
 	} {
@@ -3336,6 +3465,6 @@ func TestStateWriteGateRejectsMutationAndRevisionAdvances(t *testing.T) {
 	require.Equal(t, uint64(2), rev2)
 
 	// Stale revision: a conditional commit against the old revision is rejected.
-	err = s.CommitAdvisorStateIfRevision(1, PodEntries{}, NUMANodeMap{}, false, false, false)
+	err = s.Commit(StateUpdate{PodEntries: PodEntries{}, MachineState: NUMANodeMap{}, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, CommitOptions{ExpectedRevision: ptr.To[uint64](1), Persist: false})
 	require.ErrorIs(t, err, ErrStaleStateRevision)
 }

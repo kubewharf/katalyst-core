@@ -30,6 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/utils/ptr"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -1023,13 +1024,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	}
 
 	planningState := state.NewTransientState(p.machine.machineInfo.CPUTopology)
-	if err := planningState.CommitAdvisorState(
-		basePodEntries,
-		updatedMachineState,
-		sourceAllowOverlap,
-		sourceDisableDedicated,
-		false,
-	); err != nil {
+	if err := planningState.Commit(state.StateUpdate{PodEntries: basePodEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: sourceAllowOverlap, DisableDedicatedCoresOverlapReclaimedCores: sourceDisableDedicated}, state.CommitOptions{Persist: false}); err != nil {
 		return nil, fmt.Errorf("initialize DNB ramp-up target state failed: %w", err)
 	}
 	planningPolicy := p.newRampUpPlanningPolicy(planningState)
@@ -1181,14 +1176,7 @@ func (p *DynamicPolicy) rollbackFailedDNBAllocation(
 			sourceEntries, sourceMachineState, sourceAllowOverlap, sourceDisableDedicated); err != nil {
 			return false, fmt.Errorf("validate exact DNB source rollback: %w", err), nil
 		}
-		if err := p.state.CommitAdvisorStateIfRevision(
-			latestRevision,
-			sourceEntries,
-			sourceMachineState,
-			sourceAllowOverlap,
-			sourceDisableDedicated,
-			false,
-		); err != nil {
+		if err := p.state.Commit(state.StateUpdate{PodEntries: sourceEntries, MachineState: sourceMachineState, AllowSharedCoresOverlapReclaimedCores: sourceAllowOverlap, DisableDedicatedCoresOverlapReclaimedCores: sourceDisableDedicated}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](latestRevision), Persist: false}); err != nil {
 			return false, fmt.Errorf("restore exact DNB source state: %w", err), nil
 		}
 		p.emitFinalPoolSizeMetrics(sourceEntries)
@@ -1215,13 +1203,7 @@ func (p *DynamicPolicy) rollbackFailedDNBAllocation(
 		return false, fmt.Errorf("recompute machine state without failed DNB allocation: %w", err), nil
 	}
 	planningState := state.NewTransientState(p.machine.machineInfo.CPUTopology)
-	if err := planningState.CommitAdvisorState(
-		latestEntries,
-		latestMachineState,
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		false,
-	); err != nil {
+	if err := planningState.Commit(state.StateUpdate{PodEntries: latestEntries, MachineState: latestMachineState, AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{Persist: false}); err != nil {
 		return false, fmt.Errorf("initialize failed DNB rollback state: %w", err), nil
 	}
 	planningPolicy := p.newRampUpPlanningPolicy(planningState)

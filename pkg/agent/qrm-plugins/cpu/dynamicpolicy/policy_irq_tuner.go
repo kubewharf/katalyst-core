@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
@@ -329,14 +330,7 @@ func (p *DynamicPolicy) SetExclusiveIRQCPUSet(irqCPUSet machine.CPUSet) error {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
 
-	if err := p.state.CommitAdvisorStateIfRevision(
-		expectedRevision,
-		newPodEntries,
-		machineState,
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: newPodEntries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](expectedRevision), Persist: true}); err != nil {
 		return fmt.Errorf("commit irq exclusive cpu set: %w", err)
 	}
 

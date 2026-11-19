@@ -54,27 +54,7 @@ type nativeAllocationCommitFailureState struct {
 	attempts int
 }
 
-func (s *nativeAllocationCommitFailureState) CommitAdvisorState(
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
-	s.attempts++
-	return s.err
-}
-
-func (s *nativeAllocationCommitFailureState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *nativeAllocationCommitFailureState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.attempts++
 	return s.err
 }
@@ -87,26 +67,12 @@ func (s *nativeResidualCommitFailureState) StoreState() error {
 	return s.State.StoreState()
 }
 
-func (s *nativeResidualCommitFailureState) CommitAdvisorState(
-	podEntries state.PodEntries,
-	machineState state.NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	persist bool,
-	permits ...*state.WritePermit,
-) error {
+func (s *nativeResidualCommitFailureState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
 	s.attempts++
 	if s.attempts == 1 {
 		return s.err
 	}
-	return s.State.CommitAdvisorState(
-		podEntries,
-		machineState,
-		allowSharedCoresOverlapReclaimedCores,
-		disableDedicatedCoresOverlapReclaimedCores,
-		persist,
-		permits...,
-	)
+	return s.State.Commit(update, options, permits...)
 }
 
 const (

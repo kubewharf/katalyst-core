@@ -35,6 +35,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead"
 	checkpointutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
@@ -77,7 +78,23 @@ const (
 	advisorPostCommitPhaseCleanup            advisorPostCommitPhase = "cleanup"
 )
 
+type advisorWALState uint8
+
+const (
+	// WAL-backed restored targets use the zero value.
+	advisorWALPersisted advisorWALState = iota
+	advisorWALNotRequired
+	advisorWALPending
+)
+
+type advisorPartition struct {
+	entries                 map[string]*advisorapi.CalculationEntries
+	allowSharedOverlap      bool
+	disableDedicatedOverlap bool
+}
+
 type advisorPostCommitTarget struct {
+	walState                      advisorWALState
 	preCommitRevision             uint64
 	prepared                      bool
 	abortPending                  bool
@@ -89,7 +106,7 @@ type advisorPostCommitTarget struct {
 	applied                       bool
 	checkpointVersion             int
 	revision                      uint64
-	response                      *advisorapi.ListAndWatchResponse
+	partition                     advisorPartition
 	migrationCheckpointTransition steadyFakeNUMAMigrationCheckpointTransition
 	phase                         advisorPostCommitPhase
 	createdAt                     time.Time
@@ -375,9 +392,13 @@ func (c *advisorPostCommitCheckpointCodec) New() checkpointutils.CheckpointCodec
 // mirroring the legacy loadAdvisorPostCommitTarget reconstruction.
 func (c *advisorPostCommitCheckpointCodec) toTarget() *advisorPostCommitTarget {
 	target := &advisorPostCommitTarget{
-		checkpointVersion:             c.version,
-		revision:                      c.revision,
-		response:                      c.response,
+		checkpointVersion: c.version,
+		revision:          c.revision,
+		partition: advisorPartition{
+			entries:                 c.response.Entries,
+			allowSharedOverlap:      c.response.AllowSharedCoresOverlapReclaimedCores,
+			disableDedicatedOverlap: c.response.DisableDedicatedCoresOverlapReclaimedCores,
+		},
 		migrationCheckpointTransition: c.domainTransition,
 		applied:                       c.applied,
 	}
@@ -531,6 +552,11 @@ func (p *DynamicPolicy) runCPUSetAdjustmentHandlers(ctx context.Context, modes .
 		if p.config.dynamicConfig != nil {
 			dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
 		}
+		if reconcileTarget != nil {
+			if err := p.ensureAdvisorAdjustmentWriteAhead(reconcileTarget, dynamicConf); err != nil {
+				return err
+			}
+		}
 		stateRevision := uint64(0)
 		if p.state != nil {
 			stateRevision = p.state.GetRevision()
@@ -681,6 +707,26 @@ func (p *DynamicPolicy) runCPUSetAdjustmentHandlers(ctx context.Context, modes .
 	}
 }
 
+// ensureAdvisorAdjustmentWriteAhead runs before every physical round, including
+// replans. A live configuration may require protection after a checkpoint-only commit;
+// the checkpoint already owns that commit, so persist the target before enabling
+// any new physical side effect. A failed activation keeps the fence for retry.
+func (p *DynamicPolicy) ensureAdvisorAdjustmentWriteAhead(
+	target *advisorPostCommitTarget, conf *dynamicconfig.Configuration,
+) error {
+	if target.walState == advisorWALNotRequired && (p.bulkhead.bulkheadManager == nil ||
+		p.bulkhead.bulkheadManager.RequiresWriteAhead(conf)) {
+		target.walState = advisorWALPending
+	}
+	if target.walState == advisorWALPending {
+		if err := p.storeAdvisorPostCommitTarget(target, p.advisorPostCommitCheckpointPath()); err != nil {
+			return fmt.Errorf("activate advisor write-ahead before adjustment: %w", err)
+		}
+		target.walState = advisorWALPersisted
+	}
+	return nil
+}
+
 func cloneAdvisorPostCommitTarget(
 	resp *advisorapi.ListAndWatchResponse,
 	revision uint64,
@@ -688,7 +734,11 @@ func cloneAdvisorPostCommitTarget(
 ) *advisorPostCommitTarget {
 	cloned := &advisorapi.ListAndWatchResponse{}
 	if resp != nil {
-		cloned = proto.Clone(resp).(*advisorapi.ListAndWatchResponse)
+		cloned = proto.Clone(&advisorapi.ListAndWatchResponse{
+			Entries:                               resp.Entries,
+			AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
+			DisableDedicatedCoresOverlapReclaimedCores: resp.DisableDedicatedCoresOverlapReclaimedCores,
+		}).(*advisorapi.ListAndWatchResponse)
 	}
 	transition := steadyFakeNUMAMigrationCheckpointTransition{
 		kind: steadyFakeNUMAMigrationCheckpointKeep,
@@ -697,9 +747,13 @@ func cloneAdvisorPostCommitTarget(
 		transition = cloneSteadyFakeNUMAMigrationCheckpointTransition(transitions[0])
 	}
 	target := &advisorPostCommitTarget{
-		checkpointVersion:             advisorPostCommitCheckpointVersion,
-		revision:                      revision,
-		response:                      cloned,
+		checkpointVersion: advisorPostCommitCheckpointVersion,
+		revision:          revision,
+		partition: advisorPartition{
+			entries:                 cloned.Entries,
+			allowSharedOverlap:      cloned.AllowSharedCoresOverlapReclaimedCores,
+			disableDedicatedOverlap: cloned.DisableDedicatedCoresOverlapReclaimedCores,
+		},
 		migrationCheckpointTransition: transition,
 	}
 	initializeAdvisorPostCommitProgress(target, advisorPostCommitPhasePrepared)
@@ -782,29 +836,11 @@ func (p *DynamicPolicy) markAdvisorPostCommitPublicationPending(target *advisorP
 	p.markAdvisorApplyFailed(target.revision)
 }
 
-func (p *DynamicPolicy) commitAdvisorResponseWithWriteAhead(
-	resp *advisorapi.ListAndWatchResponse,
-	preCommitRevision uint64,
-	commitDesired func(*advisorPostCommitTarget) error,
-) (*advisorPostCommitTarget, error) {
-	return p.commitAdvisorResponseWithWriteAheadTransition(
-		resp,
-		steadyFakeNUMAMigrationCheckpointTransition{
-			kind: steadyFakeNUMAMigrationCheckpointKeep,
-		},
-		preCommitRevision,
-		commitDesired,
-	)
-}
-
-// commitAdvisorResponseWithWriteAheadTransition installs the writer fence and
-// durably stages the post-commit target before advancing canonical state. The
-// revision-CAS commit is therefore recoverable from the WAL; the fence remains
-// until publication, physical apply, and durable cleanup have completed.
-func (p *DynamicPolicy) commitAdvisorResponseWithWriteAheadTransition(
+func (p *DynamicPolicy) commitAdvisorResponse(
 	resp *advisorapi.ListAndWatchResponse,
 	transition steadyFakeNUMAMigrationCheckpointTransition,
 	preCommitRevision uint64,
+	requiresWriteAhead bool,
 	commitDesired func(*advisorPostCommitTarget) error,
 ) (*advisorPostCommitTarget, error) {
 	postCommitRevision, err := nextAdvisorRevision(preCommitRevision)
@@ -812,10 +848,21 @@ func (p *DynamicPolicy) commitAdvisorResponseWithWriteAheadTransition(
 		return nil, err
 	}
 	target := cloneAdvisorPostCommitTarget(resp, postCommitRevision, transition)
+	if requiresWriteAhead {
+		target.walState = advisorWALPending
+	} else {
+		target.walState = advisorWALNotRequired
+	}
 	p.installCPUStateWritePermit()
 	previousTarget := p.beginPreparedAdvisorPostCommitTarget(target, preCommitRevision)
+	removeStaging := func() error {
+		if target.walState == advisorWALNotRequired {
+			return nil
+		}
+		return p.removeAdvisorPostCommitStaging()
+	}
 	if err := p.storeAdvisorPostCommitTarget(target, p.advisorPostCommitStagingPath()); err != nil {
-		if removeErr := p.removeAdvisorPostCommitStaging(); removeErr != nil {
+		if removeErr := removeStaging(); removeErr != nil {
 			p.markAdvisorPostCommitAbortPending(target, previousTarget)
 			return nil, fmt.Errorf(
 				"persist advisor post-commit target: %w; remove incomplete target while retaining writer fence: %v",
@@ -825,7 +872,7 @@ func (p *DynamicPolicy) commitAdvisorResponseWithWriteAheadTransition(
 		return nil, fmt.Errorf("persist advisor post-commit target: %w", err)
 	}
 	if err := commitDesired(target); err != nil {
-		if removeErr := p.removeAdvisorPostCommitStaging(); removeErr != nil {
+		if removeErr := removeStaging(); removeErr != nil {
 			p.markAdvisorPostCommitAbortPending(target, previousTarget)
 			return nil, fmt.Errorf("%w; remove uncommitted advisor target: %v", err, removeErr)
 		}
@@ -837,7 +884,7 @@ func (p *DynamicPolicy) commitAdvisorResponseWithWriteAheadTransition(
 		if p.state != nil {
 			actualRevision = p.state.GetRevision()
 		}
-		if removeErr := p.removeAdvisorPostCommitStaging(); removeErr != nil {
+		if removeErr := removeStaging(); removeErr != nil {
 			p.markAdvisorPostCommitAbortPending(target, previousTarget)
 			return nil, fmt.Errorf("advisor desired commit revision mismatch: expected=%d actual=%d; remove target: %v",
 				postCommitRevision, actualRevision, removeErr)
@@ -850,9 +897,12 @@ func (p *DynamicPolicy) commitAdvisorResponseWithWriteAheadTransition(
 	// canonical revision advances, switch it to post-commit reconciliation
 	// before promoting the durable staging record.
 	p.finishPreparedAdvisorPostCommitTarget(target)
-	if err := p.promoteAdvisorPostCommitStaging(); err != nil {
-		p.markAdvisorPostCommitPublicationPending(target)
-		return nil, fmt.Errorf("promote advisor post-commit target: %w", err)
+	if target.walState != advisorWALNotRequired {
+		if err := p.promoteAdvisorPostCommitStaging(); err != nil {
+			p.markAdvisorPostCommitPublicationPending(target)
+			return nil, fmt.Errorf("promote advisor post-commit target: %w", err)
+		}
+		target.walState = advisorWALPersisted
 	}
 	p.recordAdvisorPostCommitProgress(target, advisorPostCommitPhasePublished)
 	return target, nil
@@ -904,14 +954,32 @@ func (p *DynamicPolicy) recoverAdvisorPostCommitName(name string) (*advisorPostC
 	if !ok {
 		return nil, fmt.Errorf("unexpected advisor post-commit checkpoint codec type %T", recovered)
 	}
-	return codec.toTarget(), nil
+	target := codec.toTarget()
+	if !target.applied && len(codec.response.ExtraEntries) > 0 {
+		p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+		if p.adjustment.legacyAdvisorControls == nil {
+			p.adjustment.legacyAdvisorControls = make(map[*advisorPostCommitTarget][]*advisorsvc.CalculationInfo)
+		}
+		p.adjustment.legacyAdvisorControls[target] = codec.response.ExtraEntries
+		p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+	}
+	return target, nil
+}
+
+// walResponse adapts only the partition data to the existing WAL wire format.
+func (partition advisorPartition) walResponse() *advisorapi.ListAndWatchResponse {
+	return &advisorapi.ListAndWatchResponse{
+		Entries:                               partition.entries,
+		AllowSharedCoresOverlapReclaimedCores: partition.allowSharedOverlap,
+		DisableDedicatedCoresOverlapReclaimedCores: partition.disableDedicatedOverlap,
+	}
 }
 
 func (p *DynamicPolicy) storeAdvisorPostCommitTarget(target *advisorPostCommitTarget, path string) error {
-	if path == "" || target == nil {
+	if path == "" || target == nil || target.walState == advisorWALNotRequired {
 		return nil
 	}
-	response, err := proto.Marshal(target.response)
+	response, err := proto.Marshal(target.partition.walResponse())
 	if err != nil {
 		return fmt.Errorf("marshal advisor response: %w", err)
 	}
@@ -1006,7 +1074,7 @@ func advisorPostCommitTargetsEqual(left, right *advisorPostCommitTarget) bool {
 	return left.checkpointVersion == right.checkpointVersion &&
 		left.preCommitRevision == right.preCommitRevision &&
 		left.revision == right.revision &&
-		proto.Equal(left.response, right.response) &&
+		proto.Equal(left.partition.walResponse(), right.partition.walResponse()) &&
 		reflect.DeepEqual(left.migrationCheckpointTransition, right.migrationCheckpointTransition)
 }
 
@@ -1128,6 +1196,15 @@ func advisorPostCommitRecoveryForRevision(
 }
 
 func (p *DynamicPolicy) restoreAdvisorPostCommitTarget() error {
+	defer func() {
+		p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+		defer p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+		for target := range p.adjustment.legacyAdvisorControls {
+			if target != p.adjustment.advisorPostCommitTarget {
+				delete(p.adjustment.legacyAdvisorControls, target)
+			}
+		}
+	}()
 	if p.advisorPostCommitCheckpointDir == "" {
 		return nil
 	}
@@ -1405,6 +1482,9 @@ func (p *DynamicPolicy) setAdvisorPostCommitTargetLocked(target *advisorPostComm
 		close(p.adjustment.advisorPostCommitTargetChange)
 	}
 	p.adjustment.advisorPostCommitTarget = target
+	if target == nil {
+		p.adjustment.legacyAdvisorControls = nil
+	}
 	p.adjustment.advisorPostCommitTargetChange = make(chan struct{})
 }
 
@@ -1433,6 +1513,7 @@ func (p *DynamicPolicy) retryAdvisorPostCommitPublication(target *advisorPostCom
 	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
 	if p.adjustment.advisorPostCommitTarget == target {
 		target.publicationPending = false
+		target.walState = advisorWALPersisted
 		p.recordAdvisorPostCommitProgressLocked(target, advisorPostCommitPhasePublished)
 	}
 	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
@@ -1466,14 +1547,16 @@ func (p *DynamicPolicy) completeAdvisorPostCommitCleanup(target *advisorPostComm
 			target.revision, err)
 	}
 
-	if err := p.removeAdvisorPostCommitCheckpoints(); err != nil {
-		p.adjustment.cpuSetAdjustmentRetryMu.Lock()
-		if p.adjustment.advisorPostCommitTarget == target {
-			target.cleanupPending = true
+	if target.walState != advisorWALNotRequired {
+		if err := p.removeAdvisorPostCommitCheckpoints(); err != nil {
+			p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+			if p.adjustment.advisorPostCommitTarget == target {
+				target.cleanupPending = true
+			}
+			p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+			p.scheduleCPUSetAdjustmentRetry(cpusetutil.RetryReasonApplyFailed)
+			return fmt.Errorf("remove reconciled advisor post-commit checkpoints: %w", err)
 		}
-		p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
-		p.scheduleCPUSetAdjustmentRetry(cpusetutil.RetryReasonApplyFailed)
-		return fmt.Errorf("remove reconciled advisor post-commit checkpoints: %w", err)
 	}
 
 	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
@@ -1528,6 +1611,24 @@ func (p *DynamicPolicy) completeAdvisorPostCommitRetryLocked() {
 	}
 }
 
+// applyLegacyAdvisorControls is only for controls recovered from old WAL.
+func (p *DynamicPolicy) applyLegacyAdvisorControls(target *advisorPostCommitTarget) (error, error) {
+	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
+	extra := p.adjustment.legacyAdvisorControls[target]
+	p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
+	if len(extra) == 0 {
+		return nil, nil
+	}
+	response := &advisorapi.ListAndWatchResponse{ExtraEntries: extra}
+	headroomErr := p.applyHeadroom(response)
+	if current, err := p.advisorPostCommitTargetStatus(target); err != nil {
+		return err, nil
+	} else if !current {
+		return nil, nil
+	}
+	return headroomErr, p.applyCgroupConfigs(response)
+}
+
 // recoverStuckAdvisorPostCommitTargetLocked releases the writer fence of an
 // aged physical apply only after all response-owned side effects have
 // converged. The caller holds p.Lock; this method serializes the handoff with
@@ -1556,8 +1657,7 @@ func (p *DynamicPolicy) recoverStuckAdvisorPostCommitTargetLocked(
 		target.migrationCheckpointTransition); err != nil {
 		return false, fmt.Errorf("replay stuck advisor migration checkpoint transition: %w", err)
 	}
-	headroomErr := p.applyHeadroom(target.response)
-	cgroupErr := p.applyCgroupConfigs(target.response)
+	headroomErr, cgroupErr := p.applyLegacyAdvisorControls(target)
 	if headroomErr != nil || cgroupErr != nil {
 		var stageErrors []string
 		if headroomErr != nil {
@@ -1595,8 +1695,10 @@ func (p *DynamicPolicy) advisorPostCommitTargetSuperseded(target *advisorPostCom
 // were replayed before the fence release, so the old response is obsolete; the
 // caller must still reconcile cpuset from the latest canonical state.
 func (p *DynamicPolicy) retireSupersededAdvisorPostCommitTarget(target *advisorPostCommitTarget) error {
-	if err := p.removeAdvisorPostCommitCheckpoints(); err != nil {
-		return fmt.Errorf("remove superseded advisor post-commit checkpoints: %w", err)
+	if target.walState != advisorWALNotRequired {
+		if err := p.removeAdvisorPostCommitCheckpoints(); err != nil {
+			return fmt.Errorf("remove superseded advisor post-commit checkpoints: %w", err)
+		}
 	}
 	p.adjustment.cpuSetAdjustmentRetryMu.Lock()
 	p.releaseAdvisorPostCommitTargetFenceLocked(target)
@@ -1711,13 +1813,7 @@ func (p *DynamicPolicy) reconcileAdvisorPostCommitTarget(
 	} else if !current {
 		return nil
 	}
-	headroomErr := p.applyHeadroom(target.response)
-	if current, err := p.advisorPostCommitTargetStatus(target); err != nil {
-		return err
-	} else if !current {
-		return nil
-	}
-	cgroupErr := p.applyCgroupConfigs(target.response)
+	headroomErr, cgroupErr := p.applyLegacyAdvisorControls(target)
 	if current, err := p.advisorPostCommitTargetStatus(target); err != nil {
 		return err
 	} else if !current {
@@ -1765,6 +1861,12 @@ func (p *DynamicPolicy) reconcileAdvisorPostCommitTarget(
 		p.adjustment.cpuSetAdjustmentRetryMu.Unlock()
 	}
 
+	if cgroupErr == nil && adjustmentErr == nil {
+		return fmt.Errorf("applyHeadroom failed with error: %w", headroomErr)
+	}
+	if headroomErr == nil && adjustmentErr == nil {
+		return fmt.Errorf("applyCgroupConfigs failed with error: %w", cgroupErr)
+	}
 	var stageErrors []string
 	if headroomErr != nil {
 		stageErrors = append(stageErrors, fmt.Sprintf("applyHeadroom failed with error: %v", headroomErr))

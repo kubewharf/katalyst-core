@@ -212,6 +212,23 @@ func NewManagerWithCgroupClientFactory(conf *config.Configuration, cgroupClientF
 	return m, nil
 }
 
+// RequiresWriteAhead aggregates plugin capabilities without invoking Enable or
+// taking the manager lock: callers may hold the policy lock used by Apply.
+func (m *Manager) RequiresWriteAhead(dyn *dynamicconfig.Configuration) bool {
+	if dyn == nil || dyn.AdminQoSConfiguration == nil || dyn.CPUPluginConfiguration == nil {
+		return true
+	}
+	if !bulkheadEnabled(dyn) {
+		return false
+	}
+	for _, plugin := range m.plugins {
+		if requirement, ok := plugin.(bulkheadapi.WriteAheadRequired); ok && requirement.RequiresWriteAhead(dyn) {
+			return true
+		}
+	}
+	return false
+}
+
 // discoverTopologyPlugin resolves the single topology-owning plugin from the
 // registry by interface assertion. It never compares plugin names. Zero owners
 // is permitted; two or more distinct owners is a configuration error.

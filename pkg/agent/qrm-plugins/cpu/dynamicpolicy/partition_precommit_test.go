@@ -1365,8 +1365,7 @@ func TestPreparePendingCPUPartitionPreservesDisabledReclaimIdentity(t *testing.T
 			committedMachineState, err := generateMachineStateFromPodEntries(
 				p.machine.machineInfo.CPUTopology, committedEntries, p.state.GetMachineState())
 			require.NoError(t, err)
-			require.NoError(t, p.state.CommitAdvisorState(
-				committedEntries, committedMachineState, false, true, false))
+			require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: committedEntries, MachineState: committedMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: true}, state.CommitOptions{Persist: false}))
 
 			beforeRevision := p.state.GetRevision()
 			committed, _, err := p.commitPendingCPUPartition(pendingCPUPartition{

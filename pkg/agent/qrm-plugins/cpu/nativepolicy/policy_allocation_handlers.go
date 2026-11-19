@@ -145,13 +145,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	if err := p.state.CommitAdvisorState(
-		podEntries,
-		updatedMachineState,
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{Persist: true}); err != nil {
 		return nil, fmt.Errorf("persist dedicated allocation atomically: %w", err)
 	}
 	return resp, nil
@@ -221,13 +215,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
-	if err := p.state.CommitAdvisorState(
-		podEntries,
-		updatedMachineState,
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	); err != nil {
+	if err := p.state.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{Persist: true}); err != nil {
 		return nil, fmt.Errorf("persist shared allocation atomically: %w", err)
 	}
 	return resp, nil

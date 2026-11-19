@@ -1056,12 +1056,29 @@ type writer interface {
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool) error
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) error
 	SetDisableDedicatedCoresOverlapReclaimedCores(disableDedicatedCoresOverlapReclaimedCores, persist bool) error
-	CommitAdvisorState(podEntries PodEntries, machineState NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*WritePermit) error
-	CommitAdvisorStateIfRevision(expectedRevision uint64, podEntries PodEntries, machineState NUMANodeMap, allowSharedCoresOverlapReclaimedCores, disableDedicatedCoresOverlapReclaimedCores, persist bool, permits ...*WritePermit) error
+	Commit(StateUpdate, CommitOptions, ...*WritePermit) error
 
 	Delete(podUID string, containerName string, persist bool) error
 	ClearState() error
 	StoreState() error
+}
+
+// StateUpdate replaces one complete allocation generation. Optional auxiliary
+// fields are applied in the same commit; nil NUMAHeadroom preserves its value.
+// This is an in-memory update contract, not a checkpoint serialization format.
+type StateUpdate struct {
+	PodEntries                                 PodEntries
+	MachineState                               NUMANodeMap
+	AllowSharedCoresOverlapReclaimedCores      bool
+	DisableDedicatedCoresOverlapReclaimedCores bool
+	NUMAHeadroom                               map[int]float64
+}
+
+// CommitOptions controls CAS and checkpoint persistence, never WAL execution.
+// Nil ExpectedRevision means an unconditional commit; zero is a valid revision.
+type CommitOptions struct {
+	ExpectedRevision *uint64
+	Persist          bool
 }
 
 // State interface provides methods for tracking and setting pod assignments

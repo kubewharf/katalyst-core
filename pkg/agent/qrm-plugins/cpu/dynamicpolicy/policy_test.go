@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/utils/ptr"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -551,8 +552,7 @@ func TestAdjustAllocationEntriesCleansOrphanInSingleDurableRevision(t *testing.T
 	initialMachineState, err := generateMachineStateFromPodEntries(
 		topology, initialEntries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(
-		initialEntries, initialMachineState, false, false, true))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: initialEntries, MachineState: initialMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	initialRevision := policy.state.GetRevision()
 
 	candidate := initialEntries.Clone()
@@ -621,7 +621,7 @@ func TestPodDeletionDefersUnownedPoolCleanupToAdjustmentBoundary(t *testing.T) {
 		machineState, err := generateMachineStateFromPodEntries(
 			topology, entries, policy.state.GetMachineState())
 		require.NoError(t, err)
-		require.NoError(t, policy.state.CommitAdvisorState(entries, machineState, false, false, true))
+		require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 		return policy
 	}
 
@@ -770,8 +770,7 @@ func TestRollbackAllocationStateStoreFailureKeepsCurrentMemory(t *testing.T) {
 	snapshotMachineState, err := generateMachineStateFromPodEntries(
 		cpuTopology, snapshotEntries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(
-		snapshotEntries, snapshotMachineState, false, false, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: snapshotEntries, MachineState: snapshotMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	snapshot := allocationRollbackSnapshot{
 		revision:                p.state.GetRevision(),
 		podEntries:              snapshotEntries,
@@ -785,8 +784,7 @@ func TestRollbackAllocationStateStoreFailureKeepsCurrentMemory(t *testing.T) {
 	currentMachineState, err := generateMachineStateFromPodEntries(
 		cpuTopology, currentEntries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(
-		currentEntries, currentMachineState, false, false, false))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: currentEntries, MachineState: currentMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 	require.NoError(t, os.RemoveAll(stateDir))
 	require.NoError(t, os.WriteFile(stateDir, []byte("block checkpoint directory"), 0o600))
 
@@ -964,8 +962,7 @@ func TestDynamicPolicyInitReclaimPoolWholeCoreAcrossNUMAs(t *testing.T) {
 		machineState, err := generateMachineStateFromPodEntries(
 			topology, entries, policy.state.GetMachineState())
 		require.NoError(t, err)
-		require.NoError(t, policy.state.CommitAdvisorState(
-			entries, machineState, false, false, false))
+		require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 		require.NoError(t, policy.initReclaimPool())
 
@@ -1017,8 +1014,7 @@ func TestDynamicPolicyInitReclaimPoolDoesNotReplayOverlappingReserve(t *testing.
 	machineState, err := generateMachineStateFromPodEntries(
 		topology, entries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(
-		entries, machineState, false, false, false))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
 	err = policy.initReclaimPool()
 	require.ErrorIs(t, err, errReclaimFallbackEmptyRequired)
@@ -1290,7 +1286,7 @@ func TestRemovePodRecoversStaleEntryBehindStuckAdvisorPostCommitTarget(t *testin
 	}
 	machineState, err := generateMachineStateFromPodEntries(topology, entries, p.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, p.state.CommitAdvisorState(entries, machineState, false, false, true))
+	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 
 	target := p.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
 	p.recordAdvisorPostCommitProgress(target, advisorPostCommitPhasePhysicalApply)
@@ -1584,57 +1580,25 @@ func TestAdvisorStateWritePermitBindsTargetAndRevisionAndIsSingleUse(t *testing.
 	revision := p.state.GetRevision()
 	wrongRevisionTarget := p.publishAdvisorPostCommitTarget(
 		&advisorapi.ListAndWatchResponse{}, revision+1)
-	err = p.state.CommitAdvisorStateIfRevision(
-		revision,
-		p.state.GetPodEntries(),
-		p.state.GetMachineState(),
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		false,
-		p.newAdvisorStateWritePermit(wrongRevisionTarget),
-	)
+	err = p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: false}, p.newAdvisorStateWritePermit(wrongRevisionTarget))
 	require.Error(t, err)
 	require.Equal(t, revision, p.state.GetRevision())
 
 	target := p.publishAdvisorPostCommitTarget(
 		&advisorapi.ListAndWatchResponse{}, revision)
 	permit := p.newAdvisorStateWritePermit(target)
-	err = p.state.CommitAdvisorStateIfRevision(
-		revision,
-		p.state.GetPodEntries(),
-		p.state.GetMachineState(),
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		false,
-		permit,
-	)
+	err = p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision), Persist: false}, permit)
 	require.NoError(t, err)
 	require.Equal(t, revision+1, p.state.GetRevision())
 
-	err = p.state.CommitAdvisorStateIfRevision(
-		revision+1,
-		p.state.GetPodEntries(),
-		p.state.GetMachineState(),
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		false,
-		permit,
-	)
+	err = p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](revision + 1), Persist: false}, permit)
 	require.Error(t, err, "a successful permit must not be reusable")
 
 	replacedPermit := p.newAdvisorStateWritePermit(target)
 	replacement := p.publishAdvisorPostCommitTarget(
 		&advisorapi.ListAndWatchResponse{}, p.state.GetRevision())
 	require.NotSame(t, target, replacement)
-	err = p.state.CommitAdvisorStateIfRevision(
-		p.state.GetRevision(),
-		p.state.GetPodEntries(),
-		p.state.GetMachineState(),
-		p.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		false,
-		replacedPermit,
-	)
+	err = p.state.Commit(state.StateUpdate{PodEntries: p.state.GetPodEntries(), MachineState: p.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](p.state.GetRevision()), Persist: false}, replacedPermit)
 	require.Error(t, err, "a permit must not authorize a replaced target")
 }
 
@@ -1646,14 +1610,7 @@ func TestNewDynamicPolicyRestoresPendingWALBeforeStartupStateWriters(t *testing.
 	stateDir := t.TempDir()
 	first, err := getTestDynamicPolicyWithInitialization(topology, stateDir)
 	require.NoError(t, err)
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	revision := first.state.GetRevision()
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
 	require.FileExists(t, first.advisorPostCommitCheckpointPath())
@@ -1719,7 +1676,7 @@ func TestRemovePodCommitsCanonicalStateAtomically(t *testing.T) {
 		machineState, err := generateMachineStateFromPodEntries(
 			topology, entries, policy.state.GetMachineState())
 		require.NoError(t, err)
-		require.NoError(t, policy.state.CommitAdvisorState(entries, machineState, false, false, true))
+		require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 		return policy, stateDir, policy.state.GetRevision(), machineState
 	}
 
@@ -1751,8 +1708,7 @@ func TestRemovePodCommitsCanonicalStateAtomically(t *testing.T) {
 			require.Equal(t, 0, releasePlugin.releaseCount)
 			gotPersist = persist
 			gotRevision = expectedRevision
-			return policy.state.CommitAdvisorStateIfRevision(
-				expectedRevision, entries, machineState, false, false, persist)
+			return policy.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](expectedRevision), Persist: persist})
 		}
 
 		_, err := policy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{PodUid: podUID})
@@ -2005,8 +1961,7 @@ func TestRemovePodLastRNBExpandsNonRNBAndCleansOrphanInSingleRevision(t *testing
 	initialMachineState, err := generateMachineStateFromPodEntries(
 		topology, initialEntries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(
-		initialEntries, initialMachineState, false, false, true))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: initialEntries, MachineState: initialMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	initialRevision := policy.state.GetRevision()
 
 	_, err = policy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{PodUid: removedPodUID})
@@ -2115,8 +2070,7 @@ func TestRemovePodLastOwnerBackfillsOrphanCPUsInSingleRevision(t *testing.T) {
 	initialMachineState, err := generateMachineStateFromPodEntries(
 		topology, initialEntries, policy.state.GetMachineState())
 	require.NoError(t, err)
-	require.NoError(t, policy.state.CommitAdvisorState(
-		initialEntries, initialMachineState, false, false, true))
+	require.NoError(t, policy.state.Commit(state.StateUpdate{PodEntries: initialEntries, MachineState: initialMachineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: true}))
 	initialRevision := policy.state.GetRevision()
 
 	// Exercise the revision-scoped adjustment candidate produced by RemovePod
@@ -3545,6 +3499,114 @@ func TestAllocate(t *testing.T) {
 			}
 
 			_ = os.RemoveAll(tmpDir)
+		})
+	}
+}
+
+func TestAllocateClosedTopologyUsesCheckpointWithoutAdvisorWAL(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			require.NoError(t, err)
+			dir := t.TempDir()
+			p, err := getTestDynamicPolicyWithInitialization(topology, dir)
+			require.NoError(t, err)
+			p.config.enableCPUAdvisor = false
+			cfg := p.config.dynamicConfig.GetDynamicConfiguration()
+			cfg.BulkheadConfig.Enable = true
+			cfg.BulkheadConfig.EnableBulkheadCpusetTopology = false
+			p.config.conf.CPUQRMPluginConfig.BulkheadConfiguration.PreserveReclaimCPUSetWhenTopologyDisabled = false
+			calls := 0
+			p.adjustment.cpuSetAdjustmentHandlers = map[string]dynamicpolicyutil.CPUSetAdjustmentHandler{
+				"recorder": func(_ context.Context, in dynamicpolicyutil.CPUSetAdjustmentHandlerCtx) error {
+					calls++
+					require.Nil(t, p.currentAdvisorPostCommitTarget())
+					require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+					if fail {
+						return fmt.Errorf("injected admission failure")
+					}
+					return nil
+				},
+			}
+			req := &pluginapi.ResourceRequest{
+				PodUid: "allocation", PodNamespace: "default", PodName: "allocation", ContainerName: "main",
+				ContainerType: pluginapi.ContainerType_MAIN, ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{string(v1.ResourceCPU): 1}, Labels: map[string]string{}, Annotations: map[string]string{},
+			}
+			resp, err := p.Allocate(context.Background(), req)
+			if fail {
+				require.ErrorContains(t, err, "injected admission failure")
+				require.Nil(t, resp)
+				require.Nil(t, p.state.GetAllocationInfo(req.PodUid, req.ContainerName))
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.NotNil(t, p.state.GetAllocationInfo(req.PodUid, req.ContainerName))
+			}
+			require.Positive(t, calls)
+			require.NoFileExists(t, p.advisorPostCommitCheckpointPath())
+			require.NoFileExists(t, p.advisorPostCommitStagingPath())
+			restored, err := getTestDynamicPolicyWithoutInitialization(topology, dir)
+			require.NoError(t, err)
+			require.Equal(t, p.state.GetPodEntries(), restored.state.GetPodEntries())
+		})
+	}
+}
+
+func TestAllocateFailureDoesNotPersistSuccessfulRollbackTwice(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		changeState  bool
+		failRollback bool
+		wantStores   int
+	}{
+		{name: "durable rollback", changeState: true},
+		{name: "failed rollback", changeState: true, failRollback: true, wantStores: 1},
+		{name: "unchanged state", wantStores: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			topo, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			require.NoError(t, err)
+			dir := t.TempDir()
+			p, err := getTestDynamicPolicyWithInitialization(topo, dir)
+			require.NoError(t, err)
+			p.config.enableCPUAdvisor = false
+			tracking := &atomicCommitTrackingState{State: p.state}
+			if tc.failRollback {
+				tracking.commitErr = errors.New("rollback checkpoint failed")
+				// The first CAS is stale; the second is the durable rollback.
+				tracking.failCommits = 2
+			}
+			p.state = tracking
+			p.allocation.allocationHandlers[consts.PodAnnotationQoSLevelSharedCores] = func(_ context.Context, req *pluginapi.ResourceRequest, _ bool) (*pluginapi.ResourceAllocationResponse, error) {
+				if !tc.changeState {
+					return nil, errors.New("allocation failed")
+				}
+				require.NoError(t, p.state.SetAllocationInfo(req.PodUid, req.ContainerName, &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid: req.PodUid, ContainerName: req.ContainerName,
+						OwnerPoolName: commonstate.PoolNameShare, QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					AllocationResult: machine.NewCPUSet(4), OriginalAllocationResult: machine.NewCPUSet(4), RequestQuantity: 1,
+				}, false))
+				return nil, errors.New("allocation failed")
+			}
+			_, err = p.Allocate(context.Background(), &pluginapi.ResourceRequest{
+				PodUid: "allocation", PodNamespace: "default", PodName: "allocation", ContainerName: "main",
+				ContainerType: pluginapi.ContainerType_MAIN, ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{string(v1.ResourceCPU): 1}, Labels: map[string]string{}, Annotations: map[string]string{},
+			})
+			require.ErrorContains(t, err, "allocation failed")
+			require.Equal(t, tc.wantStores, tracking.storeCalls)
+			if tc.failRollback {
+				require.ErrorContains(t, err, "rollback checkpoint failed")
+			} else {
+				require.Nil(t, p.state.GetAllocationInfo("allocation", "main"))
+				restored, err := getTestDynamicPolicyWithoutInitialization(topo, dir)
+				require.NoError(t, err)
+				require.Equal(t, p.state.GetPodEntries(), restored.state.GetPodEntries())
+				require.Equal(t, p.state.GetMachineState(), restored.state.GetMachineState())
+			}
 		})
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	componentagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -257,14 +258,7 @@ func TestNewDynamicPolicyBootstrapWalIdentityMatrix(t *testing.T) {
 			require.NotNil(t, preEntry)
 			preCSet := preEntry.AllocationResult.Clone()
 
-			require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-				first.state.GetRevision(),
-				first.state.GetPodEntries(),
-				first.state.GetMachineState(),
-				first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-				first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-				true,
-			))
+			require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 			revision := first.state.GetRevision()
 
 			activePath := first.advisorPostCommitCheckpointPath()
@@ -339,14 +333,7 @@ func TestNewDynamicPolicyBootstrapCorruptWALReturnsError(t *testing.T) {
 	first, err := getTestDynamicPolicyWithInitialization(topology, stateDir)
 	require.NoError(t, err)
 
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	revision := first.state.GetRevision()
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
 	activePath := first.advisorPostCommitCheckpointPath()
@@ -374,28 +361,14 @@ func TestNewDynamicPolicyBootstrapSupersededWALIsCleanedUp(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit + publish a WAL at revision R.
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	oldRevision := first.state.GetRevision()
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, oldRevision)
 	require.FileExists(t, first.advisorPostCommitCheckpointPath())
 
 	// Advance state to a newer revision WITHOUT publishing a new WAL. The old
 	// WAL is now superseded (revision < mainRevision).
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	newRevision := first.state.GetRevision()
 	require.Greater(t, newRevision, oldRevision)
 
@@ -426,14 +399,7 @@ func TestNewDynamicPolicyBootstrapCorruptStagingIsRemovedWhenActiveReplays(t *te
 	first, err := getTestDynamicPolicyWithInitialization(topology, stateDir)
 	require.NoError(t, err)
 
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	revision := first.state.GetRevision()
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
 	activePath := first.advisorPostCommitCheckpointPath()
@@ -469,14 +435,7 @@ func TestNewDynamicPolicyBootstrapCorruptStagingWithoutActiveErrors(t *testing.T
 	first, err := getTestDynamicPolicyWithInitialization(topology, stateDir)
 	require.NoError(t, err)
 
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	revision := first.state.GetRevision()
 	first.publishAdvisorPostCommitTarget(&advisorapi.ListAndWatchResponse{}, revision)
 
@@ -664,14 +623,7 @@ func TestNewDynamicPolicyBootstrapCleanupFailureLoud(t *testing.T) {
 	preEntry := first.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	require.NotNil(t, preEntry)
 
-	require.NoError(t, first.state.CommitAdvisorStateIfRevision(
-		first.state.GetRevision(),
-		first.state.GetPodEntries(),
-		first.state.GetMachineState(),
-		first.state.GetAllowSharedCoresOverlapReclaimedCores(),
-		first.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		true,
-	))
+	require.NoError(t, first.state.Commit(state.StateUpdate{PodEntries: first.state.GetPodEntries(), MachineState: first.state.GetMachineState(), AllowSharedCoresOverlapReclaimedCores: first.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: first.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{ExpectedRevision: ptr.To[uint64](first.state.GetRevision()), Persist: true}))
 	revision := first.state.GetRevision()
 
 	// Stage a superseded WAL: write active at revision+1 (never committed).
