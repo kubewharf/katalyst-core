@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/cni"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic"
 	networkreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -119,6 +120,8 @@ type StaticPolicy struct {
 	nicAllocationReactor reactor.AllocationReactor
 
 	nicManager nic.NICManager
+
+	cniNodeUpdater *cni.CNIPeriodicNodeUpdater
 
 	// aliveCgroupID is used to record the alive cgroupIDs and their last alive time
 	aliveCgroupID map[uint64]time.Time
@@ -269,6 +272,16 @@ func (p *StaticPolicy) Start() (err error) {
 		appqrm.QRMNetworkPluginPeriodicalHandlerGroupName, p.clearResidualState, consts.StateCheckPeriod, consts.StateCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed, err: %v", consts.ClearResidualState, err)
+		return err
+	}
+
+	if p.cniNodeUpdater != nil {
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cni.NodeUpdaterHandlerName,
+			general.HealthzCheckStateNotReady, appqrm.QRMNetworkPluginPeriodicalHandlerGroupName,
+			p.cniNodeUpdater.Refresh, cni.FetchInterval, 0)
+		if err != nil {
+			return fmt.Errorf("register CNI Node update handler: %w", err)
+		}
 	}
 
 	go wait.Until(func() {
@@ -383,17 +396,17 @@ func (p *StaticPolicy) clearResidualState(_ *config.Configuration,
 // Stop stops this plugin
 func (p *StaticPolicy) Stop() error {
 	p.Lock()
-	defer func() {
-		p.started = false
-		p.Unlock()
-		general.Infof("stopped")
-	}()
-
+	defer p.Unlock()
 	if !p.started {
 		general.Warningf("already stopped")
 		return nil
 	}
 	close(p.stopCh)
+	if p.cniNodeUpdater != nil {
+		periodicalhandler.StopHandlersByGroup(appqrm.QRMNetworkPluginPeriodicalHandlerGroupName)
+	}
+	p.started = false
+	general.Infof("stopped")
 	return nil
 }
 
@@ -644,7 +657,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 		return nil, fmt.Errorf("get unHealthyNICs failed: %v", err)
 	}
 
-	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+	resp := &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
 		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
 			string(apiconsts.ResourceNetBandwidth): {
 				IsNodeResource:                       true,
@@ -655,7 +668,8 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 				TopologyAwareCapacityQuantityList:    topologyAwareCapacityQuantityList,
 			},
 		},
-	}, nil
+	}
+	return resp, nil
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
