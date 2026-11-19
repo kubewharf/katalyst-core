@@ -36,10 +36,14 @@ import (
 func Test_getCgroupRootPaths(t *testing.T) {
 	t.Parallel()
 
+	root := "/sys/fs/cgroup/cpu"
+	if common.CheckCgroup2UnifiedMode() {
+		root = "/sys/fs/cgroup"
+	}
 	want := []string{
-		"/sys/fs/cgroup/cpu/kubepods",
-		"/sys/fs/cgroup/cpu/kubepods/besteffort",
-		"/sys/fs/cgroup/cpu/kubepods/burstable",
+		filepath.Join(root, "kubepods"),
+		filepath.Join(root, "kubepods/besteffort"),
+		filepath.Join(root, "kubepods/burstable"),
 	}
 
 	if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
@@ -49,10 +53,10 @@ func Test_getCgroupRootPaths(t *testing.T) {
 	common.InitKubernetesCGroupPath(common.CgroupTypeSystemd, []string{"/kubepods/test.slice"})
 
 	want = []string{
-		"/sys/fs/cgroup/cpu/kubepods.slice",
-		"/sys/fs/cgroup/cpu/kubepods.slice/kubepods-besteffort.slice",
-		"/sys/fs/cgroup/cpu/kubepods.slice/kubepods-burstable.slice",
-		"/sys/fs/cgroup/cpu/kubepods/test.slice",
+		filepath.Join(root, "kubepods.slice"),
+		filepath.Join(root, "kubepods.slice/kubepods-besteffort.slice"),
+		filepath.Join(root, "kubepods.slice/kubepods-burstable.slice"),
+		filepath.Join(root, "kubepods/test.slice"),
 	}
 
 	if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
