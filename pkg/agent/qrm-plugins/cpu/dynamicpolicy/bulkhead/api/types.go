@@ -104,6 +104,13 @@ type Plugin interface {
 	Enable(HandlerContext) bool
 }
 
+// WriteAheadRequired is an optional, side-effect-free configuration capability.
+// Plugins opt in when their adjustment needs a durable advisor transaction;
+// it must not acquire lifecycle locks or mutate enable/cleanup state.
+type WriteAheadRequired interface {
+	RequiresWriteAhead(*dynamicconfig.Configuration) bool
+}
+
 // AdjustmentCapable is implemented by plugins that own a synchronous cpuset
 // adjustment and/or a disabled-reset side effect. The manager invokes these
 // hooks only when the plugin type-asserts to this interface; a plugin without it
