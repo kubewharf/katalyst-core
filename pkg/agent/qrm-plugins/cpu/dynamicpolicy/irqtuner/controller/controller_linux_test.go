@@ -96,11 +96,12 @@ func TestNewIrqTuningControllerRejectsUnsupportedPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		policy v1alpha1.TuningPolicy
+		name            string
+		policy          v1alpha1.TuningPolicy
+		requestedPolicy config.IrqTuningPolicy
 	}{
-		{name: "auto", policy: v1alpha1.TuningPolicyAuto},
-		{name: "exclusive", policy: v1alpha1.TuningPolicyExclusive},
+		{name: "auto", policy: v1alpha1.TuningPolicyAuto, requestedPolicy: config.IrqTuningAuto},
+		{name: "exclusive", policy: v1alpha1.TuningPolicyExclusive, requestedPolicy: config.IrqTuningIrqCoresExclusive},
 	}
 
 	for _, tt := range tests {
@@ -114,7 +115,7 @@ func TestNewIrqTuningControllerRejectsUnsupportedPolicy(t *testing.T) {
 			controller, err := NewIrqTuningController(agentConf, nil, emitter, nil)
 
 			assert.Nil(t, controller)
-			assert.EqualError(t, err, fmt.Sprintf("irq tuning policy %s is unsupported", tt.policy))
+			assert.EqualError(t, err, fmt.Sprintf("irq tuning policy %s is unsupported", tt.requestedPolicy))
 			assert.Len(t, emitter.records, 1)
 			assert.Equal(t, irqtuner.NewIrqTuningControllerFailed, emitter.records[0].tags[0].Val)
 		})

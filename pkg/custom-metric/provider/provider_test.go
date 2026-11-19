@@ -175,7 +175,8 @@ func TestWithRemoteStoreThree(t *testing.T) {
 }
 
 func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 
 	genericConf := &metricconf.GenericMetricConfiguration{
 		OutOfDataPeriod: time.Second * 10,
@@ -205,6 +206,7 @@ func testWithRemoteStoreWithIndex(t *testing.T, index []int) {
 		mux := http.NewServeMux()
 
 		server := httptest.NewServer(mux)
+		t.Cleanup(server.Close)
 		t.Logf("server url %v\n", server.URL)
 
 		urlList := strings.Split(server.URL, ":")
@@ -868,8 +870,11 @@ func testProvider(t *testing.T, p MetricProvider, s store.MetricStore, ctx conte
 		},
 	}, metric.Items)
 
-	// sleep a while to trigger gc
-	time.Sleep(time.Second * 20)
+	// Wait for expired samples to be collected without also expiring the latest samples.
+	require.Eventually(t, func() bool {
+		items, err := s.GetMetric(ctx, "", "none_namespace_metric_all_timeout", "", nil, nil, nil, true)
+		return err == nil && len(items) == 0
+	}, 20*time.Second, 100*time.Millisecond)
 
 	t.Log("#### 2.1: ListAllMetrics")
 

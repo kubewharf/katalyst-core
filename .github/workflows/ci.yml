@@ -60,11 +60,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: golangci/golangci-lint-action@v4
-        with:
-          args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
-          version: v1.52.2
-          skip-cache: true
+      - name: Verify golangci-lint
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          curl --fail --location --silent --show-error -o golangci-lint.tar.gz https://github.com/golangci/golangci-lint/releases/download/v1.52.2/golangci-lint-1.52.2-linux-amd64.tar.gz
+          printf '%s  golangci-lint.tar.gz\n' c9cf72d12058a131746edd409ed94ccd578fbd178899d1ed41ceae3ce5f54501 | sha256sum --check
+          tar -xzf golangci-lint.tar.gz
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/golangci-lint-1.52.2-linux-amd64/golangci-lint" run --verbose --out-format=github-actions,colored-line-number --config .golangci.yml
 
   build:
     name: Build
