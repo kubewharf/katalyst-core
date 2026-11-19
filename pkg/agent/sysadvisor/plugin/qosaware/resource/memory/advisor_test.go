@@ -100,8 +100,10 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
+	conf.ReadLatencyMetric = coreconsts.MetricMemLatencyReadNuma
 	conf.GraceBalanceReadLatencyThreshold = 100
 	conf.ForceBalanceReadLatencyThreshold = 120
+	conf.GraceBalanceReadLatencyGapThreshold = 40
 	conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%d", 4<<30))
 
 	return conf
