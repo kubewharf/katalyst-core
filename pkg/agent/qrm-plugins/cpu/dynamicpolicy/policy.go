@@ -690,6 +690,29 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	if err := policyImplement.installDerivedReclaimPreference(); err != nil {
 		return false, nil, fmt.Errorf("derive default reclaim preference: %w", err)
 	}
+	// Production bootstrap needs a complete core on every eligible NUMA. The
+	// generic seed selector only satisfies quantity and must retain that contract.
+	bootstrapSeed := policyImplement.reclaim.reservedReclaimedCPUSet.Clone()
+	minimumCoreByNUMA := make(map[int]machine.CPUSet)
+	for _, core := range coreAlignedCandidates(agentCtx.CPUTopology,
+		agentCtx.CPUDetails.CPUs().Difference(reservedCPUs), machine.NewCPUSet()) {
+		minimum := minimumCoreByNUMA[core.key.numaID]
+		if minimum.IsEmpty() || core.cpus.Size() < minimum.Size() {
+			minimumCoreByNUMA[core.key.numaID] = core.cpus
+		}
+	}
+	for numaID, core := range minimumCoreByNUMA {
+		if bootstrapSeed.Intersection(agentCtx.CPUDetails.CPUsInNUMANodes(numaID)).IsEmpty() {
+			bootstrapSeed = bootstrapSeed.Union(core)
+		}
+	}
+	assignments, err := machine.GetNumaAwareAssignments(agentCtx.CPUTopology, bootstrapSeed)
+	if err != nil {
+		return false, nil, fmt.Errorf("derive bootstrap reclaim assignments: %w", err)
+	}
+	policyImplement.reclaim.reservedReclaimedCPUSet = bootstrapSeed
+	policyImplement.reclaim.reservedReclaimedCPUsSize = bootstrapSeed.Size()
+	policyImplement.reclaim.reservedReclaimedTopologyAwareAssignments = assignments
 
 	policyImplement.RegisterAllocationHook(policyImplement.topologyAllocationHook)
 
@@ -734,7 +757,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 			return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReservePool failed with error: %v", err)
 		}
 
-		if err := policyImplement.ensureInitialReclaimPool(); err != nil {
+		bootstrapNUMAs := make([]int, 0, len(minimumCoreByNUMA))
+		for numaID := range minimumCoreByNUMA {
+			bootstrapNUMAs = append(bootstrapNUMAs, numaID)
+		}
+		if err := policyImplement.ensureInitialReclaimPool(bootstrapNUMAs...); err != nil {
 			return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy ensureInitialReclaimPool failed with error: %v", err)
 		}
 	}
@@ -2513,7 +2540,7 @@ func (p *DynamicPolicy) repairInitialReclaimFromDedicatedSurplus(
 // or underfilled pool. Existing reclaim identity is always retained; only the
 // shortfall to the configured bootstrap target may be added. Selection and any
 // required dedicated-owner update are published by one revision CAS.
-func (p *DynamicPolicy) ensureInitialReclaimPool() (retErr error) {
+func (p *DynamicPolicy) ensureInitialReclaimPool(bootstrapNUMAs ...int) (retErr error) {
 	podEntries, machineState, revision := p.state.GetAdvisorStateSnapshot()
 	currentReclaim := reclaimPoolCPUSet(podEntries)
 	if !currentReclaim.IsEmpty() && currentReclaim.Size() >= p.reclaim.reservedReclaimedCPUsSize {
@@ -2559,9 +2586,19 @@ func (p *DynamicPolicy) ensureInitialReclaimPool() (retErr error) {
 	// Required owner buckets take precedence over the optional seed preference.
 	// Only bootstrap needs this constraint; the general seed selector stays pure.
 	reclaimedCPUSet := currentReclaim.Clone()
-	requiredNUMAs := make([]int, 0, len(ownership.activeRNBTargetNUMAs))
+	requiredNUMAs := make([]int, 0, len(ownership.activeRNBTargetNUMAs)+len(bootstrapNUMAs))
 	for numaID := range ownership.activeRNBTargetNUMAs {
 		requiredNUMAs = append(requiredNUMAs, numaID)
+	}
+	// A cold start has no committed identity to preserve. Establish the
+	// production NUMA floor before optional quantity filling. Existing pools keep
+	// the recovery contract, including disabled-reclaim identity freezing.
+	if !underfilled {
+		for _, numaID := range bootstrapNUMAs {
+			if _, active := ownership.activeRNBTargetNUMAs[numaID]; !active {
+				requiredNUMAs = append(requiredNUMAs, numaID)
+			}
+		}
 	}
 	sort.Ints(requiredNUMAs)
 	for _, numaID := range requiredNUMAs {

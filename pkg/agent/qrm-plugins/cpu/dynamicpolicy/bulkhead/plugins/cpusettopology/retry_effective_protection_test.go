@@ -27,6 +27,7 @@ import (
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
+	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -34,6 +35,68 @@ import (
 	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+// TestAdmissionRetainsResolvedTransientOwner exercises the physical DAG and its
+// final snapshot, not only the partition helper. The active SNB leaf already has
+// a container ID, so it is absent from pending protections; a concurrent pending
+// allocation still causes the shadow to rebuild the reclaim budget.
+func TestAdmissionRetainsResolvedTransientOwner(t *testing.T) {
+	t.Parallel()
+	topo := &machine.CPUTopology{NumCPUs: 12, NumCores: 6, NumSockets: 2, NumNUMANodes: 2, CPUDetails: machine.CPUDetails{}}
+	for cpu := 0; cpu < 12; cpu++ {
+		topo.CPUDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: cpu / 6, SocketID: cpu / 6, CoreID: cpu / 2}
+	}
+	all, raw := machine.MustParse("0-11"), machine.MustParse("0-3,6-7")
+	protected := machine.MustParse("2-3")
+	desired := model.NewDesiredView()
+	desired.DesiredReclaimEffective = raw.Clone()
+	desired.DesiredNonReclaimPool = all.Difference(raw)
+	bulkheadutils.ApplyTransientProtectedNonReclaim(desired, topo, protected)
+	desired.ContainerCPUSetByPod["active"] = map[string]machine.CPUSet{"main": protected.Clone()}
+	desired.ContainerCPUSetByPod["pending"] = map[string]machine.CPUSet{"main": machine.MustParse("4-5")}
+	applied := desired.ToAppliedView()
+	cg := &fakeCgroupClient{
+		existing: map[string]bool{"primary": true, "reclaim": true, "primary/active": true, "kubepods/podpending": true},
+		cpus: map[string]machine.CPUSet{"primary": desired.NonReclaimPool.Clone(), "reclaim": desired.ReclaimEffective.Clone(),
+			"primary/active": protected.Clone(), "kubepods/podpending": machine.MustParse("4-5")},
+		children: map[string][]string{"primary": {"active"}},
+	}
+	p := &CPUSetTopologyPlugin{
+		cfg: bulkheadconfig.BulkheadConfiguration{BulkheadPrimaryRelPath: "primary", BulkheadReclaimRelPaths: []string{"reclaim"},
+			BulkheadReclaimNumaPrefixes: []string{"reclaim/numa-"}}, cgroup: cg,
+		resolveContainerRel: func(string, string) (string, error) { return "primary/active", nil },
+	}
+	pods := []*v1.Pod{
+		{ObjectMeta: metav1.ObjectMeta{UID: types.UID("active")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+			Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed, ContainerStatuses: []v1.ContainerStatus{{Name: "main", ContainerID: "containerd://active"}}}},
+		{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pending")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+			Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed}},
+	}
+	var result bulkheadapi.TopologyResult
+	err := p.runNormalAdjustment(context.Background(), bulkheadapi.HandlerContext{
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{Mode: cpusetutil.CPUSetAdjustmentModeAdmission, Topology: topo,
+			MetaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{PodFetcher: &metapod.PodFetcherStub{PodList: pods}}}},
+		DesiredView: desired, AppliedView: applied, ProjectPendingToDesiredNonReclaim: true,
+	}, func(got bulkheadapi.TopologyResult) { result = got })
+	if err != nil {
+		t.Fatalf("admission error: %v", err)
+	}
+	if result.AppliedView == nil {
+		t.Fatal("missing final snapshot proof")
+	}
+	view := result.AppliedView
+	if !protected.IsSubsetOf(view.NonReclaimPool) || !protected.Intersection(view.ReclaimEffective).IsEmpty() {
+		t.Fatalf("active owner lost from physical proof: protected=%s primary=%s reclaim=%s", protected, view.NonReclaimPool, view.ReclaimEffective)
+	}
+	if err := bulkheadutils.ValidateHardPartitionAppliedView(view, nil, topo, bulkheadutils.CPUSetPartitionViewOptions{
+		HardPartitionEnabled: true, HardPartitionReclaimTargetPerNUMA: map[int]int{0: 4, 1: 2},
+	}); err != nil {
+		t.Fatalf("physical proof rejected: %v", err)
+	}
+	if !cg.cpus["primary/active"].Equals(protected) {
+		t.Fatal("resolved active leaf changed")
+	}
+}
 
 // TestRetryContinuesManagerOwnedEffectiveProtectionFloor drives the REAL
 // CPUSetTopologyPlugin adjustment gates on a post-commit deferred-leaf Retry

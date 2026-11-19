@@ -626,7 +626,12 @@ func DeriveShadowPartitionWithAppliedEnforcement(
 			Union(base.DesiredReclaimEffective)
 		nonReclaimBase = available.Difference(reclaimBudget)
 	}
-	nonReclaim := nonReclaimBase.Clone().Union(exactWhole).Union(sharedProjectedWhole)
+	// Active SNB ownership comes from the current state snapshot, including
+	// resolved leaves absent from pending protections. The desired reclaim budget
+	// intentionally retains those CPUs, so every enforcement baseline must fold
+	// their transient protection back onto non-reclaim before deriving the DAG.
+	nonReclaim := nonReclaimBase.Clone().Union(base.TransientProtectedNonReclaim).
+		Union(exactWhole).Union(sharedProjectedWhole)
 	// reclaim = available − nonReclaim, then clipped to the reclaim budget. With the
 	// business fallback the budget is DesiredReclaimEffective; with a validated
 	// AppliedView the budget is that partition itself, so the clip is a no-op and the

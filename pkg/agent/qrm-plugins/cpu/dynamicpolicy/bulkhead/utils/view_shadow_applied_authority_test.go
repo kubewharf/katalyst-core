@@ -17,6 +17,7 @@ limitations under the License.
 package utils
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,6 +175,51 @@ func TestAdmissionProjectionAuthorityNilAppliedViewFailClosed(t *testing.T) {
 		"no validated authority => pending preserved verbatim as exact (fail-closed)")
 	require.True(t, got[0].SharedProjectedCPUs.IsEmpty(),
 		"shared-projected must stay empty for a preserved exact seed")
+}
+
+func TestShadowKeepsActiveSNBProtectionAcrossEnforcementBaselines(t *testing.T) {
+	t.Parallel()
+	// Two whole cores in NUMA0 let one remain reclaimed while an active SNB
+	// owns the other. Other NUMAs each retain one whole reclaim core.
+	const raw = "0,4,16,20,32,48,64,80,96,112"
+	topo := make4NUMASMTTopology()
+	protected := machine.NewCPUSet(4, 20)
+	for _, useApplied := range []bool{false, true} {
+		for _, pending := range []bool{false, true} {
+			useApplied, pending := useApplied, pending
+			t.Run(fmt.Sprintf("applied=%t/pending=%t", useApplied, pending), func(t *testing.T) {
+				t.Parallel()
+				base := buildSNBView(t, false, raw, snbCase{pod: "active", cpus: protected, snb: true, rampUp: true})
+				before := base.DeepCopy()
+				var enforce *model.CPUSetPartitionView
+				if useApplied {
+					enforce = base.CPUSetPartitionView.DeepCopy()
+				}
+				var protections []topology.PendingProtection
+				if pending {
+					protections = []topology.PendingProtection{{PodUID: "pending", CPUs: machine.NewCPUSet(8, 24)}}
+				}
+				shadow := DeriveShadowPartitionWithAppliedEnforcement(base, topo, protections, enforce)
+				require.NoError(t, shadow.Err)
+				require.False(t, shadow.HoldCurrent, shadow.HoldReason)
+				require.True(t, protected.IsSubsetOf(shadow.NonReclaimPool), "active protection must be enforced even when its leaf is resolved")
+				require.True(t, shadow.ReclaimEffective.Intersection(protected).IsEmpty(), "desired budget must not reintroduce protected CPUs")
+				require.Equal(t, machine.MustParse(raw).Difference(protected), shadow.ReclaimEffective)
+				for numaID := range shadow.ReclaimEffectivePerNUMA {
+					require.False(t, shadow.ReclaimEffectivePerNUMA[numaID].IsEmpty())
+				}
+				require.Equal(t, before, base.DeepCopy(), "shadow must not change business state")
+				if enforce != nil {
+					require.Equal(t, before.CPUSetPartitionView, *enforce, "prior proof must remain immutable")
+				}
+				// Protection follows the current snapshot, not an accumulated cache.
+				removed := buildSNBView(t, false, raw)
+				released := DeriveShadowPartitionWithAppliedEnforcement(removed, topo, protections, enforce)
+				require.False(t, released.HoldCurrent, released.HoldReason)
+				require.Equal(t, machine.MustParse(raw), released.ReclaimEffective)
+			})
+		}
+	}
 }
 
 func TestShadowAppliedFloorYieldsToPendingDedicatedOwnerTransfer(t *testing.T) {

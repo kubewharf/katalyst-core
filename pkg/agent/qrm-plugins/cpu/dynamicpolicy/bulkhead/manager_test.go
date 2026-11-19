@@ -1096,19 +1096,37 @@ func TestManagerValidateAppliedHardPartitionEmptyAppliedView(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name    string
-		level   model.AppliedViewLevel
-		wantErr bool
+		name               string
+		level              model.AppliedViewLevel
+		transientProtected machine.CPUSet
+		wantErr            bool
 	}{
 		{name: "reclaim-only reset sentinel", level: model.AppliedViewLevelReclaimOnly},
 		{name: "full view fails closed", level: model.AppliedViewLevelFull, wantErr: true},
 		{name: "parent-safe view fails closed", level: model.AppliedViewLevelParentSafe, wantErr: true},
+		{
+			name:               "parent-safe transient protection proves temporary deficit",
+			level:              model.AppliedViewLevelParentSafe,
+			transientProtected: topology.CPUDetails.CPUs(),
+			wantErr:            true,
+		},
+		{
+			name:               "full view transient protection proves temporary deficit",
+			level:              model.AppliedViewLevelFull,
+			transientProtected: topology.CPUDetails.CPUs(),
+			wantErr:            true,
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			applied := model.NewDesiredView().ToAppliedView()
 			applied.Level = tc.level
+			applied.TransientProtectedNonReclaim = tc.transientProtected.Clone()
+			applied.NonReclaimPool = tc.transientProtected.Clone()
+			for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+				applied.TransientProtectedNonReclaimPerNUMA[numaID] = tc.transientProtected.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
+			}
 
 			err := (&Manager{}).validateAppliedHardPartition(in, applied)
 			if (err != nil) != tc.wantErr {

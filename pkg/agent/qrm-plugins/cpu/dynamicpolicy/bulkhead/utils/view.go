@@ -678,15 +678,58 @@ func ValidateHardPartitionAppliedView(
 		skipNUMAs = state.GetPodEntries().SteadyExclusiveNUMAs(topology)
 	}
 	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		if !skipNUMAs.Has(numaID) {
+			if _, ok := view.ReclaimEffectivePerNUMA[numaID]; !ok {
+				return fmt.Errorf("bulkhead hard-partition applied reclaim proof missing for NUMA %d", numaID)
+			}
+		}
+	}
+	if !view.TransientProtectedNonReclaim.IsEmpty() || len(view.TransientProtectedNonReclaimPerNUMA) > 0 {
+		if err := validateExactNUMAProjection("transient protected non-reclaim",
+			view.TransientProtectedNonReclaim, view.TransientProtectedNonReclaimPerNUMA, topology); err != nil {
+			return err
+		}
+		if !view.TransientProtectedNonReclaim.IsSubsetOf(view.NonReclaimPool) ||
+			!view.TransientProtectedNonReclaim.Intersection(view.ReclaimEffective).IsEmpty() {
+			return fmt.Errorf("transient protection is not a disjoint physical non-reclaim subset")
+		}
+	}
+	// Transient protection may explain a ramp target deficit, but it is not
+	// physical reclaim capacity. Keep at least one complete core in each domain
+	// with a positive target, independently of the protected quantity.
+	cores := make(map[int]machine.CPUSet)
+	for cpu, info := range topology.CPUDetails {
+		core, ok := cores[info.CoreID]
+		if !ok {
+			core = machine.NewCPUSet()
+		}
+		core.Add(cpu)
+		cores[info.CoreID] = core
+	}
+	accountedPerNUMA := make(map[int]machine.CPUSet, len(view.ReclaimEffectivePerNUMA))
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
 		if skipNUMAs.Has(numaID) {
 			continue
 		}
-		if _, ok := view.ReclaimEffectivePerNUMA[numaID]; !ok {
-			return fmt.Errorf("bulkhead hard-partition applied reclaim proof missing for NUMA %d", numaID)
+		physical := view.ReclaimEffectivePerNUMA[numaID]
+		if !physical.IsSubsetOf(topology.CPUDetails.CPUsInNUMANodes(numaID)) ||
+			!physical.IsSubsetOf(view.ReclaimEffective) {
+			return fmt.Errorf("bulkhead hard-partition applied reclaim proof has misplaced CPUs in NUMA %d", numaID)
 		}
+		hasWholeCore := false
+		for _, cpu := range physical.ToSliceInt() {
+			if !cores[topology.CPUDetails[cpu].CoreID].IsSubsetOf(physical) {
+				return fmt.Errorf("bulkhead hard-partition applied reclaim NUMA %d splits physical core for CPU %d", numaID, cpu)
+			}
+			hasWholeCore = true
+		}
+		if opts.HardPartitionReclaimTargetPerNUMA[numaID] > 0 && !hasWholeCore {
+			return fmt.Errorf("bulkhead hard-partition applied reclaim NUMA %d has no complete physical core", numaID)
+		}
+		accountedPerNUMA[numaID] = physical.Union(view.TransientProtectedNonReclaimPerNUMA[numaID])
 	}
 	return validateHardPartitionReclaimPerNUMA(
-		view.ReclaimEffectivePerNUMA,
+		accountedPerNUMA,
 		opts.HardPartitionReclaimTargetPerNUMA,
 		skipNUMAs,
 		topology,

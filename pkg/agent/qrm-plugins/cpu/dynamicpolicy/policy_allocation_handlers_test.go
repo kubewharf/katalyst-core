@@ -3225,7 +3225,10 @@ func TestDynamicPolicy_generatePoolsAndIsolation_reservesConfiguredMinimumBefore
 	// CPUs, of which at most one physical core is complete. The planner must
 	// reserve the whole-core minimum first and proportionally shrink only the
 	// soft pools; no workload-specific pool or node identity is required here.
-	topology, err := machine.GenerateDummyCPUTopology(96, 2, 24)
+	// Keep the NUMA count at two so the 4-CPU minimum can still cover one whole
+	// core per NUMA; a 24-NUMA host would require at least 48 CPUs by the same
+	// per-NUMA contract.
+	topology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
 	require.NoError(t, err)
 	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
 	require.NoError(t, err)

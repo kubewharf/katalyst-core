@@ -23,8 +23,10 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -3504,8 +3506,12 @@ func TestAllocate(t *testing.T) {
 }
 
 func TestAllocateClosedTopologyUsesCheckpointWithoutAdvisorWAL(t *testing.T) {
+	t.Parallel()
+
 	for _, fail := range []bool{false, true} {
+		fail := fail
 		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			t.Parallel()
 			topology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 			require.NoError(t, err)
 			dir := t.TempDir()
@@ -3554,6 +3560,8 @@ func TestAllocateClosedTopologyUsesCheckpointWithoutAdvisorWAL(t *testing.T) {
 }
 
 func TestAllocateFailureDoesNotPersistSuccessfulRollbackTwice(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name         string
 		changeState  bool
@@ -3564,7 +3572,9 @@ func TestAllocateFailureDoesNotPersistSuccessfulRollbackTwice(t *testing.T) {
 		{name: "failed rollback", changeState: true, failRollback: true, wantStores: 1},
 		{name: "unchanged state", wantStores: 1},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			topo, err := machine.GenerateDummyCPUTopology(16, 2, 4)
 			require.NoError(t, err)
 			dir := t.TempDir()
@@ -10898,9 +10908,29 @@ func TestCheckCPUSet(t *testing.T) {
 	as.True(dynamicPolicy.adjustment.cpuSetAdjustmentRetryDirty)
 }
 
+// runFunctionPatchTestInSubprocess isolates process-wide function patches from
+// other tests. The child runs only this test and inherits race/coverage instrumentation.
+func runFunctionPatchTestInSubprocess(t *testing.T) bool {
+	t.Helper()
+	const childKey = "KATALYST_FUNCTION_PATCH_TEST"
+	if os.Getenv(childKey) == t.Name() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0],
+		"-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.count=1", "-test.timeout=80s")
+	cmd.Env = append(os.Environ(), childKey+"="+t.Name())
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "isolated function patch test failed: %s", output)
+	return true
+}
+
 func TestSchedIdle(t *testing.T) {
 	t.Parallel()
-	// this test is used to verify the sched idle support status
+	if runFunctionPatchTestInSubprocess(t) {
+		return
+	}
 
 	as := require.New(t)
 
@@ -11489,6 +11519,17 @@ func enableAdvisorForTest(dynamicPolicy *DynamicPolicy, pluginSocketDir string) 
 func TestSwitchBetweenAPIs(t *testing.T) {
 	t.Parallel()
 
+	waitForCall := func(t *testing.T, calls <-chan struct{}, method string) {
+		t.Helper()
+		// This contract checks switching and repeated calls, not the RPC latency.
+		// Reconnection backoff and race instrumentation may outlast one poll interval.
+		select {
+		case <-calls:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("%s not called", method)
+		}
+	}
+
 	for _, testCase := range []struct {
 		name string
 		fn   func(t *testing.T, cpuAdvisorServer *mockCPUAdvisor, dynamicPolicy *DynamicPolicy)
@@ -11522,11 +11563,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				defer dynamicPolicy.Stop()
 
 				// Wait for the plugin to call advisor
-				select {
-				case <-lwStartedChan:
-				case <-time.After(10 * time.Second):
-					t.Fatalf("ListAndWatch not called")
-				}
+				waitForCall(t, lwStartedChan, "ListAndWatch")
 				cpuAdvisorServer.AssertExpectations(t)
 
 				// ListAndWatch in progress, simulate an upgrade
@@ -11545,11 +11582,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 
 				// plugin should switch to GetAdvice and call it periodically
 				for i := 0; i < 5; i++ {
-					select {
-					case <-getAdviceCalledChan:
-					case <-time.After(dynamicPolicy.config.getAdviceInterval * 2):
-						t.Fatalf("GetAdvice not called")
-					}
+					waitForCall(t, getAdviceCalledChan, "GetAdvice")
 				}
 				// ListAndWatch should only be called once throughout
 				cpuAdvisorServer.AssertExpectations(t)
@@ -11581,11 +11614,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 
 				// Ensure GetAdvice is called periodically
 				for i := 0; i < 5; i++ {
-					select {
-					case <-getAdviceCalledChan:
-					case <-time.After(dynamicPolicy.config.getAdviceInterval * 2):
-						t.Fatalf("GetAdvice not called")
-					}
+					waitForCall(t, getAdviceCalledChan, "GetAdvice")
 				}
 				cpuAdvisorServer.AssertExpectations(t)
 

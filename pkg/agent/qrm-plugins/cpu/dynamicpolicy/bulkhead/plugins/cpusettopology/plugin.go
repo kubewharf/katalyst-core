@@ -1205,6 +1205,10 @@ func appliedViewFromFinalSnapshotWithDeferredCleanup(
 	}
 	partition := model.NewCPUSetPartitionView()
 	partition.Dedicated = desired.Dedicated.Clone()
+	partition.TransientProtectedNonReclaim = desired.TransientProtectedNonReclaim.Clone()
+	for numaID, cpus := range desired.TransientProtectedNonReclaimPerNUMA {
+		partition.TransientProtectedNonReclaimPerNUMA[numaID] = cpus.Clone()
+	}
 	for poolName, cpus := range desired.SharePoolMap {
 		partition.SharePoolMap[poolName] = cpus.Clone()
 	}

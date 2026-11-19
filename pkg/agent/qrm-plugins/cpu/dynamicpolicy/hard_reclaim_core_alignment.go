@@ -373,6 +373,86 @@ func completeEligibleCoresForPreferredCPUSet(
 	return selected, nil
 }
 
+// reclaimNUMAPresence preserves committed per-NUMA reclaim capacity while
+// replacing unavailable cores within the same NUMA. Only surplus whole cores
+// may fund a replacement; a donor's last whole core is never released.
+func reclaimNUMAPresence(
+	topology *machine.CPUTopology,
+	selected, prior, eligible machine.CPUSet,
+) (machine.CPUSet, error) {
+	if topology == nil || prior.IsEmpty() {
+		return selected.Clone(), nil
+	}
+	result := selected.Clone()
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		numaCPUs := topology.CPUDetails.CPUsInNUMANodes(numaID)
+		if numaCPUs.Intersection(prior).IsEmpty() || !numaCPUs.Intersection(result).IsEmpty() {
+			continue
+		}
+		// A NUMA whose whole capacity is owned by other pools cannot hold reclaim;
+		// only an avoidable concentration is rejected.
+		if numaCPUs.Intersection(eligible).IsEmpty() {
+			continue
+		}
+		replacement := machine.NewCPUSet()
+		for _, core := range coreAlignedCandidates(topology, eligible.Difference(result), prior) {
+			if core.cpus.Intersection(numaCPUs).Size() == core.cpus.Size() {
+				replacement = core.cpus.Clone()
+				break
+			}
+		}
+		if replacement.IsEmpty() {
+			return machine.NewCPUSet(), fmt.Errorf(
+				"reclaim must stay present on NUMA %d but no eligible whole core remains there", numaID)
+		}
+		victim, ok := reclaimBudgetVictim(topology, result, prior, numaID)
+		if !ok {
+			return machine.NewCPUSet(), fmt.Errorf(
+				"reclaim must stay present on NUMA %d but no reclaim core can be released elsewhere", numaID)
+		}
+		result = result.Difference(victim).Union(replacement)
+	}
+	return result, nil
+}
+
+// reclaimBudgetVictim releases only surplus whole cores, preferring cores not
+// in prior. Every donor keeps at least one complete physical core.
+func reclaimBudgetVictim(
+	topology *machine.CPUTopology,
+	selected, prior machine.CPUSet,
+	targetNUMA int,
+) (machine.CPUSet, bool) {
+	if topology == nil {
+		return machine.NewCPUSet(), false
+	}
+	fallback := machine.NewCPUSet()
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		if numaID == targetNUMA {
+			continue
+		}
+		numaCPUs := topology.CPUDetails.CPUsInNUMANodes(numaID)
+		cores := coreAlignedCandidates(topology, selected.Intersection(numaCPUs), machine.NewCPUSet())
+		if len(cores) <= 1 {
+			continue
+		}
+		for i := len(cores) - 1; i >= 0; i-- {
+			if cores[i].cpus.Intersection(numaCPUs).Size() != cores[i].cpus.Size() {
+				continue
+			}
+			if !cores[i].cpus.IsSubsetOf(prior) {
+				return cores[i].cpus.Clone(), true
+			}
+			if fallback.IsEmpty() {
+				fallback = cores[i].cpus.Clone()
+			}
+		}
+	}
+	if !fallback.IsEmpty() {
+		return fallback, true
+	}
+	return machine.NewCPUSet(), false
+}
+
 // assertCoreAligned is a fail-loud safety net: it returns a lowercase error when
 // reclaim holds a partial physical core. It never repairs silently; a violation signals an upstream
 // invariant break (quantity/reserve/selection) that must be surfaced, not masked.

@@ -38,6 +38,60 @@ import (
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
+func TestAppliedReclaimProofKeepsPhysicalCoreAndNUMAIdentity(t *testing.T) {
+	t.Parallel()
+
+	topology, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*model.AppliedView)
+		wantErr bool
+	}{
+		{name: "protected deficit with physical cores"},
+		{name: "partial physical core", wantErr: true, mutate: func(v *model.AppliedView) {
+			v.ReclaimEffective = machine.MustParse("0,4,12")
+			v.ReclaimEffectivePerNUMA[0] = machine.NewCPUSet(0)
+		}},
+		{name: "whole core with partial tail", wantErr: true, mutate: func(v *model.AppliedView) {
+			v.ReclaimEffective.Add(2)
+			v.ReclaimEffectivePerNUMA[0].Add(2)
+		}},
+		{name: "missing aggregate protection", wantErr: true, mutate: func(v *model.AppliedView) {
+			v.TransientProtectedNonReclaim = machine.NewCPUSet()
+		}},
+		{name: "swapped protection domains", wantErr: true, mutate: func(v *model.AppliedView) {
+			v.TransientProtectedNonReclaimPerNUMA[0], v.TransientProtectedNonReclaimPerNUMA[1] = v.TransientProtectedNonReclaimPerNUMA[1], v.TransientProtectedNonReclaimPerNUMA[0]
+		}},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			v := model.NewDesiredView().ToAppliedView()
+			v.ReclaimEffective = machine.MustParse("0,4,8,12")
+			v.ReclaimEffectivePerNUMA = map[int]machine.CPUSet{0: machine.NewCPUSet(0, 8), 1: machine.NewCPUSet(4, 12)}
+			v.TransientProtectedNonReclaim = machine.MustParse("1,5,9,13")
+			v.TransientProtectedNonReclaimPerNUMA = map[int]machine.CPUSet{0: machine.NewCPUSet(1, 9), 1: machine.NewCPUSet(5, 13)}
+			v.NonReclaimPool = v.TransientProtectedNonReclaim.Clone()
+			if tc.mutate != nil {
+				tc.mutate(v)
+			}
+			before := v.DeepCopy()
+			err := ValidateHardPartitionAppliedView(v, nil, topology, CPUSetPartitionViewOptions{
+				HardPartitionEnabled: true, HardPartitionReclaimTargetPerNUMA: map[int]int{0: 4, 1: 4},
+			})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validation error=%v, wantErr=%t", err, tc.wantErr)
+			}
+			if !model.EqualAppliedView(v, before) {
+				t.Fatal("validation mutated physical applied proof")
+			}
+		})
+	}
+}
+
 func TestLeafPoolIdentityForAllocationNormalizesPoolWrappers(t *testing.T) {
 	t.Parallel()
 

@@ -28,16 +28,20 @@ import (
 )
 
 type pendingCPUPartition struct {
-	numaHeadroom                 map[int]float64
-	expectedRevision             uint64
-	entries                      state.PodEntries
-	baseMachineState             state.NUMANodeMap
-	allowOverlap                 bool
-	disableDedicated             bool
-	persist                      bool
-	source                       string
-	validate                     func(state.PodEntries, state.NUMANodeMap, bool, bool) error
-	requireCoreAlignedReclaim    bool
+	numaHeadroom              map[int]float64
+	expectedRevision          uint64
+	entries                   state.PodEntries
+	baseMachineState          state.NUMANodeMap
+	allowOverlap              bool
+	disableDedicated          bool
+	persist                   bool
+	source                    string
+	validate                  func(state.PodEntries, state.NUMANodeMap, bool, bool) error
+	requireCoreAlignedReclaim bool
+	// enforceNUMAReclaimPresence rejects a derived partition that empties a NUMA
+	// which still has reclaim room. Advisor-authored blocks carry explicit per-NUMA
+	// reclaim targets, so their placement is not judged by this derivation guard.
+	enforceNUMAReclaimPresence   bool
 	enforceSteadyReclaim         bool
 	residualFloor                machine.CPUSet
 	dynamicConfig                *dynamicconfig.Configuration
@@ -226,6 +230,34 @@ func (p *DynamicPolicy) preparePendingCPUPartition(
 	// a non-empty reclaim pool. Shared with the applyPools commitPending closure.
 	if err := validateRequiredReclaimPool(candidate); err != nil {
 		return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "reclaim empty required", err)
+	}
+	// A node-level non-empty reclaim pool is not enough: every physical NUMA that
+	// already held reclaim CPUs must keep a reclaim cpuset. Both the shared and the
+	// advisor commit paths reach this single terminal boundary.
+	// Overlap mode lets share capacity legitimately cover reclaim CPUs, so only
+	// the disjoint layout has a per-NUMA reclaim presence obligation.
+	if pending.enforceNUMAReclaimPresence && !pending.allowOverlap &&
+		p.machine.machineInfo != nil && p.machine.machineInfo.CPUTopology != nil &&
+		(pending.dynamicConfig == nil || pending.dynamicConfig.EnableReclaim) {
+		// Hard ownership can make a committed NUMA physically unavailable, but
+		// the default soft share pool must never excuse a missing reclaim bucket.
+		unavailable := p.config.reservedCPUs.Clone()
+		for poolName, containerEntries := range candidate {
+			if poolName == commonstate.PoolNameShare || poolName == commonstate.PoolNameReclaim {
+				continue
+			}
+			for _, allocation := range containerEntries {
+				if allocation != nil {
+					unavailable = unavailable.Union(allocation.AllocationResult)
+				}
+			}
+		}
+		if err := validateReclaimNUMAPresence(
+			reclaimPoolCPUSet(currentEntries), reclaimPoolCPUSet(candidate), unavailable,
+			p.machine.machineInfo.CPUTopology,
+		); err != nil {
+			return nil, p.wrapPartitionPrecommitError(pending.source, pending.expectedRevision, "reclaim NUMA presence", err)
+		}
 	}
 	if !pending.dynamicConfig.EnableReclaim && !reclaimPoolCPUSet(candidate).Equals(reclaimPoolCPUSet(currentEntries)) {
 		return nil, p.wrapPartitionPrecommitError(

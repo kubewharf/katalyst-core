@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -59,6 +60,35 @@ var (
 func validateRequiredReclaimPool(entries state.PodEntries) error {
 	if entries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
 		return errReclaimFallbackEmptyRequired
+	}
+	return nil
+}
+
+// validateReclaimNUMAPresence rejects a candidate that empties a physical NUMA
+// which held reclaim CPUs in the committed state. Reclaim is per-NUMA capacity,
+// not only a node-level quantity: concentrating the budget on another NUMA
+// silently removes the reclaim room that NUMA still owes its offline workloads.
+func validateReclaimNUMAPresence(
+	committed, candidate, unavailable machine.CPUSet,
+	topology *machine.CPUTopology,
+) error {
+	if topology == nil || committed.IsEmpty() {
+		return nil
+	}
+	for _, numaID := range topology.CPUDetails.NUMANodes().ToSliceInt() {
+		numaCPUs := topology.CPUDetails.CPUsInNUMANodes(numaID)
+		if committed.Intersection(numaCPUs).IsEmpty() {
+			continue
+		}
+		if !candidate.Intersection(numaCPUs).IsEmpty() {
+			continue
+		}
+		if numaCPUs.Difference(unavailable).IsEmpty() {
+			continue
+		}
+		return fmt.Errorf(
+			"reclaim NUMA %d lost its whole reclaim cpuset: committed=%s candidate=%s",
+			numaID, committed.String(), candidate.String())
 	}
 	return nil
 }

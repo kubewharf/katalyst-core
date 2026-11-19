@@ -301,6 +301,8 @@ func TestAppliedViewFromFinalSnapshotPreservesCPUOwnership(t *testing.T) {
 	desired.SharePoolMap["share"] = machine.NewCPUSet(0, 1)
 	desired.SharePoolMap["latency"] = machine.NewCPUSet(2, 3)
 	desired.Dedicated = machine.NewCPUSet(4, 5)
+	desired.TransientProtectedNonReclaim = machine.NewCPUSet(1, 3)
+	desired.TransientProtectedNonReclaimPerNUMA[0] = machine.NewCPUSet(1, 3)
 
 	applied, err := appliedViewFromFinalSnapshot(nil, desired, dag, snapshot)
 	if err != nil {
@@ -315,14 +317,25 @@ func TestAppliedViewFromFinalSnapshotPreservesCPUOwnership(t *testing.T) {
 	if got := applied.Dedicated; !got.Equals(machine.NewCPUSet(4, 5)) {
 		t.Fatalf("applied dedicated = %s, want 4-5", got.String())
 	}
+	if got := applied.TransientProtectedNonReclaim; !got.Equals(machine.NewCPUSet(1, 3)) {
+		t.Fatalf("applied transient protection = %s, want 1,3", got.String())
+	}
+	if got := applied.TransientProtectedNonReclaimPerNUMA[0]; !got.Equals(machine.NewCPUSet(1, 3)) {
+		t.Fatalf("applied NUMA0 transient protection = %s, want 1,3", got.String())
+	}
 
 	desired.SharePoolMap["share"].Add(6)
 	desired.Dedicated.Add(7)
+	desired.TransientProtectedNonReclaim.Add(7)
+	desired.TransientProtectedNonReclaimPerNUMA[0].Add(7)
 	if got := applied.SharePoolMap["share"]; !got.Equals(machine.NewCPUSet(0, 1)) {
 		t.Fatalf("applied share pool changed with desired view mutation: %s", got.String())
 	}
 	if got := applied.Dedicated; !got.Equals(machine.NewCPUSet(4, 5)) {
 		t.Fatalf("applied dedicated changed with desired view mutation: %s", got.String())
+	}
+	if got := applied.TransientProtectedNonReclaim; !got.Equals(machine.NewCPUSet(1, 3)) {
+		t.Fatalf("applied transient protection changed with desired view mutation: %s", got.String())
 	}
 
 	applied.SharePoolMap["latency"].Add(8)
@@ -1419,6 +1432,8 @@ func TestCPUSetTopologyPluginDefaultAutoBudgetConverges96CPUHandoffAtPointZeroOn
 	cfg.BulkheadPrimaryRelPath = "primary"
 	cfg.BulkheadReclaimRelPaths = []string{"reclaim"}
 	cfg.TopologyDrainSelection.MaxCPUsDrainRatio = 0.01
+	// This test pins auto-round sizing, not the production wall-clock budget.
+	cfg.TopologyConvergenceBudget.DeadlineDuration = -1
 	p := &CPUSetTopologyPlugin{cfg: *cfg, cgroup: cg}
 	fetcher := &strictSnapshotFetcher{}
 
