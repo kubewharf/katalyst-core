@@ -356,6 +356,7 @@ const (
 	MetricBlkioReadBpsContainer   = "blkio.read.bps.container"
 	MetricBlkioWriteBpsContainer  = "blkio.write.bps.container"
 
+	MetricBpfFsDataContainer       = "bpf.fs.data.container"
 	MetricBlkioUpdateTimeContainer = "blkio.updatetime.container"
 )
 
