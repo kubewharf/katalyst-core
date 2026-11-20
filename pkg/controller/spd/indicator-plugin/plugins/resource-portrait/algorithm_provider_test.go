@@ -17,11 +17,13 @@ limitations under the License.
 package resource_portrait
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/h2non/gock"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 )
@@ -72,10 +74,7 @@ func TestGeneratePredictionInput(t *testing.T) {
 func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 	t.Parallel()
 
-	defer gock.Off()
-
 	type fields struct {
-		Address  string
 		Cfg      map[string]string
 		Metrics  map[string][]model.SamplePair
 		RespJson string
@@ -93,8 +92,7 @@ func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 		{
 			name: "normal",
 			fields: fields{
-				Address: "http://localhost:8081",
-				Cfg:     map[string]string{},
+				Cfg: map[string]string{},
 				Metrics: map[string][]model.SamplePair{
 					"CPUUsage": {
 						{
@@ -157,8 +155,7 @@ func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 		{
 			name: "resp unmarshal err",
 			fields: fields{
-				Address: "http://localhost:8082",
-				Cfg:     map[string]string{},
+				Cfg: map[string]string{},
 				Metrics: map[string][]model.SamplePair{
 					"CPUUsage": {
 						{
@@ -184,8 +181,7 @@ func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 		{
 			name: "resp msg is not successful",
 			fields: fields{
-				Address: "http://localhost:8083",
-				Cfg:     map[string]string{},
+				Cfg: map[string]string{},
 				Metrics: map[string][]model.SamplePair{
 					"CPUUsage": {
 						{
@@ -236,13 +232,17 @@ func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// http resp mock
-			gock.New(tt.fields.Address).
-				Post("/openapi/tsa/predict").
-				Reply(200).
-				JSON(tt.fields.RespJson)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "/openapi/tsa/predict", r.URL.Path)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				w.Header().Set("Content-Type", "application/json")
+				_, err := io.WriteString(w, tt.fields.RespJson)
+				assert.NoError(t, err)
+			}))
+			t.Cleanup(server.Close)
 
-			p, _ := NewAlgorithmProvider(tt.fields.Address, ResourcePortraitMethodPredict)
+			p, _ := NewAlgorithmProvider(server.URL, ResourcePortraitMethodPredict)
 			p.SetConfig(tt.fields.Cfg)
 			p.SetMetrics(tt.fields.Metrics)
 			timeseries, data, err := p.Call()

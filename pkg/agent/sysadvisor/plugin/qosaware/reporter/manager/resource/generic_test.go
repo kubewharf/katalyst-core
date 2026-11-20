@@ -154,7 +154,6 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 		generateTestMetaServer(t),
 		newTestMetaCache(t),
 	)
-	go m.Run(context.Background())
 
 	var (
 		err         error
@@ -165,15 +164,16 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 	_, err = m.GetAllocatable()
 	require.Error(t, err)
 
-	// set headroom to 20 and sleep 30ms to sync but not enough sample,
-	// so return notFound error also
+	// Drive sampling synchronously so option changes cannot race with a background worker.
 	r.SetHeadroom(v1.ResourceCPU, resource.MustParse("20"))
-	time.Sleep(30 * time.Millisecond)
+	m.sync(context.Background())
 	_, err = m.GetAllocatable()
 	require.Error(t, err)
 
-	// wait 180ms which has enough sample in window, so return allocatable with reserve
-	time.Sleep(180 * time.Millisecond)
+	// Fill the remaining samples in the six-sample window.
+	for i := 1; i < 6; i++ {
+		m.sync(context.Background())
+	}
 	allocatable, err = m.GetAllocatable()
 	require.NoError(t, err)
 	require.Equal(t, int64(10000), allocatable.MilliValue())
