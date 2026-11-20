@@ -780,7 +780,7 @@ func TestUpdateSystemExclusivePool(t *testing.T) {
 	policy.state.SetAllocationInfo(poolToExpand, commonstate.FakedContainerName,
 		newPoolAllocationInfo(t, policy, poolToExpand, newCPUSet(4, 2)), false)
 
-	availableAfterUpdate, err := policy.updateSystemExclusivePool(map[string]int{
+	availableAfterUpdate, err := policy.updateSystemExclusivePoolInState(policy.state, map[string]int{
 		poolToShrink: -2,
 		poolToExpand: 2,
 	}, machine.NewCPUSet())
@@ -804,7 +804,7 @@ func TestCreateSystemExclusivePool(t *testing.T) {
 	poolName := commonstate.GetSystemPoolName("latency")
 	availableCPUs := newCPUSet(0, 4)
 
-	remainingCPUs, err := policy.createSystemExclusivePool(map[string]int{poolName: 2}, availableCPUs)
+	remainingCPUs, err := policy.createSystemExclusivePoolInState(policy.state, map[string]int{poolName: 2}, availableCPUs)
 	require.NoError(t, err)
 
 	createdPool := policy.state.GetAllocationInfo(poolName, commonstate.FakedContainerName)
@@ -831,7 +831,7 @@ func TestAdjustSystemCoresPodAllocation(t *testing.T) {
 	policy.state.SetAllocationInfo("pod-with-missing-pool", "main",
 		newSystemAllocationInfo(t, policy, "pod-with-missing-pool", "main", "missing", newCPUSet(6, 2)), false)
 
-	err := policy.adjustSystemCoresPodAllocation()
+	err := policy.adjustSystemCoresPodAllocationInState(policy.state)
 	require.NoError(t, err)
 
 	adjustedPod := policy.state.GetAllocationInfo("pod-with-pool", "main")

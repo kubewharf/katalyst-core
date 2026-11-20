@@ -308,8 +308,8 @@ func TestPartitionResidualCacheFixedSeedDifferentialAgainstUncachedSolver(t *tes
 
 		cache, err := newPartitionResidualSolveCache(topology)
 		require.NoError(t, err)
-		require.NoError(t, preparePartitionResidualCache(
-			cache, [][]partitionDemand{demands, permuted}))
+		demandSets := [][]partitionDemand{demands, permuted}
+		require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 		searchBudget := defaultPartitionSearchBudget()
 		_, hit, _, err := solvePartitionResidualCached(
 			demands, cache, defaultPartitionGraphBudget(), &searchBudget)

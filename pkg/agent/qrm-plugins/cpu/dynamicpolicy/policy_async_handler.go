@@ -982,10 +982,6 @@ func (p *DynamicPolicy) deleteSystemExclusivePoolFromState(
 	return availableCPUs, nil
 }
 
-func (p *DynamicPolicy) updateSystemExclusivePool(toShrink map[string]int, availableCPUs machine.CPUSet) (machine.CPUSet, error) {
-	return p.updateSystemExclusivePoolInState(p.state, toShrink, availableCPUs)
-}
-
 func (p *DynamicPolicy) updateSystemExclusivePoolInState(
 	stateStore state.State,
 	toShrink map[string]int,
@@ -1044,10 +1040,6 @@ func (p *DynamicPolicy) updateSystemExclusivePoolInState(
 	return availableCPUs, nil
 }
 
-func (p *DynamicPolicy) createSystemExclusivePool(toCreate map[string]int, availableCPUs machine.CPUSet) (machine.CPUSet, error) {
-	return p.createSystemExclusivePoolInState(p.state, toCreate, availableCPUs)
-}
-
 func (p *DynamicPolicy) createSystemExclusivePoolInState(
 	stateStore state.State,
 	toCreate map[string]int,
@@ -1082,10 +1074,6 @@ func (p *DynamicPolicy) createSystemExclusivePoolInState(
 	}
 
 	return availableCPUs, nil
-}
-
-func (p *DynamicPolicy) adjustSystemCoresPodAllocation() error {
-	return p.adjustSystemCoresPodAllocationInState(p.state)
 }
 
 func (p *DynamicPolicy) adjustSystemCoresPodAllocationInState(stateStore state.State) error {

@@ -116,24 +116,10 @@ func buildAdvisorSourceBlockResultByID(blocks []*advisorapi.BlockInfo, sourceBlo
 	return sourceBlockResultByID, nil
 }
 
-// allocateAdvisorSourceBlocksForCarve preallocates a normal source share block with a
-// sourceResult + isolationResult candidate cpuset. allocateShareBlocks then reuses
-// tryCarveAdvisorBlockFromSource to carve isolation from this candidate, leaving the
-// source block at the sourceResult size requested by the advisor.
-func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarve(
-	sourceShareBlocks []*advisorapi.BlockInfo,
-	isolationBlocks []*advisorapi.BlockInfo,
-	blockCPUSet advisorapi.BlockCPUSet,
-	availableCPUs *machine.CPUSet,
-	nodeRemainingCPUs *machine.CPUSet,
-	globalNonReclaimableCPUSet machine.CPUSet,
-	sourceBlockByPool map[string]string,
-) error {
-	return p.allocateAdvisorSourceBlocksForCarveWithConstraint(
-		sourceShareBlocks, isolationBlocks, blockCPUSet, availableCPUs, nodeRemainingCPUs,
-		globalNonReclaimableCPUSet, sourceBlockByPool, frozenReclaimPlacementConstraint{})
-}
-
+// allocateAdvisorSourceBlocksForCarveWithConstraint preallocates a normal source share
+// block with a sourceResult + isolationResult candidate cpuset. allocateShareBlocks
+// then reuses tryCarveAdvisorBlockFromSourceWithEntries to carve isolation from this
+// candidate, leaving the source block at the sourceResult size requested by the advisor.
 func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarveWithConstraint(
 	sourceShareBlocks []*advisorapi.BlockInfo,
 	isolationBlocks []*advisorapi.BlockInfo,
@@ -215,25 +201,10 @@ func (p *DynamicPolicy) allocateAdvisorSourceBlocksForCarveWithConstraint(
 	return nil
 }
 
-// tryCarveAdvisorBlockFromSource tries to carve an isolation block from an already
-// allocated source share block. If the source block does not exist or has not been
-// allocated yet, it returns carved=false so the caller can continue the legacy path.
-func (p *DynamicPolicy) tryCarveAdvisorBlockFromSource(
-	block *advisorapi.BlockInfo,
-	sourceBlockByPool map[string]string,
-	sourceBlockResultByID map[string]int,
-	blockCPUSet advisorapi.BlockCPUSet,
-	fallbackCandidate machine.CPUSet,
-	availableCPUs *machine.CPUSet,
-	nodeRemainingCPUs *machine.CPUSet,
-	numaID int,
-	blockResult int,
-) (bool, error) {
-	return p.tryCarveAdvisorBlockFromSourceWithEntries(
-		block, sourceBlockByPool, sourceBlockResultByID, blockCPUSet, fallbackCandidate,
-		availableCPUs, nodeRemainingCPUs, numaID, blockResult, p.state.GetPodEntries())
-}
-
+// tryCarveAdvisorBlockFromSourceWithEntries tries to carve an isolation block from an
+// already allocated source share block. If the source block does not exist or has not
+// been allocated yet, it returns carved=false so the caller can continue the legacy
+// path.
 func (p *DynamicPolicy) tryCarveAdvisorBlockFromSourceWithEntries(
 	block *advisorapi.BlockInfo,
 	sourceBlockByPool map[string]string,
@@ -309,29 +280,10 @@ func (p *DynamicPolicy) tryCarveAdvisorBlockFromSourceWithEntries(
 	return true, nil
 }
 
-// planDisjointAdvisorBlocks materializes the negotiated descriptor plan in strict
-// phase order. Every dynamic phase receives descriptors sorted by stable owner
-// identity, and no partial result escapes on an infeasible phase.
-func (p *DynamicPolicy) planDisjointAdvisorBlocks(
-	resp *advisorapi.ListAndWatchResponse,
-	hardActive bool,
-) (advisorapi.BlockCPUSet, error) {
-	return p.planDisjointAdvisorBlocksWithCheckpointTransition(resp, hardActive, nil)
-}
-
-func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransition(
-	resp *advisorapi.ListAndWatchResponse,
-	hardActive bool,
-	checkpointTransition *steadyFakeNUMAMigrationCheckpointTransition,
-) (advisorapi.BlockCPUSet, error) {
-	var dynamicConf *dynamicconfig.Configuration
-	if p != nil && p.config.conf != nil {
-		dynamicConf = p.config.conf.GetDynamicConfiguration()
-	}
-	return p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(
-		resp, hardActive, checkpointTransition, dynamicConf, frozenReclaimPlacementConstraint{})
-}
-
+// planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig materializes the
+// negotiated descriptor plan in strict phase order. Every dynamic phase receives
+// descriptors sorted by stable owner identity, and no partial result escapes on an
+// infeasible phase.
 func (p *DynamicPolicy) planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(
 	resp *advisorapi.ListAndWatchResponse,
 	hardActive bool,
@@ -492,33 +444,6 @@ func allocateAdvisorStaticDescriptors(
 		result[descriptor.BlockID] = cpus
 	}
 	return nil
-}
-
-func (p *DynamicPolicy) solveAdvisorDescriptorPhase(
-	descriptors []advisorBlockDescriptor,
-	available machine.CPUSet,
-	result advisorapi.BlockCPUSet,
-	preserveClass bool,
-	hardActive bool,
-) (machine.CPUSet, error) {
-	return p.solveAdvisorDescriptorPhaseWithCheckpointTransition(
-		descriptors, available, result, preserveClass, hardActive, nil)
-}
-
-func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransition(
-	descriptors []advisorBlockDescriptor,
-	available machine.CPUSet,
-	result advisorapi.BlockCPUSet,
-	preserveClass bool,
-	hardActive bool,
-	checkpointTransition *steadyFakeNUMAMigrationCheckpointTransition,
-) (machine.CPUSet, error) {
-	entries := p.state.GetPodEntries()
-	skipNUMAs := entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology)
-	return p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
-		descriptors, available, result, preserveClass, hardActive, checkpointTransition, skipNUMAs,
-		entries, p.isRampUpReclaimHardPartitionEnabled() &&
-			p.state.GetDisableDedicatedCoresOverlapReclaimedCores())
 }
 
 func (p *DynamicPolicy) solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
@@ -733,12 +658,6 @@ func (p *DynamicPolicy) allocateStableAdvisorDescriptors(
 		available = available.Difference(candidates).Union(remaining)
 	}
 	return available, nil
-}
-
-func (p *DynamicPolicy) advisorSourceIsolationComponents(
-	descriptors []advisorBlockDescriptor,
-) ([]string, map[string][]advisorBlockDescriptor, error) {
-	return p.advisorSourceIsolationComponentsWithEntries(descriptors, p.state.GetPodEntries())
 }
 
 func (p *DynamicPolicy) advisorSourceIsolationComponentsWithEntries(

@@ -283,7 +283,7 @@ func TestCommitPendingCPUPartitionValidatesResidualBackfillAfterHooks(t *testing
 		t.Parallel()
 		p, err := newResidualBackfillPrecommitTestPolicy(t)
 		require.NoError(t, err)
-		require.False(t, p.hardBulkheadPartitionValidationEnabled())
+		require.False(t, p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(p.config.dynamicConfig.GetDynamicConfiguration()))
 
 		candidate := residualBackfillPrecommitEntries(
 			machine.NewCPUSet(2, 3),
@@ -316,7 +316,7 @@ func TestCommitPendingCPUPartitionValidatesResidualBackfillAfterHooks(t *testing
 		t.Parallel()
 		p, err := newResidualBackfillPrecommitTestPolicy(t)
 		require.NoError(t, err)
-		require.False(t, p.hardBulkheadPartitionValidationEnabled())
+		require.False(t, p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(p.config.dynamicConfig.GetDynamicConfiguration()))
 
 		candidate := residualBackfillPrecommitEntries(
 			machine.NewCPUSet(2, 3),
@@ -349,7 +349,7 @@ func TestCommitPendingCPUPartitionValidatesResidualBackfillAfterHooks(t *testing
 		t.Parallel()
 		p, err := newResidualBackfillPrecommitTestPolicy(t)
 		require.NoError(t, err)
-		require.False(t, p.hardBulkheadPartitionValidationEnabled())
+		require.False(t, p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(p.config.dynamicConfig.GetDynamicConfiguration()))
 
 		candidate := residualBackfillPrecommitEntries(
 			machine.NewCPUSet(2, 4),
@@ -384,7 +384,7 @@ func TestCommitPendingCPUPartitionValidatesResidualBackfillAfterHooks(t *testing
 		t.Parallel()
 		p, err := newResidualBackfillPrecommitTestPolicy(t)
 		require.NoError(t, err)
-		require.False(t, p.hardBulkheadPartitionValidationEnabled())
+		require.False(t, p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(p.config.dynamicConfig.GetDynamicConfiguration()))
 
 		candidate := residualBackfillPrecommitEntries(
 			machine.NewCPUSet(3),

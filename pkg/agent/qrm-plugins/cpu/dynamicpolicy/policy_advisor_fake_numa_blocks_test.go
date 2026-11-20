@@ -78,13 +78,11 @@ func TestAllocateFakeNUMANormalShareBlocks_ReusesOwnPoolCPUSet(t *testing.T) {
 	}
 	all := p.machine.machineInfo.CPUDetails.CPUs()
 	blockCPUSet := advisorapi.BlockCPUSet{}
-	err := p.allocateFakeNUMANormalShareBlocks(
-		[]*advisorapi.BlockInfo{block},
+	err := p.allocateFakeNUMANormalShareBlocksWithConstraint([]*advisorapi.BlockInfo{block},
 		blockCPUSet,
 		&all,
 		&all,
-		machine.NewCPUSet(),
-	)
+		machine.NewCPUSet(), frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.Equal(t, shareCPUSet, blockCPUSet[block.BlockId])
 	require.True(t, blockCPUSet[block.BlockId].Intersection(reclaimCPUSet).IsEmpty())

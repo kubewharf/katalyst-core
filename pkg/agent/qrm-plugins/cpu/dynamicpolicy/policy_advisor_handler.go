@@ -1284,18 +1284,6 @@ func getSingleNormalSharePoolName(block *advisorapi.BlockInfo) (string, bool) {
 	return "", false
 }
 
-func (p *DynamicPolicy) allocateFakeNUMANormalShareBlocks(
-	blocks []*advisorapi.BlockInfo,
-	blockCPUSet advisorapi.BlockCPUSet,
-	availableCPUs *machine.CPUSet,
-	nodeRemainingCPUs *machine.CPUSet,
-	globalNonReclaimableCPUSet machine.CPUSet,
-) error {
-	return p.allocateFakeNUMANormalShareBlocksWithConstraint(
-		blocks, blockCPUSet, availableCPUs, nodeRemainingCPUs,
-		globalNonReclaimableCPUSet, frozenReclaimPlacementConstraint{})
-}
-
 func (p *DynamicPolicy) allocateFakeNUMANormalShareBlocksWithConstraint(
 	blocks []*advisorapi.BlockInfo,
 	blockCPUSet advisorapi.BlockCPUSet,
@@ -1443,28 +1431,6 @@ func (p *DynamicPolicy) allocateDedicatedBlocks(
 		}
 	}
 	return nil
-}
-
-// allocateShareBlocks allocates CPU sets for share blocks.
-// It iterates through the share blocks, allocating CPUs based on advisor results.
-// For FakedNUMAID, it uses the global available CPUs. For specific NUMA nodes,
-// it uses the NUMA-available CPUs. It subtracts the allocated CPUs from the remaining sets.
-func (p *DynamicPolicy) allocateShareBlocks(
-	numaID int,
-	blocks []*advisorapi.BlockInfo,
-	blockCPUSet advisorapi.BlockCPUSet,
-	numaAvailableCPUs machine.CPUSet,
-	nodeRemainingCPUs *machine.CPUSet,
-	availableCPUs *machine.CPUSet,
-	rpPinnedCPUSet map[string]machine.CPUSet,
-	allPinnedCPUSets machine.CPUSet,
-	withNUMABinding *bool,
-	sourceBlockByPool map[string]string,
-) error {
-	return p.allocateShareBlocksWithConstraint(
-		numaID, blocks, blockCPUSet, numaAvailableCPUs, nodeRemainingCPUs, availableCPUs,
-		rpPinnedCPUSet, allPinnedCPUSets, withNUMABinding, sourceBlockByPool,
-		frozenReclaimPlacementConstraint{})
 }
 
 func (p *DynamicPolicy) allocateShareBlocksWithConstraint(
@@ -1780,23 +1746,6 @@ func (p *DynamicPolicy) generateBlockCPUSetWithCheckpointTransitionForAttempt(
 	return blockCPUSet, transition, err
 }
 
-func (p *DynamicPolicy) validateHardPartitionBlockPlan(
-	resp *advisorapi.ListAndWatchResponse,
-	blockCPUSet advisorapi.BlockCPUSet,
-	hardActive bool,
-) error {
-	var dynamicConf *dynamicconfig.Configuration
-	if p != nil && p.config.conf != nil {
-		dynamicConf = p.config.conf.GetDynamicConfiguration()
-	}
-	domains := sets.NewInt()
-	if hardActive {
-		domains.Insert(commonstate.FakedNUMAID)
-	}
-	return p.validateHardPartitionBlockPlanWithDynamicConfig(
-		resp, blockCPUSet, domains, dynamicConf)
-}
-
 func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
 	resp *advisorapi.ListAndWatchResponse,
 	blockCPUSet advisorapi.BlockCPUSet,
@@ -1920,21 +1869,6 @@ func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
 		blockCPUSet[fake.BlockID], fakeCapacity.rawEligible, fakeCapacity.effectiveByNUMA,
 		p.machine.machineInfo.CPUTopology, skipNUMAs, cpusPerCore,
 		minimumHardReclaimCoresPerNUMA*cpusPerCore)
-}
-
-func validateHardPartitionReclaimDistribution(
-	reclaim machine.CPUSet,
-	eligible machine.CPUSet,
-	topology *machine.CPUTopology,
-	excludedNUMAs sets.Int,
-	minimumPerNUMA int,
-) error {
-	cpusPerCore := 0
-	if topology != nil {
-		cpusPerCore = topology.CPUsPerCore()
-	}
-	return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
-		reclaim, eligible, nil, topology, excludedNUMAs, cpusPerCore, minimumPerNUMA)
 }
 
 func validateHardPartitionReclaimDistributionWithEffectiveCapacity(
@@ -3155,20 +3089,6 @@ func (p *DynamicPolicy) commitPendingAdvisorState(
 	return err
 }
 
-func (p *DynamicPolicy) buildAdjustmentCommitOverrideFromPodEntries(
-	newEntries state.PodEntries,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-) (*cpusetutil.CPUSetAdjustmentCommitOverride, error) {
-	var dynamicConf *dynamicconfig.Configuration
-	if p != nil && p.config.dynamicConfig != nil {
-		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
-	}
-	return p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(
-		newEntries, allowSharedCoresOverlapReclaimedCores,
-		disableDedicatedCoresOverlapReclaimedCores, dynamicConf)
-}
-
 func (p *DynamicPolicy) buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(
 	newEntries state.PodEntries,
 	allowSharedCoresOverlapReclaimedCores bool,
@@ -3712,14 +3632,6 @@ func (p *DynamicPolicy) cpuSetPartitionViewOptionsWithDynamicConfig(
 		},
 		rampUpDomains,
 	)
-}
-
-func (p *DynamicPolicy) hardBulkheadPartitionValidationEnabled() bool {
-	var dynamicConf *dynamicconfig.Configuration
-	if p != nil && p.config.dynamicConfig != nil {
-		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
-	}
-	return p.hardBulkheadPartitionValidationEnabledWithDynamicConfig(dynamicConf)
 }
 
 func (p *DynamicPolicy) hardBulkheadPartitionValidationEnabledWithDynamicConfig(

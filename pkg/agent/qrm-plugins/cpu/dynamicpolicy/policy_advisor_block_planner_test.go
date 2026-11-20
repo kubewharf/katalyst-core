@@ -234,7 +234,8 @@ func TestPlanDisjointAdvisorBlocks_ResponseDescriptorPlanAggregatesExpandedDeman
 	require.Len(t, descriptors, 1)
 	require.Equal(t, "fake-reclaim", descriptors[0].BlockID)
 
-	planned, err := p.planDisjointAdvisorBlocks(resp, true)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	planned, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, true, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.Len(t, planned, 1)
 	require.Equal(t, 4, planned["fake-reclaim"].Size())
@@ -262,7 +263,8 @@ func TestPlanDisjointAdvisorBlocks_ZeroQuantityFakeBlockRemainsInCompletePlan(t 
 	}}, rand.New(rand.NewSource(0)))
 	resp.DisableDedicatedCoresOverlapReclaimedCores = true
 
-	planned, err := p.planDisjointAdvisorBlocks(resp, true)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	planned, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, true, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 
 	require.NoError(t, err)
 	require.Contains(t, planned, "fake-reclaim-zero")

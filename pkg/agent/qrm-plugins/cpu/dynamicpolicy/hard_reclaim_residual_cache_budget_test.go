@@ -71,7 +71,7 @@ func TestPartitionResidualCacheRetainedBytesCountsRepeatedPayloadOnce(t *testing
 		},
 	}
 
-	canonical, err := newCanonicalPartitionResidual(demands, topology)
+	canonical, err := newCanonicalPartitionResidualWithLimit(demands, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
 	payloadLen := len(canonical.payload)
 	require.Greater(t, payloadLen, 0, "fixture must produce a non-empty payload")
@@ -86,7 +86,7 @@ func TestPartitionResidualCacheRetainedBytesCountsRepeatedPayloadOnce(t *testing
 	cache, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
 	cache.limits.maxRetainedBytes = payloadLen
-	require.NoError(t, preparePartitionResidualCache(cache, batch),
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(batch), func(i int) []partitionDemand { return batch[i] }),
 		"repeated payload must be retained exactly once and fit the tight budget")
 	require.Equal(t, payloadLen, cache.usage.retainedBytes,
 		"retained bytes must equal the single payload, not the per-repeat sum")
@@ -96,7 +96,7 @@ func TestPartitionResidualCacheRetainedBytesCountsRepeatedPayloadOnce(t *testing
 	tooTight, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
 	tooTight.limits.maxRetainedBytes = payloadLen - 1
-	err = preparePartitionResidualCache(tooTight, batch)
+	err = preparePartitionResidualCacheLazy(tooTight, len(batch), func(i int) []partitionDemand { return batch[i] })
 	require.Error(t, err, "one byte below the true retained cost must be rejected")
 	require.True(t, errors.Is(err, errPartitionResidualRetainedMemoryBudget),
 		"expected the retained-memory budget error, got %v", err)

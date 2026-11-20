@@ -214,7 +214,7 @@ func TestAdvisorIsolationDescriptorSourceDomain_OrphanOwnerSoftDegrades(t *testi
 // resolved allocation is not a shared_cores pod (e.g. it flipped to dedicated_cores)
 // or its cpuset_pool enhancement maps to the empty pool, so deriveIsolationSource
 // SharePool returns ok=false. the legacy deriveAdvisorIsolationSourceDomain path
-// propagates that ok=false and the caller (allocateAdvisorSourceBlocksForCarve)
+// propagates that ok=false and the caller (allocateAdvisorSourceBlocksForCarveWithConstraint)
 // skips it via `if !ok { continue }`; the descriptor path must match by returning
 // resolved=false with no error, not by aborting the whole advisor cycle with a
 // "has no source pool" error.
@@ -399,8 +399,8 @@ func TestDynamicPolicy_tryCarveAdvisorBlockFromSource(t *testing.T) {
 		},
 	}
 
-	carved, err := p.tryCarveAdvisorBlockFromSource(
-		block, sourceBlockByPool, nil, blockCPUSet, availableCPUs.Clone(), &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
+	carved, err := p.tryCarveAdvisorBlockFromSourceWithEntries(
+		block, sourceBlockByPool, nil, blockCPUSet, availableCPUs.Clone(), &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3, p.state.GetPodEntries())
 	require.NoError(t, err)
 	require.True(t, carved)
 
@@ -461,8 +461,8 @@ func TestDynamicPolicy_tryCarveAdvisorBlockFromSourceUsesConstrainedFallback(t *
 		},
 	}
 
-	carved, err := p.tryCarveAdvisorBlockFromSource(
-		block, sourceBlockByPool, nil, blockCPUSet, fallbackCandidate, &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3)
+	carved, err := p.tryCarveAdvisorBlockFromSourceWithEntries(
+		block, sourceBlockByPool, nil, blockCPUSet, fallbackCandidate, &availableCPUs, &nodeRemainingCPUs, commonstate.FakedNUMAID, 3, p.state.GetPodEntries())
 	require.NoError(t, err)
 	require.True(t, carved)
 	require.True(t, blockCPUSet["block-isolation"].IsSubsetOf(machine.NewCPUSet(0, 4, 5)),
@@ -519,8 +519,7 @@ func TestDynamicPolicy_allocateShareBlocks_carvesIsolationFromAllocatedSource(t 
 		},
 	}
 
-	err = p.allocateShareBlocks(
-		commonstate.FakedNUMAID,
+	err = p.allocateShareBlocksWithConstraint(commonstate.FakedNUMAID,
 		blocks,
 		blockCPUSet,
 		machine.NewCPUSet(),
@@ -529,8 +528,7 @@ func TestDynamicPolicy_allocateShareBlocks_carvesIsolationFromAllocatedSource(t 
 		nil,
 		machine.NewCPUSet(),
 		nil,
-		sourceBlockByPool,
-	)
+		sourceBlockByPool, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.True(t, blockCPUSet["block-isolation"].IsSubsetOf(machine.NewCPUSet(0, 1, 2, 3)),
 		"isolation block should be carved from source share block, got %s",
@@ -586,8 +584,7 @@ func TestDynamicPolicy_allocateShareBlocks_sourceCarveFallbackRespectsNUMA(t *te
 		},
 	}
 
-	err = p.allocateShareBlocks(
-		0,
+	err = p.allocateShareBlocksWithConstraint(0,
 		blocks,
 		blockCPUSet,
 		cpuTopology.CPUDetails.CPUsInNUMANodes(0),
@@ -596,8 +593,7 @@ func TestDynamicPolicy_allocateShareBlocks_sourceCarveFallbackRespectsNUMA(t *te
 		nil,
 		machine.NewCPUSet(),
 		nil,
-		map[string]string{commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0": "block-share-numa0"},
-	)
+		map[string]string{commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0": "block-share-numa0"}, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.True(t, blockCPUSet["block-isolation"].IsSubsetOf(cpuTopology.CPUDetails.CPUsInNUMANodes(0)),
 		"NUMA-bound isolation fallback should stay within NUMA0, got %s",
@@ -661,8 +657,7 @@ func TestDynamicPolicy_allocateShareBlocks_preservesRealNUMASourceResult(t *test
 		},
 	}
 
-	err = p.allocateShareBlocks(
-		0,
+	err = p.allocateShareBlocksWithConstraint(0,
 		blocks,
 		blockCPUSet,
 		cpuTopology.CPUDetails.CPUsInNUMANodes(0),
@@ -671,8 +666,7 @@ func TestDynamicPolicy_allocateShareBlocks_preservesRealNUMASourceResult(t *test
 		nil,
 		machine.NewCPUSet(),
 		nil,
-		map[string]string{sourcePoolName: "block-share-numa0"},
-	)
+		map[string]string{sourcePoolName: "block-share-numa0"}, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.Equal(t, 4, blockCPUSet["block-share-numa0"].Size(),
 		"source block must keep its advisor result after isolation carve, got %s",
@@ -736,8 +730,8 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarve(t *testing.T) {
 		commonstate.PoolNameShare: "block-share",
 	}
 
-	err = p.allocateAdvisorSourceBlocksForCarve(
-		reclaimBlocks, isolationBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, machine.NewCPUSet(), sourceBlockByPool)
+	err = p.allocateAdvisorSourceBlocksForCarveWithConstraint(
+		reclaimBlocks, isolationBlocks, blockCPUSet, &availableCPUs, &nodeRemainingCPUs, machine.NewCPUSet(), sourceBlockByPool, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.Equal(t, 6, blockCPUSet["block-share"].Size(),
 		"source share block should be preallocated with share + isolation quantity")
@@ -812,7 +806,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveAggregatesSharedSource
 	availableCPUs := machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10, 11)
 	nodeRemainingCPUs := availableCPUs.Clone()
 
-	err = p.allocateAdvisorSourceBlocksForCarve(
+	err = p.allocateAdvisorSourceBlocksForCarveWithConstraint(
 		sourceBlocks,
 		isolationBlocks,
 		blockCPUSet,
@@ -822,8 +816,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveAggregatesSharedSource
 		map[string]string{
 			sourcePoolA: sourceBlockID,
 			sourcePoolB: sourceBlockID,
-		},
-	)
+		}, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.Equal(t, 8, blockCPUSet[sourceBlockID].Size(),
 		"shared source block must reserve source result plus isolation demand from every mapped pool")
@@ -859,7 +852,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveReturnsErrorWhenInsuff
 	blockCPUSet := advisorapi.NewBlockCPUSet()
 	availableCPUs := machine.NewCPUSet(0, 1, 2)
 	nodeRemainingCPUs := availableCPUs.Clone()
-	err = p.allocateAdvisorSourceBlocksForCarve(
+	err = p.allocateAdvisorSourceBlocksForCarveWithConstraint(
 		[]*advisorapi.BlockInfo{{
 			Block: advisorapi.Block{BlockId: "block-share", Result: 2},
 			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
@@ -882,7 +875,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveReturnsErrorWhenInsuff
 		&availableCPUs,
 		&nodeRemainingCPUs,
 		machine.NewCPUSet(),
-		map[string]string{commonstate.PoolNameShare: "block-share"})
+		map[string]string{commonstate.PoolNameShare: "block-share"}, frozenReclaimPlacementConstraint{})
 	require.Error(t, err)
 	require.NotContains(t, blockCPUSet, "block-share")
 	require.True(t, availableCPUs.Equals(machine.NewCPUSet(0, 1, 2)))
@@ -919,7 +912,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveExcludesNonReclaimable
 	nodeRemainingCPUs := availableCPUs.Clone()
 	nonReclaimableCPUSet := machine.NewCPUSet(0, 1)
 
-	err = p.allocateAdvisorSourceBlocksForCarve(
+	err = p.allocateAdvisorSourceBlocksForCarveWithConstraint(
 		[]*advisorapi.BlockInfo{{
 			Block: advisorapi.Block{BlockId: "block-share", Result: 2},
 			OwnerPoolEntryMap: map[string]advisorapi.BlockEntry{
@@ -942,7 +935,7 @@ func TestDynamicPolicy_allocateAdvisorSourceBlocksForCarveExcludesNonReclaimable
 		&availableCPUs,
 		&nodeRemainingCPUs,
 		nonReclaimableCPUSet,
-		map[string]string{commonstate.PoolNameShare: "block-share"})
+		map[string]string{commonstate.PoolNameShare: "block-share"}, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.True(t, blockCPUSet["block-share"].Intersection(nonReclaimableCPUSet).IsEmpty(),
 		"source preallocation must exclude non-reclaimable CPUs, got %s",
@@ -1214,7 +1207,7 @@ func TestGenerateBlockCPUSetDisjointPlannerIndexesShareNUMASourceWithRPIsolation
 		machine.NewCPUSet(),
 	)
 	require.NoError(t, err)
-	keys, members, err := p.advisorSourceIsolationComponents(descriptors)
+	keys, members, err := p.advisorSourceIsolationComponentsWithEntries(descriptors, p.state.GetPodEntries())
 	require.NoError(t, err)
 	require.Equal(t, []string{"rotated-numa-source"}, keys,
 		"share-NUMA0 source descriptor must enter the source domain index")
@@ -1274,7 +1267,7 @@ func TestAdvisorSourceIsolationComponentsScopeSourceByNUMAAndResourcePackage(t *
 		{BlockID: "source-a1", Class: advisorBlockClassShared, NUMAID: 1, Owners: []string{owner("source", "source-a1", "rp-a")}, ComponentKey: "source-a1"},
 		{BlockID: "isolation-a1", Class: advisorBlockClassShared, NUMAID: 1, Owners: []string{owner(isolationPool, "pod-a1", "rp-a")}, ComponentKey: "isolation-a1"},
 	}
-	keys, members, err := p.advisorSourceIsolationComponents(descriptors)
+	keys, members, err := p.advisorSourceIsolationComponentsWithEntries(descriptors, p.state.GetPodEntries())
 	require.NoError(t, err)
 	require.Equal(t, []string{"source-a0", "source-b0", "source-a1"}, keys)
 	require.ElementsMatch(t, []string{"source-a0", "isolation-a0"}, advisorDescriptorBlockIDs(members["source-a0"]))
@@ -1329,7 +1322,8 @@ func TestPlanDisjointAdvisorBlocksRejectsConflictingSourceDomainRegardlessOfMapO
 				Entries: entries,
 			}
 
-			got, err := p.planDisjointAdvisorBlocks(resp, false)
+			dynamicConf := p.config.conf.GetDynamicConfiguration()
+			got, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, false, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 			require.EqualError(t, err,
 				`source domain pool "source-pool" resource package "" numa 0 has conflicting descriptors "source-a" and "source-b"`)
 			require.Nil(t, got, "fail-closed errors must not expose partial block results")
@@ -1363,7 +1357,8 @@ func TestPlanDisjointAdvisorBlocksAllowsRepeatedSourceBlockIDAfterNormalization(
 		},
 	}
 
-	got, err := p.planDisjointAdvisorBlocks(resp, false)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	got, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, false, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, 2, got["source"].Size())
@@ -1405,7 +1400,7 @@ func TestAdvisorSourceIsolationComponentsRejectsConflictingAliasSourcesRegardles
 			},
 			{BlockID: "isolation", Class: advisorBlockClassShared, NUMAID: 0, Owners: owners},
 		}
-		_, _, err := p.advisorSourceIsolationComponents(descriptors)
+		_, _, err := p.advisorSourceIsolationComponentsWithEntries(descriptors, p.state.GetPodEntries())
 		require.ErrorContains(t, err, "aliases resolve to different source domains")
 	}
 }
@@ -1481,7 +1476,7 @@ func TestAdvisorSourceIsolationComponentsPreservesSamePoolMultiEntryOwnerUnion(t
 	require.Len(t, isolation.Owners, 2)
 	require.Equal(t, oldA.Union(oldB), isolation.OldPreferred)
 
-	keys, members, err := p.advisorSourceIsolationComponents(descriptors)
+	keys, members, err := p.advisorSourceIsolationComponentsWithEntries(descriptors, p.state.GetPodEntries())
 	require.NoError(t, err)
 	require.Equal(t, []string{"source-block"}, keys)
 	require.ElementsMatch(t, []string{"source-block", "isolation-block"},
@@ -1554,7 +1549,18 @@ func TestSolveAdvisorDescriptorPhaseBlockIDRotationPreservesGrowOwnerUnion(t *te
 			},
 		}
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase(descriptors, allCPUs, result, false, false)
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			descriptors,
+			allCPUs,
+			result,
+			false,
+			false,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, err)
 		return map[string]machine.CPUSet{
 			"owner-a": result[firstID],
@@ -1587,7 +1593,18 @@ func TestSolveAdvisorDescriptorPhaseKeepsBlocksWithinComponentSeparate(t *testin
 	}
 	result := advisorapi.NewBlockCPUSet()
 
-	_, err = p.solveAdvisorDescriptorPhase(descriptors, allCPUs, result, false, false)
+	entries := p.state.GetPodEntries()
+	_, err = p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		allCPUs,
+		result,
+		false,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	require.Len(t, result, 2)
@@ -1647,7 +1664,8 @@ func TestPlanDisjointAdvisorBlocksOverlapNeverReintroducesStateForbiddenOrSystem
 		},
 	}
 
-	got, err := p.planDisjointAdvisorBlocks(resp, false)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	got, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, false, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 	require.NoError(t, err)
 	require.True(t, got["overlap-reclaim"].Intersection(notAllocatable).IsEmpty(),
 		"overlap reclaim must not reintroduce forbidden/system CPUs: got=%s forbidden=%s",
@@ -1679,16 +1697,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 	) (machine.CPUSet, error) {
 		t.Helper()
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{{
-			BlockID:      "reclaim",
-			Owners:       []string{"reclaim-owner"},
-			Class:        advisorBlockClassMandatoryReclaim,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     quantity,
-			ComponentKey: "mandatory-reclaim|reclaim-owner|-1",
-			Eligible:     allCPUs,
-			OldPreferred: oldPreferred,
-		}}, available, result, true, p.isRampUpReclaimHardPartitionEnabled())
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{{
+				BlockID:      "reclaim",
+				Owners:       []string{"reclaim-owner"},
+				Class:        advisorBlockClassMandatoryReclaim,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     quantity,
+				ComponentKey: "mandatory-reclaim|reclaim-owner|-1",
+				Eligible:     allCPUs,
+				OldPreferred: oldPreferred,
+			}},
+			available,
+			result,
+			true,
+			p.isRampUpReclaimHardPartitionEnabled(),
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		return result["reclaim"], err
 	}
 
@@ -1749,16 +1778,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 
 		p := newPolicy(t, true)
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "real-0", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
-				Quantity: 2, ComponentKey: "real-0", Eligible: numa0,
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "real-0", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
+					Quantity: 2, ComponentKey: "real-0", Eligible: numa0,
+				},
+				{
+					BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 4, ComponentKey: "fake", Eligible: allCPUs,
+				},
 			},
-			{
-				BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 4, ComponentKey: "fake", Eligible: allCPUs,
-			},
-		}, allCPUs, result, true, true)
+			allCPUs,
+			result,
+			true,
+			true,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, err)
 		require.Equal(t, 2, result["real-0"].Intersection(numa0).Size())
 		require.Zero(t, result["fake"].Intersection(numa0).Size())
@@ -1788,7 +1828,18 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 			},
 		}
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase(descriptors, available, result, true, true)
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			descriptors,
+			available,
+			result,
+			true,
+			true,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.ErrorContains(t, err,
 			"hard reclaim protocol error: expected at most one fake-NUMA mandatory reclaim block, got 2")
 		require.Empty(t, result)
@@ -1799,16 +1850,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 
 		p := newPolicy(t, true)
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "dedicated-0", Class: advisorBlockClassDedicated, NUMAID: 0,
-				Quantity: 2, ComponentKey: "dedicated-0", Eligible: numa0,
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "dedicated-0", Class: advisorBlockClassDedicated, NUMAID: 0,
+					Quantity: 2, ComponentKey: "dedicated-0", Eligible: numa0,
+				},
+				{
+					BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 4, ComponentKey: "fake", Eligible: allCPUs,
+				},
 			},
-			{
-				BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 4, ComponentKey: "fake", Eligible: allCPUs,
-			},
-		}, allCPUs, result, true, true)
+			allCPUs,
+			result,
+			true,
+			true,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, err)
 		require.Equal(t, 2, result["dedicated-0"].Intersection(numa0).Size())
 		// numa0 only has one core left after the dedicated core, so the second
@@ -1823,16 +1885,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 
 		p := newPolicy(t, true)
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "dedicated-0", Class: advisorBlockClassDedicated, NUMAID: 0,
-				Quantity: 2, ComponentKey: "dedicated-0", Eligible: numa0,
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "dedicated-0", Class: advisorBlockClassDedicated, NUMAID: 0,
+					Quantity: 2, ComponentKey: "dedicated-0", Eligible: numa0,
+				},
+				{
+					BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 8, ComponentKey: "fake", Eligible: allCPUs,
+				},
 			},
-			{
-				BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 8, ComponentKey: "fake", Eligible: allCPUs,
-			},
-		}, allCPUs, result, true, true)
+			allCPUs,
+			result,
+			true,
+			true,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.ErrorContains(t, err, "insufficient aggregate capacity")
 		require.Empty(t, result)
 	})
@@ -1909,16 +1982,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 		otherCore := numa0.Difference(narrowCore)
 		partiallyConstrained := narrowCore.Union(machine.NewCPUSet(numa0Cores[1]))
 		result := advisorapi.NewBlockCPUSet()
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "reclaim", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 2, ComponentKey: "reclaim", Eligible: numa0, OldPreferred: narrowCore,
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "reclaim", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 2, ComponentKey: "reclaim", Eligible: numa0, OldPreferred: narrowCore,
+				},
+				{
+					BlockID: "shared", Class: advisorBlockClassShared, NUMAID: 0,
+					Quantity: 2, ComponentKey: "shared", Eligible: partiallyConstrained,
+				},
 			},
-			{
-				BlockID: "shared", Class: advisorBlockClassShared, NUMAID: 0,
-				Quantity: 2, ComponentKey: "shared", Eligible: partiallyConstrained,
-			},
-		}, numa0, result, true, false)
+			numa0,
+			result,
+			true,
+			false,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, err)
 		require.Equal(t, otherCore, result["reclaim"])
 		require.Equal(t, 2, result["shared"].Size())
@@ -1946,16 +2030,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 		fakePreferred := coresInNUMA(singleNUMATopology, 0, 0, 1)
 		result := advisorapi.NewBlockCPUSet()
 
-		_, err = p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "real", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
-				Quantity: 1, ComponentKey: "real", Eligible: realEligible,
+		entries := p.state.GetPodEntries()
+		_, err = p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "real", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
+					Quantity: 1, ComponentKey: "real", Eligible: realEligible,
+				},
+				{
+					BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 2, ComponentKey: "fake", Eligible: singleNUMACPUs, OldPreferred: fakePreferred,
+				},
 			},
-			{
-				BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 2, ComponentKey: "fake", Eligible: singleNUMACPUs, OldPreferred: fakePreferred,
-			},
-		}, singleNUMACPUs, result, true, false)
+			singleNUMACPUs,
+			result,
+			true,
+			false,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.ErrorContains(t, err, "insufficient aggregate capacity for quantity 2")
 		require.Empty(t, result)
 	})
@@ -1968,16 +2063,27 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 		fragmentedPrevious := machine.NewCPUSet(numa0CPUs[0], numa0CPUs[1])
 		result := advisorapi.NewBlockCPUSet()
 
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "real", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
-				Quantity: 2, ComponentKey: "real", Eligible: numa0, OldPreferred: fragmentedPrevious,
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "real", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
+					Quantity: 2, ComponentKey: "real", Eligible: numa0, OldPreferred: fragmentedPrevious,
+				},
+				{
+					BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 2, ComponentKey: "fake", Eligible: allCPUs, OldPreferred: numa1,
+				},
 			},
-			{
-				BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 2, ComponentKey: "fake", Eligible: allCPUs, OldPreferred: numa1,
-			},
-		}, allCPUs, result, true, false)
+			allCPUs,
+			result,
+			true,
+			false,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, err)
 		requireCoreAligned(t, topology, result["real"])
 		requireCoreAligned(t, topology, result["fake"])
@@ -1994,20 +2100,31 @@ func TestPlanDisjointAdvisorBlocksBalancesHardReclaim(t *testing.T) {
 		fakePreferred := machine.NewCPUSet(numa0Core[1], numa1Core[1])
 		result := advisorapi.NewBlockCPUSet()
 
-		_, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-			{
-				BlockID: "real-0", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
-				Quantity: 1, ComponentKey: "real-0", Eligible: real0, OldPreferred: real0,
+		entries := p.state.GetPodEntries()
+		_, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			[]advisorBlockDescriptor{
+				{
+					BlockID: "real-0", Class: advisorBlockClassMandatoryReclaim, NUMAID: 0,
+					Quantity: 1, ComponentKey: "real-0", Eligible: real0, OldPreferred: real0,
+				},
+				{
+					BlockID: "real-1", Class: advisorBlockClassMandatoryReclaim, NUMAID: 1,
+					Quantity: 1, ComponentKey: "real-1", Eligible: real1, OldPreferred: real1,
+				},
+				{
+					BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
+					Quantity: 2, ComponentKey: "fake", Eligible: allCPUs, OldPreferred: fakePreferred,
+				},
 			},
-			{
-				BlockID: "real-1", Class: advisorBlockClassMandatoryReclaim, NUMAID: 1,
-				Quantity: 1, ComponentKey: "real-1", Eligible: real1, OldPreferred: real1,
-			},
-			{
-				BlockID: "fake", Class: advisorBlockClassMandatoryReclaim, NUMAID: commonstate.FakedNUMAID,
-				Quantity: 2, ComponentKey: "fake", Eligible: allCPUs, OldPreferred: fakePreferred,
-			},
-		}, allCPUs, result, true, false)
+			allCPUs,
+			result,
+			true,
+			false,
+			nil,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 
 		require.ErrorContains(t, err, "insufficient aggregate capacity")
 		require.Empty(t, result)
@@ -2080,7 +2197,8 @@ func TestPlanDisjointAdvisorBlocksPreservesCeiledOwnerRequestWhenDonating(t *tes
 		},
 	}
 
-	result, err := p.planDisjointAdvisorBlocks(resp, true)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	result, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, true, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 	// 12 CPUs / 6 cores, cpusPerCore==2, cores paired (k, k+6). the dedicated
 	// pod owns {0..7}, so the free pool {8,9,10,11} are all orphan half cores
 	// (siblings 2,3,4,5 are owned). the ceiled owner request is 7, leaving only
@@ -2166,7 +2284,8 @@ func TestPlanDisjointAdvisorBlocksRepairsDedicatedReclaimBoundary(t *testing.T) 
 
 	p, resp, topology, _, _ := productionReplacementSourcePoolFixture(t)
 
-	result, err := p.planDisjointAdvisorBlocks(resp, true)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	result, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, true, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 
 	require.NoError(t, err)
 	reclaim := result["reclaim-numa-2"]
@@ -2225,7 +2344,8 @@ func TestPlanDisjointAdvisorBlocksKeepsUnreplaceableFailureClosed(t *testing.T) 
 		},
 	}
 
-	result, err := p.planDisjointAdvisorBlocks(resp, true)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	result, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, true, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 
 	require.Error(t, err)
 	require.ErrorContains(t, err, "replacement failed")
@@ -2237,7 +2357,8 @@ func TestPlanDisjointAdvisorBlocksPreservesReplacementAssignment(t *testing.T) {
 
 	p, resp, _, _, _ := productionReplacementSourcePoolFixture(t)
 
-	result, err := p.planDisjointAdvisorBlocks(resp, true)
+	dynamicConf := p.config.conf.GetDynamicConfiguration()
+	result, err := p.planDisjointAdvisorBlocksWithCheckpointTransitionAndDynamicConfig(resp, true, nil, dynamicConf, frozenReclaimPlacementConstraint{})
 
 	require.NoError(t, err)
 	require.Equal(t,

@@ -594,17 +594,6 @@ func expectedReclaimMemberCPUSet(
 	return expected, nil
 }
 
-func validatePendingPoolOwnership(entries state.PodEntries) error {
-	if err := validateNoReclaimedRampUp(entries); err != nil {
-		return err
-	}
-	view, err := buildReclaimOwnershipView(entries, nil)
-	if err != nil {
-		return err
-	}
-	return validatePendingPoolOwnershipWithView(entries, view)
-}
-
 // validatePendingPoolOwnershipWithView is a near-linear orchestration: for every
 // pool-owned member it resolves the owner pool, computes the single expected
 // cpuset (shared with the producer via expectedReclaimMemberCPUSet), and compares.

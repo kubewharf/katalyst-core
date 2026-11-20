@@ -311,7 +311,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesRemovesReclaimNonReclaimOver
 		},
 	}
 
-	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, false)
+	override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, false, false, p.config.dynamicConfig.GetDynamicConfiguration())
 	require.NoError(t, err)
 	require.Equal(t, "advisor_pending_entries", override.Source)
 	require.True(t, override.ReclaimEffective.Equals(machine.NewCPUSet(2, 3)))
@@ -344,7 +344,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesSkipsWhenResponseAllowsOverl
 	// The advisor response mode is the source of truth for the pending
 	// transaction. A stale checkpoint value must not clip reclaim in overlap
 	// mode before Commit persists the new mode.
-	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, true, false)
+	override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, true, false, p.config.dynamicConfig.GetDynamicConfiguration())
 	require.NoError(t, err)
 	require.Nil(t, override)
 }
@@ -383,7 +383,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesProtectsDedicatedWhenSharedO
 		},
 	}
 
-	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, true, true)
+	override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, true, true, p.config.dynamicConfig.GetDynamicConfiguration())
 	require.NoError(t, err)
 	require.NotNil(t, override)
 	require.Empty(t, override.ReclaimEffective.ToSliceInt(),
@@ -422,7 +422,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesHandlesDirectContainerOverla
 	// overlap newly allocated non-reclaim containers. The commit override must
 	// use the same pending partition view to make reclaim consistent before
 	// pre-commit validation runs.
-	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, false)
+	override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, false, false, p.config.dynamicConfig.GetDynamicConfiguration())
 	require.NoError(t, err)
 	require.Equal(t, "advisor_pending_entries", override.Source)
 	require.True(t, override.ReclaimEffective.Equals(machine.NewCPUSet(2, 3)))
@@ -457,7 +457,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesPreservesWholeCores(t *testi
 			},
 		}
 
-		override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, true)
+		override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, false, true, p.config.dynamicConfig.GetDynamicConfiguration())
 		require.NoError(t, err)
 		require.NotNil(t, override)
 		require.True(t, override.ReclaimEffective.Equals(machine.NewCPUSet(1, 49)),
@@ -487,7 +487,7 @@ func TestBuildAdjustmentCommitOverrideFromPodEntriesPreservesWholeCores(t *testi
 			},
 		}
 
-		override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, true)
+		override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, false, true, p.config.dynamicConfig.GetDynamicConfiguration())
 		require.NoError(t, err)
 		require.NotNil(t, override)
 		require.Empty(t, override.ReclaimEffective.ToSliceInt())
@@ -656,7 +656,7 @@ func TestBuildAdjustmentCommitOverrideCarriesPendingSharedProjection(t *testing.
 		},
 	}
 
-	override, err := p.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, false)
+	override, err := p.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, false, false, p.config.dynamicConfig.GetDynamicConfiguration())
 	require.NoError(t, err)
 	require.NotNil(t, override)
 	// The side-channel must classify the pending shared ramp-up container.
@@ -708,7 +708,7 @@ func TestPendingSharedProjectionStagingUnionsConcurrentBatch(t *testing.T) {
 	addShared("pod-a")
 	addShared("pod-b")
 
-	ov, err := policy.buildAdjustmentCommitOverrideFromPodEntries(newEntries, false, false)
+	ov, err := policy.buildAdjustmentCommitOverrideFromPodEntriesWithDynamicConfig(newEntries, false, false, policy.config.dynamicConfig.GetDynamicConfiguration())
 	require.NoError(t, err)
 	require.Contains(t, ov.PendingSharedProjection, "pod-a")
 	require.Contains(t, ov.PendingSharedProjection, "pod-b")

@@ -1401,8 +1401,18 @@ func TestSolveAdvisorDescriptorPhaseSteadyFakeNUMAStagesTowardBalancedTarget(t *
 		kind: steadyFakeNUMAMigrationCheckpointKeep,
 	}
 
-	remaining, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransition(
-		descriptors, all, result, true, false, &transition)
+	entries := p.state.GetPodEntries()
+	remaining, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		all,
+		result,
+		true,
+		false,
+		&transition,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	require.True(t, remaining.IsEmpty())
@@ -1516,26 +1526,37 @@ func TestSolveAdvisorDescriptorPhaseSteadyFakeNUMAPreservesQuotaAndAlignsUnion(t
 	oldShare := all.Difference(oldFake)
 	result := make(map[string]machine.CPUSet)
 
-	remaining, err := p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-		{
-			BlockID:      "fake",
-			Class:        advisorBlockClassMandatoryReclaim,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     oldFake.Size(),
-			ComponentKey: "fake",
-			Eligible:     all,
-			OldPreferred: oldFake,
+	entries := p.state.GetPodEntries()
+	remaining, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		[]advisorBlockDescriptor{
+			{
+				BlockID:      "fake",
+				Class:        advisorBlockClassMandatoryReclaim,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     oldFake.Size(),
+				ComponentKey: "fake",
+				Eligible:     all,
+				OldPreferred: oldFake,
+			},
+			{
+				BlockID:      "share",
+				Class:        advisorBlockClassShared,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     oldShare.Size(),
+				ComponentKey: "share",
+				Eligible:     all,
+				OldPreferred: oldShare,
+			},
 		},
-		{
-			BlockID:      "share",
-			Class:        advisorBlockClassShared,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     oldShare.Size(),
-			ComponentKey: "share",
-			Eligible:     all,
-			OldPreferred: oldShare,
-		},
-	}, all, result, true, false)
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	require.True(t, remaining.IsEmpty())
@@ -1565,27 +1586,38 @@ func TestSolveAdvisorDescriptorPhaseSteadyFakeNUMARepairsProductionShape(t *test
 	require.Equal(t, 4, fragmentedLogicalCPUCount(oldFake, topology))
 	result := make(map[string]machine.CPUSet)
 
-	_, err = p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-		{
-			BlockID:      "fake",
-			Class:        advisorBlockClassMandatoryReclaim,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     oldFake.Size(),
-			ComponentKey: "fake",
-			Eligible:     all,
-			Committed:    oldFake,
-			OldPreferred: oldFake,
+	entries := p.state.GetPodEntries()
+	_, err = p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		[]advisorBlockDescriptor{
+			{
+				BlockID:      "fake",
+				Class:        advisorBlockClassMandatoryReclaim,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     oldFake.Size(),
+				ComponentKey: "fake",
+				Eligible:     all,
+				Committed:    oldFake,
+				OldPreferred: oldFake,
+			},
+			{
+				BlockID:      "share",
+				Class:        advisorBlockClassShared,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     all.Size() - oldFake.Size(),
+				ComponentKey: "share",
+				Eligible:     all,
+				OldPreferred: all.Difference(oldFake),
+			},
 		},
-		{
-			BlockID:      "share",
-			Class:        advisorBlockClassShared,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     all.Size() - oldFake.Size(),
-			ComponentKey: "share",
-			Eligible:     all,
-			OldPreferred: all.Difference(oldFake),
-		},
-	}, all, result, true, false)
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	require.Equal(t, 204, result["fake"].Size())
@@ -2013,7 +2045,18 @@ func TestSolveAdvisorDescriptorPhaseSteadyFakeNUMARepairsDC05RampUpTransitionWit
 	}
 	result := make(map[string]machine.CPUSet)
 
-	remaining, err := p.solveAdvisorDescriptorPhase(descriptors, all, result, true, false)
+	entries := p.state.GetPodEntries()
+	remaining, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	reclaim := result["real-0"].Union(result["real-1"]).
@@ -2103,7 +2146,18 @@ func TestSolveAdvisorDescriptorPhaseSteadyFakeNUMARepairsDC05RampDownWithRealMan
 	}
 	result := make(map[string]machine.CPUSet)
 
-	remaining, err := p.solveAdvisorDescriptorPhase(descriptors, all, result, true, false)
+	entries := p.state.GetPodEntries()
+	remaining, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	reclaim := result["real-0"].Union(result["real-1"]).
@@ -2165,27 +2219,38 @@ func TestSolveAdvisorDescriptorPhaseRepairsDC05CheckpointWithinEightChangedCPUs(
 	}
 	result := make(map[string]machine.CPUSet)
 
-	_, err = p.solveAdvisorDescriptorPhase([]advisorBlockDescriptor{
-		{
-			BlockID:      "fake",
-			Class:        advisorBlockClassMandatoryReclaim,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     oldFake.Size(),
-			ComponentKey: "fake",
-			Eligible:     all,
-			Committed:    oldFake,
-			OldPreferred: oldFake,
+	entries := p.state.GetPodEntries()
+	_, err = p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		[]advisorBlockDescriptor{
+			{
+				BlockID:      "fake",
+				Class:        advisorBlockClassMandatoryReclaim,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     oldFake.Size(),
+				ComponentKey: "fake",
+				Eligible:     all,
+				Committed:    oldFake,
+				OldPreferred: oldFake,
+			},
+			{
+				BlockID:      "share",
+				Class:        advisorBlockClassShared,
+				NUMAID:       commonstate.FakedNUMAID,
+				Quantity:     all.Size() - oldFake.Size(),
+				ComponentKey: "share",
+				Eligible:     all,
+				OldPreferred: all.Difference(oldFake),
+			},
 		},
-		{
-			BlockID:      "share",
-			Class:        advisorBlockClassShared,
-			NUMAID:       commonstate.FakedNUMAID,
-			Quantity:     all.Size() - oldFake.Size(),
-			ComponentKey: "share",
-			Eligible:     all,
-			OldPreferred: all.Difference(oldFake),
-		},
-	}, all, result, true, false)
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	require.Equal(t, oldFake.Size(), result["fake"].Size())
@@ -2417,8 +2482,18 @@ func runSteadyFakeNUMAConvergencePathForTest(
 		}
 		beforeTarget := cloneSteadyFakeNUMAMigrationTargetForTest(
 			p.steadyFakeNUMAMigration.current())
-		remaining, solveErr := p.solveAdvisorDescriptorPhaseWithCheckpointTransition(
-			descriptors, all, cycleResult, true, false, &transition)
+		entries := p.state.GetPodEntries()
+		remaining, solveErr := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			descriptors,
+			all,
+			cycleResult,
+			true,
+			false,
+			&transition,
+			entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+			entries,
+			p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, solveErr)
 		require.Equal(t, beforeTarget, p.steadyFakeNUMAMigration.current(),
 			"planning must not mutate the in-memory checkpoint")
@@ -2689,7 +2764,18 @@ func TestSolveAdvisorDescriptorPhaseAtomicallyRepairsDC05GlobalSeedpoolBeyondFix
 	result := make(map[string]machine.CPUSet)
 	setCommittedDescriptorOwnershipForTest(descriptors)
 
-	remaining, err := p.solveAdvisorDescriptorPhase(descriptors, all, result, true, false)
+	entries := p.state.GetPodEntries()
+	remaining, err := p.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(p.machine.machineInfo.CPUTopology),
+		entries,
+		p.isRampUpReclaimHardPartitionEnabled() && p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, result)

@@ -41,10 +41,10 @@ func TestPartitionResidualSignatureIsOrderIndependentAndComplete(t *testing.T) {
 		},
 	}
 
-	first, err := newCanonicalPartitionResidual(base, topology)
+	first, err := newCanonicalPartitionResidualWithLimit(base, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
-	second, err := newCanonicalPartitionResidual(
-		[]partitionDemand{base[1], base[0]}, topology)
+	second, err := newCanonicalPartitionResidualWithLimit(
+		[]partitionDemand{base[1], base[0]}, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
 	require.Equal(t, first.payload, second.payload)
 	require.Equal(t, first.digest, second.digest)
@@ -65,7 +65,7 @@ func TestPartitionResidualSignatureIsOrderIndependentAndComplete(t *testing.T) {
 			t.Parallel()
 			changed := append([]partitionDemand(nil), base...)
 			mutate(changed)
-			canonical, signatureErr := newCanonicalPartitionResidual(changed, topology)
+			canonical, signatureErr := newCanonicalPartitionResidualWithLimit(changed, topology, int(^uint(0)>>1))
 			require.NoError(t, signatureErr)
 			require.NotEqual(t, first.payload, canonical.payload)
 		})
@@ -80,7 +80,8 @@ func TestPartitionResidualSolveCacheReturnsDeepCopies(t *testing.T) {
 		key: "same-input", quantity: 1, eligible: machine.NewCPUSet(0),
 		class: advisorBlockClassDedicated,
 	}}
-	require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{demands, demands}))
+	demandSets := [][]partitionDemand{demands, demands}
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 	searchBudget := defaultPartitionSearchBudget()
 	first, hit, _, err := solvePartitionResidualCached(
 		demands, cache, defaultPartitionGraphBudget(), &searchBudget)
@@ -105,11 +106,12 @@ func TestSolvePartitionResidualCachedHitsEquivalentSignature(t *testing.T) {
 	}
 	cache, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
-	require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{
+	demandSets := [][]partitionDemand{
 		demands,
 		{demands[1], demands[0]},
 		demands,
-	}))
+	}
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 	searchBudget := defaultPartitionSearchBudget()
 
 	first, hit, _, err := solvePartitionResidualCached(
@@ -158,9 +160,9 @@ func TestPartitionResidualCanonicalPayloadPreservesCPURankCost(t *testing.T) {
 			class: advisorBlockClassShared,
 		},
 	}
-	firstCanonical, err := newCanonicalPartitionResidual(firstDemands, topology)
+	firstCanonical, err := newCanonicalPartitionResidualWithLimit(firstDemands, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
-	secondCanonical, err := newCanonicalPartitionResidual(secondDemands, topology)
+	secondCanonical, err := newCanonicalPartitionResidualWithLimit(secondDemands, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
 	require.NotEqual(t, firstCanonical.payload, secondCanonical.payload,
 		"cpuRank contributes to partitionEdgeCost, so a rank permutation is not equivalent")
@@ -192,10 +194,11 @@ func TestSolvePartitionResidualCachedCachesOnlySemanticInfeasibility(t *testing.
 		}
 		cache, cacheErr := newPartitionResidualSolveCache(topology)
 		require.NoError(t, cacheErr)
-		require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{
+		demandSets := [][]partitionDemand{
 			demands,
 			{demands[2], demands[1], demands[0]},
-		}))
+		}
+		require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 		searchBudget := defaultPartitionSearchBudget()
 
 		_, hit, _, err := solvePartitionResidualCached(
@@ -223,9 +226,10 @@ func TestSolvePartitionResidualCachedCachesOnlySemanticInfeasibility(t *testing.
 		}}
 		cache, cacheErr := newPartitionResidualSolveCache(topology)
 		require.NoError(t, cacheErr)
-		require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{
+		demandSets := [][]partitionDemand{
 			demands, demands,
-		}))
+		}
+		require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 		searchBudget := defaultPartitionSearchBudget()
 
 		for i := 0; i < 2; i++ {
@@ -246,9 +250,10 @@ func TestSolvePartitionResidualCachedCachesOnlySemanticInfeasibility(t *testing.
 		}}
 		cache, cacheErr := newPartitionResidualSolveCache(topology)
 		require.NoError(t, cacheErr)
-		require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{
+		demandSets := [][]partitionDemand{
 			demands, demands,
-		}))
+		}
+		require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 		searchBudget := defaultPartitionSearchBudget()
 
 		for i := 0; i < 2; i++ {
@@ -311,15 +316,15 @@ func TestPartitionResidualSolveCacheUsesDigestOnlyAsBucket(t *testing.T) {
 	t.Parallel()
 	cache, err := newPartitionResidualSolveCache(partitionSolverFixtureTopology())
 	require.NoError(t, err)
-	first, err := newCanonicalPartitionResidual([]partitionDemand{{
+	first, err := newCanonicalPartitionResidualWithLimit([]partitionDemand{{
 		key: "first", quantity: 1, eligible: machine.NewCPUSet(0, 1),
 		class: advisorBlockClassDedicated,
-	}}, cache.topology)
+	}}, cache.topology, int(^uint(0)>>1))
 	require.NoError(t, err)
-	second, err := newCanonicalPartitionResidual([]partitionDemand{{
+	second, err := newCanonicalPartitionResidualWithLimit([]partitionDemand{{
 		key: "second", quantity: 1, eligible: machine.NewCPUSet(0, 1),
 		class: advisorBlockClassDedicated,
-	}}, cache.topology)
+	}}, cache.topology, int(^uint(0)>>1))
 	require.NoError(t, err)
 	second.digest = first.digest // deterministic collision injection
 	cache.repeatedDigests[first.digest] = struct{}{}
@@ -352,7 +357,7 @@ func TestPartitionResidualSolveCacheRetainsOnlyTrueRepeatsWithoutEviction(t *tes
 		}})
 	}
 	all = append(all, repeated)
-	require.NoError(t, preparePartitionResidualCache(cache, all))
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(all), func(i int) []partitionDemand { return all[i] }))
 
 	oracleBudget := defaultPartitionSearchBudget()
 	for _, demands := range all[:len(all)-1] {
@@ -402,9 +407,10 @@ func TestPartitionResidualCacheCapacityDoesNotRejectSolvableDenseGraph(t *testin
 
 	cache, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
-	require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{
+	demandSets := [][]partitionDemand{
 		demands, equivalent,
-	}), "cache capacity must not turn a solvable graph into an error")
+	}
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }), "cache capacity must not turn a solvable graph into an error")
 	require.Greater(t, cache.usage.retainedBytes, 4<<20,
 		"regression fixture must exceed the removed arbitrary per-payload limit")
 
@@ -443,7 +449,8 @@ func TestPartitionResidualCachePreparationHasDeterministicInvocationBounds(t *te
 			cache, err := newPartitionResidualSolveCache(topology)
 			require.NoError(t, err)
 			cache.limits.maxPreparationGraphs = 1
-			err = preparePartitionResidualCache(cache, [][]partitionDemand{demands, demands})
+			demandSets := [][]partitionDemand{demands, demands}
+			err = preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] })
 			require.ErrorIs(t, err, errPartitionResidualPreparationWorkBudget)
 			messages = append(messages, err.Error())
 			require.Empty(t, cache.entries)
@@ -458,7 +465,8 @@ func TestPartitionResidualCachePreparationHasDeterministicInvocationBounds(t *te
 		cache, err := newPartitionResidualSolveCache(topology)
 		require.NoError(t, err)
 		cache.limits.maxCanonicalWork = 1
-		err = preparePartitionResidualCache(cache, [][]partitionDemand{demands})
+		demandSets := [][]partitionDemand{demands}
+		err = preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] })
 		require.ErrorIs(t, err, errPartitionResidualPreparationWorkBudget)
 		require.Contains(t, err.Error(), "canonical work units")
 		require.Equal(t, 1, cache.usage.preparationGraphs)
@@ -471,7 +479,8 @@ func TestPartitionResidualCachePreparationHasDeterministicInvocationBounds(t *te
 		cache, err := newPartitionResidualSolveCache(topology)
 		require.NoError(t, err)
 		cache.limits.maxRetainedBytes = 1
-		err = preparePartitionResidualCache(cache, [][]partitionDemand{demands, demands})
+		demandSets := [][]partitionDemand{demands, demands}
+		err = preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] })
 		require.ErrorIs(t, err, errPartitionResidualRetainedMemoryBudget)
 		require.Contains(t, err.Error(), "canonical payload bytes")
 		require.Empty(t, cache.entries)
@@ -488,7 +497,8 @@ func TestPartitionResidualCacheBoundsRetainedResults(t *testing.T) {
 	}
 	cache, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
-	require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{demands, demands}))
+	demandSets := [][]partitionDemand{demands, demands}
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 	cache.limits.maxResultUnits = 1
 	searchBudget := defaultPartitionSearchBudget()
 
@@ -508,10 +518,11 @@ func TestPartitionResidualCacheEntryReusesPreparedPayloadOwnership(t *testing.T)
 	}}
 	cache, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
-	require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{
+	demandSets := [][]partitionDemand{
 		demands, demands,
-	}))
-	canonical, err := newCanonicalPartitionResidual(demands, topology)
+	}
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
+	canonical, err := newCanonicalPartitionResidualWithLimit(demands, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
 	prepared := cache.repeatedPayloads[canonical.digest][canonical.payload]
 	require.NotNil(t, prepared)
@@ -581,9 +592,9 @@ func TestPartitionResidualCacheDifferentialOracleAcrossCPUIdentityNUMASMTAndTie(
 			preferred: machine.NewCPUSet(1), class: advisorBlockClassDedicated,
 		},
 	}
-	firstCanonical, err := newCanonicalPartitionResidual(first, topology)
+	firstCanonical, err := newCanonicalPartitionResidualWithLimit(first, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
-	secondCanonical, err := newCanonicalPartitionResidual(second, topology)
+	secondCanonical, err := newCanonicalPartitionResidualWithLimit(second, topology, int(^uint(0)>>1))
 	require.NoError(t, err)
 	require.Equal(t, firstCanonical.payload, secondCanonical.payload,
 		"equivalent topology features must cross concrete CPU identity")
@@ -595,7 +606,8 @@ func TestPartitionResidualCacheDifferentialOracleAcrossCPUIdentityNUMASMTAndTie(
 
 	cache, err := newPartitionResidualSolveCache(topology)
 	require.NoError(t, err)
-	require.NoError(t, preparePartitionResidualCache(cache, [][]partitionDemand{first, second}))
+	demandSets := [][]partitionDemand{first, second}
+	require.NoError(t, preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand { return demandSets[i] }))
 	searchBudget := defaultPartitionSearchBudget()
 	cachedFirst, hit, _, err := solvePartitionResidualCached(
 		first, cache, defaultPartitionGraphBudget(), &searchBudget)

@@ -1385,39 +1385,6 @@ type numaBindingPartitionEligibilitySnapshot struct {
 	partitionEligiblePerNUMA map[int]machine.CPUSet
 }
 
-// allocateNumaBindingCPUs allocates CPUs for NUMA binding containers.
-// It considers NUMA affinity, exclusive requirements, and resource package pinning.
-// Steps:
-//  1. Calculate the initial available CPUSet based on the TopologyHint (NUMA nodes).
-//  2. If a Resource Package is specified in annotations:
-//     a. If the package has pinned CPUs, restrict the available CPUs to the intersection of NUMA CPUs and Pinned CPUs.
-//     b. If the package is not pinned but others are, exclude other packages' pinned CPUs.
-//  3. Allocate CPUs from the calculated available set using the topology calculator.
-func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap, reqAnnotations map[string]string, podReclaimEnabled bool,
-) (machine.CPUSet, machine.CPUSet, error) {
-	result, hardReclaimCPUs, _, err := p.allocateNumaBindingCPUsWithEligibility(
-		numCPUs, hint, machineState, reqAnnotations, podReclaimEnabled)
-	return result, hardReclaimCPUs, err
-}
-
-func (p *DynamicPolicy) allocateNumaBindingCPUsWithEligibility(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap, reqAnnotations map[string]string, podReclaimEnabled bool,
-) (machine.CPUSet, machine.CPUSet, *numaBindingPartitionEligibilitySnapshot, error) {
-	return p.allocateNumaBindingCPUsWithEligibilityAndPreference(
-		numCPUs, hint, machineState, reqAnnotations, podReclaimEnabled, nil)
-}
-
-func (p *DynamicPolicy) allocateNumaBindingCPUsWithEligibilityAndPreference(numCPUs int, hint *pluginapi.TopologyHint,
-	machineState state.NUMANodeMap, reqAnnotations map[string]string, podReclaimEnabled bool,
-	preference *numaBindingAllocationPreference,
-) (machine.CPUSet, machine.CPUSet, *numaBindingPartitionEligibilitySnapshot, error) {
-	return p.allocateNumaBindingCPUsWithSnapshot(
-		numCPUs, hint, machineState, reqAnnotations, podReclaimEnabled, preference,
-		p.state.GetPodEntries(), p.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
-		p.config.dynamicConfig.GetDynamicConfiguration())
-}
-
 func (p *DynamicPolicy) allocateNumaBindingCPUsWithSnapshot(numCPUs int, hint *pluginapi.TopologyHint,
 	machineState state.NUMANodeMap, reqAnnotations map[string]string, podReclaimEnabled bool,
 	preference *numaBindingAllocationPreference, committedEntries state.PodEntries,
@@ -2194,16 +2161,6 @@ func (p *DynamicPolicy) adjustAllocationEntriesAtRevisionWithContext(
 		})
 }
 
-func (p *DynamicPolicy) adjustAllocationEntriesForRecoveryAtRevision(
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	persistCheckpoint bool,
-	expectedRevision uint64,
-) error {
-	return p.adjustAllocationEntriesForRecoveryAtRevisionWithContext(
-		context.Background(), entries, machineState, persistCheckpoint, expectedRevision)
-}
-
 func (p *DynamicPolicy) adjustAllocationEntriesForRecoveryAtRevisionWithContext(
 	ctx context.Context,
 	entries state.PodEntries,
@@ -2263,23 +2220,6 @@ func (p *DynamicPolicy) adjustAllocationEntriesAfterDeletionAtRevisionWithContex
 	general.Warningf("retry pod deletion in default-share recovery mode: %v", err)
 	return p.adjustAllocationEntriesForRecoveryAtRevisionWithContext(
 		ctx, entries, machineState, persistCheckpoint, expectedRevision)
-}
-
-func (p *DynamicPolicy) adjustAllocationEntriesWithRampUpFloor(
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	persistCheckpoint bool,
-	explicitRampUpFloor machine.CPUSet,
-	runCPUSetHandlers bool,
-) error {
-	return p.adjustAllocationEntriesWithOptions(
-		context.Background(), entries, machineState, persistCheckpoint,
-		adjustAllocationOptions{
-			expectedRevision:    p.state.GetRevision(),
-			explicitRampUpFloor: explicitRampUpFloor,
-			runCPUSetHandlers:   runCPUSetHandlers,
-			defaultShareMode:    defaultShareMaterializationNormal,
-		})
 }
 
 func (p *DynamicPolicy) adjustAllocationEntriesWithRampUpFloorAtRevision(
@@ -2390,41 +2330,6 @@ func (p *DynamicPolicy) adjustAllocationEntriesWithOptions(
 	}
 
 	return nil
-}
-
-// adjustPoolsAndIsolatedEntries works for the following steps
-// 1. calculate pools and isolated cpusets according to expectant quantities
-// 2. make reclaimed overlap with numa-binding
-// 3. apply them to local state; precommit removes orphan pools before the CAS
-func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
-	poolsQuantityMap map[string]map[int]int,
-	isolatedQuantityMap map[string]map[string]int,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	persistCheckpoint bool,
-) error {
-	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
-	return p.adjustPoolsAndIsolatedEntriesWithRampUpFloorForModeAtRevision(
-		context.Background(), poolsQuantityMap, isolatedQuantityMap, entries, machineState, persistCheckpoint,
-		machine.NewCPUSet(), true, p.state.GetRevision(), defaultShareMaterializationNormal, dynamicConf)
-}
-
-func (p *DynamicPolicy) adjustPoolsAndIsolatedEntriesWithRampUpFloorAtRevision(
-	ctx context.Context,
-	poolsQuantityMap map[string]map[int]int,
-	isolatedQuantityMap map[string]map[string]int,
-	entries state.PodEntries,
-	machineState state.NUMANodeMap,
-	persistCheckpoint bool,
-	explicitRampUpFloor machine.CPUSet,
-	runCPUSetHandlers bool,
-	expectedRevision uint64,
-) error {
-	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
-	return p.adjustPoolsAndIsolatedEntriesWithRampUpFloorForModeAtRevision(
-		ctx, poolsQuantityMap, isolatedQuantityMap, entries, machineState,
-		persistCheckpoint, explicitRampUpFloor, runCPUSetHandlers,
-		expectedRevision, defaultShareMaterializationNormal, dynamicConf)
 }
 
 // adjustPoolsAndIsolatedEntriesWithRampUpFloorForModeAtRevision keeps the
@@ -3036,33 +2941,9 @@ func hasLiveDefaultShareOwner(entries state.PodEntries) bool {
 	return false
 }
 
-// materializeDefaultShareCPUSet computes the residual cpuset for the default
-// share pool by subtracting every fixed pool (except the default share pool
-// itself) and every isolated container cpuset from availableCPUs, then fails
-// closed when the expected quantity produced by SysAdvisor is smaller than the
-// residual size.
-//
-// Mutual-exclusion premise: this residual backfill relies on
-// FillDefaultSharePoolWithNonReclaimCPUs (the backfill gate) and
-// AllowSharedCoresOverlapReclaimedCores being mutually exclusive. That
-// mutual exclusion is enforced on the SysAdvisor side by
-// validateDefaultShareBackfillConfig (assembler_common.go) at the quantity
-// layer: when the gate is enabled but overlap is allowed it errors out and no
-// default share quantity is produced. Therefore we deliberately do NOT
-// re-validate the overlap flag here. Even if both flags were mis-enabled
-// together, the residual size could exceed the expected quantity and the check
-// below makes QRM fail closed (reject the allocation) rather than silently
-// produce a wrong cpuset. A larger expected quantity is accepted because
-// SysAdvisor publishes the allocatable upper bound while QRM materializes the
-// exact current reclaim/fixed/isolated CPUSet union; the residual cpuset is the
-// CPUSet-level source of truth.
-func materializeDefaultShareCPUSet(expectedQuantity int, availableCPUs machine.CPUSet,
-	pools map[string]machine.CPUSet, isolated map[string]map[string]machine.CPUSet,
-) (machine.CPUSet, error) {
-	return materializeDefaultShareCPUSetForMode(
-		expectedQuantity, availableCPUs, pools, isolated, defaultShareMaterializationNormal)
-}
-
+// materializeDefaultShareCPUSetForMode derives the residual from the final fixed
+// and isolated CPU sets. Normal mode enforces the advisor's quantity upper bound;
+// frozen and recovery modes retain the live residual while advice catches up.
 func materializeDefaultShareCPUSetForMode(expectedQuantity int, availableCPUs machine.CPUSet,
 	pools map[string]machine.CPUSet, isolated map[string]map[string]machine.CPUSet,
 	mode defaultShareMaterializationMode,
@@ -3094,13 +2975,8 @@ func materializeDefaultShareCPUSetForMode(expectedQuantity int, availableCPUs ma
 	return residual, nil
 }
 
-// finalizeDefaultShareEntry re-derives the default share pool cpuset from the
-// post-overlap / post-revise pool entries and installs it into newPodEntries.
-// It reads each non-share pool's AllocationResult directly from newPodEntries
-// so that any adjustment made by reclaimOverlapNUMABinding / reviseReclaimPool /
-// explicitRampUpFloor is naturally reflected in the residual. Normal updates
-// reject residuals above advice; rollback and pod-removal recovery preserve the
-// live residual until SysAdvisor catches up.
+// finalizeDefaultShareEntryForMode reads post-revise pool allocations so reclaim
+// and isolation changes are reflected in the final residual.
 func (p *DynamicPolicy) finalizeDefaultShareEntry(
 	newPodEntries state.PodEntries,
 	ownershipEntries state.PodEntries,
@@ -4976,14 +4852,6 @@ func isRampUpReclaimHardPartitionEnabledWithConfig(dyn *dynamicconfig.Configurat
 	return dyn != nil && dyn.EnableReclaim && dyn.EnableRampUpReclaimHardPartition
 }
 
-func (p *DynamicPolicy) getSharedNUMABindingCPUIncrRatio() float64 {
-	var dyn *dynamicconfig.Configuration
-	if p != nil && p.config.dynamicConfig != nil {
-		dyn = p.config.dynamicConfig.GetDynamicConfiguration()
-	}
-	return getSharedNUMABindingCPUIncrRatioWithConfig(dyn)
-}
-
 func getSharedNUMABindingCPUIncrRatioWithConfig(dyn *dynamicconfig.Configuration) float64 {
 	if isRampUpReclaimHardPartitionEnabledWithConfig(dyn) {
 		return cpuconsts.CPUIncrRatioDefault
@@ -5580,24 +5448,6 @@ func (p *DynamicPolicy) numaBindingPartitionEligibility(
 		)
 	}
 	return dedicatedEligiblePerNUMA, reclaimEligiblePerNUMA, nil
-}
-
-// selectNumaBindingReclaimPartition preserves mandatory reclaim identities and
-// fills the caller-selected steady or ramp-up target within each hinted NUMA.
-func (p *DynamicPolicy) selectNumaBindingReclaimPartition(
-	derivedFloor machine.CPUSet,
-	dedicatedEligiblePerNUMA, reclaimEligiblePerNUMA map[int]machine.CPUSet,
-	hintNodes []uint64,
-	coverExclusivePartition bool,
-) (machine.CPUSet, error) {
-	return p.selectNumaBindingReclaimPartitionWithPreference(
-		derivedFloor,
-		dedicatedEligiblePerNUMA,
-		reclaimEligiblePerNUMA,
-		hintNodes,
-		coverExclusivePartition,
-		nil,
-	)
 }
 
 // committedReclaimPoolCPUs is a pure, best-effort read of the committed reclaim

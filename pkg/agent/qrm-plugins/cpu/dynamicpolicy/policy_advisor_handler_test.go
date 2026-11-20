@@ -646,6 +646,8 @@ func testSteadyJointTargetsRecoverShortDNBAndConverge(t *testing.T) {
 }
 
 func TestAdvisorWriteAheadFollowsCPUSetPluginConfig(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name                               string
 		enable, cpuset, workqueue, wantWAL bool
@@ -655,7 +657,9 @@ func TestAdvisorWriteAheadFollowsCPUSetPluginConfig(t *testing.T) {
 		{name: "global gate closed", cpuset: true},
 		{name: "cpuset enabled", enable: true, cpuset: true, wantWAL: true},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			policy, cleanup := newReclaimReuseTestPolicy(t)
 			defer cleanup()
 			cfg := &policy.config.dynamicConfig.GetDynamicConfiguration().BulkheadConfig
@@ -700,6 +704,8 @@ func TestAdvisorWriteAheadFollowsCPUSetPluginConfig(t *testing.T) {
 }
 
 func TestAdvisorVolatileTargetRetriesFailedApply(t *testing.T) {
+	t.Parallel()
+
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -728,8 +734,12 @@ func TestAdvisorVolatileTargetRetriesFailedApply(t *testing.T) {
 }
 
 func TestAdvisorVolatileTargetActivatesWALBeforeLivePluginEnable(t *testing.T) {
+	t.Parallel()
+
 	for _, failPersist := range []bool{false, true} {
+		failPersist := failPersist
 		t.Run(fmt.Sprint(failPersist), func(t *testing.T) {
+			t.Parallel()
 			p, cleanup := newReclaimReuseTestPolicy(t)
 			defer cleanup()
 			p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -753,7 +763,8 @@ func TestAdvisorVolatileTargetActivatesWALBeforeLivePluginEnable(t *testing.T) {
 					return nil
 				},
 			}
-			resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{},
+			resp := &advisorapi.ListAndWatchResponse{
+				Entries:      map[string]*advisorapi.CalculationEntries{},
 				ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{}}},
 			}
 			err := p.allocateByCPUAdvisor(nil, resp, nil)
@@ -774,6 +785,11 @@ func TestAdvisorVolatileTargetActivatesWALBeforeLivePluginEnable(t *testing.T) {
 }
 
 func TestAdvisorVolatileHeadroomSharesCanonicalCheckpoint(t *testing.T) {
+	t.Parallel()
+	if runFunctionPatchTestInSubprocess(t) {
+		return
+	}
+
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	resp := &advisorapi.ListAndWatchResponse{
@@ -811,7 +827,9 @@ func TestGetAdvisorNUMAHeadroom(t *testing.T) {
 		{name: "invalid before valid", values: []string{"invalid", `{"0":2}`}, wantErr: true},
 		{name: "valid before invalid", values: []string{`{"0":2}`, "invalid"}, wantErr: true},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			resp := &advisorapi.ListAndWatchResponse{ExtraEntries: []*advisorsvc.CalculationInfo{
 				nil, {}, {CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{"other": "ignored"}}},
 			}}
@@ -837,8 +855,15 @@ func TestGetAdvisorNUMAHeadroom(t *testing.T) {
 }
 
 func TestAdvisorHeadroomCheckpointIndependentOfWriteAhead(t *testing.T) {
+	t.Parallel()
+
 	for _, mode := range []string{"disabled", "cpuset", "preserve", "cgroup"} {
+		mode := mode
 		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			if runFunctionPatchTestInSubprocess(t) {
+				return
+			}
 			p, cleanup := newReclaimReuseTestPolicy(t)
 			defer cleanup()
 			p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -899,9 +924,13 @@ func TestAdvisorHeadroomCheckpointIndependentOfWriteAhead(t *testing.T) {
 }
 
 func TestAdvisorHeadroomInputBoundaryBeforeCommit(t *testing.T) {
+	t.Parallel()
+
 	for _, enabled := range []bool{false, true} {
 		for _, input := range []string{"null", "ordered", "invalid"} {
+			enabled, input := enabled, input
 			t.Run(fmt.Sprintf("%t/%s", enabled, input), func(t *testing.T) {
+				t.Parallel()
 				p, cleanup := newReclaimReuseTestPolicy(t)
 				defer cleanup()
 				conf := p.config.dynamicConfig.GetDynamicConfiguration()
@@ -945,8 +974,15 @@ func TestAdvisorHeadroomInputBoundaryBeforeCommit(t *testing.T) {
 }
 
 func TestAdvisorHeadroomCheckpointFailureRollsBackBeforeEffects(t *testing.T) {
+	t.Parallel()
+
 	for _, enabled := range []bool{false, true} {
+		enabled := enabled
 		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			t.Parallel()
+			if runFunctionPatchTestInSubprocess(t) {
+				return
+			}
 			p, cleanup := newReclaimReuseTestPolicy(t)
 			defer cleanup()
 			conf := p.config.dynamicConfig.GetDynamicConfiguration()
@@ -989,6 +1025,8 @@ func TestAdvisorHeadroomCheckpointFailureRollsBackBeforeEffects(t *testing.T) {
 }
 
 func TestAdvisorVolatileReplanActivatesWriteAhead(t *testing.T) {
+	t.Parallel()
+
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	calls := 0
@@ -1014,6 +1052,8 @@ func TestAdvisorVolatileReplanActivatesWriteAhead(t *testing.T) {
 }
 
 func TestAdvisorVolatileCheckpointRecoveryNeedsNoResponseWAL(t *testing.T) {
+	t.Parallel()
+
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1050,8 +1090,12 @@ func TestAdvisorVolatileCheckpointRecoveryNeedsNoResponseWAL(t *testing.T) {
 }
 
 func TestAdvisorExtraControlFailureDoesNotFencePartition(t *testing.T) {
+	t.Parallel()
+
 	for _, enabled := range []bool{false, true} {
+		enabled := enabled
 		t.Run(fmt.Sprintf("wal=%t", enabled), func(t *testing.T) {
+			t.Parallel()
 			p, cleanup := newReclaimReuseTestPolicy(t)
 			defer cleanup()
 			p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1086,6 +1130,8 @@ func TestAdvisorExtraControlFailureDoesNotFencePartition(t *testing.T) {
 }
 
 func TestAdvisorControlFailureDoesNotSkipPhysicalRetry(t *testing.T) {
+	t.Parallel()
+
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1101,7 +1147,8 @@ func TestAdvisorControlFailureDoesNotSkipPhysicalRetry(t *testing.T) {
 		}
 		return nil
 	}
-	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{},
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{},
 		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
 			string(advisorapi.ControlKnobKeyCgroupConfig): `{}`,
 		}}}},
@@ -1123,6 +1170,8 @@ func TestAdvisorControlFailureDoesNotSkipPhysicalRetry(t *testing.T) {
 }
 
 func TestAdvisorExtraControlsRequireRedelivery(t *testing.T) {
+	t.Parallel()
+
 	p, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	p.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1134,7 +1183,8 @@ func TestAdvisorExtraControlsRequireRedelivery(t *testing.T) {
 		}
 		return nil
 	}
-	resp := &advisorapi.ListAndWatchResponse{Entries: map[string]*advisorapi.CalculationEntries{},
+	resp := &advisorapi.ListAndWatchResponse{
+		Entries: map[string]*advisorapi.CalculationEntries{},
 		ExtraEntries: []*advisorsvc.CalculationInfo{{CalculationResult: &advisorsvc.CalculationResult{Values: map[string]string{
 			string(advisorapi.ControlKnobKeyCgroupConfig): `{}`,
 		}}}},
@@ -1151,6 +1201,8 @@ func TestAdvisorExtraControlsRequireRedelivery(t *testing.T) {
 }
 
 func TestAdvisorWriteAheadRetainsIndependentMigration(t *testing.T) {
+	t.Parallel()
+
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	pending := &pendingAdvisorState{dynamicConfig: policy.config.dynamicConfig.GetDynamicConfiguration()}
@@ -1165,6 +1217,8 @@ func TestAdvisorWriteAheadRetainsIndependentMigration(t *testing.T) {
 }
 
 func TestDisabledAdvisorReplaysExistingWriteAheadBeforeNewFrame(t *testing.T) {
+	t.Parallel()
+
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	policy.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1193,6 +1247,8 @@ func TestDisabledAdvisorReplaysExistingWriteAheadBeforeNewFrame(t *testing.T) {
 }
 
 func TestDisabledAdvisorControlFailurePreservesCommittedState(t *testing.T) {
+	t.Parallel()
+
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	policy.adjustment.cpuSetAdjustmentRetryStopping = true
@@ -1223,6 +1279,8 @@ func TestDisabledAdvisorControlFailurePreservesCommittedState(t *testing.T) {
 }
 
 func TestDisabledAdvisorCheckpointFailureDoesNotApplyControls(t *testing.T) {
+	t.Parallel()
+
 	policy, cleanup := newReclaimReuseTestPolicy(t)
 	defer cleanup()
 	beforeEntries, beforeMachine, beforeRevision := policy.state.GetAdvisorStateSnapshot()
@@ -2457,7 +2515,18 @@ func TestSolveAdvisorDescriptorPhaseDoesNotStarveNarrowShared(t *testing.T) {
 			descriptors[i], descriptors[j] = descriptors[j], descriptors[i]
 		})
 		got := advisorapi.BlockCPUSet{}
-		remaining, solveErr := policy.solveAdvisorDescriptorPhase(descriptors, allCPUs, got, true, false)
+		entries := policy.state.GetPodEntries()
+		remaining, solveErr := policy.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+			descriptors,
+			allCPUs,
+			got,
+			true,
+			false,
+			nil,
+			entries.SteadyExclusiveNUMAs(policy.machine.machineInfo.CPUTopology),
+			entries,
+			policy.isRampUpReclaimHardPartitionEnabled() && policy.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+		)
 		require.NoError(t, solveErr, "seed %d", seed)
 		require.Equal(t, 28, got["reclaim-numa0"].Size(), "seed %d", seed)
 		require.Equal(t, 220, got["reclaim-global"].Size(), "seed %d", seed)
@@ -2510,7 +2579,18 @@ func TestSolveAdvisorDescriptorPhaseHandles24Plus178Plus4(t *testing.T) {
 	}
 
 	got := advisorapi.BlockCPUSet{}
-	remaining, err := policy.solveAdvisorDescriptorPhase(descriptors, available, got, true, false)
+	entries := policy.state.GetPodEntries()
+	remaining, err := policy.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		available,
+		got,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(policy.machine.machineInfo.CPUTopology),
+		entries,
+		policy.isRampUpReclaimHardPartitionEnabled() && policy.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.Equal(t, available, remaining)
 	require.ErrorContains(t, err, "insufficient aggregate capacity for quantity 178")
@@ -2542,7 +2622,18 @@ func TestSolveAdvisorDescriptorPhaseFailureIsAtomic(t *testing.T) {
 		},
 	}
 
-	remaining, err := policy.solveAdvisorDescriptorPhase(descriptors, allCPUs, result, true, false)
+	entries := policy.state.GetPodEntries()
+	remaining, err := policy.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		allCPUs,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(policy.machine.machineInfo.CPUTopology),
+		entries,
+		policy.isRampUpReclaimHardPartitionEnabled() && policy.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.Error(t, err)
 	require.Equal(t, allCPUs, remaining)

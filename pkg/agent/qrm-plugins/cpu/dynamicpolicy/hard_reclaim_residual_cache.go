@@ -312,14 +312,6 @@ func newPartitionResidualDigest(
 	return digest, nil
 }
 
-func newCanonicalPartitionResidual(
-	demands []partitionDemand,
-	topology *machine.CPUTopology,
-) (partitionResidualCanonical, error) {
-	return newCanonicalPartitionResidualWithLimit(
-		demands, topology, int(^uint(0)>>1))
-}
-
 func newCanonicalPartitionResidualWithLimit(
 	demands []partitionDemand,
 	topology *machine.CPUTopology,
@@ -390,15 +382,6 @@ func remapPartitionAssignments(
 		}
 	}
 	return result, nil
-}
-
-func preparePartitionResidualCache(
-	cache *partitionResidualSolveCache,
-	demandSets [][]partitionDemand,
-) error {
-	return preparePartitionResidualCacheLazy(cache, len(demandSets), func(i int) []partitionDemand {
-		return demandSets[i]
-	})
 }
 
 func preparePartitionResidualCacheLazy(

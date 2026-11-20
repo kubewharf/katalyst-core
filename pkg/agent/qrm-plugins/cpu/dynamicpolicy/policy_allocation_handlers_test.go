@@ -328,8 +328,7 @@ func TestSharedNUMABindingCPUIncrRatio(t *testing.T) {
 			dynamicConf.EnableReclaim = tt.enableReclaim
 			dynamicConf.EnableRampUpReclaimHardPartition = tt.enableHardFloor
 
-			p := &DynamicPolicy{config: configComponent{dynamicConfig: dyn}}
-			require.Equal(t, tt.want, p.getSharedNUMABindingCPUIncrRatio())
+			require.Equal(t, tt.want, getSharedNUMABindingCPUIncrRatioWithConfig(dynamicConf))
 		})
 	}
 }
@@ -794,9 +793,8 @@ func TestSharedNUMABindingRampUpSelectionExcludesReclaimFloor(t *testing.T) {
 		t.Parallel()
 		policy := createPolicy(t, false)
 
-		err := policy.adjustAllocationEntriesWithRampUpFloor(
-			policy.state.GetPodEntries(), policy.state.GetMachineState(),
-			false, machine.NewCPUSet(1), false)
+		err := policy.adjustAllocationEntriesWithRampUpFloorAtRevision(policy.state.GetPodEntries(), policy.state.GetMachineState(),
+			false, machine.NewCPUSet(1), false, policy.state.GetRevision())
 		require.NoError(t, err, "selection-time reclaim-floor exclusion must admit the pending SNB")
 
 		// The pending SNB keeps its exact AllocationResult and stays NUMA0-scoped.
@@ -821,9 +819,8 @@ func TestSharedNUMABindingRampUpSelectionExcludesReclaimFloor(t *testing.T) {
 		t.Parallel()
 		policy := createPolicy(t, true)
 
-		err := policy.adjustAllocationEntriesWithRampUpFloor(
-			policy.state.GetPodEntries(), policy.state.GetMachineState(),
-			false, machine.NewCPUSet(1), false)
+		err := policy.adjustAllocationEntriesWithRampUpFloorAtRevision(policy.state.GetPodEntries(), policy.state.GetMachineState(),
+			false, machine.NewCPUSet(1), false, policy.state.GetRevision())
 		require.ErrorContains(t, err, "ramp-up shared allocation is completely covered by the final reclaim pool")
 	})
 }
@@ -856,13 +853,11 @@ func TestNonSNBRampUpRemainsNodeWide(t *testing.T) {
 	}
 	policy.state.SetAllocationInfo(allocation.PodUid, allocation.ContainerName, allocation, false)
 
-	err = policy.adjustAllocationEntriesWithRampUpFloor(
-		policy.state.GetPodEntries(),
+	err = policy.adjustAllocationEntriesWithRampUpFloorAtRevision(policy.state.GetPodEntries(),
 		policy.state.GetMachineState(),
 		false,
 		machine.NewCPUSet(1),
-		false,
-	)
+		false, policy.state.GetRevision())
 	require.NoError(t, err)
 
 	updated := policy.state.GetAllocationInfo(allocation.PodUid, allocation.ContainerName)
@@ -2766,13 +2761,11 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionPreservesSelectedFloor(t
 		0: derivedFloor,
 	}
 
-	got, err := p.selectNumaBindingReclaimPartition(
-		derivedFloor,
+	got, err := p.selectNumaBindingReclaimPartitionWithPreference(derivedFloor,
 		dedicatedEligiblePerNUMA,
 		reclaimEligiblePerNUMA,
 		[]uint64{0},
-		true,
-	)
+		true, nil)
 	require.NoError(t, err)
 	require.True(t, derivedFloor.Equals(got), "want=%s got=%s", derivedFloor.String(), got.String())
 }
@@ -2817,8 +2810,7 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionPreservesMandatoryIdenti
 			sub.config.dynamicConfig.GetDynamicConfiguration().EnableRampUpReclaimHardPartition = true
 			sub.reclaim.reservedReclaimedCPUSet = tc.mandatory
 			sub.reclaim.reservedReclaimedCPUsSize = tc.mandatory.Size()
-			got, err := sub.selectNumaBindingReclaimPartition(
-				tc.derivedFloor,
+			got, err := sub.selectNumaBindingReclaimPartitionWithPreference(tc.derivedFloor,
 				map[int]machine.CPUSet{
 					0: topology.CPUDetails.CPUsInNUMANodes(0),
 				},
@@ -2826,8 +2818,7 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionPreservesMandatoryIdenti
 					0: tc.derivedFloor.Union(tc.mandatory),
 				},
 				[]uint64{0},
-				true,
-			)
+				true, nil)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				require.True(t, got.IsEmpty(), "got=%s", got)
@@ -2855,13 +2846,11 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionFallsBackWhenMandatoryId
 
 	derivedFloor := coresInNUMA(topology, 0, 0, 1)
 	eligible := coresInNUMA(topology, 0, 0, 2)
-	got, err := p.selectNumaBindingReclaimPartition(
-		derivedFloor,
+	got, err := p.selectNumaBindingReclaimPartitionWithPreference(derivedFloor,
 		map[int]machine.CPUSet{0: eligible},
 		map[int]machine.CPUSet{0: eligible},
 		[]uint64{0},
-		true,
-	)
+		true, nil)
 	require.NoError(t, err)
 	require.True(t, derivedFloor.Equals(got), "want=%s got=%s", derivedFloor, got)
 	require.True(t, got.Intersection(staleReserve).IsEmpty(), "got=%s", got)
@@ -2881,13 +2870,11 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionRoundsMixedSMTSupplement
 	mandatory := machine.NewCPUSet(0, 1, 2, 3)
 	derivedFloor := machine.NewCPUSet(4, 5, 6, 7, 8)
 	eligible := topology.CPUDetails.CPUs().Difference(machine.NewCPUSet(11))
-	got, err := p.selectNumaBindingReclaimPartition(
-		derivedFloor,
+	got, err := p.selectNumaBindingReclaimPartitionWithPreference(derivedFloor,
 		map[int]machine.CPUSet{0: eligible.Difference(mandatory)},
 		map[int]machine.CPUSet{0: eligible},
 		[]uint64{0},
-		true,
-	)
+		true, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, mandatory, got)
@@ -3543,7 +3530,7 @@ func TestDynamicPolicyFinalizeDefaultShareEntryPrunesEmptyShareWhenZeroQuantity(
 		},
 	}
 
-	err = p.finalizeDefaultShareEntry(newPodEntries, state.PodEntries{}, 0, machine.NewCPUSet())
+	err = p.finalizeDefaultShareEntryForMode(newPodEntries, state.PodEntries{}, 0, machine.NewCPUSet(), defaultShareMaterializationNormal)
 	require.NoError(t, err)
 	_, exists := newPodEntries[commonstate.PoolNameShare]
 	require.False(t, exists, "zero-quantity empty residual must prune stale default share entry")
@@ -6858,7 +6845,7 @@ func TestDynamicPolicy_adjustPoolsAndIsolatedEntries_Pinned(t *testing.T) {
 		},
 	}
 
-	err = p.adjustPoolsAndIsolatedEntries(poolsQuantityMap, isolatedQuantityMap, entries, machineState, false)
+	err = p.adjustPoolsAndIsolatedEntriesWithRampUpFloor(poolsQuantityMap, isolatedQuantityMap, entries, machineState, false, machine.NewCPUSet(), true)
 	as.Nil(err)
 
 	updatedEntries := p.state.GetPodEntries()
@@ -7069,7 +7056,7 @@ func TestMaterializeDefaultShareCPUSet(t *testing.T) {
 	isolated := map[string]map[string]machine.CPUSet{
 		"pod": {"container": machine.NewCPUSet(4)},
 	}
-	got, err := materializeDefaultShareCPUSet(3, available, pools, isolated)
+	got, err := materializeDefaultShareCPUSetForMode(3, available, pools, isolated, defaultShareMaterializationNormal)
 	require.NoError(t, err)
 	require.True(t, got.Equals(machine.NewCPUSet(5, 6, 7)))
 }
@@ -7136,12 +7123,10 @@ func TestBuildDefaultShareEligibleCPUSetUsesFullTopologyAfterDNBMigration(t *tes
 func TestMaterializeDefaultShareCPUSetRejectsQuantityMismatch(t *testing.T) {
 	t.Parallel()
 
-	actual, err := materializeDefaultShareCPUSet(
-		2,
+	actual, err := materializeDefaultShareCPUSetForMode(2,
 		machine.NewCPUSet(0, 1, 2, 3),
 		map[string]machine.CPUSet{commonstate.PoolNameReclaim: machine.NewCPUSet(0)},
-		nil,
-	)
+		nil, defaultShareMaterializationNormal)
 	require.ErrorIs(t, err, ErrDefaultShareResidualQuantityMismatch)
 	var quantityErr *DefaultShareResidualQuantityError
 	require.ErrorAs(t, err, &quantityErr)
@@ -7153,15 +7138,13 @@ func TestMaterializeDefaultShareCPUSetRejectsQuantityMismatch(t *testing.T) {
 func TestMaterializeDefaultShareCPUSetAllowsAdvisorShrinkLag(t *testing.T) {
 	t.Parallel()
 
-	got, err := materializeDefaultShareCPUSet(
-		7,
+	got, err := materializeDefaultShareCPUSetForMode(7,
 		machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7),
 		map[string]machine.CPUSet{
 			commonstate.PoolNameReclaim: machine.NewCPUSet(0),
 			"snb-NUMA0":                 machine.NewCPUSet(1),
 		},
-		nil,
-	)
+		nil, defaultShareMaterializationNormal)
 	require.NoError(t, err)
 	require.True(t, got.Equals(machine.NewCPUSet(2, 3, 4, 5, 6, 7)),
 		"got=%s want=2-7", got)
@@ -7248,7 +7231,7 @@ func TestMaterializeDefaultShareCPUSetScenarios(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := materializeDefaultShareCPUSet(tt.expected, tt.available, tt.pools, tt.isolated)
+			got, err := materializeDefaultShareCPUSetForMode(tt.expected, tt.available, tt.pools, tt.isolated, defaultShareMaterializationNormal)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrSubstr != "" {
@@ -7310,7 +7293,7 @@ func TestMaterializeDefaultShareResidualIsCoreAlignedUnderComplementClosure(t *t
 	require.Equal(t, 0, expected%topology.CPUsPerCore(),
 		"complement of core-aligned sets must itself be a whole-core multiple")
 
-	share, err := materializeDefaultShareCPUSet(expected, available, pools, isolated)
+	share, err := materializeDefaultShareCPUSetForMode(expected, available, pools, isolated, defaultShareMaterializationNormal)
 	require.NoError(t, err)
 	require.Equal(t, expected, share.Size(),
 		"residual.Size() must equal expectedQuantity (fail-closed contract intact)")
@@ -7344,7 +7327,7 @@ func TestMaterializeDefaultShareResidualComplementClosureNonSMTZeroDrift(t *test
 	fixed := reclaim.Union(snb)
 	expected := available.Difference(fixed).Size()
 
-	share, err := materializeDefaultShareCPUSet(expected, available, pools, nil)
+	share, err := materializeDefaultShareCPUSetForMode(expected, available, pools, nil, defaultShareMaterializationNormal)
 	require.NoError(t, err)
 	require.Equal(t, expected, share.Size())
 	require.True(t, share.Equals(available.Difference(fixed)),
@@ -7392,7 +7375,7 @@ func TestFinalizeDefaultShareEntryReadsPostReviseState(t *testing.T) {
 	candidate := machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)
 
 	// residual = candidate - reclaim(0,1) - custom(6) - isolated(3) = {2,4,5,7}
-	require.NoError(t, p.finalizeDefaultShareEntry(newPodEntries, newPodEntries, 4, candidate))
+	require.NoError(t, p.finalizeDefaultShareEntryForMode(newPodEntries, newPodEntries, 4, candidate, defaultShareMaterializationNormal))
 	require.True(t, newPodEntries[commonstate.PoolNameShare][commonstate.FakedContainerName].
 		AllocationResult.Equals(machine.NewCPUSet(2, 4, 5, 7)))
 	require.NotEmpty(t, newPodEntries[commonstate.PoolNameShare][commonstate.FakedContainerName].
@@ -7400,12 +7383,12 @@ func TestFinalizeDefaultShareEntryReadsPostReviseState(t *testing.T) {
 
 	// simulate reviseReclaimPool growing the reclaim pool; share must shrink.
 	newPodEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult = machine.NewCPUSet(0, 1, 4)
-	require.NoError(t, p.finalizeDefaultShareEntry(newPodEntries, newPodEntries, 3, candidate))
+	require.NoError(t, p.finalizeDefaultShareEntryForMode(newPodEntries, newPodEntries, 3, candidate, defaultShareMaterializationNormal))
 	require.True(t, newPodEntries[commonstate.PoolNameShare][commonstate.FakedContainerName].
 		AllocationResult.Equals(machine.NewCPUSet(2, 5, 7)))
 
 	// fail-closed on quantity mismatch.
-	require.Error(t, p.finalizeDefaultShareEntry(newPodEntries, newPodEntries, 2, candidate))
+	require.Error(t, p.finalizeDefaultShareEntryForMode(newPodEntries, newPodEntries, 2, candidate, defaultShareMaterializationNormal))
 }
 
 func TestDynamicPolicyFinalizeDefaultShareEntryExcludesDNB(t *testing.T) {
@@ -7440,12 +7423,10 @@ func TestDynamicPolicyFinalizeDefaultShareEntryExcludesDNB(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, p.finalizeDefaultShareEntry(
-		newPodEntries,
+	require.NoError(t, p.finalizeDefaultShareEntryForMode(newPodEntries,
 		newPodEntries,
 		6,
-		machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7),
-	))
+		machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7), defaultShareMaterializationNormal))
 	shareCPUSet := newPodEntries[commonstate.PoolNameShare][commonstate.FakedContainerName].AllocationResult
 	require.True(t, shareCPUSet.Equals(machine.NewCPUSet(2, 4, 5, 6, 7)))
 	require.True(t, shareCPUSet.Intersection(dnbCPUSet).IsEmpty())
@@ -7480,8 +7461,7 @@ func TestFinalizeDefaultShareEntryAllowsAdvisorShrinkLag(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, p.finalizeDefaultShareEntry(
-		newPodEntries, newPodEntries, 7, machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7)))
+	require.NoError(t, p.finalizeDefaultShareEntryForMode(newPodEntries, newPodEntries, 7, machine.NewCPUSet(0, 1, 2, 3, 4, 5, 6, 7), defaultShareMaterializationNormal))
 	require.True(t, newPodEntries[commonstate.PoolNameShare][commonstate.FakedContainerName].
 		AllocationResult.Equals(machine.NewCPUSet(2, 3, 4, 5, 6, 7)))
 }
@@ -7520,7 +7500,7 @@ func TestFinalizeDefaultShareEntryHandlesEmptyResidualByLiveOwnershipAndMode(t *
 		t.Parallel()
 		entries := newEntries()
 
-		require.NoError(t, p.finalizeDefaultShareEntry(entries, entries, candidate.Size(), candidate))
+		require.NoError(t, p.finalizeDefaultShareEntryForMode(entries, entries, candidate.Size(), candidate, defaultShareMaterializationNormal))
 		require.NotContains(t, entries, commonstate.PoolNameShare)
 	})
 
@@ -7542,7 +7522,7 @@ func TestFinalizeDefaultShareEntryHandlesEmptyResidualByLiveOwnershipAndMode(t *
 			},
 		}
 
-		err := p.finalizeDefaultShareEntry(entries, entries, candidate.Size(), candidate)
+		err := p.finalizeDefaultShareEntryForMode(entries, entries, candidate.Size(), candidate, defaultShareMaterializationNormal)
 		require.ErrorContains(t, err, "default share residual is empty")
 		require.Contains(t, entries, commonstate.PoolNameShare)
 	})
@@ -7565,7 +7545,7 @@ func TestFinalizeDefaultShareEntryHandlesEmptyResidualByLiveOwnershipAndMode(t *
 			},
 		}
 
-		err := p.finalizeDefaultShareEntry(entries, entries, 0, candidate)
+		err := p.finalizeDefaultShareEntryForMode(entries, entries, 0, candidate, defaultShareMaterializationNormal)
 		require.ErrorContains(t, err, "default share residual is empty")
 		require.Contains(t, entries, commonstate.PoolNameShare)
 	})
@@ -7588,7 +7568,7 @@ func TestFinalizeDefaultShareEntryHandlesEmptyResidualByLiveOwnershipAndMode(t *
 			},
 		}
 
-		require.NoError(t, p.finalizeDefaultShareEntry(entries, entries, candidate.Size(), candidate))
+		require.NoError(t, p.finalizeDefaultShareEntryForMode(entries, entries, candidate.Size(), candidate, defaultShareMaterializationNormal))
 		require.NotContains(t, entries, commonstate.PoolNameShare)
 	})
 
@@ -7787,8 +7767,7 @@ func TestAdjustAllocationEntriesForRecoveryPreservesLiveDefaultShareResidual(t *
 	trackingState := &applyPoolsCommitGuardState{State: p.state}
 	p.state = trackingState
 
-	err = p.adjustAllocationEntriesForRecoveryAtRevision(
-		entries, machineState, true, p.state.GetRevision())
+	err = p.adjustAllocationEntriesForRecoveryAtRevisionWithContext(context.Background(), entries, machineState, true, p.state.GetRevision())
 	require.NoError(t, err)
 	require.Equal(t, 1, trackingState.conditionalCalls)
 	require.True(t, trackingState.conditionalPersist,
@@ -7844,8 +7823,7 @@ func TestAdjustAllocationEntriesForRecoveryMarksLatestStateRetry(t *testing.T) {
 		},
 	}
 
-	err = p.adjustAllocationEntriesForRecoveryAtRevision(
-		entries, machineState, true, p.state.GetRevision())
+	err = p.adjustAllocationEntriesForRecoveryAtRevisionWithContext(context.Background(), entries, machineState, true, p.state.GetRevision())
 	require.NoError(t, err)
 	require.Zero(t, handlerCalls,
 		"recovery commit must not run fallible cgroup handlers inline")
@@ -7902,8 +7880,7 @@ func TestAdjustAllocationEntriesForRecoveryConcurrentCASHasSingleOutcome(t *test
 		go func() {
 			defer wg.Done()
 			<-start
-			results <- p.adjustAllocationEntriesForRecoveryAtRevision(
-				entries, machineState, true, revision)
+			results <- p.adjustAllocationEntriesForRecoveryAtRevisionWithContext(context.Background(), entries, machineState, true, revision)
 		}()
 	}
 	close(start)
@@ -8014,8 +7991,7 @@ func TestAdjustAllocationEntriesForRecoveryAllowsDefaultShareFallbackWithoutHeal
 	require.NoError(t, err)
 	require.NoError(t, p.state.Commit(state.StateUpdate{PodEntries: entries, MachineState: machineState, AllowSharedCoresOverlapReclaimedCores: false, DisableDedicatedCoresOverlapReclaimedCores: false}, state.CommitOptions{Persist: false}))
 
-	err = p.adjustAllocationEntriesForRecoveryAtRevision(
-		entries, machineState, true, p.state.GetRevision())
+	err = p.adjustAllocationEntriesForRecoveryAtRevisionWithContext(context.Background(), entries, machineState, true, p.state.GetRevision())
 	require.NoError(t, err)
 	share := p.state.GetAllocationInfo(commonstate.PoolNameShare, commonstate.FakedContainerName)
 	require.NotNil(t, share)

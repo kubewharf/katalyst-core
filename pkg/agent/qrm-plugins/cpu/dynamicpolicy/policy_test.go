@@ -822,7 +822,7 @@ func TestSystemExclusivePoolSkipsNilAllocationInfo(t *testing.T) {
 		_, _, _ = policyImpl.calculateSystemExclusivePoolChanges(map[string]*state.AllocationInfo{}, map[string]int{})
 	})
 	as.NotPanics(func() {
-		err = policyImpl.adjustSystemCoresPodAllocation()
+		err = policyImpl.adjustSystemCoresPodAllocationInState(policyImpl.state)
 	})
 	as.Nil(err)
 }

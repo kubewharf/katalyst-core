@@ -598,9 +598,19 @@ func TestSolveAdvisorDescriptorPhaseValidationFailureHasNoSideEffects(t *testing
 
 	// This is a planner-only call boundary. Apply, cgroup, and Bulkhead writers
 	// are invoked only after a successful planner result and are not reachable
-	// from solveAdvisorDescriptorPhase itself.
-	_, err = policy.solveAdvisorDescriptorPhase(
-		descriptors, all, result, true, false)
+	// from solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs itself.
+	entries := policy.state.GetPodEntries()
+	_, err = policy.solveAdvisorDescriptorPhaseWithCheckpointTransitionAndSkipNUMAs(
+		descriptors,
+		all,
+		result,
+		true,
+		false,
+		nil,
+		entries.SteadyExclusiveNUMAs(policy.machine.machineInfo.CPUTopology),
+		entries,
+		policy.isRampUpReclaimHardPartitionEnabled() && policy.state.GetDisableDedicatedCoresOverlapReclaimedCores(),
+	)
 
 	require.ErrorContains(t, err, "outside machine topology")
 	require.Equal(t, beforeResult, result)

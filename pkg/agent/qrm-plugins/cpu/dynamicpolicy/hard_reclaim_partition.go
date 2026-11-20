@@ -349,23 +349,6 @@ func planHardReclaimPartition(in hardReclaimPartitionInput) (*hardReclaimPartiti
 	return plan, nil
 }
 
-func selectHardReclaimCoresWithFrontier(
-	candidates []coreAlignedCandidate,
-	target int,
-	currentReclaim machine.CPUSet,
-	groupCPUs map[string]machine.CPUSet,
-	groupDonationLimit map[string]int,
-) (machine.CPUSet, error) {
-	candidatesByNUMA := make([]hardReclaimCoreSelectionCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		candidatesByNUMA = append(candidatesByNUMA, hardReclaimCoreSelectionCandidate{
-			coreAlignedCandidate: candidate,
-		})
-	}
-	return selectHardReclaimCoresByNUMAWithFrontier(
-		candidatesByNUMA, []int{0}, []int{target}, currentReclaim, groupCPUs, groupDonationLimit)
-}
-
 func selectHardReclaimCoresByNUMAWithFrontier(
 	candidates []hardReclaimCoreSelectionCandidate,
 	numaIDs []int,
@@ -816,20 +799,6 @@ func sortedHardReclaimNUMAIDs(values map[int]struct{}) []int {
 	return keys
 }
 
-func solveHardReclaimWithReplacement(
-	demands []partitionDemand,
-	available machine.CPUSet,
-	topology *machine.CPUTopology,
-	options hardReclaimReplacementOptions,
-) (map[string]machine.CPUSet, *hardReclaimReplacementProof, error) {
-	result, err := solveHardReclaimWithReplacementDiagnosed(
-		demands, available, topology, options)
-	if err != nil {
-		return nil, nil, err
-	}
-	return result.assignments, result.proof, nil
-}
-
 func solveHardReclaimWithReplacementDiagnosed(
 	demands []partitionDemand,
 	available machine.CPUSet,
@@ -1017,22 +986,6 @@ func solveHardReclaimWithReplacementDiagnosed(
 	}, nil
 }
 
-func solveHardReclaimResidualCandidates(
-	states []hardReclaimReplacementGlobalState,
-	demands []partitionDemand,
-	available machine.CPUSet,
-	topology *machine.CPUTopology,
-	targetByNUMA map[int]int,
-	options hardReclaimReplacementOptions,
-	residualCache *partitionResidualSolveCache,
-	searchBudget *partitionSearchBudget,
-) (map[string]machine.CPUSet, *hardReclaimReplacementProof, error) {
-	var diagnostics hardReclaimSearchDiagnostics
-	return solveHardReclaimResidualCandidatesDiagnosed(
-		states, demands, available, topology, targetByNUMA, options,
-		residualCache, searchBudget, &diagnostics)
-}
-
 func solveHardReclaimResidualCandidatesDiagnosed(
 	states []hardReclaimReplacementGlobalState,
 	demands []partitionDemand,
@@ -1115,18 +1068,6 @@ func isPartitionSolverBudgetError(err error) bool {
 		errors.Is(err, errPartitionFlowOperationBudget) ||
 		errors.Is(err, errPartitionResidualPreparationWorkBudget) ||
 		errors.Is(err, errPartitionResidualRetainedMemoryBudget)
-}
-
-func enumerateHardReclaimReplacementInNUMA(
-	demands []partitionDemand,
-	available machine.CPUSet,
-	topology *machine.CPUTopology,
-	numaID, target int,
-	options hardReclaimReplacementOptions,
-) ([]hardReclaimReplacementResult, error) {
-	var diagnostics hardReclaimSearchDiagnostics
-	return enumerateHardReclaimReplacementInNUMADiagnosed(
-		demands, available, topology, numaID, target, options, &diagnostics)
 }
 
 func enumerateHardReclaimReplacementInNUMADiagnosed(

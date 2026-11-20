@@ -509,8 +509,14 @@ func TestSelectHardReclaimCoresReportsFrontierTruncation(t *testing.T) {
 		groupDonationLimit[groupKey] = 1
 	}
 
-	selected, err := selectHardReclaimCoresWithFrontier(
-		candidates, 10, machine.NewCPUSet(), groupCPUs, groupDonationLimit)
+	candidatesByNUMA := make([]hardReclaimCoreSelectionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidatesByNUMA = append(candidatesByNUMA, hardReclaimCoreSelectionCandidate{
+			coreAlignedCandidate: candidate,
+		})
+	}
+	selected, err := selectHardReclaimCoresByNUMAWithFrontier(
+		candidatesByNUMA, []int{0}, []int{10}, machine.NewCPUSet(), groupCPUs, groupDonationLimit)
 
 	require.True(t, selected.IsEmpty())
 	require.ErrorContains(t, err, "search frontier truncated")
@@ -618,12 +624,13 @@ func TestPlanHardReclaimPartitionRepairsDedicatedBoundaryByReplacement(t *testin
 	require.ErrorAs(t, err, &selectionErr)
 	require.Equal(t, hardReclaimFailureDonorFloor, selectionErr.reason)
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands,
 		topology.CPUDetails.CPUs(),
 		topology,
 		defaultHardReclaimReplacementOptions(),
 	)
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 	require.NoError(t, err)
 	require.NotNil(t, proof)
 
@@ -822,13 +829,15 @@ func TestHardReclaimReplacementIsDeterministic(t *testing.T) {
 	topology, demands, _, _ := productionNUMA2ReplacementFixture(t)
 	reversed := []partitionDemand{demands[1], demands[0]}
 
-	first, _, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, topology.CPUDetails.CPUs(), topology,
 		defaultHardReclaimReplacementOptions())
+	first, _ := diagnosed.assignments, diagnosed.proof
 	require.NoError(t, err)
-	second, _, err := solveHardReclaimWithReplacement(
+	diagnosed, err = solveHardReclaimWithReplacementDiagnosed(
 		reversed, topology.CPUDetails.CPUs(), topology,
 		defaultHardReclaimReplacementOptions())
+	second, _ := diagnosed.assignments, diagnosed.proof
 	require.NoError(t, err)
 
 	require.Equal(t, first, second)
@@ -858,9 +867,10 @@ func TestSolveHardReclaimResidualCandidatesReusesExactGraph(t *testing.T) {
 	require.NoError(t, err)
 	searchBudget := defaultPartitionSearchBudget()
 
-	assignments, proof, err := solveHardReclaimResidualCandidates(
+	var diagnostics hardReclaimSearchDiagnostics
+	assignments, proof, err := solveHardReclaimResidualCandidatesDiagnosed(
 		states, demands, available, topology, map[int]int{0: 1},
-		defaultHardReclaimReplacementOptions(), cache, &searchBudget)
+		defaultHardReclaimReplacementOptions(), cache, &searchBudget, &diagnostics)
 	require.NoError(t, err)
 	require.NotNil(t, proof)
 	require.Len(t, assignments, 2)
@@ -889,9 +899,10 @@ func TestHardReclaimReplacementExcludesSharedOwnershipFromCandidates(t *testing.
 				},
 			}
 
-			assignments, proof, err := solveHardReclaimWithReplacement(
+			diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 				demands, topology.CPUDetails.CPUs(), topology,
 				defaultHardReclaimReplacementOptions())
+			assignments, proof := diagnosed.assignments, diagnosed.proof
 
 			require.Nil(t, assignments)
 			require.Nil(t, proof)
@@ -922,9 +933,10 @@ func TestHardReclaimReplacementDefaultBudgetHandlesTwo16CoreNUMAsChoosingFour(t 
 		},
 	}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, topology.CPUDetails.CPUs(), topology,
 		defaultHardReclaimReplacementOptions())
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.NoError(t, err)
 	require.NotNil(t, assignments)
@@ -961,9 +973,10 @@ func TestHardReclaimReplacementPreservesPerDemandNUMACounts(t *testing.T) {
 		},
 	}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, topology.CPUDetails.CPUs(), topology,
 		defaultHardReclaimReplacementOptions())
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.NoError(t, err)
 	require.NotNil(t, proof)
@@ -976,12 +989,13 @@ func TestHardReclaimReplacementRejectsBudgetExhaustion(t *testing.T) {
 
 	topology, demands, _, _ := productionNUMA2ReplacementFixture(t)
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands,
 		topology.CPUDetails.CPUs(),
 		topology,
 		hardReclaimReplacementOptions{maxCandidateStates: 1, maxTerminalSolves: 1},
 	)
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.Nil(t, assignments)
 	require.Nil(t, proof)
@@ -1004,7 +1018,7 @@ func TestHardReclaimReplacementRejectsFeasibleTruncatedTerminalSet(t *testing.T)
 		class:     advisorBlockClassMandatoryReclaim,
 	}}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands,
 		numa,
 		topology,
@@ -1013,6 +1027,7 @@ func TestHardReclaimReplacementRejectsFeasibleTruncatedTerminalSet(t *testing.T)
 			maxTerminalSolves:  1,
 		},
 	)
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.Nil(t, assignments)
 	require.Nil(t, proof)
@@ -1052,8 +1067,9 @@ func TestHardReclaimReplacementDoesNotExpandAliasPreferredIntoLocalQuantity(t *t
 				},
 			}
 
-			assignments, proof, err := solveHardReclaimWithReplacement(
+			diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 				demands, numa, topology, defaultHardReclaimReplacementOptions())
+			assignments, proof := diagnosed.assignments, diagnosed.proof
 
 			require.NoError(t, err)
 			require.NotNil(t, proof)
@@ -1103,8 +1119,9 @@ func TestHardReclaimReplacementOptimizesTouchedGroupUnionAcrossNUMAs(t *testing.
 		},
 	}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, all, topology, defaultHardReclaimReplacementOptions())
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.NoError(t, err)
 	require.NotNil(t, proof)
@@ -1138,8 +1155,14 @@ func TestSelectHardReclaimCoresAcceptsFeasibleFromTruncatedFrontier(t *testing.T
 	// but retains feasible terminal states (any single CPU hits the target).
 	// The planner must accept the best retained feasible solution rather than
 	// returning search_budget.
-	selected, err := selectHardReclaimCoresWithFrontier(
-		candidates, 1, machine.NewCPUSet(), groupCPUs, groupDonationLimit)
+	candidatesByNUMA := make([]hardReclaimCoreSelectionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidatesByNUMA = append(candidatesByNUMA, hardReclaimCoreSelectionCandidate{
+			coreAlignedCandidate: candidate,
+		})
+	}
+	selected, err := selectHardReclaimCoresByNUMAWithFrontier(
+		candidatesByNUMA, []int{0}, []int{1}, machine.NewCPUSet(), groupCPUs, groupDonationLimit)
 
 	require.NoError(t, err)
 	require.False(t, selected.IsEmpty())
@@ -1173,7 +1196,7 @@ func TestHardReclaimReplacementPropagatesResidualSolverBudget(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assignments, proof, err := solveHardReclaimWithReplacement(
+			diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 				demands,
 				numa,
 				topology,
@@ -1184,6 +1207,7 @@ func TestHardReclaimReplacementPropagatesResidualSolverBudget(t *testing.T) {
 					maxPartitionFlowOperations:  partitionFlowOperationBudget,
 				},
 			)
+			assignments, proof := diagnosed.assignments, diagnosed.proof
 
 			require.Nil(t, assignments)
 			require.Nil(t, proof)
@@ -1223,9 +1247,10 @@ func TestHardReclaimReplacementRetriesConflictingGlobalCandidate(t *testing.T) {
 		},
 	}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, topology.CPUDetails.CPUs(), topology,
 		defaultHardReclaimReplacementOptions())
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.NoError(t, err)
 	require.NotNil(t, proof)
@@ -1258,9 +1283,10 @@ func TestHardReclaimReplacementAllowsSharedDemandToMigrateAcrossNUMAs(t *testing
 		},
 	}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, topology.CPUDetails.CPUs(), topology,
 		defaultHardReclaimReplacementOptions())
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.NoError(t, err)
 	require.NotNil(t, proof)
@@ -1308,7 +1334,7 @@ func TestHardReclaimReplacementResetsAssignmentEdgesPerResidualGraph(t *testing.
 		},
 	}
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands,
 		numa,
 		topology,
@@ -1319,6 +1345,7 @@ func TestHardReclaimReplacementResetsAssignmentEdgesPerResidualGraph(t *testing.
 			maxPartitionFlowOperations:  partitionFlowOperationBudget,
 		},
 	)
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.NoError(t, err)
 	require.NotNil(t, proof)
@@ -1329,7 +1356,7 @@ func TestHardReclaimReplacementRejectsOneOversizedResidualGraph(t *testing.T) {
 	t.Parallel()
 
 	topology, demands, _, _ := productionNUMA2ReplacementFixture(t)
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, topology.CPUDetails.CPUs(), topology,
 		hardReclaimReplacementOptions{
 			maxCandidateStates:          100_000,
@@ -1338,6 +1365,7 @@ func TestHardReclaimReplacementRejectsOneOversizedResidualGraph(t *testing.T) {
 			maxPartitionFlowOperations:  partitionFlowOperationBudget,
 		},
 	)
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.Nil(t, assignments)
 	require.Nil(t, proof)
@@ -1366,8 +1394,9 @@ func TestHardReclaimReplacementSharesFlowOperationsAcrossResidualGraphs(t *testi
 		maxPartitionAssignmentEdges: partitionAssignmentEdgeBudget,
 	}
 
-	residualGraphs, err := enumerateHardReclaimReplacementInNUMA(
-		demands, numa, topology, 0, 1, options)
+	var diagnostics hardReclaimSearchDiagnostics
+	residualGraphs, err := enumerateHardReclaimReplacementInNUMADiagnosed(
+		demands, numa, topology, 0, 1, options, &diagnostics)
 	require.NoError(t, err)
 	require.Greater(t, len(residualGraphs), 1)
 
@@ -1409,7 +1438,7 @@ func TestHardReclaimReplacementSharesFlowOperationsAcrossResidualGraphs(t *testi
 		"flow limit %d exceeds every residual graph (max %d), but not their cumulative cost %d",
 		flowLimit, maxSingleGraphFlowOperations, totalFlowOperations)
 
-	assignments, proof, err := solveHardReclaimWithReplacement(
+	diagnosed, err := solveHardReclaimWithReplacementDiagnosed(
 		demands, numa, topology,
 		hardReclaimReplacementOptions{
 			maxCandidateStates:          options.maxCandidateStates,
@@ -1418,6 +1447,7 @@ func TestHardReclaimReplacementSharesFlowOperationsAcrossResidualGraphs(t *testi
 			maxPartitionFlowOperations:  flowLimit,
 		},
 	)
+	assignments, proof := diagnosed.assignments, diagnosed.proof
 
 	require.Nil(t, assignments)
 	require.Nil(t, proof)
