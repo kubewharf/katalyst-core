@@ -490,28 +490,42 @@ func TestMatchSlotOffset(t *testing.T) {
 func TestMatchSpecialTimes(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		clusterSpecialTimeStrategy ClusterSpecialTimeStrategy
-		indicator                  string
-	}
+	slot := StrategySpecialTimeSlot{TimeRange: []string{"21:00", "22:00"}, Offset: -0.2}
+	start := time.Date(2022, time.January, 1, 21, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
 	tests := []struct {
 		name      string
-		args      args
+		slots     []StrategySpecialTimeSlot
+		now       time.Time
 		want      float64
 		wantMatch bool
 	}{
-		{},
+		{name: "missing indicator", now: start},
+		{name: "empty slots", slots: []StrategySpecialTimeSlot{}, now: start},
+		{name: "invalid range length", slots: []StrategySpecialTimeSlot{{TimeRange: []string{"21:00"}}}, now: start},
+		{name: "invalid start", slots: []StrategySpecialTimeSlot{{TimeRange: []string{"invalid", "22:00"}}}, now: start},
+		{name: "invalid end", slots: []StrategySpecialTimeSlot{{TimeRange: []string{"21:00", "invalid"}}}, now: start},
+		{name: "reversed range", slots: []StrategySpecialTimeSlot{{TimeRange: []string{"22:00", "21:00"}}}, now: start.Add(time.Minute)},
+		{name: "before start", slots: []StrategySpecialTimeSlot{slot}, now: start.Add(-time.Nanosecond)},
+		{name: "at start", slots: []StrategySpecialTimeSlot{slot}, now: start},
+		{name: "after start", slots: []StrategySpecialTimeSlot{slot}, now: start.Add(time.Nanosecond), want: -0.2, wantMatch: true},
+		{name: "before end", slots: []StrategySpecialTimeSlot{slot}, now: end.Add(-time.Nanosecond), want: -0.2, wantMatch: true},
+		{name: "at end", slots: []StrategySpecialTimeSlot{slot}, now: end},
+		{name: "after end", slots: []StrategySpecialTimeSlot{slot}, now: end.Add(time.Nanosecond)},
+		{name: "local timezone", slots: []StrategySpecialTimeSlot{slot}, now: time.Date(2022, time.January, 2, 21, 23, 0, 0, time.FixedZone("test", 8*60*60)), want: -0.2, wantMatch: true},
+		{name: "first matching slot", slots: []StrategySpecialTimeSlot{slot, {TimeRange: []string{"21:00", "22:00"}, Offset: 0.1}}, now: start.Add(time.Minute), want: -0.2, wantMatch: true},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, got1 := MatchSpecialTimes(tt.args.clusterSpecialTimeStrategy, tt.args.indicator)
-			if got != tt.want {
-				t.Errorf("MatchSpecialTimes() got = %v, want %v", got, tt.want)
+			strategy := ClusterSpecialTimeStrategy{}
+			if tt.slots != nil {
+				strategy["cpu_usage_ratio"] = tt.slots
 			}
-			if got1 != tt.wantMatch {
-				t.Errorf("MatchSpecialTimes() got1 = %v, want %v", got1, tt.wantMatch)
+			got, match := MatchSpecialTimesAt(strategy, "cpu_usage_ratio", tt.now)
+			if got != tt.want || match != tt.wantMatch {
+				t.Errorf("MatchSpecialTimesAt() = (%v, %v), want (%v, %v)", got, match, tt.want, tt.wantMatch)
 			}
 		})
 	}

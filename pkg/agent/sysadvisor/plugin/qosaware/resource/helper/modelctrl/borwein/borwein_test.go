@@ -23,6 +23,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -475,14 +476,37 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
 			strategyName, strategy, err := getEnabledBorweinStrategy(tt.args.conf)
 			require.NoError(t, err)
-			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
-				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy)
+			ordinaryTime := time.Date(2022, time.January, 1, 12, 0, 0, 0, time.UTC)
+			got, err := updateCPUUsageIndicatorOffsetAt(tt.args.podSet, tt.args.currentIndicatorOffset,
+				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy, ordinaryTime)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateCPUUsageIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
 				t.Errorf("updateCPUUsageIndicatorOffset() = %v, want %v", got, tt.want)
+			}
+
+			// The special-time offset overrides the slot, then obeys the same bounds.
+			specialTime := time.Date(2022, time.January, 1, 21, 23, 0, 0, time.UTC)
+			got, err = updateCPUUsageIndicatorOffsetAt(tt.args.podSet, tt.args.currentIndicatorOffset,
+				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy, specialTime)
+			require.NoError(t, err)
+			require.Equal(t, -0.12, got)
+
+			v3Key := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinV3LatencyRegression)
+			mc.SetInferenceResult(v3Key, tt.args.inferenceResults)
+			for _, sample := range []struct {
+				now  time.Time
+				want float64
+			}{
+				{now: ordinaryTime, want: 0},
+				{now: specialTime, want: -0.2},
+			} {
+				got, err = updateCPUUsageIndicatorOffsetAt(tt.args.podSet, tt.args.currentIndicatorOffset,
+					tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", consts.StrategyNameBorweinV3, strategy, sample.now)
+				require.NoError(t, err)
+				require.Equal(t, sample.want, got)
 			}
 		})
 	}

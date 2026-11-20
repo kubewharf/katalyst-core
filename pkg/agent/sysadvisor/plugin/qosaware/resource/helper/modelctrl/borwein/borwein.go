@@ -18,6 +18,7 @@ package borwein
 
 import (
 	"fmt"
+	"time"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -84,9 +85,17 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 	return bc
 }
 
-func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParameter *borweintypes.BorweinParameter,
+func updateCPUUsageIndicatorOffset(podSet types.PodSet, currentIndicatorOffset float64, borweinParameter *borweintypes.BorweinParameter,
 	metaReader metacache.MetaReader, conf *config.Configuration, emitter metrics.MetricEmitter, regionName string,
 	strategyName string, strategy *latencyregression.BorweinStrategy,
+) (float64, error) {
+	return updateCPUUsageIndicatorOffsetAt(podSet, currentIndicatorOffset, borweinParameter, metaReader,
+		conf, emitter, regionName, strategyName, strategy, time.Now())
+}
+
+func updateCPUUsageIndicatorOffsetAt(podSet types.PodSet, _ float64, borweinParameter *borweintypes.BorweinParameter,
+	metaReader metacache.MetaReader, conf *config.Configuration, emitter metrics.MetricEmitter, regionName string,
+	strategyName string, strategy *latencyregression.BorweinStrategy, now time.Time,
 ) (float64, error) {
 	var modelName string
 	switch strategyName {
@@ -150,8 +159,8 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 	}
 
 	if strategyName == consts.StrategyNameBorweinV3 {
-		if specialAction, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
-			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
+		if specialAction, match := latencyregression.MatchSpecialTimesAt(strategy.StrategySpecialTime,
+			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), now); match {
 			actionAvg = general.MinFloat64(actionAvg, specialAction)
 
 			_ = emitter.StoreFloat64(metricBorweinIndicatorOffsetUpperBound, specialAction, metrics.MetricTypeNameRaw, metrics.MetricTag{
@@ -170,8 +179,8 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 	targetOffset := latencyregression.MatchSlotOffset(predictAvg, strategy.StrategySlots,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), borweinParameter)
 
-	if specialOffset, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
-		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
+	if specialOffset, match := latencyregression.MatchSpecialTimesAt(strategy.StrategySpecialTime,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), now); match {
 		targetOffset = specialOffset
 	}
 
