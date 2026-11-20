@@ -981,6 +981,24 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 	entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
 ) error {
+	return handleAdvisorDyingMemcgReclaim(emitter, entryName, subEntryName, calculationInfo, dyingMemcgReclaimDependencies{
+		setSwapMax:     cgroupmgr.SetSwapMaxWithAbsolutePathRecursive,
+		disableSwapMax: cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive,
+		getEffective:   cgroupmgr.GetEffectiveCPUSetWithAbsolutePath,
+		addWork:        p.defaultAsyncLimitedWorkers.AddWork,
+	})
+}
+
+type dyingMemcgReclaimDependencies struct {
+	setSwapMax     func(string) error
+	disableSwapMax func(string) error
+	getEffective   func(string) (machine.CPUSet, machine.CPUSet, error)
+	addWork        func(*asyncworker.Work, asyncworker.DuplicateWorkPolicy) error
+}
+
+func handleAdvisorDyingMemcgReclaim(emitter metrics.MetricEmitter, entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, deps dyingMemcgReclaimDependencies,
+) error {
 	var absCGPath string
 	var dyingMemcgReclaimWorkName string
 
@@ -994,12 +1012,12 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 	// set swap max before trigger memory offloading
 	swapMax := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeySwapMax)]
 	if swapMax == consts.ControlKnobON {
-		err := cgroupmgr.SetSwapMaxWithAbsolutePathRecursive(absCGPath)
+		err := deps.setSwapMax(absCGPath)
 		if err != nil {
 			general.Infof("Failed to set swap max, err: %v", err)
 		}
 	} else {
-		err := cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive(absCGPath)
+		err := deps.disableSwapMax(absCGPath)
 		if err != nil {
 			general.Infof("Failed to disable swap, err: %v", err)
 		}
@@ -1010,14 +1028,14 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 		return nil
 	}
 
-	_, mems, err := cgroupmgr.GetEffectiveCPUSetWithAbsolutePath(absCGPath)
+	_, mems, err := deps.getEffective(absCGPath)
 	if err != nil {
 		return fmt.Errorf("GetEffectiveCPUSetWithAbsolutePath failed with error: %v", err)
 	}
 	general.Infof("dyingMemcgReclaimWithAbsolutePath mems: %v", mems)
 
 	// start an asynchronous work to execute dying memcg reclaim
-	err = p.defaultAsyncLimitedWorkers.AddWork(
+	err = deps.addWork(
 		&asyncworker.Work{
 			Name:        dyingMemcgReclaimWorkName,
 			UID:         uuid.NewUUID(),

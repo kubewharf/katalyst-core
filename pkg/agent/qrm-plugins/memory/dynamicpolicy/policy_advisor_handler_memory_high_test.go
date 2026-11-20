@@ -22,28 +22,20 @@ package dynamicpolicy
 import (
 	"testing"
 
-	"github.com/bytedance/mockey"
-	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	common "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 )
-
-var memoryHighTestMutex = dyingMemcgReclaimTestMutex
 
 func TestDynamicPolicy_handleAdvisorMemoryHigh(t *testing.T) {
 	t.Parallel()
 
 	t.Run("invalid memory high value", func(t *testing.T) {
 		t.Parallel()
-		memoryHighTestMutex.Lock()
-		defer memoryHighTestMutex.Unlock()
 
-		p := &DynamicPolicy{}
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CalculationResult: &advisorsvc.CalculationResult{
 				Values: map[string]string{
@@ -52,21 +44,15 @@ func TestDynamicPolicy_handleAdvisorMemoryHigh(t *testing.T) {
 			},
 		}
 
-		err := p.handleAdvisorMemoryHigh(nil, nil, nil, metrics.DummyMetrics{}, nil, "", "", calculationInfo, nil)
+		err := handleAdvisorMemoryHigh(metrics.DummyMetrics{}, calculationInfo, nil, nil)
 		assert.Error(t, err)
 	})
 
 	t.Run("cgroupv1 mode", func(t *testing.T) {
 		t.Parallel()
-		memoryHighTestMutex.Lock()
-		defer memoryHighTestMutex.Unlock()
-		defer mockey.UnPatchAll()
 
-		mockey.Mock(cgroups.IsCgroup2UnifiedMode).IncludeCurrentGoRoutine().To(func() bool {
-			return false
-		}).Build()
+		isUnifiedMode := func() bool { return false }
 
-		p := &DynamicPolicy{}
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CgroupPath: "/kubepods/besteffort",
 			CalculationResult: &advisorsvc.CalculationResult{
@@ -76,21 +62,15 @@ func TestDynamicPolicy_handleAdvisorMemoryHigh(t *testing.T) {
 			},
 		}
 
-		err := p.handleAdvisorMemoryHigh(nil, nil, nil, metrics.DummyMetrics{}, nil, "", "", calculationInfo, nil)
+		err := handleAdvisorMemoryHigh(metrics.DummyMetrics{}, calculationInfo, isUnifiedMode, nil)
 		assert.NoError(t, err)
 	})
 
 	t.Run("empty cgroup path", func(t *testing.T) {
 		t.Parallel()
-		memoryHighTestMutex.Lock()
-		defer memoryHighTestMutex.Unlock()
-		defer mockey.UnPatchAll()
 
-		mockey.Mock(cgroups.IsCgroup2UnifiedMode).IncludeCurrentGoRoutine().To(func() bool {
-			return true
-		}).Build()
+		isUnifiedMode := func() bool { return true }
 
-		p := &DynamicPolicy{}
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CgroupPath: "",
 			CalculationResult: &advisorsvc.CalculationResult{
@@ -100,31 +80,25 @@ func TestDynamicPolicy_handleAdvisorMemoryHigh(t *testing.T) {
 			},
 		}
 
-		err := p.handleAdvisorMemoryHigh(nil, nil, nil, metrics.DummyMetrics{}, nil, "", "", calculationInfo, nil)
+		err := handleAdvisorMemoryHigh(metrics.DummyMetrics{}, calculationInfo, isUnifiedMode, nil)
 		assert.NoError(t, err)
 	})
 
 	t.Run("success apply memory high", func(t *testing.T) {
 		t.Parallel()
-		memoryHighTestMutex.Lock()
-		defer memoryHighTestMutex.Unlock()
-		defer mockey.UnPatchAll()
 
 		var capturedCgroupPath string
 		var capturedMemoryData *common.MemoryData
 		applyMemoryCalled := false
 
-		mockey.Mock(cgroups.IsCgroup2UnifiedMode).IncludeCurrentGoRoutine().To(func() bool {
-			return true
-		}).Build()
-		mockey.Mock(cgroupmgr.ApplyMemoryWithRelativePath).IncludeCurrentGoRoutine().To(func(cgroupPath string, memoryData *common.MemoryData) error {
+		isUnifiedMode := func() bool { return true }
+		applyMemory := func(cgroupPath string, memoryData *common.MemoryData) error {
 			capturedCgroupPath = cgroupPath
 			capturedMemoryData = memoryData
 			applyMemoryCalled = true
 			return nil
-		}).Build()
+		}
 
-		p := &DynamicPolicy{}
 		calculationInfo := &advisorsvc.CalculationInfo{
 			CgroupPath: "/kubepods/besteffort",
 			CalculationResult: &advisorsvc.CalculationResult{
@@ -134,7 +108,7 @@ func TestDynamicPolicy_handleAdvisorMemoryHigh(t *testing.T) {
 			},
 		}
 
-		err := p.handleAdvisorMemoryHigh(nil, nil, nil, metrics.DummyMetrics{}, nil, "", "", calculationInfo, nil)
+		err := handleAdvisorMemoryHigh(metrics.DummyMetrics{}, calculationInfo, isUnifiedMode, applyMemory)
 		assert.NoError(t, err)
 		assert.True(t, applyMemoryCalled)
 		assert.Equal(t, "/kubepods/besteffort", capturedCgroupPath)

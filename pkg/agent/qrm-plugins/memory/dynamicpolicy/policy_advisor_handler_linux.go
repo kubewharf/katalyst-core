@@ -47,19 +47,25 @@ func (p *DynamicPolicy) handleAdvisorMemoryHigh(
 	entryName, subEntryName string,
 	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
 ) error {
+	return handleAdvisorMemoryHigh(emitter, calculationInfo, cgroups.IsCgroup2UnifiedMode, cgroupmgr.ApplyMemoryWithRelativePath)
+}
+
+func handleAdvisorMemoryHigh(emitter metrics.MetricEmitter, calculationInfo *advisorsvc.CalculationInfo,
+	isUnifiedMode func() bool, applyMemory func(string, *common.MemoryData) error,
+) error {
 	memoryHighStr := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryHigh)]
 	memoryHigh, err := strconv.ParseInt(memoryHighStr, 10, 64)
 	if err != nil {
 		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnobKeyMemoryHigh, memoryHighStr, err)
 	}
 
-	if !cgroups.IsCgroup2UnifiedMode() {
+	if !isUnifiedMode() {
 		general.Infof("memory.high is not supported in cgroupv1 mode")
 		return nil
 	}
 
 	if calculationInfo.CgroupPath != "" {
-		if err = cgroupmgr.ApplyMemoryWithRelativePath(calculationInfo.CgroupPath, &common.MemoryData{
+		if err = applyMemory(calculationInfo.CgroupPath, &common.MemoryData{
 			HighInBytes: memoryHigh,
 		}); err != nil {
 			return fmt.Errorf("apply memory.high failed with error: %v", err)
