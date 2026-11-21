@@ -1,171 +1,433 @@
-name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request: {}
+name: CI lifecycle wait-condition validation
+run-name: Paired regression on 2bebfcdf1
+'on':
   workflow_dispatch: {}
-
 permissions:
   contents: read
-
-# Keep pull request code on GitHub-hosted runners, outside internal infrastructure.
+concurrency:
+  group: ci-lifecycle-validation
+  cancel-in-progress: false
 jobs:
-  fmt:
-    name: Format
+  r1-fmt:
+    name: R1 Format (${{ matrix.runner }})
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Check Go modules
-        run: |
-          go mod tidy && git add go.* &&
-          git diff --cached --exit-code || (echo 'Please run "go mod tidy" to sync Go modules' && exit 1);
-      - name: Verify gofumpt
-        run: |
-          echo "refer to https://github.com/mvdan/gofumpt for detailed info" &&
-          GO111MODULE=on go install mvdan.cc/gofumpt@v0.4.0 &&
-          make fmt-strict && git add pkg cmd &&
-          git diff --cached --exit-code || (echo 'Please run "make fmt-strict" to verify fmt' && exit 1);
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
 
-  vet:
-    name: Vet
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
+
+        '
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.18.10
+        cache: false
+    - name: Prepare build tools
+      shell: bash
+      run: "TIMEFORMAT=$'real %3R\\nuser %3U\\nsys %3S'\ntime bash -e -o pipefail <<'BUILD_TOOLS'\nif ! command -v make >/dev/null || ! command -v gcc >/dev/null; then\n  . /etc/os-release\n  if [[ \"$ID\" != ubuntu || ! \"$VERSION_CODENAME\" =~ ^(jammy|noble)$ ]]; then\n    printf 'Unsupported build-tool installation environment: %s %s\\n' \"$ID\" \"$VERSION_CODENAME\" >&2\n    exit 1\n  fi\n  apt_root=$(mktemp -d \"$RUNNER_TEMP/ci-apt.XXXXXX\")\n  trap 'sudo -n rm -rf -- \"$apt_root\"' EXIT\n  mkdir -p \"$apt_root/lists/partial\"\n  printf 'deb http://archive.ubuntu.com/ubuntu %s main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-updates main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-security main universe\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > \"$apt_root/sources.list\"\n  apt_options=(-o \"Dir::Etc::sourcelist=$apt_root/sources.list\" -o \"Dir::Etc::sourceparts=-\" -o \"Dir::State::lists\" -o APT::Update::Error-Mode=any -o Acquire::Retries=0\
+        \ -o Acquire::http::Timeout=30)\n  sudo -n apt-get \"${apt_options[@]}\" update\n  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \"${apt_options[@]}\" install -y --no-install-recommends build-essential\nfi\ncommand -v make\ncommand -v gcc\nBUILD_TOOLS\n"
+    - name: Record environment before work
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    - name: Check Go modules
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        go mod tidy && git add go.* &&
+
+        git diff --cached --exit-code || (echo ''Please run "go mod tidy" to sync Go modules'' && exit 1);
+
+        CI_SCRIPT
+
+        '
+      shell: bash
+    - name: Verify gofumpt
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        echo "refer to https://github.com/mvdan/gofumpt for detailed info" &&
+
+        GO111MODULE=on go install mvdan.cc/gofumpt@v0.4.0 &&
+
+        make fmt-strict && git add pkg cmd &&
+
+        git diff --cached --exit-code || (echo ''Please run "make fmt-strict" to verify fmt'' && exit 1);
+
+        CI_SCRIPT
+
+        '
+      shell: bash
+    - name: Record environment after work
+      if: always() && !cancelled()
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
+  r1-vet:
+    name: R1 Vet (${{ matrix.runner }})
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Verify govet
-        run: |
-          make vet && git add pkg cmd &&
-          git diff --cached --exit-code || (echo 'Please run "make vet" to verify govet' && exit 1);
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
 
-  lint:
-    name: Lint
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
+
+        '
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.18.10
+        cache: false
+    - name: Prepare build tools
+      shell: bash
+      run: "TIMEFORMAT=$'real %3R\\nuser %3U\\nsys %3S'\ntime bash -e -o pipefail <<'BUILD_TOOLS'\nif ! command -v make >/dev/null || ! command -v gcc >/dev/null; then\n  . /etc/os-release\n  if [[ \"$ID\" != ubuntu || ! \"$VERSION_CODENAME\" =~ ^(jammy|noble)$ ]]; then\n    printf 'Unsupported build-tool installation environment: %s %s\\n' \"$ID\" \"$VERSION_CODENAME\" >&2\n    exit 1\n  fi\n  apt_root=$(mktemp -d \"$RUNNER_TEMP/ci-apt.XXXXXX\")\n  trap 'sudo -n rm -rf -- \"$apt_root\"' EXIT\n  mkdir -p \"$apt_root/lists/partial\"\n  printf 'deb http://archive.ubuntu.com/ubuntu %s main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-updates main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-security main universe\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > \"$apt_root/sources.list\"\n  apt_options=(-o \"Dir::Etc::sourcelist=$apt_root/sources.list\" -o \"Dir::Etc::sourceparts=-\" -o \"Dir::State::lists\" -o APT::Update::Error-Mode=any -o Acquire::Retries=0\
+        \ -o Acquire::http::Timeout=30)\n  sudo -n apt-get \"${apt_options[@]}\" update\n  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \"${apt_options[@]}\" install -y --no-install-recommends build-essential\nfi\ncommand -v make\ncommand -v gcc\nBUILD_TOOLS\n"
+    - name: Record environment before work
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    - name: Verify govet
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        make vet && git add pkg cmd &&
+
+        git diff --cached --exit-code || (echo ''Please run "make vet" to verify govet'' && exit 1);
+
+        CI_SCRIPT
+
+        '
+      shell: bash
+    - name: Record environment after work
+      if: always() && !cancelled()
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
+  r1-lint:
+    name: R1 Lint (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner == 'internal' && 'vci-self-hosted' || 'ubuntu-24.04' }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
+
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
+
+        '
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.18.10
+        cache: false
+    - name: Prepare build tools
+      shell: bash
+      run: "TIMEFORMAT=$'real %3R\\nuser %3U\\nsys %3S'\ntime bash -e -o pipefail <<'BUILD_TOOLS'\nif ! command -v make >/dev/null || ! command -v gcc >/dev/null; then\n  . /etc/os-release\n  if [[ \"$ID\" != ubuntu || ! \"$VERSION_CODENAME\" =~ ^(jammy|noble)$ ]]; then\n    printf 'Unsupported build-tool installation environment: %s %s\\n' \"$ID\" \"$VERSION_CODENAME\" >&2\n    exit 1\n  fi\n  apt_root=$(mktemp -d \"$RUNNER_TEMP/ci-apt.XXXXXX\")\n  trap 'sudo -n rm -rf -- \"$apt_root\"' EXIT\n  mkdir -p \"$apt_root/lists/partial\"\n  printf 'deb http://archive.ubuntu.com/ubuntu %s main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-updates main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-security main universe\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > \"$apt_root/sources.list\"\n  apt_options=(-o \"Dir::Etc::sourcelist=$apt_root/sources.list\" -o \"Dir::Etc::sourceparts=-\" -o \"Dir::State::lists\" -o APT::Update::Error-Mode=any -o Acquire::Retries=0\
+        \ -o Acquire::http::Timeout=30)\n  sudo -n apt-get \"${apt_options[@]}\" update\n  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \"${apt_options[@]}\" install -y --no-install-recommends build-essential\nfi\ncommand -v make\ncommand -v gcc\nBUILD_TOOLS\n"
+    - name: Record environment before work
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    - name: Verify golangci-lint
+      shell: bash
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        cd "$RUNNER_TEMP"
+
+        curl --fail --location --silent --show-error -o golangci-lint.tar.gz https://github.com/golangci/golangci-lint/releases/download/v1.52.2/golangci-lint-1.52.2-linux-amd64.tar.gz
+
+        printf ''%s  golangci-lint.tar.gz\n'' c9cf72d12058a131746edd409ed94ccd578fbd178899d1ed41ceae3ce5f54501 | sha256sum --check
+
+        tar -xzf golangci-lint.tar.gz
+
+        cd "$GITHUB_WORKSPACE"
+
+        "$RUNNER_TEMP/golangci-lint-1.52.2-linux-amd64/golangci-lint" run --verbose --out-format=github-actions,colored-line-number --config .golangci.yml
+
+        CI_SCRIPT
+
+        '
+    - name: Record environment after work
+      if: always() && !cancelled()
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
+  r1-build:
+    name: R1 Build (${{ matrix.runner }})
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Verify golangci-lint
-        shell: bash
-        run: |
-          cd "$RUNNER_TEMP"
-          curl --fail --location --silent --show-error -o golangci-lint.tar.gz https://github.com/golangci/golangci-lint/releases/download/v1.52.2/golangci-lint-1.52.2-linux-amd64.tar.gz
-          printf '%s  golangci-lint.tar.gz\n' c9cf72d12058a131746edd409ed94ccd578fbd178899d1ed41ceae3ce5f54501 | sha256sum --check
-          tar -xzf golangci-lint.tar.gz
-          cd "$GITHUB_WORKSPACE"
-          "$RUNNER_TEMP/golangci-lint-1.52.2-linux-amd64/golangci-lint" run --verbose --out-format=github-actions,colored-line-number --config .golangci.yml
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
 
-  build:
-    name: Build
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
+
+        '
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.18.10
+        cache: false
+    - name: Prepare build tools
+      shell: bash
+      run: "TIMEFORMAT=$'real %3R\\nuser %3U\\nsys %3S'\ntime bash -e -o pipefail <<'BUILD_TOOLS'\nif ! command -v make >/dev/null || ! command -v gcc >/dev/null; then\n  . /etc/os-release\n  if [[ \"$ID\" != ubuntu || ! \"$VERSION_CODENAME\" =~ ^(jammy|noble)$ ]]; then\n    printf 'Unsupported build-tool installation environment: %s %s\\n' \"$ID\" \"$VERSION_CODENAME\" >&2\n    exit 1\n  fi\n  apt_root=$(mktemp -d \"$RUNNER_TEMP/ci-apt.XXXXXX\")\n  trap 'sudo -n rm -rf -- \"$apt_root\"' EXIT\n  mkdir -p \"$apt_root/lists/partial\"\n  printf 'deb http://archive.ubuntu.com/ubuntu %s main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-updates main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-security main universe\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > \"$apt_root/sources.list\"\n  apt_options=(-o \"Dir::Etc::sourcelist=$apt_root/sources.list\" -o \"Dir::Etc::sourceparts=-\" -o \"Dir::State::lists\" -o APT::Update::Error-Mode=any -o Acquire::Retries=0\
+        \ -o Acquire::http::Timeout=30)\n  sudo -n apt-get \"${apt_options[@]}\" update\n  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \"${apt_options[@]}\" install -y --no-install-recommends build-essential\nfi\ncommand -v make\ncommand -v gcc\nBUILD_TOOLS\n"
+    - name: Record environment before work
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    - name: Build
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        make all-binaries
+
+        CI_SCRIPT
+
+        '
+      shell: bash
+    - name: Record environment after work
+      if: always() && !cancelled()
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
+  r1-parallel:
+    name: R1 Parallel (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner == 'internal' && 'vci-self-hosted' || 'ubuntu-24.04' }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
+
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
+
+        '
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.18.10
+        cache: false
+    - name: Prepare build tools
+      shell: bash
+      run: "TIMEFORMAT=$'real %3R\\nuser %3U\\nsys %3S'\ntime bash -e -o pipefail <<'BUILD_TOOLS'\nif ! command -v make >/dev/null || ! command -v gcc >/dev/null; then\n  . /etc/os-release\n  if [[ \"$ID\" != ubuntu || ! \"$VERSION_CODENAME\" =~ ^(jammy|noble)$ ]]; then\n    printf 'Unsupported build-tool installation environment: %s %s\\n' \"$ID\" \"$VERSION_CODENAME\" >&2\n    exit 1\n  fi\n  apt_root=$(mktemp -d \"$RUNNER_TEMP/ci-apt.XXXXXX\")\n  trap 'sudo -n rm -rf -- \"$apt_root\"' EXIT\n  mkdir -p \"$apt_root/lists/partial\"\n  printf 'deb http://archive.ubuntu.com/ubuntu %s main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-updates main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-security main universe\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > \"$apt_root/sources.list\"\n  apt_options=(-o \"Dir::Etc::sourcelist=$apt_root/sources.list\" -o \"Dir::Etc::sourceparts=-\" -o \"Dir::State::lists\" -o APT::Update::Error-Mode=any -o Acquire::Retries=0\
+        \ -o Acquire::http::Timeout=30)\n  sudo -n apt-get \"${apt_options[@]}\" update\n  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \"${apt_options[@]}\" install -y --no-install-recommends build-essential\nfi\ncommand -v make\ncommand -v gcc\nBUILD_TOOLS\n"
+    - name: Record environment before work
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    - name: Check parallel
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        echo "refer to https://github.com/kunwardeep/paralleltest for detailed info" &&
+
+        GO111MODULE=on go install github.com/kunwardeep/paralleltest@v1.0.10 &&
+
+        paralleltest `go list ./... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend|pkg/util/machine|pkg/agent/qrm-plugins/sriov/policy"`
+
+        CI_SCRIPT
+
+        '
+      shell: bash
+    - name: Record environment after work
+      if: always() && !cancelled()
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
+  r1-unit-test:
+    name: R1 Unit Test (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner == 'internal' && 'vke-self-hosted' || 'ubuntu-24.04' }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
+
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
+
+        '
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.18.10
+        cache: false
+    - name: Prepare build tools
+      shell: bash
+      run: "TIMEFORMAT=$'real %3R\\nuser %3U\\nsys %3S'\ntime bash -e -o pipefail <<'BUILD_TOOLS'\nif ! command -v make >/dev/null || ! command -v gcc >/dev/null; then\n  . /etc/os-release\n  if [[ \"$ID\" != ubuntu || ! \"$VERSION_CODENAME\" =~ ^(jammy|noble)$ ]]; then\n    printf 'Unsupported build-tool installation environment: %s %s\\n' \"$ID\" \"$VERSION_CODENAME\" >&2\n    exit 1\n  fi\n  apt_root=$(mktemp -d \"$RUNNER_TEMP/ci-apt.XXXXXX\")\n  trap 'sudo -n rm -rf -- \"$apt_root\"' EXIT\n  mkdir -p \"$apt_root/lists/partial\"\n  printf 'deb http://archive.ubuntu.com/ubuntu %s main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-updates main universe\\ndeb http://archive.ubuntu.com/ubuntu %s-security main universe\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > \"$apt_root/sources.list\"\n  apt_options=(-o \"Dir::Etc::sourcelist=$apt_root/sources.list\" -o \"Dir::Etc::sourceparts=-\" -o \"Dir::State::lists\" -o APT::Update::Error-Mode=any -o Acquire::Retries=0\
+        \ -o Acquire::http::Timeout=30)\n  sudo -n apt-get \"${apt_options[@]}\" update\n  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \"${apt_options[@]}\" install -y --no-install-recommends build-essential\nfi\ncommand -v make\ncommand -v gcc\nBUILD_TOOLS\n"
+    - name: Record environment before work
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    - name: Run unit tests
+      shell: bash
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
+
+        time bash -e -o pipefail <<''UNIT_TEST''
+
+        go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+
+        sudo -n env "PATH=$PATH" "GOPATH=$GOPATH" "GOMODCACHE=$GOMODCACHE" "GOCACHE=$GOCACHE" make test 2>&1 | go-junit-report -parser gotest -set-exit-code -iocopy -out report.xml
+
+        UNIT_TEST
+
+        '
+    - name: Verify tests ran
+      if: always() && !cancelled()
+      run: "python3 - <<'PY'\nimport pathlib\nimport xml.etree.ElementTree as ET\nreport = ET.parse('report.xml')\nexecuted = [case for case in report.iter('testcase') if case.find('skipped') is None]\nfailures = [case for case in executed if case.find('failure') is not None or case.find('error') is not None]\nprint(f'Executed test cases: {len(executed)}; failures: {len(failures)}')\nif len(executed) != 4181 or failures:\n    raise SystemExit('Test result differs from fixed baseline')\nif not pathlib.Path('coverage.txt').is_file() or pathlib.Path('coverage.txt').stat().st_size == 0:\n    raise SystemExit('Coverage output missing or empty')\nPY\n"
+    - name: Test summary
+      uses: test-summary/action@v2
+      with:
+        paths: report.xml
+      if: always()
+    - name: Record environment after work
+      if: always() && !cancelled()
+      shell: bash
+      run: "python3 - <<'PY'\nimport datetime, json, os, pathlib, platform, subprocess\n\ndef command(args):\n    import shutil\n    if shutil.which(args[0]) is None:\n        return {'exit': 127, 'output': 'executable not installed: ' + args[0]}\n    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n    return {'exit': p.returncode, 'output': p.stdout.strip()}\n\ndef read(path):\n    p = pathlib.Path(path)\n    return p.read_text().strip() if p.is_file() else None\n\ncpuinfo = pathlib.Path('/proc/cpuinfo').read_text()\nmodels = sorted({line.split(':', 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith('model name')})\nlimits = {p: read(p) for p in (\n    '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/cpuset.cpus.effective',\n    '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current',\n    '/sys/fs/cgroup/cpu/cpu.cfs_quota_us', '/sys/fs/cgroup/cpu/cpu.cfs_period_us',\n    '/sys/fs/cgroup/cpuset/cpuset.cpus', '/sys/fs/cgroup/memory/memory.limit_in_bytes')}\n\
+        result = {\n    'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),\n    'round': os.environ['PAIR_ROUND'], 'side': os.environ['PAIR_RUNNER'],\n    'runner_name': os.environ.get('RUNNER_NAME'), 'runner_arch': os.environ.get('RUNNER_ARCH'),\n    'kernel': platform.release(), 'cpu_models': models,\n    'logical_cpu': os.cpu_count(), 'affinity_cpu': sorted(os.sched_getaffinity(0)),\n    'loadavg': list(os.getloadavg()), 'meminfo': read('/proc/meminfo'),\n    'cgroup': read('/proc/self/cgroup'), 'limits': limits,\n    'cpu_pressure': read('/proc/pressure/cpu'), 'memory_pressure': read('/proc/pressure/memory'),\n    'git': command(['git', 'rev-parse', 'HEAD']), 'go': command(['go', 'version']),\n    'go_env': command(['go', 'env', 'CGO_ENABLED', 'GOPROXY', 'GOPATH', 'GOMODCACHE', 'GOCACHE']),\n    'make': command(['make', '--version']), 'gcc': command(['gcc', '--version']),\n}\nprint('CI_PROFILE ' + json.dumps(result, sort_keys=True))\nPY\n"
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
+  r1-license:
+    name: R1 License (${{ matrix.runner }})
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Build
-        run: make all-binaries
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: 'false'
+        ref: 2bebfcdf128df6a02c41d232c9e779447d19c332
+    - name: Isolate cold caches
+      shell: bash
+      run: 'cache_root=$(mktemp -d "$RUNNER_TEMP/ci-pair-cache.XXXXXX")
 
-  parallel:
-    name: Parallel
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: Check parallel
-        run: |
-          echo "refer to https://github.com/kunwardeep/paralleltest for detailed info" &&
-          GO111MODULE=on go install github.com/kunwardeep/paralleltest@v1.0.10 &&
-          paralleltest `go list ./... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend|pkg/util/machine|pkg/agent/qrm-plugins/sriov/policy"`
+        printf ''GOPATH=%s/gopath\nGOMODCACHE=%s/modules\nGOCACHE=%s/build\nGOLANGCI_LINT_CACHE=%s/lint\n'' "$cache_root" "$cache_root" "$cache_root" "$cache_root" >> "$GITHUB_ENV"
 
-  unit-test:
-    name: Unit Test
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Run unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          go install github.com/jstemmer/go-junit-report/v2@v2.1.0
-          sudo env "PATH=$PATH" make test 2>&1 | go-junit-report -parser gotest -set-exit-code -iocopy -out report.xml
-      - name: Verify tests ran
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
+        printf ''%s/gopath/bin\n'' "$cache_root" >> "$GITHUB_PATH"
 
-          report = ET.parse("report.xml")
-          executed = [case for case in report.iter("testcase") if case.find("skipped") is None]
-          if not executed:
-              raise SystemExit("No executed test cases found in report.xml")
-          print(f"Executed test cases: {len(executed)}")
-          PY
-      - name: Test summary
-        uses: test-summary/action@v2
-        with:
-          paths: report.xml
-        if: always()
-      - name: Check the number of changed lines
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          LINES_ADDED=$(git diff --numstat "$BASE_SHA" "$HEAD_SHA" -- pkg/ | awk '{ add += $1 } END { printf "%d", add }')
-          echo "lines added: $LINES_ADDED"
-          if [[ $LINES_ADDED -lt 10 ]]; then
-            echo "NEED_TO_CHECK=false" >> "$GITHUB_ENV"
-          else
-            echo "NEED_TO_CHECK=true" >> "$GITHUB_ENV"
-          fi
-      - name: Upload coverage to Codecov
-        if: ${{ (env.NEED_TO_CHECK == 'true') || (github.event_name != 'pull_request') }}
-        uses: codecov/codecov-action@v5
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          flags: unittest
-          files: coverage.txt
-          fail_ci_if_error: true
-          verbose: true
+        '
+    - name: Check license header
+      run: 'TIMEFORMAT=$''real %3R\nuser %3U\nsys %3S''
 
-  license:
-    name: License
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check license header
-        run: |
-          make license && git add pkg cmd &&
-          git diff --cached --exit-code || (echo 'Please run "make license" to add license headers' && exit 1);
+        time bash -e -o pipefail <<''CI_SCRIPT''
+
+        make license && git add pkg cmd &&
+
+        git diff --cached --exit-code || (echo ''Please run "make license" to add license headers'' && exit 1);
+
+        CI_SCRIPT
+
+        '
+      shell: bash
+    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && github.repository == 'kubewharf/katalyst-core' && github.ref == 'refs/heads/test/ci-lifecycle-validation'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - internal
+        - hosted
+    env:
+      PAIR_ROUND: '1'
+      PAIR_RUNNER: ${{ matrix.runner }}
