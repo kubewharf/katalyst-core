@@ -18,6 +18,7 @@ package lifecycle
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -149,20 +150,26 @@ func TestCNCLifecycle_Run(t *testing.T) {
 			go cl.Run()
 
 			cache.WaitForCacheSync(cl.ctx.Done(), cl.nodeListerSynced, cl.cncListerSynced)
-			time.Sleep(1 * time.Second)
+
+			waitForCNC := func() bool {
+				gotCNC, err := cl.cncLister.Get(tt.fields.node.Name)
+				return err == nil && reflect.DeepEqual(tt.wantCNC, gotCNC)
+			}
+			require.Eventually(t, waitForCNC, 10*time.Second, 10*time.Millisecond)
 
 			gotCNC, err := cl.cncLister.Get(tt.fields.node.Name)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.wantCNC, gotCNC)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantCNC, gotCNC)
 
 			// test recreate
 			err = cl.client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Delete(context.Background(), tt.fields.node.Name, metav1.DeleteOptions{})
-			assert.NoError(t, err)
-			time.Sleep(3 * time.Second)
+			require.NoError(t, err)
+
+			require.Eventually(t, waitForCNC, 10*time.Second, 10*time.Millisecond)
 
 			gotCNC, err = cl.cncLister.Get(tt.fields.node.Name)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.wantCNC, gotCNC)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantCNC, gotCNC)
 		})
 	}
 }
