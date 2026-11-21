@@ -28,7 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type PolicyCanonical struct {
@@ -67,21 +67,11 @@ func (p *PolicyCanonical) Update() error {
 				return err
 			}
 
-			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-			// so we split cpu usage evenly across the binding numas of container.
-			if p.bindingNumas.Size() > 0 {
-				cpuSize := 0
-				for _, numaID := range p.bindingNumas.ToSliceInt() {
-					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
-				}
-				cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)
-				if cpuAssignmentCPUs != 0 {
-					containerEstimation = containerEstimation * float64(cpuSize) / float64(cpuAssignmentCPUs)
-				} else {
-					// handle the case that cpuAssignmentCPUs is 0
-					klog.Warningf("[qosaware-cpu-canonical] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
-					containerEstimation = 0
-				}
+			var zeroAssignment bool
+			containerEstimation, zeroAssignment = helper.SplitCPUByBindingNUMAs(containerEstimation, p.bindingNumas, ci)
+			if zeroAssignment {
+				general.Warningf("[qosaware-cpu-canonical] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
+				containerEstimation = 0
 			}
 
 			cpuEstimation += containerEstimation

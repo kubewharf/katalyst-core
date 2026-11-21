@@ -3431,8 +3431,8 @@ func TestCalculateDefaultShareTargetSize(t *testing.T) {
 		{
 			name: "fixed pools do not lower qrm residual upper bound",
 			budget: map[int]defaultShareNUMABudget{
-				0: {UnpinnedAllocatableSize: 91, FinalUnpinnedReclaimSize: 28, FixedUnpinnedPoolSize: 10},
-				1: {UnpinnedAllocatableSize: 91, FinalUnpinnedReclaimSize: 28, FixedUnpinnedPoolSize: 10},
+				0: {UnpinnedAllocatableSize: 91, FinalUnpinnedReclaimSize: 28},
+				1: {UnpinnedAllocatableSize: 91, FinalUnpinnedReclaimSize: 28},
 			},
 			want: 182,
 		},
@@ -3440,14 +3440,14 @@ func TestCalculateDefaultShareTargetSize(t *testing.T) {
 			name: "exclusive numa ignores nested reclaim and pinned quantities",
 			budget: map[int]defaultShareNUMABudget{
 				0: {UnpinnedAllocatableSize: 95, FinalUnpinnedReclaimSize: 28},
-				1: {UnpinnedAllocatableSize: 80, FinalUnpinnedReclaimSize: 20, FixedUnpinnedPoolSize: 8, Exclusive: true},
+				1: {UnpinnedAllocatableSize: 80, FinalUnpinnedReclaimSize: 20, Exclusive: true},
 			},
 			want: 95,
 		},
 		{
 			name: "fixed pool overcommit does not lower qrm residual upper bound",
 			budget: map[int]defaultShareNUMABudget{
-				0: {UnpinnedAllocatableSize: 30, FinalUnpinnedReclaimSize: 28, FixedUnpinnedPoolSize: 8},
+				0: {UnpinnedAllocatableSize: 30, FinalUnpinnedReclaimSize: 28},
 				1: {UnpinnedAllocatableSize: 86, FinalUnpinnedReclaimSize: 28},
 			},
 			want: 116,
@@ -3455,7 +3455,7 @@ func TestCalculateDefaultShareTargetSize(t *testing.T) {
 		{
 			name: "reclaim cannot exceed allocatable budget",
 			budget: map[int]defaultShareNUMABudget{
-				0: {UnpinnedAllocatableSize: 16, FinalUnpinnedReclaimSize: 18, FixedUnpinnedPoolSize: 1},
+				0: {UnpinnedAllocatableSize: 16, FinalUnpinnedReclaimSize: 18},
 			},
 			wantErr: "default share reclaim exceeds unpinned allocatable",
 		},
@@ -3701,7 +3701,6 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, budget[1].Exclusive)
 		require.Equal(t, 0, budget[1].FinalUnpinnedReclaimSize)
-		require.Equal(t, 0, budget[1].FixedUnpinnedPoolSize)
 		// the whole exclusive NUMA (72 unpinned after 8 pinned) counts as
 		// exclusive size, not as residual.
 		require.Equal(t, 72, summary.ExclusiveNUMASize)
@@ -3732,7 +3731,11 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 
 		budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 		require.NoError(t, err)
-		require.Equal(t, 39, budget[0].FixedUnpinnedPoolSize) // 20+6+8+5
+		// active per-bucket fields carry the NUMA allocatable/reclaim split;
+		// fixed quantities are diagnostics-only and surface via the summary.
+		require.Equal(t, 95, budget[0].UnpinnedAllocatableSize)
+		require.Equal(t, 28, budget[0].FinalUnpinnedReclaimSize)
+		require.Equal(t, 39, summary.FixedCommonPoolSize) // 20+6+8+5
 		require.Equal(t, 20, summary.DedicatedSize)
 		require.Equal(t, 6, summary.IsolationSize)
 		require.Equal(t, 8, summary.SNBSize)
@@ -3769,7 +3772,7 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 
 		budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 		require.NoError(t, err)
-		require.Equal(t, 40, budget[0].FixedUnpinnedPoolSize)
+		require.Equal(t, 40, budget[0].UnpinnedAllocatableSize)
 		require.Equal(t, 40, summary.DedicatedSize)
 
 		target, err := calculateDefaultShareTargetSize(budget)
@@ -3800,7 +3803,6 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 		budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 		require.NoError(t, err)
 		require.Equal(t, 10, budget[0].UnpinnedAllocatableSize)
-		require.Zero(t, budget[0].FixedUnpinnedPoolSize)
 		require.Zero(t, summary.DedicatedSize)
 
 		target, err := calculateDefaultShareTargetSize(budget)
@@ -3831,7 +3833,6 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 		budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 		require.NoError(t, err)
 		require.Equal(t, 16, budget[0].UnpinnedAllocatableSize)
-		require.Equal(t, 6, budget[0].FixedUnpinnedPoolSize)
 		require.Equal(t, 6, summary.DedicatedSize)
 
 		target, err := calculateDefaultShareTargetSize(budget)
@@ -3884,7 +3885,7 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 
 			budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 			require.NoError(t, err)
-			require.Equal(t, 10, budget[0].FixedUnpinnedPoolSize)
+			require.Equal(t, 20, budget[0].UnpinnedAllocatableSize)
 			require.Equal(t, 10, summary.DedicatedSize)
 
 			target, err := calculateDefaultShareTargetSize(budget)
@@ -3920,11 +3921,16 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 
 		budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 		require.NoError(t, err)
-		// each NUMA is accounted for exactly once, without double counting the
-		// shared owner pool across the sibling regions.
-		require.Equal(t, 10, budget[0].FixedUnpinnedPoolSize)
-		require.Equal(t, 10, budget[1].FixedUnpinnedPoolSize)
+		// both sibling NUMAs keep their own active allocatable bucket; each NUMA
+		// is accounted for exactly once, without double counting the shared
+		// owner pool across the sibling regions.
+		require.Equal(t, 20, budget[0].UnpinnedAllocatableSize)
+		require.Equal(t, 20, budget[1].UnpinnedAllocatableSize)
 		require.Equal(t, 20, summary.DedicatedSize)
+
+		target, err := calculateDefaultShareTargetSize(budget)
+		require.NoError(t, err)
+		require.Equal(t, 40, target)
 	})
 
 	t.Run("pod uid split across non-binding sibling numas folds without dropping any numa", func(t *testing.T) {
@@ -3968,7 +3974,7 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 		faked := budget[commonstate.FakedNUMAID]
 		require.Equal(t, 40, faked.UnpinnedAllocatableSize)
 		// 10 (numa 0) + 10 (numa 1); the pre-fix code would report only 10.
-		require.Equal(t, 20, faked.FixedUnpinnedPoolSize)
+		require.Equal(t, 20, summary.FixedCommonPoolSize)
 		require.Equal(t, 20, summary.DedicatedSize)
 
 		target, err := calculateDefaultShareTargetSize(budget)
@@ -4006,7 +4012,7 @@ func TestBuildDefaultShareBudgetRules(t *testing.T) {
 		faked := budget[commonstate.FakedNUMAID]
 		require.Equal(t, 40, faked.UnpinnedAllocatableSize)
 		// both distinct pod uids are counted: 12 + 12.
-		require.Equal(t, 24, faked.FixedUnpinnedPoolSize)
+		require.Equal(t, 24, summary.FixedCommonPoolSize)
 		require.Equal(t, 24, summary.DedicatedSize)
 	})
 
@@ -4175,20 +4181,18 @@ func TestFinalizeDefaultShareBackfillMatrix(t *testing.T) {
 			// checks or the wantShare check above will fail.
 			budget, summary, err := pa.buildDefaultShareBudget(pa.ctx(), NewRegionMapHelper(pa.regionMap), result)
 			require.NoError(t, err)
-			totalReclaim, totalFixed, totalNonExclusiveAlloc := 0, 0, 0
+			totalReclaim, totalNonExclusiveAlloc := 0, 0
 			for _, b := range budget {
 				if b.Exclusive {
 					continue
 				}
 				totalReclaim += b.FinalUnpinnedReclaimSize
-				totalFixed += b.FixedUnpinnedPoolSize
 				totalNonExclusiveAlloc += b.UnpinnedAllocatableSize
 			}
 			require.Equal(t, tc.wantAllocatable, totalNonExclusiveAlloc)
 			require.Equal(t, tc.wantReclaim, totalReclaim)
-			require.Equal(t, tc.wantFixed, totalFixed)
+			require.Equal(t, tc.wantFixed, summary.FixedCommonPoolSize)
 			require.Equal(t, tc.wantAllocatable, tc.wantShare)
-			require.Equal(t, summary.FixedCommonPoolSize, totalFixed)
 		})
 	}
 }

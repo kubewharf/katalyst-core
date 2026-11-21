@@ -42,11 +42,6 @@ type defaultShareNUMABudget struct {
 	// the published upper bound because QRM's reclaim CPUSet snapshot may lag or
 	// lead this quantity view.
 	FinalUnpinnedReclaimSize int
-	// FixedUnpinnedPoolSize is the sum of non-default, non-reclaim, non-reserve,
-	// non-pinned, non-exclusive fixed pool quantities on this NUMA. It is
-	// diagnostics-only: QRM materializes the exact fixed-pool CPUSet union from
-	// its current allocation snapshot, which may lag or lead this quantity view.
-	FixedUnpinnedPoolSize int
 	// Exclusive marks a NUMA that is owned by a NUMA-exclusive region; such a
 	// NUMA contributes zero default share capacity and its nested
 	// reclaim/pinned/dedicated quantities are not deducted again.
@@ -204,8 +199,6 @@ func collectDedicatedTopology(regionHelper *RegionMapHelper, numaAvailable map[i
 //   - FinalUnpinnedReclaimSize only counts the unpinned reclaim entries (the
 //     reclaim entry written per scope); resource-package reclaim is already
 //     excluded through the pinned budget.
-//   - FixedUnpinnedPoolSize only counts non-default, non-reclaim, non-reserve,
-//     non-pinned, non-exclusive pool quantities.
 //
 // Assumption: dedicated pool entries are keyed by pod UID (not by a name that
 // GetPoolType can classify), so we identify them authoritatively via the
@@ -313,9 +306,9 @@ func (pa *ProvisionAssemblerCommon) buildDefaultShareBudget(
 			// FakedNUMAID, while share NUMA-binding (SNB) pools carry a
 			// "-NUMA" suffix and live on real numaIDs. If upstream ever emits a
 			// plain PoolNameShare entry on a real numaID, it would fall through
-			// to the fixed-pool branch below and be counted into
-			// FixedUnpinnedPoolSize, corrupting fixed-pool diagnostics. This is
-			// a known precondition/constraint rather than a case handled here.
+			// to the fixed-pool branch below and be counted into the
+			// fixed-pool diagnostics summary. This is a known
+			// precondition/constraint rather than a case handled here.
 			if numaID == commonstate.FakedNUMAID && poolName == commonstate.PoolNameShare {
 				continue
 			}
@@ -374,16 +367,15 @@ func (pa *ProvisionAssemblerCommon) buildDefaultShareBudget(
 	// is intentional: it surfaces the upstream inconsistency instead of silently
 	// producing an incorrect default share target.
 	if hasCombined {
-		combined.FixedUnpinnedPoolSize = fixedByBucket[commonstate.FakedNUMAID]
 		combined.FinalUnpinnedReclaimSize = reclaimByBucket[commonstate.FakedNUMAID]
 		budgetByNUMA[commonstate.FakedNUMAID] = combined
 	}
-	// fill fixed/reclaim into the binding real-NUMA budgets.
+	// fill reclaim into the binding real-NUMA budgets. Fixed pool quantities
+	// feed only the diagnostics summary and are not stored per budget.
 	for numaID, budget := range budgetByNUMA {
 		if numaID == commonstate.FakedNUMAID || budget.Exclusive {
 			continue
 		}
-		budget.FixedUnpinnedPoolSize = fixedByBucket[numaID]
 		budget.FinalUnpinnedReclaimSize = reclaimByBucket[numaID]
 		budgetByNUMA[numaID] = budget
 	}
