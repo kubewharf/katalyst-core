@@ -37,6 +37,14 @@ type TargetMaterialization struct {
 type DormantLeafProof struct {
 	Identity     CgroupIdentity
 	ObservedCPUs machine.CPUSet
+	Ancestors    map[string]DormantAncestorProof
+}
+
+// Ancestor proofs bind direct empty membership and the observed child identity
+// set. They never authorize CPU release or require an ancestor to be childless.
+type DormantAncestorProof struct {
+	Identity CgroupIdentity
+	Children string
 }
 
 // materializeTargets is the only translation point from committed semantic
@@ -85,9 +93,18 @@ func materializeTargets(
 		// physical cgroup v1 containment envelope, never semantic ownership.
 		envelope := proof.ObservedCPUs.Clone()
 		result.PhysicalByRel[node.Rel] = envelope
+		proof.Ancestors = make(map[string]DormantAncestorProof)
 		for parent := node.parent; parent != nil; parent = parent.parent {
 			result.PhysicalByRel[parent.Rel] = result.PhysicalByRel[parent.Rel].Union(envelope)
+			entry, found := snapshot.Entries[parent.Rel]
+			children, expanded := snapshot.Children[parent.Rel]
+			if found && expanded && entry.Activity.TasksEmpty && entry.Activity.CgroupProcsEmpty {
+				proof.Ancestors[parent.Rel] = DormantAncestorProof{
+					Identity: entry.Identity, Children: ChildrenFingerprint(children),
+				}
+			}
 		}
+		result.DormantProofs[node.Rel] = proof
 	}
 	result.Snapshot = snapshotWithDormantOwnershipOverlay(snapshot, result.DormantRels, semantic)
 	return result
@@ -148,6 +165,24 @@ func validateDormantProofs(snapshot *CompleteSnapshot, proofs map[string]Dormant
 	sort.Strings(roots)
 	for _, root := range roots {
 		proof := proofs[root]
+		ancestorRels := make([]string, 0, len(proof.Ancestors))
+		for rel := range proof.Ancestors {
+			ancestorRels = append(ancestorRels, rel)
+		}
+		sort.Strings(ancestorRels)
+		for _, rel := range ancestorRels {
+			ancestor := proof.Ancestors[rel]
+			entry, found := snapshot.Entries[rel]
+			children, expanded := snapshot.Children[rel]
+			if !found || !expanded || entry.Identity != ancestor.Identity ||
+				!entry.Activity.TasksEmpty || !entry.Activity.CgroupProcsEmpty ||
+				ChildrenFingerprint(children) != ancestor.Children {
+				return &PlanStaleError{
+					Rel: rel, Direction: WritePublish, Resource: "dormant_ancestor",
+					Current: "incomplete or changed", Target: "observed direct empty membership",
+				}
+			}
+		}
 		currentProof, complete := dormantLeafProof(snapshot, root)
 		if !complete {
 			return &PlanStaleError{
@@ -203,9 +238,27 @@ func snapshotWithDormantOwnershipOverlay(
 		domain := snapshot.DomainByRel[rel]
 		if target, controlled := semanticTargets[rel]; controlled &&
 			(relInDormantSubtree(rel, dormant) || isAncestorOfDormant(rel, dormant)) {
-			// The target removes dormant containment-only CPUs from ownership, but
-			// cannot establish ownership of CPUs that have not been written yet.
-			filtered.OwnershipByRel[rel] = entry.CPUs.Intersection(target)
+			filtered.OwnershipByRel[rel] = entry.CPUs.Clone()
+			if relInDormantSubtree(rel, dormant) {
+				filtered.OwnershipByRel[rel] = entry.CPUs.Intersection(target)
+			} else if _, expanded := snapshot.Children[rel]; expanded &&
+				entry.Activity.TasksEmpty && entry.Activity.CgroupProcsEmpty {
+				// Direct ancestor occupancy must be proved empty before excluding
+				// an inactive child's containment. Preserve all other observed CPUs.
+				excluded := machine.NewCPUSet()
+				for root := range dormant {
+					if root != rel && isRelAtOrUnder(root, rel) {
+						excluded = excluded.Union(snapshot.Entries[root].CPUs)
+					}
+				}
+				for childRel, childEntry := range snapshot.Entries {
+					if childRel != rel && isRelAtOrUnder(childRel, rel) &&
+						!relInDormantSubtree(childRel, dormant) {
+						excluded = excluded.Difference(childEntry.CPUs)
+					}
+				}
+				filtered.OwnershipByRel[rel] = entry.CPUs.Difference(excluded.Difference(target))
+			}
 		}
 		filtered.DomainUnion[domain] = filtered.DomainUnion[domain].Union(entry.CPUs)
 	}

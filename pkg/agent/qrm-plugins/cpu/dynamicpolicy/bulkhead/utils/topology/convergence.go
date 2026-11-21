@@ -90,39 +90,6 @@ func evaluateCoordinatorSnapshot(
 	}, nil
 }
 
-func buildParentSafetyReport(
-	snapshot *CompleteSnapshot,
-	dag *TopoDAG,
-	semanticTargetByRel map[string]machine.CPUSet,
-	convergence ConvergenceReport,
-	protectedPending machine.CPUSet,
-	deferredByRel map[string]machine.CPUSet,
-	deferredMismatchRels map[string]struct{},
-	capabilities HierarchyCapabilities,
-) ParentSafetyReport {
-	return buildParentSafetyReportWithRequired(
-		snapshot, dag, semanticTargetByRel, convergence, protectedPending,
-		nil, deferredByRel, deferredMismatchRels, capabilities,
-	)
-}
-
-func buildParentSafetyReportWithRequired(
-	snapshot *CompleteSnapshot,
-	dag *TopoDAG,
-	targetByRel map[string]machine.CPUSet,
-	convergence ConvergenceReport,
-	protectedPending machine.CPUSet,
-	requiredByRel map[string]machine.CPUSet,
-	deferredByRel map[string]machine.CPUSet,
-	deferredMismatchRels map[string]struct{},
-	capabilities HierarchyCapabilities,
-) ParentSafetyReport {
-	return buildParentSafetyReportWithScopedPending(
-		snapshot, dag, targetByRel, convergence, protectedPending,
-		nil, requiredByRel, deferredByRel, deferredMismatchRels, capabilities,
-	)
-}
-
 func buildParentSafetyReportWithScopedPending(
 	snapshot *CompleteSnapshot,
 	dag *TopoDAG,

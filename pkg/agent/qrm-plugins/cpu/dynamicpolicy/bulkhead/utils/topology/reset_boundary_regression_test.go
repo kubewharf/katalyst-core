@@ -245,7 +245,7 @@ func TestV2TargetProofDetectsLatentConfiguredCPUs(t *testing.T) {
 	}
 }
 
-func TestDomainGateUsesDormantSemanticOwnership(t *testing.T) {
+func TestDomainGateRequiresPhysicalReleaseBeyondDormantSemanticOwnership(t *testing.T) {
 	t.Parallel()
 	snapshot := &CompleteSnapshot{
 		Entries:        map[string]EntryState{"primary": {CPUs: machine.NewCPUSet(0)}, "reclaim": {CPUs: machine.NewCPUSet(1)}, "reclaim/bucket": {CPUs: machine.NewCPUSet(0, 1)}},
@@ -263,8 +263,16 @@ func TestDomainGateUsesDormantSemanticOwnership(t *testing.T) {
 	fresh.Entries["reclaim"] = entry
 	fresh.OwnershipByRel["reclaim"] = machine.NewCPUSet()
 	gate.Revalidate("semantic", fresh, map[DomainID]machine.CPUSet{DomainPrimary: machine.NewCPUSet(0, 1), DomainReclaim: machine.NewCPUSet()})
+	if gate.AllowedEntering(DomainPrimary).Contains(1) {
+		t.Fatal("semantic ownership cleanup authorized an unverified physical release")
+	}
+	bucket := fresh.Entries["reclaim/bucket"]
+	bucket.CPUs = machine.NewCPUSet()
+	fresh.Entries["reclaim/bucket"] = bucket
+	fresh.DomainUnion[DomainReclaim] = machine.NewCPUSet()
+	gate.Revalidate("semantic", fresh, map[DomainID]machine.CPUSet{DomainPrimary: machine.NewCPUSet(0, 1), DomainReclaim: machine.NewCPUSet()})
 	if !gate.AllowedEntering(DomainPrimary).Contains(1) {
-		t.Fatal("inactive physical envelope prevented semantic CPU transfer")
+		t.Fatal("verified empty physical domain did not authorize CPU transfer")
 	}
 }
 

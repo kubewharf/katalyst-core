@@ -66,11 +66,12 @@ func TestPendingContainedDynamicMismatchFailsParentSafeAndRetainsHolder(t *testi
 
 	// Pending CPUs {0} are contained inside primary; nothing is whitelisted as
 	// deferred cleanup and nothing is a required hard floor.
-	report := buildParentSafetyReport(
+	report := buildParentSafetyReportWithScopedPending(
 		snapshot, dag, nil, convergence,
 		machine.MustParse("0"), // protectedPending, inside primary
-		nil,                    // deferredByRel
-		nil,                    // deferredMismatchRels
+		nil, nil,
+		nil, // deferredByRel
+		nil, // deferredMismatchRels
 		HierarchyCapabilities{},
 	)
 
@@ -165,9 +166,10 @@ func TestSyntheticDualLiveDynamicMismatchFailsParentSafeSafetyOnly(t *testing.T)
 	}}
 
 	// All reported pendingSet CPUs are contained in primary and disjoint from reclaim.
-	report := buildParentSafetyReport(
+	report := buildParentSafetyReportWithScopedPending(
 		snapshot, dag, nil, convergence,
 		machine.MustParse(relocPendingSet),
+		nil, nil,
 		nil, // deferredByRel
 		nil, // deferredMismatchRels
 		HierarchyCapabilities{},

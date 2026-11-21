@@ -1358,34 +1358,6 @@ func frozenOperationStateString(
 		state.ConfiguredMems, state.EffectiveMems)
 }
 
-func (w safeCPUSetWriter) capturePhysicalWriteBefore(
-	ctx context.Context,
-	operation PlanOperation,
-	resource HierarchyOperation,
-	after string,
-	logicalOperationIndex int,
-	phase PhaseKind,
-) (AppliedPhysicalWrite, error) {
-	current, err := w.driver.ReadEntry(ctx, operation.Rel)
-	if err != nil {
-		return AppliedPhysicalWrite{}, w.classifyHierarchyReadError(err, operation)
-	}
-	if current.Identity != operation.ExpectedIdentity {
-		return AppliedPhysicalWrite{}, fmt.Errorf(
-			"%w: pre-write rel=%q expected=%v current=%v",
-			ErrCgroupIdentityChanged, operation.Rel,
-			operation.ExpectedIdentity, current.Identity)
-	}
-	if resource != HierarchyOperationWriteCPUs &&
-		resource != HierarchyOperationWriteMems {
-		return AppliedPhysicalWrite{}, fmt.Errorf(
-			"unsupported physical write resource %q for %q", resource, operation.Rel)
-	}
-	return physicalWriteBeforeFromEntry(
-		current, operation, resource, after, logicalOperationIndex, phase,
-	), nil
-}
-
 func physicalWriteBeforeFromEntry(
 	current EntryState,
 	operation PlanOperation,

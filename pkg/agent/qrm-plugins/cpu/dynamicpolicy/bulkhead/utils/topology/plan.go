@@ -480,22 +480,6 @@ type PhasePlan struct {
 	CostUpperBound       BudgetUsage
 }
 
-func finalAdmissionTarget(plan *PhasePlan) map[string]CPUSetTarget {
-	if plan == nil {
-		return nil
-	}
-	targets := make(map[string]CPUSetTarget, len(plan.TargetByRel)+len(plan.CanonicalTargetByRel))
-	for rel, target := range plan.TargetByRel {
-		target.CPUs = target.CPUs.Clone()
-		targets[rel] = target
-	}
-	for rel, target := range plan.CanonicalTargetByRel {
-		target.CPUs = target.CPUs.Clone()
-		targets[rel] = target
-	}
-	return targets
-}
-
 type RoundStatus string
 
 const (

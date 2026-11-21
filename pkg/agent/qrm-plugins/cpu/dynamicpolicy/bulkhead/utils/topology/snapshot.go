@@ -248,6 +248,11 @@ func buildCompleteSnapshotWithBoundary(
 			!builder.snapshot.Capabilities.EmptyConfiguredCPUSet &&
 			node.Role == TopoNodeRoleReclaimNUMABucket {
 			builder.activityRoots[rel] = struct{}{}
+			// Bucket activity does not describe direct tasks on its ancestors.
+			// Observe those separately without granting a domain release.
+			for parent := node.parent; parent != nil; parent = parent.parent {
+				builder.activityRoots[parent.Rel] = struct{}{}
+			}
 		}
 	}
 	for _, rel := range boundary.Roots {

@@ -913,7 +913,7 @@ func TestExecutionWithRollbackErrorPreservesExecutionAndReservationCauses(t *tes
 		ctx, true, PhysicalWriteCost{CPUSetWrites: 1})
 	stale := &PlanStaleError{Rel: "reclaim/numa-0", Resource: "write"}
 
-	err = executionWithRollbackError(stale, reservationErr)
+	err = newExecutionRollbackError(stale, reservationErr)
 
 	if !errors.Is(err, ErrCoordinatorPlanStale) {
 		t.Fatalf("combined error = %v, want execution stale cause", err)
@@ -1006,7 +1006,8 @@ func TestSafeWriterV2EmptyConfiguredCPUWriteRecordsSuccessfulJournal(t *testing.
 		t.Fatalf("journal observed/target CPUs = %q/%q, want empty/empty",
 			applied.Observed.CPUs.String(), applied.Target.CPUs.String())
 	}
-	if !roundOutcomeMadeNetProgress(RoundOutcome{Journal: result.Journal}) {
+	outcome := RoundOutcome{Progress: ProgressMeasure{VerifiedWrites: len(result.Journal)}}
+	if !outcome.Progress.MadeProgress() {
 		t.Fatal("verified empty configured CPU write must count as progress")
 	}
 }
@@ -1086,9 +1087,12 @@ func TestSafeWriterRollsBackFirstWriteAfterAdjustmentDeadline(t *testing.T) {
 	})
 	result := &ConvergenceResult{}
 
-	err := newSafeCPUSetWriter(driver, NewBudgetTracker(ConvergenceBudget{}), result).
-		withAdjustmentBudget(adjustmentBudget).
-		execute(adjustmentCtx, plan)
+	writer := newSafeCPUSetWriter(driver, NewBudgetTracker(ConvergenceBudget{}), result).
+		withAdjustmentBudget(adjustmentBudget)
+	// The forward deadline is triggered after the first write. Recovery uses
+	// its own context so scheduler latency cannot replace the injected event.
+	writer.recoveryContextFactory = deterministicRecoveryContext
+	err := writer.execute(adjustmentCtx, plan)
 
 	if !errors.Is(err, ErrAdjustmentDeadlineExceeded) ||
 		!errors.Is(err, context.DeadlineExceeded) {
@@ -1124,9 +1128,10 @@ func TestV1FourNUMAWriterSkipsDormantBucketsAndWritesActiveBuckets(t *testing.T)
 	driver.add("reclaim/numa-3", CgroupIdentity{Device: 1, Inode: 5}, "6-7", "3")
 	driver.nodes["reclaim/numa-0"].activity = inactive
 	driver.nodes["reclaim/numa-1"].activity = inactive
+	driver.markInactive("reclaim")
 
 	snapshot := planSnapshot(map[string]EntryState{
-		"reclaim":        {Identity: driver.nodes["reclaim"].identity, CPUs: machine.MustParse("0-7"), Mems: "0-3"},
+		"reclaim":        {Identity: driver.nodes["reclaim"].identity, CPUs: machine.MustParse("0-7"), Mems: "0-3", Activity: CgroupActivity{TasksEmpty: true, CgroupProcsEmpty: true}},
 		"reclaim/numa-0": {Identity: driver.nodes["reclaim/numa-0"].identity, CPUs: machine.MustParse("0-7"), Mems: "0", Activity: inactive},
 		"reclaim/numa-1": {Identity: driver.nodes["reclaim/numa-1"].identity, CPUs: machine.MustParse("0-7"), Mems: "1", Activity: inactive},
 		"reclaim/numa-2": {Identity: driver.nodes["reclaim/numa-2"].identity, CPUs: machine.MustParse("4-5"), Mems: "2"},
@@ -1746,7 +1751,7 @@ func TestSafeWriterSkipsStableUncontrolledV2ChildWithoutCpusetController(t *test
 	}
 }
 
-func TestScanLiveChildrenOnceFailsClosedWithoutSkipProof(t *testing.T) {
+func TestScanStableLiveChildrenFailsClosedWithoutSkipProof(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name            string
@@ -1783,10 +1788,11 @@ func TestScanLiveChildrenOnceFailsClosedWithoutSkipProof(t *testing.T) {
 				return ErrCgroupControllerUnavailable
 			}
 
-			_, err := scanLiveChildrenOnce(
-				context.Background(), driver, plan.Operations[0], safeWriterFailClosedRels(plan))
+			_, err := scanStableLiveChildren(
+				context.Background(), driver, plan.Operations[0].Rel, true,
+				safeWriterFailClosedRels(plan))
 			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("scanLiveChildrenOnce() error = %v, want %v", err, tc.wantErr)
+				t.Fatalf("scanStableLiveChildren() error = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}

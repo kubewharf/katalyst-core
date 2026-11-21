@@ -622,9 +622,11 @@ func TestCgroupV1DriverActivityReadRejectsChildCreationInsideAtomicWindow(t *tes
 		t.Fatal(err)
 	}
 	originalRead := driver.readFileAt
+	childCreated := false
 	driver.readFileAt = func(dirFD int, name string) ([]byte, error) {
 		raw, readErr := originalRead(dirFD, name)
-		if name == "tasks" {
+		if name == "tasks" && !childCreated {
+			childCreated = true
 			if mkdirErr := os.Mkdir(filepath.Join(holderDir, "new-child"), 0o755); mkdirErr != nil {
 				t.Fatal(mkdirErr)
 			}

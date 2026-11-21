@@ -461,7 +461,7 @@ func (c TopologyCoordinator) convergeNormal(ctx context.Context, in CoordinatorI
 	if err != nil {
 		return *res, err
 	}
-	protectedPending := pendingProtectionUnion(in.PendingProtections)
+	protectedPending := PendingProtectionUnion(in.PendingProtections)
 	allowEmptyTarget := in.Cgroup.Version(ctx) == cgroupclient.CgroupVersionV2
 	effectiveTargets, adjustedRequiredByRel, err := computeEffectiveTargets(
 		in.DAG, allowEmptyTarget, in.CPUDetails,
@@ -997,22 +997,6 @@ func publishRelevantEntriesEqual(before, after map[string]EntryState, rel string
 		beforeEntry.ConfiguredCPUs.Equals(afterEntry.ConfiguredCPUs) &&
 		beforeEntry.ConfiguredMems == afterEntry.ConfiguredMems &&
 		beforeEntry.Activity == afterEntry.Activity
-}
-
-func roundOutcomeMadeNetProgress(outcome RoundOutcome) bool {
-	measure := outcome.Progress
-	if measure.DrainChangedRels == 0 {
-		measure.DrainChangedRels = len(outcome.ChangedRels)
-	}
-	for _, applied := range outcome.Journal {
-		if applied.PhysicalImpact == PhysicalImpactUncertain {
-			continue
-		}
-		if applied.Observed.CPUs.Equals(applied.Target.CPUs) && applied.Observed.Mems == applied.Target.Mems {
-			measure.VerifiedWrites++
-		}
-	}
-	return measure.MadeProgress()
 }
 
 func snapshotRelGeneration(snapshot *CompleteSnapshot, rel string) string {

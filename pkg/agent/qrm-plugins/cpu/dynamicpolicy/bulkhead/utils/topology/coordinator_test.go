@@ -533,6 +533,7 @@ func TestTopologyCoordinatorV1FourNUMADormantBucketsConvergeWithPhysicalParentEn
 	driver.add("reclaim/numa-3", CgroupIdentity{Device: 1, Inode: 6}, "6-7", "3")
 	driver.markInactive("reclaim/numa-0")
 	driver.markInactive("reclaim/numa-1")
+	driver.markInactive("reclaim")
 	driver.witnessAuthorizedExpansions = map[string]machine.CPUSet{
 		"reclaim": machine.MustParse("0-3"),
 	}
@@ -2323,19 +2324,10 @@ func TestTopologyCoordinatorBlocksStructuralV1DeadlockBeforeFirstWrite(t *testin
 	}
 }
 
-func TestRoundOutcomeProgressIncludesVerifiedGrowWhenFinalSnapshotIsStale(t *testing.T) {
+func TestProgressMeasureVerifiedWriteCountsAsProgress(t *testing.T) {
 	t.Parallel()
-	outcome := RoundOutcome{
-		Status:   RoundStatusStale,
-		Snapshot: &CompleteSnapshot{},
-		Journal: []AppliedPlanOperation{{
-			Direction: WriteGrow,
-			Target:    CPUSetTarget{CPUs: machine.NewCPUSet(0, 1)},
-			Observed:  CPUSetTarget{CPUs: machine.NewCPUSet(0, 1)},
-		}},
-	}
-	if !roundOutcomeMadeNetProgress(outcome) {
-		t.Fatal("verified grow must count as progress even when a later final snapshot is stale")
+	if !(ProgressMeasure{VerifiedWrites: 1}).MadeProgress() {
+		t.Fatal("verified grow must count as progress")
 	}
 }
 
@@ -2874,13 +2866,9 @@ func TestSafeWriterClassifiesDisappearingOperationAsPlanStale(t *testing.T) {
 		},
 		"after write": {
 			arrange: func(driver *fakeHierarchyDriver) {
-				reads := 0
 				driver.beforeCall = func(op HierarchyOperation, rel string) error {
-					if op == HierarchyOperationRead && rel == "root/leaf" {
-						reads++
-						if reads == 2 {
-							delete(driver.nodes, rel)
-						}
+					if op == HierarchyOperationRead && rel == "root/leaf" && len(driver.writes) != 0 {
+						delete(driver.nodes, rel)
 					}
 					return nil
 				}

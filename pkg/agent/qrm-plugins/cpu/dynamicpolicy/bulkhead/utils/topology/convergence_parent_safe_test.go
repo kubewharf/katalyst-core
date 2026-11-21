@@ -49,10 +49,11 @@ func TestBuildParentSafetyReportAllowsOnlySafeDeferredLeafSuperset(t *testing.T)
 		}},
 	}
 
-	got := buildParentSafetyReport(
+	got := buildParentSafetyReportWithScopedPending(
 		snapshot, dag,
 		map[string]machine.CPUSet{"primary": machine.NewCPUSet(0, 1), "reclaim": machine.NewCPUSet(2, 3)},
 		report, machine.NewCPUSet(1),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(1)},
 		nil,
 		HierarchyCapabilities{},
@@ -62,10 +63,11 @@ func TestBuildParentSafetyReportAllowsOnlySafeDeferredLeafSuperset(t *testing.T)
 	}
 
 	snapshot.DomainUnion[DomainReclaim] = machine.NewCPUSet(1, 2, 3)
-	got = buildParentSafetyReport(
+	got = buildParentSafetyReportWithScopedPending(
 		snapshot, dag,
 		map[string]machine.CPUSet{"primary": machine.NewCPUSet(0), "reclaim": machine.NewCPUSet(1, 2, 3)},
 		report, machine.NewCPUSet(1),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(1)},
 		nil,
 		HierarchyCapabilities{},
@@ -186,8 +188,8 @@ func TestParentSafetyAllowsPlannerDeferredCleanupMismatch(t *testing.T) {
 		Reason: convergenceReasonTargetMismatch,
 	}}}
 
-	got := buildParentSafetyReport(
-		snapshot, dag, nil, report, machine.NewCPUSet(1), nil,
+	got := buildParentSafetyReportWithScopedPending(
+		snapshot, dag, nil, report, machine.NewCPUSet(1), nil, nil, nil,
 		map[string]struct{}{"reclaim": {}}, HierarchyCapabilities{},
 	)
 	if !got.Safe || len(got.DeferredLeafMismatches) != 1 {
@@ -245,7 +247,7 @@ func TestParentSafetyRejectsDeferredNUMAHardFloorDeficit(t *testing.T) {
 		requiredRel: requiredNUMA0,
 	}
 
-	report := buildParentSafetyReportWithRequired(
+	report := buildParentSafetyReportWithScopedPending(
 		snapshot,
 		dag,
 		map[string]machine.CPUSet{
@@ -254,6 +256,7 @@ func TestParentSafetyRejectsDeferredNUMAHardFloorDeficit(t *testing.T) {
 		},
 		convergence,
 		machine.NewCPUSet(),
+		nil,
 		requiredByRel,
 		nil,
 		map[string]struct{}{
@@ -286,7 +289,7 @@ func TestParentSafetyRejectsDeferredNUMAHardFloorDeficit(t *testing.T) {
 	}
 	snapshot.DomainUnion[DomainReclaim] = requiredNUMA0
 	convergence.NonConvergedTargets = convergence.NonConvergedTargets[1:]
-	report = buildParentSafetyReportWithRequired(
+	report = buildParentSafetyReportWithScopedPending(
 		snapshot,
 		dag,
 		map[string]machine.CPUSet{
@@ -295,6 +298,7 @@ func TestParentSafetyRejectsDeferredNUMAHardFloorDeficit(t *testing.T) {
 		},
 		convergence,
 		machine.NewCPUSet(),
+		nil,
 		requiredByRel,
 		nil,
 		map[string]struct{}{
@@ -332,8 +336,9 @@ func TestParentSafetyAllowsDeferredLeafRelocationInsidePrimary(t *testing.T) {
 		Target: machine.NewCPUSet(1), Reason: convergenceReasonTargetMismatch,
 	}}}
 
-	got := buildParentSafetyReport(
+	got := buildParentSafetyReportWithScopedPending(
 		snapshot, dag, nil, report, machine.NewCPUSet(),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(1)},
 		nil, HierarchyCapabilities{},
 	)
@@ -342,8 +347,9 @@ func TestParentSafetyAllowsDeferredLeafRelocationInsidePrimary(t *testing.T) {
 	}
 
 	snapshot.DomainUnion[DomainReclaim] = machine.NewCPUSet(0, 2, 3)
-	got = buildParentSafetyReport(
+	got = buildParentSafetyReportWithScopedPending(
 		snapshot, dag, nil, report, machine.NewCPUSet(),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(1)},
 		nil, HierarchyCapabilities{},
 	)
@@ -352,8 +358,9 @@ func TestParentSafetyAllowsDeferredLeafRelocationInsidePrimary(t *testing.T) {
 	}
 
 	snapshot.DomainUnion[DomainReclaim] = machine.NewCPUSet(1, 2, 3)
-	got = buildParentSafetyReport(
+	got = buildParentSafetyReportWithScopedPending(
 		snapshot, dag, nil, report, machine.NewCPUSet(),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(1)},
 		nil, HierarchyCapabilities{},
 	)
@@ -382,11 +389,12 @@ func TestParentSafetyTargetCompilationNoneUsesEmptyLogicalReclaim(t *testing.T) 
 		Target: machine.NewCPUSet(2), Reason: convergenceReasonTargetMismatch,
 	}}}
 
-	got := buildParentSafetyReport(
+	got := buildParentSafetyReportWithScopedPending(
 		snapshot, dag, map[string]machine.CPUSet{
 			"primary": machine.NewCPUSet(0, 1, 2, 3),
 			"reclaim": machine.NewCPUSet(),
 		}, report, machine.NewCPUSet(),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(2)},
 		nil, HierarchyCapabilities{},
 	)
@@ -398,11 +406,12 @@ func TestParentSafetyTargetCompilationNoneUsesEmptyLogicalReclaim(t *testing.T) 
 		t.Fatalf("parent safety report = %+v, want ownership-none leaf defer", got)
 	}
 
-	got = buildParentSafetyReport(
+	got = buildParentSafetyReportWithScopedPending(
 		snapshot, dag, map[string]machine.CPUSet{
 			"primary": machine.NewCPUSet(0, 1, 2, 3),
 			"reclaim": machine.NewCPUSet(0, 1, 2, 3),
 		}, report, machine.NewCPUSet(),
+		nil, nil,
 		map[string]machine.CPUSet{"primary/pod/container": machine.NewCPUSet(2)},
 		nil, HierarchyCapabilities{},
 	)

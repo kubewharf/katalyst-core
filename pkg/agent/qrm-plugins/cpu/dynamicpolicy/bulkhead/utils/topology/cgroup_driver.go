@@ -259,6 +259,32 @@ func (d *cgroupFSDriver) readEntry(
 		configuredMems = strings.TrimSpace(string(rawConfiguredMems))
 	}
 	if readActivity {
+		// A pinned directory fences identity, not task attachment. Recheck the
+		// empty/non-empty classification after cpuset reads before returning it.
+		if budget != nil {
+			if err := budget.checkContextDeadline(ctx); err != nil {
+				return EntryState{}, err
+			}
+		} else if err := ctx.Err(); err != nil {
+			return EntryState{}, err
+		}
+		for _, membership := range []struct {
+			name  string
+			empty bool
+		}{{"tasks", activity.TasksEmpty}, {"cgroup.procs", activity.CgroupProcsEmpty}} {
+			raw, readErr := d.readFileAt(dirFD, membership.name)
+			if readErr != nil {
+				return EntryState{}, d.wrapReadEntryFileError(rel, membership.name, readErr)
+			}
+			empty, parseErr := membershipFileEmpty(raw)
+			if parseErr != nil {
+				return EntryState{}, fmt.Errorf("parse %s %q: %w", membership.name, rel, parseErr)
+			}
+			if empty != membership.empty {
+				return EntryState{}, fmt.Errorf("%w: rel=%q %s occupancy changed during activity read",
+					ErrCgroupIdentityChanged, rel, membership.name)
+			}
+		}
 		childrenAfter, listErr := d.listChildrenFromFD(ctx, dirFD, rel, before, budget)
 		if listErr != nil {
 			return EntryState{}, listErr

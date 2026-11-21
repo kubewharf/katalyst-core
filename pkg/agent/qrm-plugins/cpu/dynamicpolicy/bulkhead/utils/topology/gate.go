@@ -122,9 +122,10 @@ func (g *DomainGate) Revalidate(convergenceID string, snapshot *CompleteSnapshot
 	if snapshot == nil || convergenceID == "" || convergenceID != g.convergenceID {
 		return
 	}
-	semanticObserved := semanticOwnershipUnionByDomain(snapshot, snapshot.DomainByRel)
+	// Direct occupancy and dormant containment are physical evidence. Semantic
+	// ownership alone cannot prove a cross-domain release.
 	owned := machine.NewCPUSet()
-	for _, cpus := range semanticObserved {
+	for _, cpus := range snapshot.DomainUnion {
 		owned = owned.Union(cpus)
 	}
 	unowned := g.allowedCPUs.Difference(owned)
@@ -150,7 +151,7 @@ func (g *DomainGate) Revalidate(convergenceID string, snapshot *CompleteSnapshot
 			continue
 		}
 		heldOutsideDestination := machine.NewCPUSet()
-		for domain, cpus := range semanticObserved {
+		for domain, cpus := range snapshot.DomainUnion {
 			if domain != witness.Destination {
 				heldOutsideDestination = heldOutsideDestination.Union(cpus)
 			}
