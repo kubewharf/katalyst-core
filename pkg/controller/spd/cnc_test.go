@@ -18,25 +18,89 @@ package spd
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/pointer"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
+
+func TestSPDController_waitForCNCCache(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cnc := &configapi.CustomNodeConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status: configapi.CustomNodeConfigStatus{
+			ServiceProfileConfigList: []configapi.TargetConfig{{ConfigName: "sts1", ConfigNamespace: "default"}},
+		},
+	}
+	controlCtx, err := katalystbase.GenerateFakeGenericContext(nil, []runtime.Object{cnc})
+	require.NoError(t, err)
+	listStarted, releaseList := make(chan struct{}), make(chan struct{})
+	controlCtx.Client.InternalClient.(*internalfake.Clientset).PrependReactor("list", "customnodeconfigs",
+		func(clienttesting.Action) (bool, runtime.Object, error) {
+			close(listStarted)
+			select {
+			case <-releaseList:
+				return true, &configapi.CustomNodeConfigList{Items: []configapi.CustomNodeConfig{*cnc.DeepCopy()}}, nil
+			case <-ctx.Done():
+				return true, nil, ctx.Err()
+			}
+		})
+	spdController, err := NewSPDController(ctx, controlCtx, &generic.GenericConfiguration{},
+		&controller.GenericControllerConfiguration{}, &controller.SPDConfig{}, generic.NewQoSConfiguration(), struct{}{})
+	require.NoError(t, err)
+	defer spdController.cncCacheController.cncSyncQueue.ShutDown()
+	cncInformer := controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs().Informer()
+	podInformer := controlCtx.KubeInformerFactory.Core().V1().Pods().Informer()
+	spdInformer := controlCtx.InternalInformerFactory.Workload().V1alpha1().ServiceProfileDescriptors().Informer()
+	go podInformer.Run(ctx.Done())
+	go spdInformer.Run(ctx.Done())
+	otherCaches := []cache.InformerSynced{podInformer.HasSynced, spdInformer.HasSynced}
+	for _, informer := range controlCtx.DynamicResourcesManager.GetDynamicInformers() {
+		go informer.Informer.Informer().Run(ctx.Done())
+		otherCaches = append(otherCaches, informer.Informer.Informer().HasSynced)
+	}
+	require.True(t, cache.WaitForCacheSync(ctx.Done(), otherCaches...))
+	// The fake client serializes reactors, so start the delayed list only after the other caches are ready.
+	go cncInformer.Run(ctx.Done())
+	select {
+	case <-listStarted:
+	case <-ctx.Done():
+		t.Fatal("CNC list did not start")
+	}
+	require.False(t, cncInformer.HasSynced())
+	ready := true
+	for _, synced := range spdController.syncedFunc {
+		ready = ready && synced()
+	}
+	assert.False(t, ready, "CNC cleanup must not start before its initial list completes")
+	close(releaseList)
+	require.True(t, cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...))
+	spdController.cncCacheController.clearUnusedConfig()
+	updated, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Get(ctx, cnc.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, updated.Status.ServiceProfileConfigList)
+}
 
 func Test_cncCacheController_Run(t *testing.T) {
 	t.Parallel()
@@ -369,7 +433,8 @@ func Test_cncCacheController_Run(t *testing.T) {
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
 			}
 
-			ctx := context.TODO()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			controlCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{tt.fields.pod},
 				[]runtime.Object{tt.fields.spd, tt.fields.cnc}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
@@ -381,9 +446,13 @@ func Test_cncCacheController_Run(t *testing.T) {
 			controlCtx.StartInformer(ctx)
 			go spdController.Run()
 			synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
-			assert.True(t, synced)
+			require.True(t, synced)
 			spdController.cncCacheController.clearUnusedConfig()
-			time.Sleep(1 * time.Second)
+			require.Eventually(t, func() bool {
+				newCNC, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().
+					Get(ctx, tt.fields.cnc.Name, metav1.GetOptions{})
+				return err == nil && reflect.DeepEqual(tt.wantCNC, newCNC)
+			}, time.Second, 10*time.Millisecond)
 
 			newCNC, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().
 				Get(ctx, tt.fields.cnc.Name, metav1.GetOptions{})

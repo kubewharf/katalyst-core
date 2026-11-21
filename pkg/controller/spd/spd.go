@@ -144,7 +144,7 @@ func NewSPDController(ctx context.Context, controlCtx *katalystbase.GenericConte
 	spdController.syncedFunc = append(spdController.syncedFunc, podInformer.Informer().HasSynced)
 
 	spdController.spdLister = spdInformer.Lister()
-	spdController.syncedFunc = append(spdController.syncedFunc, spdInformer.Informer().HasSynced)
+	spdController.syncedFunc = append(spdController.syncedFunc, spdInformer.Informer().HasSynced, cncInformer.Informer().HasSynced)
 
 	workloadInformers := controlCtx.DynamicResourcesManager.GetDynamicInformers()
 	for _, wf := range workloadInformers {
