@@ -128,6 +128,12 @@ type DynamicPolicy struct {
 
 	irqTuner irqtuner.Tuner
 
+	// registerPeriodicalHandler registers a periodic handler; it is bound to
+	// the shared periodicalhandler registry in production and overridable in
+	// tests to isolate from the global registry state.
+	registerPeriodicalHandler func(handlerName string, initState general.HealthzCheckState, groupName string,
+		handler periodicalhandler.Handler, interval time.Duration, tolerationTimes int64) error
+
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor                          bool
@@ -363,6 +369,10 @@ func (p *DynamicPolicy) ResourceName() string {
 func (p *DynamicPolicy) Start() (err error) {
 	general.Infof("called")
 
+	if p.registerPeriodicalHandler == nil {
+		p.registerPeriodicalHandler = periodicalhandler.RegisterPeriodicalHandlerWithHealthz
+	}
+
 	p.Lock()
 	if p.started {
 		general.Infof("is already started")
@@ -392,19 +402,19 @@ func (p *DynamicPolicy) Start() (err error) {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
 
-	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.ClearResidualState, general.HealthzCheckStateNotReady,
+	err = p.registerPeriodicalHandler(cpuconsts.ClearResidualState, general.HealthzCheckStateNotReady,
 		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.clearResidualState, stateCheckPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.ClearResidualState, err)
 	}
 
-	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady,
+	err = p.registerPeriodicalHandler(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady,
 		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.checkCPUSet, cpusetCheckPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.CheckCPUSet, err)
 	}
 
-	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncSystemExclusivePool, general.HealthzCheckStateNotReady,
+	err = p.registerPeriodicalHandler(cpuconsts.SyncSystemExclusivePool, general.HealthzCheckStateNotReady,
 		qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncSystemExclusivePool, syncSystemExclusivePoolPeriod, healthCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed,err:%v", cpuconsts.SyncSystemExclusivePool, err)
@@ -418,7 +428,7 @@ func (p *DynamicPolicy) Start() (err error) {
 			return fmt.Errorf("enable syncing cpu idle but not set reclaiemd relative root cgroup path in configuration")
 		}
 
-		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncCPUIdle, general.HealthzCheckStateNotReady,
+		err = p.registerPeriodicalHandler(cpuconsts.SyncCPUIdle, general.HealthzCheckStateNotReady,
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUIdle, syncCPUIdlePeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUIdle, err)
@@ -428,7 +438,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	if p.enableContainerCPUIdle {
 		general.Infof("container cpu idle is enabled")
 
-		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncContainerCPUIdle, general.HealthzCheckStateNotReady,
+		err = p.registerPeriodicalHandler(cpuconsts.SyncContainerCPUIdle, general.HealthzCheckStateNotReady,
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncContainerCPUIdle, syncContainerCPUIdlePeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncContainerCPUIdle, err)
@@ -440,7 +450,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	if p.enableCPUBurst {
 		general.Infof("cpu burst is enabled")
 
-		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncCPUBurst, general.HealthzCheckStateNotReady,
+		err = p.registerPeriodicalHandler(cpuconsts.SyncCPUBurst, general.HealthzCheckStateNotReady,
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUBurst, syncCPUBurstPeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUBurst, err)
@@ -450,7 +460,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	if p.conf.CPUQRMPluginConfig.EnableCPUWeight {
 		general.Infof("cpu weight is enabled")
 
-		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncCPUWeight, general.HealthzCheckStateNotReady,
+		err = p.registerPeriodicalHandler(cpuconsts.SyncCPUWeight, general.HealthzCheckStateNotReady,
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUWeight, syncCPUWeightPeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUWeight, err)

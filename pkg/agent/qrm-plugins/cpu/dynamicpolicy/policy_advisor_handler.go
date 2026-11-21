@@ -585,18 +585,22 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 }
 
 func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.CalculationInfo, resources *common.CgroupResources) error {
-	if common.CheckCgroup2UnifiedMode() {
+	return checkAndApplyIfCgroupV1(p.defaultCPUAdvisorDeps(), calculationInfo, resources)
+}
+
+func checkAndApplyIfCgroupV1(deps cpuAdvisorDeps, calculationInfo *advisorsvc.CalculationInfo, resources *common.CgroupResources) error {
+	if deps.checkUnifiedMode() {
 		return nil
 	}
 
-	currentParentCgroupCPUStats, err := cgroupmgr.GetCPUWithRelativePath(calculationInfo.CgroupPath)
+	currentParentCgroupCPUStats, err := deps.getCPUWithRelativePath(calculationInfo.CgroupPath)
 	if err != nil {
 		return fmt.Errorf("Get big group quota failed with error: %v", err)
 	}
 
 	// scale down the be group quota
 	if currentParentCgroupCPUStats.CpuQuota < 0 || resources.CpuQuota <= currentParentCgroupCPUStats.CpuQuota {
-		err := p.checkAndApplyAllPodsQuota(calculationInfo, resources.CpuQuota)
+		err := deps.checkAndApplyAllPodsQuota(calculationInfo, resources.CpuQuota)
 		if err != nil {
 			return fmt.Errorf("checkAndApplyAllPodsQuota failed with error: %v", err)
 		}
@@ -605,7 +609,7 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 		if resources.CpuQuota < minBGQuota {
 			minBGQuota = resources.CpuQuota
 		}
-		err := p.checkAndApplyAllPodsQuota(calculationInfo, minBGQuota)
+		err := deps.checkAndApplyAllPodsQuota(calculationInfo, minBGQuota)
 		if err != nil {
 			return fmt.Errorf("checkAndApplyAllPodsQuota failed with error: %v", err)
 		}
@@ -614,13 +618,17 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 }
 
 func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error {
-	podsPathMap, podDirs, err := p.getCurrentPathAllPodsDirAndMap(calculationInfo.CgroupPath)
+	return checkAndApplyAllPodsQuota(p.defaultCPUAdvisorDeps(), calculationInfo, bigGroupQuota)
+}
+
+func checkAndApplyAllPodsQuota(deps cpuAdvisorDeps, calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error {
+	podsPathMap, podDirs, err := deps.getCurrentPathAllPodsDirAndMap(calculationInfo.CgroupPath)
 	if err != nil {
 		return err
 	}
 
 	for _, podDir := range podDirs {
-		pod, podRelativePath, err := p.getPodAndRelativePath(calculationInfo.CgroupPath, podDir, podsPathMap)
+		pod, podRelativePath, err := deps.getPodAndRelativePath(calculationInfo.CgroupPath, podDir, podsPathMap)
 		if err != nil {
 			general.Warningf("getPodAndRelativePath error for pod dir %s: %v", podDir, err)
 			continue
@@ -633,7 +641,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 		}
 
 		podLimit := limit.Cpu().MilliValue() // Value() will lose precision of data
-		podCpu, err := cgroupmgr.GetCPUWithRelativePath(podRelativePath)
+		podCpu, err := deps.getCPUWithRelativePath(podRelativePath)
 		if err != nil {
 			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", podRelativePath, err)
 		}
@@ -646,23 +654,23 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 				continue
 			}
 
-			err = p.applyAllContainersQuota(pod, true)
+			err = deps.applyAllContainersQuota(pod, true)
 			if err != nil {
 				general.Errorf("applyAllContainersQuota for pod %v failed with error: %v", pod.Name, err)
 				continue
 			}
 
-			err := cgroupmgr.ApplyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: podRealQuota})
+			err := deps.applyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: podRealQuota})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to realQuota %v  failed with error: %v", podRelativePath, podRealQuota, err)
 			}
 		} else {
-			err = p.applyAllContainersQuota(pod, false)
+			err = deps.applyAllContainersQuota(pod, false)
 			if err != nil {
 				general.Errorf("applyAllContainersQuota for pod %v failed with error: %v", pod.Name, err)
 				continue
 			}
-			err := cgroupmgr.ApplyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: -1})
+			err := deps.applyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: -1})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 failed with error: %v", podRelativePath, err)
 			}
@@ -671,8 +679,61 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 	return nil
 }
 
+// cpuAdvisorDeps holds the external side effects consumed by the CPU advisor
+// quota adjustment helpers. Functions are bound to real implementations in
+// production and replaced with fakes in tests, so tests do not patch global
+// functions through a shared mock registry.
+type cpuAdvisorDeps struct {
+	checkUnifiedMode          func() bool
+	readDir                   func(string) ([]os.DirEntry, error)
+	listActivePods            func() ([]*v1.Pod, error)
+	getPodAbsCgroupPath       func(subsys, podUID string) (string, error)
+	getAbsCgroupPath          func(subsys, suffix string) string
+	getContainerID            func(pod *v1.Pod, name string) (string, error)
+	getContainerRelCgroupPath func(podUID, containerID string) (string, error)
+	getCPUWithRelativePath    func(rel string) (*common.CPUStats, error)
+	applyCPUWithRelativePath  func(rel string, data *common.CPUData) error
+	getCPUWithAbsolutePath    func(abs string) (*common.CPUStats, error)
+	applyCPUWithAbsolutePath  func(abs string, data *common.CPUData) error
+
+	// internal collaborators, bound to the real DynamicPolicy methods in
+	// production and overridable with fakes in tests.
+	getCurrentPathAllPodsDirAndMap  func(currentCgroupPath string) (map[string]*v1.Pod, []string, error)
+	getPodAndRelativePath           func(currentCgroupPath, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error)
+	getAllContainersRelativePathMap func(pod *v1.Pod) map[string]*v1.Container
+	applyAllContainersQuota         func(pod *v1.Pod, setToLimit bool) error
+	applySubCgroupQuotaToUnLimit    func(containerRelativePath string) error
+	checkAndApplyAllPodsQuota       func(calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error
+}
+
+func (p *DynamicPolicy) defaultCPUAdvisorDeps() cpuAdvisorDeps {
+	return cpuAdvisorDeps{
+		checkUnifiedMode:                common.CheckCgroup2UnifiedMode,
+		readDir:                         os.ReadDir,
+		listActivePods:                  func() ([]*v1.Pod, error) { return p.metaServer.GetPodList(context.Background(), native.PodIsActive) },
+		getPodAbsCgroupPath:             common.GetPodAbsCgroupPath,
+		getAbsCgroupPath:                common.GetAbsCgroupPath,
+		getContainerID:                  native.GetContainerID,
+		getContainerRelCgroupPath:       common.GetContainerRelativeCgroupPath,
+		getCPUWithRelativePath:          cgroupmgr.GetCPUWithRelativePath,
+		applyCPUWithRelativePath:        cgroupmgr.ApplyCPUWithRelativePath,
+		getCPUWithAbsolutePath:          cgroupmgr.GetCPUWithAbsolutePath,
+		applyCPUWithAbsolutePath:        cgroupmgr.ApplyCPUWithAbsolutePath,
+		getCurrentPathAllPodsDirAndMap:  p.getCurrentPathAllPodsDirAndMap,
+		getPodAndRelativePath:           p.getPodAndRelativePath,
+		getAllContainersRelativePathMap: p.getAllContainersRelativePathMap,
+		applyAllContainersQuota:         p.applyAllContainersQuota,
+		applySubCgroupQuotaToUnLimit:    p.applyAllSubCgroupQuotaToUnLimit,
+		checkAndApplyAllPodsQuota:       p.checkAndApplyAllPodsQuota,
+	}
+}
+
 func (p *DynamicPolicy) getAllDirs(parentPath string) ([]string, error) {
-	entries, err := os.ReadDir(parentPath)
+	return getAllDirs(p.defaultCPUAdvisorDeps(), parentPath)
+}
+
+func getAllDirs(deps cpuAdvisorDeps, parentPath string) ([]string, error) {
+	entries, err := deps.readDir(parentPath)
 	if err != nil {
 		return nil, err
 	}
@@ -689,7 +750,11 @@ func (p *DynamicPolicy) getAllDirs(parentPath string) ([]string, error) {
 }
 
 func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
-	pods, err := p.metaServer.GetPodList(context.Background(), native.PodIsActive)
+	return getAllPodsPathMap(p.defaultCPUAdvisorDeps())
+}
+
+func getAllPodsPathMap(deps cpuAdvisorDeps) (map[string]*v1.Pod, error) {
+	pods, err := deps.listActivePods()
 	if err != nil {
 		return nil, fmt.Errorf("GetPodList failed with error: %v", err)
 	}
@@ -700,7 +765,7 @@ func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
 		if pod == nil {
 			continue
 		}
-		podAbsPath, err := common.GetPodAbsCgroupPath(common.DefaultSelectedSubsys, string(pod.UID))
+		podAbsPath, err := deps.getPodAbsCgroupPath(common.DefaultSelectedSubsys, string(pod.UID))
 		if err != nil {
 			general.Errorf("get pod %s absolute path failed with error: %v", pod.Name, err)
 			continue
@@ -712,8 +777,12 @@ func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
 }
 
 func (p *DynamicPolicy) getPodAndRelativePath(currentCgroupPath string, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error) {
+	return getPodAndRelativePath(p.defaultCPUAdvisorDeps(), currentCgroupPath, podDir, podsPathMap)
+}
+
+func getPodAndRelativePath(deps cpuAdvisorDeps, currentCgroupPath string, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error) {
 	podRelativePath := filepath.Join(currentCgroupPath, podDir)
-	podAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
+	podAbsPath := deps.getAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
 	pod, ok := podsPathMap[podAbsPath]
 	if !ok || pod == nil {
 		return nil, "", fmt.Errorf("can not get pod with abs path: %s", podAbsPath)
@@ -727,12 +796,16 @@ func (p *DynamicPolicy) getPodAndRelativePath(currentCgroupPath string, podDir s
 }
 
 func (p *DynamicPolicy) getCurrentPathAllPodsDirAndMap(currentCgroupPath string) (map[string]*v1.Pod, []string, error) {
-	podsPathMap, err := p.getAllPodsPathMap()
+	return getCurrentPathAllPodsDirAndMap(p.defaultCPUAdvisorDeps(), currentCgroupPath)
+}
+
+func getCurrentPathAllPodsDirAndMap(deps cpuAdvisorDeps, currentCgroupPath string) (map[string]*v1.Pod, []string, error) {
+	podsPathMap, err := getAllPodsPathMap(deps)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getAllPodsPathMap failed with error: %v", err)
 	}
-	absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, currentCgroupPath)
-	podDirs, err := p.getAllDirs(absPath)
+	absPath := deps.getAbsCgroupPath(common.DefaultSelectedSubsys, currentCgroupPath)
+	podDirs, err := getAllDirs(deps, absPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getAllPodsPath failed with error: %v", err)
 	}
@@ -741,18 +814,22 @@ func (p *DynamicPolicy) getCurrentPathAllPodsDirAndMap(currentCgroupPath string)
 }
 
 func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]*v1.Container {
+	return getAllContainersRelativePathMap(p.defaultCPUAdvisorDeps(), pod)
+}
+
+func getAllContainersRelativePathMap(deps cpuAdvisorDeps, pod *v1.Pod) map[string]*v1.Container {
 	containerPathMap := make(map[string]*v1.Container)
 
 	for _, container := range pod.Spec.Containers {
 		// Create a copy of the container to avoid the loop variable capture issue
 		containerCopy := container
 
-		containerID, err := native.GetContainerID(pod, container.Name)
+		containerID, err := deps.getContainerID(pod, container.Name)
 		if err != nil {
 			general.Errorf("get container %s container id failed with error: %v", container.Name, err)
 			continue
 		}
-		containerRelativeCgroupPath, err := common.GetContainerRelativeCgroupPath(string(pod.UID), containerID)
+		containerRelativeCgroupPath, err := deps.getContainerRelCgroupPath(string(pod.UID), containerID)
 		if err != nil {
 			general.Errorf("get container %s relative cgroup path failed with error: %v", container.Name, err)
 			continue
@@ -765,11 +842,15 @@ func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]
 }
 
 func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) error {
-	allContainersRelativePathMap := p.getAllContainersRelativePathMap(pod)
+	return applyAllContainersQuota(p.defaultCPUAdvisorDeps(), pod, setToLimit)
+}
+
+func applyAllContainersQuota(deps cpuAdvisorDeps, pod *v1.Pod, setToLimit bool) error {
+	allContainersRelativePathMap := deps.getAllContainersRelativePathMap(pod)
 
 	for relativePath, container := range allContainersRelativePathMap {
 		limit := container.Resources.Limits.Cpu().MilliValue() // Value() will lose precision of data
-		containerCpu, err := cgroupmgr.GetCPUWithRelativePath(relativePath)
+		containerCpu, err := deps.getCPUWithRelativePath(relativePath)
 		if err != nil {
 			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", relativePath, err)
 		}
@@ -778,16 +859,16 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 			if realQuota == containerCpu.CpuQuota {
 				continue
 			}
-			err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: realQuota})
+			err := deps.applyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: realQuota})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to %v failed with error: %v", relativePath, realQuota, err)
 			}
 		} else {
-			err := p.applyAllSubCgroupQuotaToUnLimit(relativePath)
+			err := deps.applySubCgroupQuotaToUnLimit(relativePath)
 			if err != nil {
 				return fmt.Errorf("applyAllSubCgroupQuotaToUnLimit %s failed with error: %v", relativePath, err)
 			}
-			err = cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
+			err = deps.applyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 failed with error: %v", relativePath, err)
 			}
@@ -798,6 +879,10 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 }
 
 func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, err error) error {
+	return checkAndApplySubCgroupPath(p.defaultCPUAdvisorDeps(), path, d, err)
+}
+
+func checkAndApplySubCgroupPath(deps cpuAdvisorDeps, path string, d os.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
@@ -805,7 +890,7 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 		return nil
 	}
 
-	subCPU, err := cgroupmgr.GetCPUWithAbsolutePath(path)
+	subCPU, err := deps.getCPUWithAbsolutePath(path)
 	if err != nil {
 		return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", path, err)
 	}
@@ -814,7 +899,7 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 		return nil
 	}
 
-	err = cgroupmgr.ApplyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
+	err = deps.applyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
 	if err != nil {
 		general.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
 		return fmt.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
@@ -824,13 +909,17 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 }
 
 func (p *DynamicPolicy) applyAllSubCgroupQuotaToUnLimit(containerRelativePath string) error {
-	containerAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, containerRelativePath)
+	return applyAllSubCgroupQuotaToUnLimit(p.defaultCPUAdvisorDeps(), containerRelativePath)
+}
+
+func applyAllSubCgroupQuotaToUnLimit(deps cpuAdvisorDeps, containerRelativePath string) error {
+	containerAbsPath := deps.getAbsCgroupPath(common.DefaultSelectedSubsys, containerRelativePath)
 
 	return filepath.WalkDir(containerAbsPath, func(path string, d fs.DirEntry, err error) error {
 		if path == containerAbsPath {
 			return nil
 		}
-		return p.checkAndApplySubCgroupPath(path, d, err)
+		return checkAndApplySubCgroupPath(deps, path, d, err)
 	})
 }
 

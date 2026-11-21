@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -7544,9 +7543,6 @@ func TestStartWithContainerCPUIdle(t *testing.T) {
 func TestStartWithContainerCPUIdleRegisterFailure(t *testing.T) {
 	t.Parallel()
 
-	policyTestMutex.Lock()
-	defer policyTestMutex.Unlock()
-
 	as := require.New(t)
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint_TestStartWithContainerCPUIdleRegisterFailure")
@@ -7561,20 +7557,18 @@ func TestStartWithContainerCPUIdleRegisterFailure(t *testing.T) {
 	dynamicPolicy.enableContainerCPUIdle = true
 
 	expectedErr := fmt.Errorf("register sync container cpu idle failed")
-	mockey.PatchConvey("return container cpu idle registration error", t, func() {
-		mockey.Mock(periodicalhandler.RegisterPeriodicalHandlerWithHealthz).To(
-			func(handlerName string, _ general.HealthzCheckState, _ string, _ periodicalhandler.Handler, _ time.Duration, _ int64) error {
-				if handlerName == cpuconsts.SyncContainerCPUIdle {
-					return expectedErr
-				}
-				return nil
-			},
-		).Build()
+	dynamicPolicy.registerPeriodicalHandler = func(handlerName string, _ general.HealthzCheckState, _ string,
+		_ periodicalhandler.Handler, _ time.Duration, _ int64,
+	) error {
+		if handlerName == cpuconsts.SyncContainerCPUIdle {
+			return expectedErr
+		}
+		return nil
+	}
 
-		err = dynamicPolicy.Start()
-		as.ErrorIs(err, expectedErr)
-		as.False(dynamicPolicy.started)
-	})
+	err = dynamicPolicy.Start()
+	as.ErrorIs(err, expectedErr)
+	as.False(dynamicPolicy.started)
 }
 
 func TestStop(t *testing.T) {

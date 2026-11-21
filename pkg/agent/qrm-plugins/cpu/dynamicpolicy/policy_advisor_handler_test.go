@@ -24,8 +24,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bytedance/mockey"
-	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	resource2 "k8s.io/apimachinery/pkg/api/resource"
@@ -36,39 +34,17 @@ import (
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+// advisorTestMutex is retained for tests in other files that still serialize
+// around shared state; the advisor handler tests no longer hold it.
 var advisorTestMutex = &sync.Mutex{}
 
 func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {
 	t.Parallel()
-
-	mockPod := &v1.Pod{
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name: "test-container",
-					Resources: v1.ResourceRequirements{
-						Requests: v1.ResourceList{
-							v1.ResourceCPU: resource2.MustParse("2"),
-						},
-					},
-				},
-			},
-		},
-	}
-
-	mockPodPathMap := map[string]*v1.Pod{
-		"test-pod-1": mockPod,
-	}
 
 	resources := &common.CgroupResources{
 		CpuQuota:  1000,
@@ -96,58 +72,34 @@ func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {
 		},
 	}
 
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
+	newDeps := func(bg *common.CPUStats) cpuAdvisorDeps {
+		return cpuAdvisorDeps{
+			checkUnifiedMode:          func() bool { return false },
+			getCPUWithRelativePath:    func(rel string) (*common.CPUStats, error) { return bg, nil },
+			checkAndApplyAllPodsQuota: func(*advisorsvc.CalculationInfo, int64) error { return nil },
+		}
 	}
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-
-	mockey.PatchConvey("test cgroup v1 resource", t, func() {
-		mockey.Mock(common.CheckCgroup2UnifiedMode).IncludeCurrentGoRoutine().Return(false).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG, nil).Build()
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, []string{"advisor-test-pod-1"}, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
-		mockey.Mock((*DynamicPolicy).checkAndApplyAllPodsQuota).IncludeCurrentGoRoutine().Return(nil).Build()
-
-		err := p.checkAndApplyIfCgroupV1(mockCal, resources)
-		convey.So(err, convey.ShouldBeNil)
-	})
-
-	mockey.PatchConvey("test cgroup v1 resource 2", t, func() {
-		mockey.Mock(common.CheckCgroup2UnifiedMode).IncludeCurrentGoRoutine().Return(false).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG2, nil).Build()
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, []string{"advisor-test-pod-1"}, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
-		mockey.Mock((*DynamicPolicy).checkAndApplyAllPodsQuota).IncludeCurrentGoRoutine().Return(nil).Build()
-
-		err := p.checkAndApplyIfCgroupV1(mockCal, resources)
-		convey.So(err, convey.ShouldBeNil)
-	})
+	assert.NoError(t, checkAndApplyIfCgroupV1(newDeps(mockBG), mockCal, resources))
+	assert.NoError(t, checkAndApplyIfCgroupV1(newDeps(mockBG2), mockCal, resources))
 }
 
 func TestDynamicPolicy_getAllDirs(t *testing.T) {
 	t.Parallel()
 
-	policy := &DynamicPolicy{}
-
 	t.Run("basic path", func(t *testing.T) {
 		t.Parallel()
 
-		advisorTestMutex.Lock()
-		defer advisorTestMutex.Unlock()
-		_ = mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().To(func(dirname string) ([]os.DirEntry, error) {
-			return []os.DirEntry{
-				mockDirEntry{"foo", true},
-				mockDirEntry{"bar", true},
-			}, nil
-		}).Build()
+		deps := cpuAdvisorDeps{
+			readDir: func(dirname string) ([]os.DirEntry, error) {
+				return []os.DirEntry{
+					mockDirEntry{"foo", true},
+					mockDirEntry{"bar", true},
+				}, nil
+			},
+		}
 
-		dirs, err := policy.getAllDirs("/fake/path")
+		dirs, err := getAllDirs(deps, "/fake/path")
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, dirs, []string{"foo", "bar"})
 	})
@@ -166,49 +118,38 @@ func (m mockDirEntry) Info() (os.FileInfo, error) { return nil, nil }
 func TestDynamic_getCurrentPathAllPodsDirAndMap(t *testing.T) {
 	t.Parallel()
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-
-	mockey.PatchConvey("test getCurrentPathAllPodsDirAndMap", t, func() {
-		mockPodPathMap := map[string]*v1.Pod{
-			"test-pod-1": {
-				Spec: v1.PodSpec{
-					Containers: []v1.Container{
-						{
-							Name: "test-container",
-							Resources: v1.ResourceRequirements{
-								Requests: v1.ResourceList{
-									v1.ResourceCPU: resource2.MustParse("2"),
-								},
-							},
+	mockPod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "test-container",
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU: resource2.MustParse("2"),
 						},
 					},
 				},
 			},
-		}
-		mockey.Mock((*DynamicPolicy).getAllPodsPathMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, nil).Build()
-		mockey.Mock((*DynamicPolicy).getAllDirs).IncludeCurrentGoRoutine().Return([]string{"advisor-test-pod-1"}, nil).Build()
+		},
+	}
 
-		p := &DynamicPolicy{
-			metaServer: &metaserver.MetaServer{
-				MetaAgent: &agent.MetaAgent{
-					PodFetcher: &pod.PodFetcherStub{},
-				},
-			},
-		}
+	deps := cpuAdvisorDeps{
+		listActivePods:      func() ([]*v1.Pod, error) { return []*v1.Pod{mockPod}, nil },
+		getPodAbsCgroupPath: func(subsys, podUID string) (string, error) { return "test-pod-1", nil },
+		readDir: func(parentPath string) ([]os.DirEntry, error) {
+			return []os.DirEntry{mockDirEntry{"advisor-test-pod-1", true}}, nil
+		},
+		getAbsCgroupPath: common.GetAbsCgroupPath,
+	}
 
-		resultMap, dirs, err := p.getCurrentPathAllPodsDirAndMap("test_group_path")
-		convey.So(err, convey.ShouldBeNil)
-		convey.So(resultMap, convey.ShouldNotBeNil)
-		convey.So(dirs, convey.ShouldNotBeNil)
-	})
+	resultMap, dirs, err := getCurrentPathAllPodsDirAndMap(deps, "test_group_path")
+	assert.NoError(t, err)
+	assert.NotNil(t, resultMap)
+	assert.NotNil(t, dirs)
 }
 
 func TestDynamicPolicy_getPodAndRelativePath(t *testing.T) {
 	t.Parallel()
-
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
 
 	currentPath := "test"
 	dirs := "test-dir"
@@ -229,18 +170,12 @@ func TestDynamicPolicy_getPodAndRelativePath(t *testing.T) {
 		},
 	}
 
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
+	deps := cpuAdvisorDeps{
+		getAbsCgroupPath: common.GetAbsCgroupPath,
 	}
 
-	mockey.PatchConvey("test getPodAndRelativePath", t, func() {
-		_, _, err := p.getPodAndRelativePath(currentPath, dirs, podPathMap)
-		convey.So(err, convey.ShouldBeNil)
-	})
+	_, _, err := getPodAndRelativePath(deps, currentPath, dirs, podPathMap)
+	assert.NoError(t, err)
 }
 
 func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
@@ -263,26 +198,16 @@ func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
 		},
 	}
 
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
+	deps := cpuAdvisorDeps{
+		listActivePods:      func() ([]*v1.Pod, error) { return mockPods, nil },
+		getPodAbsCgroupPath: func(subsys, podUID string) (string, error) { return "test-pod-1-path", nil },
 	}
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("test getAllPodsPathMap", t, func() {
-		mockey.Mock((*pod.PodFetcherStub).GetPodList).IncludeCurrentGoRoutine().Return(mockPods, nil).Build()
-		mockey.Mock(common.GetPodAbsCgroupPath).IncludeCurrentGoRoutine().Return("test-pod-1-path", nil).Build()
+	podPathMap, err := getAllPodsPathMap(deps)
 
-		podPathMap, err := p.getAllPodsPathMap()
-
-		convey.So(err, convey.ShouldBeNil)
-		convey.So(len(podPathMap), convey.ShouldEqual, len(mockPods))
-		convey.So(podPathMap["test-pod-1-path"], convey.ShouldEqual, mockPods[0])
-	})
+	assert.NoError(t, err)
+	assert.Equal(t, len(mockPods), len(podPathMap))
+	assert.Equal(t, mockPods[0], podPathMap["test-pod-1-path"])
 }
 
 func TestDynamicPolicy_getAllContainersRelativePathMap(t *testing.T) {
@@ -303,37 +228,19 @@ func TestDynamicPolicy_getAllContainersRelativePathMap(t *testing.T) {
 		},
 	}
 
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
+	deps := cpuAdvisorDeps{
+		getContainerID:            func(pod *v1.Pod, name string) (string, error) { return "test-container-ID", nil },
+		getContainerRelCgroupPath: func(podUID, containerID string) (string, error) { return "test-container-relative-path", nil },
 	}
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("test getAllContainersRelativePathMap", t, func() {
-		mockey.Mock(native.GetContainerID).IncludeCurrentGoRoutine().Return("test-container-ID", nil).Build()
-		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().Return("test-container-relative-path", nil).Build()
+	testMap := getAllContainersRelativePathMap(deps, mockPod)
 
-		testMap := p.getAllContainersRelativePathMap(mockPod)
-
-		convey.So(len(testMap), convey.ShouldEqual, 1)
-		convey.So(testMap["test-container-relative-path"].Name, convey.ShouldEqual, mockPod.Spec.Containers[0].Name)
-	})
+	assert.Equal(t, 1, len(testMap))
+	assert.Equal(t, mockPod.Spec.Containers[0].Name, testMap["test-container-relative-path"].Name)
 }
 
 func TestDynamicPolicy_checkAllPodsQuota(t *testing.T) {
 	t.Parallel()
-
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
-	}
 
 	mockPod := &v1.Pod{
 		Spec: v1.PodSpec{
@@ -394,91 +301,92 @@ func TestDynamicPolicy_checkAllPodsQuota(t *testing.T) {
 
 	mockErr := fmt.Errorf("mock error")
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("test checkAndApplyAllPodsQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, mockPodDirs, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
-		mockey.Mock((*DynamicPolicy).applyAllContainersQuota).IncludeCurrentGoRoutine().Return(nil).Build()
-		mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG, nil).Build()
+	successCurrent := func(path string) (map[string]*v1.Pod, []string, error) {
+		return mockPodPathMap, mockPodDirs, nil
+	}
+	successPod := func(currentCgroupPath, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error) {
+		return mockPod, "test_relative_path", nil
+	}
 
-		err := p.checkAndApplyAllPodsQuota(mockCal, mockBG.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
+	t.Run("all quotas applied", func(t *testing.T) {
+		t.Parallel()
+		deps := cpuAdvisorDeps{
+			getCurrentPathAllPodsDirAndMap: successCurrent,
+			getPodAndRelativePath:          successPod,
+			applyAllContainersQuota:        func(pod *v1.Pod, setToLimit bool) error { return nil },
+			applyCPUWithRelativePath:       func(rel string, data *common.CPUData) error { return nil },
+			getCPUWithRelativePath:         func(rel string) (*common.CPUStats, error) { return mockBG, nil },
+		}
 
-		err = p.checkAndApplyAllPodsQuota(mockCal, mockBG2.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
-
-		err = p.checkAndApplyAllPodsQuota(mockCal, mockBG3.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG.CpuQuota))
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG2.CpuQuota))
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG3.CpuQuota))
 	})
 
-	mockey.PatchConvey("test checkAndApplyAllPodsQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(nil, nil, mockErr).Build()
-		err := p.checkAndApplyAllPodsQuota(mockCal, mockBG.CpuQuota)
-		convey.So(err, convey.ShouldNotBeNil)
+	t.Run("current path lookup fails", func(t *testing.T) {
+		t.Parallel()
+		deps := cpuAdvisorDeps{
+			getCurrentPathAllPodsDirAndMap: func(path string) (map[string]*v1.Pod, []string, error) {
+				return nil, nil, mockErr
+			},
+		}
+		assert.Error(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG.CpuQuota))
 	})
 
-	mockey.PatchConvey("test checkAndApplyAllPodsQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, mockPodDirs, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", mockErr).Build()
-		err := p.checkAndApplyAllPodsQuota(mockCal, mockBG.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
+	t.Run("pod relative path lookup fails and skipped", func(t *testing.T) {
+		t.Parallel()
+		deps := cpuAdvisorDeps{
+			getCurrentPathAllPodsDirAndMap: successCurrent,
+			getPodAndRelativePath: func(currentCgroupPath, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error) {
+				return mockPod, "test_relative_path", mockErr
+			},
+		}
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG.CpuQuota))
 	})
 
-	mockey.PatchConvey("test checkAndApplyAllPodsQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, mockPodDirs, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG, mockErr).Build()
-		err := p.checkAndApplyAllPodsQuota(mockCal, mockBG.CpuQuota)
-		convey.So(err, convey.ShouldNotBeNil)
+	t.Run("get pod cpu fails", func(t *testing.T) {
+		t.Parallel()
+		deps := cpuAdvisorDeps{
+			getCurrentPathAllPodsDirAndMap: successCurrent,
+			getPodAndRelativePath:          successPod,
+			getCPUWithRelativePath:         func(rel string) (*common.CPUStats, error) { return mockBG, mockErr },
+		}
+		assert.Error(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG.CpuQuota))
 	})
 
-	mockey.PatchConvey("test checkAndApplyAllPodsQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, mockPodDirs, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
-		mockey.Mock((*DynamicPolicy).applyAllContainersQuota).IncludeCurrentGoRoutine().Return(mockErr).Build()
-		mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG, nil).Build()
+	t.Run("apply containers quota fails and skipped", func(t *testing.T) {
+		t.Parallel()
+		deps := cpuAdvisorDeps{
+			getCurrentPathAllPodsDirAndMap: successCurrent,
+			getPodAndRelativePath:          successPod,
+			applyAllContainersQuota:        func(pod *v1.Pod, setToLimit bool) error { return mockErr },
+			applyCPUWithRelativePath:       func(rel string, data *common.CPUData) error { return nil },
+			getCPUWithRelativePath:         func(rel string) (*common.CPUStats, error) { return mockBG, nil },
+		}
 
-		err := p.checkAndApplyAllPodsQuota(mockCal, mockBG.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
-
-		err = p.checkAndApplyAllPodsQuota(mockCal, mockBG2.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
-
-		err = p.checkAndApplyAllPodsQuota(mockCal, mockBG3.CpuQuota)
-		convey.So(err, convey.ShouldBeNil)
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG.CpuQuota))
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG2.CpuQuota))
+		assert.NoError(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG3.CpuQuota))
 	})
 
-	mockey.PatchConvey("test checkAndApplyAllPodsQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, mockPodDirs, nil).Build()
-		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
-		mockey.Mock((*DynamicPolicy).applyAllContainersQuota).IncludeCurrentGoRoutine().Return(nil).Build()
-		mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockErr).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG, nil).Build()
+	t.Run("apply pod quota fails", func(t *testing.T) {
+		t.Parallel()
+		deps := cpuAdvisorDeps{
+			getCurrentPathAllPodsDirAndMap: successCurrent,
+			getPodAndRelativePath:          successPod,
+			applyAllContainersQuota:        func(pod *v1.Pod, setToLimit bool) error { return nil },
+			applyCPUWithRelativePath:       func(rel string, data *common.CPUData) error { return mockErr },
+			getCPUWithRelativePath:         func(rel string) (*common.CPUStats, error) { return mockBG, nil },
+		}
 
-		err := p.checkAndApplyAllPodsQuota(mockCal, mockBG.CpuQuota)
-		convey.So(err, convey.ShouldNotBeNil)
-
-		err = p.checkAndApplyAllPodsQuota(mockCal, mockBG2.CpuQuota)
-		convey.So(err, convey.ShouldNotBeNil)
-
-		err = p.checkAndApplyAllPodsQuota(mockCal, mockBG3.CpuQuota)
-		convey.So(err, convey.ShouldNotBeNil)
+		assert.Error(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG.CpuQuota))
+		assert.Error(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG2.CpuQuota))
+		assert.Error(t, checkAndApplyAllPodsQuota(deps, mockCal, mockBG3.CpuQuota))
 	})
 }
 
 func TestDynamicPolicy_applyAllContainersQuota(t *testing.T) {
 	t.Parallel()
-
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
-	}
 
 	containerPathMap := map[string]*v1.Container{
 		"container1": {
@@ -527,56 +435,54 @@ func TestDynamicPolicy_applyAllContainersQuota(t *testing.T) {
 		CpuPeriod: 1000,
 	}
 
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("test checkAllContainersQuota", t, func() {
-		mockey.Mock((*DynamicPolicy).getAllContainersRelativePathMap).IncludeCurrentGoRoutine().Return(containerPathMap).Build()
-		mockey.Mock((*DynamicPolicy).applyAllSubCgroupQuotaToUnLimit).IncludeCurrentGoRoutine().Return(nil).Build()
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockCPU, nil).Build()
-		apply := mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
+	applyCount := 0
+	deps := cpuAdvisorDeps{
+		getAllContainersRelativePathMap: func(pod *v1.Pod) map[string]*v1.Container { return containerPathMap },
+		applySubCgroupQuotaToUnLimit:    func(containerRelativePath string) error { return nil },
+		getCPUWithRelativePath:          func(rel string) (*common.CPUStats, error) { return mockCPU, nil },
+		applyCPUWithRelativePath:        func(rel string, data *common.CPUData) error { applyCount++; return nil },
+	}
 
-		err := p.applyAllContainersQuota(pod, true)
+	err := applyAllContainersQuota(deps, pod, true)
 
-		convey.So(err, convey.ShouldBeNil)
-		convey.So(apply.Times(), convey.ShouldEqual, 2)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, applyCount)
 
-		err = p.applyAllContainersQuota(pod, false)
-		convey.So(err, convey.ShouldBeNil)
-	})
+	err = applyAllContainersQuota(deps, pod, false)
+	assert.NoError(t, err)
 }
 
 func TestDynamicPolicy_checkAndApplySubCgroupPath(t *testing.T) {
 	t.Parallel()
 
-	p := &DynamicPolicy{
-		metaServer: &metaserver.MetaServer{
-			MetaAgent: &agent.MetaAgent{
-				PodFetcher: &pod.PodFetcherStub{},
-			},
-		},
-	}
-
-	advisorTestMutex.Lock()
-	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
+	t.Run("non directory entry is skipped", func(t *testing.T) {
+		t.Parallel()
 		d1 := mockDirEntry{isDir: false}
-		err1 := p.checkAndApplySubCgroupPath("path1", d1, nil)
-		convey.So(err1, convey.ShouldBeNil)
-
-		d2 := mockDirEntry{isDir: true}
-		subCPU2 := &common.CPUStats{CpuQuota: -1}
-		mockey.Mock(cgroupmgr.GetCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(subCPU2, nil).Build()
-		err2 := p.checkAndApplySubCgroupPath("path2", d2, nil)
-		convey.So(err2, convey.ShouldBeNil)
+		err1 := checkAndApplySubCgroupPath(cpuAdvisorDeps{}, "path1", d1, nil)
+		assert.NoError(t, err1)
 	})
 
-	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
+	t.Run("directory with negative quota is skipped", func(t *testing.T) {
+		t.Parallel()
+		d2 := mockDirEntry{isDir: true}
+		subCPU2 := &common.CPUStats{CpuQuota: -1}
+		deps := cpuAdvisorDeps{
+			getCPUWithAbsolutePath: func(abs string) (*common.CPUStats, error) { return subCPU2, nil },
+		}
+		err2 := checkAndApplySubCgroupPath(deps, "path2", d2, nil)
+		assert.NoError(t, err2)
+	})
+
+	t.Run("directory with positive quota is unlimited", func(t *testing.T) {
+		t.Parallel()
 		d3 := mockDirEntry{isDir: true}
 		subCPU3 := &common.CPUStats{CpuQuota: 1000}
-		mockey.Mock(cgroupmgr.GetCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(subCPU3, nil).Build()
-		mockey.Mock(cgroupmgr.ApplyCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(nil).Build()
-		err3 := p.checkAndApplySubCgroupPath("path3", d3, nil)
-		convey.So(err3, convey.ShouldBeNil)
+		deps := cpuAdvisorDeps{
+			getCPUWithAbsolutePath:   func(abs string) (*common.CPUStats, error) { return subCPU3, nil },
+			applyCPUWithAbsolutePath: func(abs string, data *common.CPUData) error { return nil },
+		}
+		err3 := checkAndApplySubCgroupPath(deps, "path3", d3, nil)
+		assert.NoError(t, err3)
 	})
 }
 
