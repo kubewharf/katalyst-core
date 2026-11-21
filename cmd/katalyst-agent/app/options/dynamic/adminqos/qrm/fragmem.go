@@ -30,6 +30,7 @@ type FragMemOptions struct {
 	MemFragScoreAsync          int
 	THPDefaultConfig           string
 	THPHighOrderScoreThreshold int
+	THPDefragPolicy            string
 }
 
 func NewFragMemOptions() *FragMemOptions {
@@ -38,6 +39,7 @@ func NewFragMemOptions() *FragMemOptions {
 		MemFragScoreAsync:          80,
 		THPDefaultConfig:           "madvise",
 		THPHighOrderScoreThreshold: 85,
+		THPDefragPolicy:            "",
 	}
 }
 
@@ -51,12 +53,20 @@ func (o *FragMemOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.THPDefaultConfig, "default host THP config to recover to (madvise/always/never)")
 	fs.IntVar(&o.THPHighOrderScoreThreshold, "qrm-memory-thp-high-order-score-threshold",
 		o.THPHighOrderScoreThreshold, "disable THP when max highOrderScore > threshold")
+	fs.StringVar(&o.THPDefragPolicy, "qrm-memory-thp-defrag-policy",
+		o.THPDefragPolicy, "host THP defrag policy applied when FragMem is enabled (always/defer/defer+madvise/madvise/never); empty leaves the current policy unchanged unless configured by KCC")
 }
 
 func (o *FragMemOptions) ApplyTo(c *dynamicqrm.FragMemConfiguration) error {
+	defragPolicy, err := dynamicqrm.ParseTHPDefragPolicy(o.THPDefragPolicy)
+	if err != nil {
+		return err
+	}
+
 	c.EnableFragMem = o.EnableFragMem
 	c.MemFragScoreAsync = o.MemFragScoreAsync
 	c.THPDefaultConfig = apiconfig.THPMode(strings.TrimSpace(strings.ToLower(o.THPDefaultConfig)))
 	c.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
+	c.THPDefragPolicy = defragPolicy
 	return nil
 }

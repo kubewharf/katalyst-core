@@ -25,6 +25,48 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
+func TestParseTHPDefragPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    apiconfig.THPDefragPolicy
+		wantErr bool
+	}{
+		{name: "always", input: "always", want: apiconfig.THPDefragPolicyAlways},
+		{name: "defer", input: "defer", want: apiconfig.THPDefragPolicyDefer},
+		{name: "defer madvise", input: "defer+madvise", want: apiconfig.THPDefragPolicyDeferMadvise},
+		{name: "madvise", input: "madvise", want: apiconfig.THPDefragPolicyMadvise},
+		{name: "never", input: "never", want: apiconfig.THPDefragPolicyNever},
+		{name: "normalize", input: " Defer+Madvise \n", want: apiconfig.THPDefragPolicyDeferMadvise},
+		{name: "empty leaves policy unmanaged"},
+		{name: "whitespace leaves policy unmanaged", input: " \t\n"},
+		{name: "reject shmem force", input: "force", wantErr: true},
+		{name: "reject shmem deny", input: "deny", wantErr: true},
+		{name: "reject shmem advise", input: "advise", wantErr: true},
+		{name: "reject shmem within_size", input: "within_size", wantErr: true},
+		{name: "reject unknown policy", input: "invalid", wantErr: true},
+		{name: "reject internal spaces", input: "defer + madvise", wantErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ParseTHPDefragPolicy(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "invalid THP defrag policy")
+				require.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +78,7 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	staticEnable := true
 	staticTHP := apiconfig.THPModeAlways
 	staticTHPShm := apiconfig.THPShmModeForce
+	defragPolicy := apiconfig.THPDefragPolicyNever
 
 	conf := NewFragMemConfiguration()
 	conf.ApplyConfiguration(&crd.DynamicConfigCRD{
@@ -48,6 +91,7 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 								EnableFragMem:     &enable,
 								MemFragScoreAsync: &score,
 								THPDefaultConfig:  &mode,
+								THPDefragPolicy:   &defragPolicy,
 								THPStaticEnableConfig: &apiconfig.THPStaticEnableConfig{
 									Enable: &staticEnable,
 									THP:    &staticTHP,
@@ -66,6 +110,7 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	as.Equal(70, conf.MemFragScoreAsync)
 	as.Equal(apiconfig.THPModeAlways, conf.THPDefaultConfig)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
+	as.Equal(apiconfig.THPDefragPolicyNever, conf.THPDefragPolicy)
 	as.NotNil(conf.THPStaticEnableConfig)
 	as.True(conf.THPStaticEnableConfig.Enable)
 	as.Equal(apiconfig.THPModeAlways, conf.THPStaticEnableConfig.THP)

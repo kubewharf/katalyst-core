@@ -254,7 +254,9 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 
 	klog.Infof("dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
 	currentConfig := deepCopy(c.defaultConfig)
-	applyDynamicConfig(currentConfig, dynamicConfigCRD)
+	if err := applyDynamicConfig(currentConfig, dynamicConfigCRD); err != nil {
+		return err
+	}
 
 	var errList []error
 	for _, hook := range c.configHooks {
@@ -387,8 +389,12 @@ func getGVRToGVKMap() map[schema.GroupVersionResource]schema.GroupVersionKind {
 
 func applyDynamicConfig(config *dynamic.Configuration,
 	dynamicConfigCRD *crd.DynamicConfigCRD,
-) {
+) error {
+	if err := config.FragMemConfiguration.ValidateConfiguration(dynamicConfigCRD); err != nil {
+		return fmt.Errorf("invalid FragMem configuration: %w", err)
+	}
 	config.ApplyConfiguration(dynamicConfigCRD)
+	return nil
 }
 
 func deepCopy(src *dynamic.Configuration) *dynamic.Configuration {

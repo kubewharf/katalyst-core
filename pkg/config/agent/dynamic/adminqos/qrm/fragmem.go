@@ -17,6 +17,7 @@ limitations under the License.
 package qrm
 
 import (
+	"fmt"
 	"strings"
 
 	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -24,12 +25,41 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
+// ParseTHPDefragPolicy normalizes and validates a THP defrag policy.
+// An empty policy leaves the host's current defrag policy unchanged.
+func ParseTHPDefragPolicy(policy string) (apiconfig.THPDefragPolicy, error) {
+	normalizedPolicy := apiconfig.THPDefragPolicy(strings.TrimSpace(strings.ToLower(policy)))
+	if normalizedPolicy == "" {
+		return "", nil
+	}
+
+	if err := validateTHPDefragPolicy(normalizedPolicy); err != nil {
+		return "", err
+	}
+	return normalizedPolicy, nil
+}
+
+func validateTHPDefragPolicy(policy apiconfig.THPDefragPolicy) error {
+	switch policy {
+	case apiconfig.THPDefragPolicyAlways, apiconfig.THPDefragPolicyDefer, apiconfig.THPDefragPolicyDeferMadvise,
+		apiconfig.THPDefragPolicyMadvise, apiconfig.THPDefragPolicyNever:
+		return nil
+	default:
+		return fmt.Errorf("invalid THP defrag policy %q, expected one of %q/%q/%q/%q/%q", policy,
+			apiconfig.THPDefragPolicyAlways, apiconfig.THPDefragPolicyDefer, apiconfig.THPDefragPolicyDeferMadvise,
+			apiconfig.THPDefragPolicyMadvise, apiconfig.THPDefragPolicyNever)
+	}
+}
+
 type FragMemConfiguration struct {
 	EnableFragMem              bool
 	MemFragScoreAsync          int
 	THPDefaultConfig           apiconfig.THPMode
 	THPHighOrderScoreThreshold int
 	THPStaticEnableConfig      *THPStaticEnableConfiguration
+	// THPDefragPolicy is applied when non-empty and EnableFragMem is true, independently of THP mode tuning.
+	// An empty policy leaves the host's current defrag policy unchanged.
+	THPDefragPolicy apiconfig.THPDefragPolicy
 }
 
 type THPStaticEnableConfiguration struct {
@@ -42,12 +72,26 @@ func NewFragMemConfiguration() *FragMemConfiguration {
 	return &FragMemConfiguration{}
 }
 
-func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+func getFragMemConfig(conf *crd.DynamicConfigCRD) *apiconfig.FragMemConfig {
 	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
 		aqc.Spec.Config.QRMPluginConfig != nil &&
-		aqc.Spec.Config.QRMPluginConfig.MemoryPluginConfig != nil &&
-		aqc.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig != nil {
-		config := aqc.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig
+		aqc.Spec.Config.QRMPluginConfig.MemoryPluginConfig != nil {
+		return aqc.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig
+	}
+	return nil
+}
+
+// ValidateConfiguration checks an explicit AQC policy against the API enum.
+// Unlike CLI input, an explicit empty value is invalid; omission preserves the startup policy.
+func (c *FragMemConfiguration) ValidateConfiguration(conf *crd.DynamicConfigCRD) error {
+	if config := getFragMemConfig(conf); config != nil && config.THPDefragPolicy != nil {
+		return validateTHPDefragPolicy(*config.THPDefragPolicy)
+	}
+	return nil
+}
+
+func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	if config := getFragMemConfig(conf); config != nil {
 		if config.EnableFragMem != nil {
 			c.EnableFragMem = *config.EnableFragMem
 		}
@@ -56,6 +100,9 @@ func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		}
 		if config.THPDefaultConfig != nil {
 			c.THPDefaultConfig = apiconfig.THPMode(strings.TrimSpace(strings.ToLower(*config.THPDefaultConfig)))
+		}
+		if config.THPDefragPolicy != nil {
+			c.THPDefragPolicy = *config.THPDefragPolicy
 		}
 		if config.THPHighOrderScoreThreshold != nil {
 			c.THPHighOrderScoreThreshold = int(*config.THPHighOrderScoreThreshold)

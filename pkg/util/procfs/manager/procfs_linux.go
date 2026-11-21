@@ -50,6 +50,8 @@ const (
 	TransparentHugepageEnabledPath = "/sys/kernel/mm/transparent_hugepage/enabled"
 	// TransparentHugepageShmemEnabledPath is a kernel sysfs interface to configure THP behavior for tmpfs/shmem.
 	TransparentHugepageShmemEnabledPath = "/sys/kernel/mm/transparent_hugepage/shmem_enabled"
+	// TransparentHugepageDefragPath is a kernel sysfs interface to configure THP defragmentation behavior.
+	TransparentHugepageDefragPath = "/sys/kernel/mm/transparent_hugepage/defrag"
 )
 
 type manager struct {
