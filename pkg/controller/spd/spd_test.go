@@ -19,6 +19,7 @@ package spd
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1278,7 +1279,18 @@ func TestIndicatorUpdater(t *testing.T) {
 			Aggregator: apiworkload.Sum,
 		},
 	})
-	time.Sleep(time.Second)
+	assert.Eventually(t, func() bool {
+		newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
+			ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
+		if err != nil {
+			return false
+		}
+		return reflect.DeepEqual(expectedSpd.Spec.ExtendedIndicator, newSPD.Spec.ExtendedIndicator) &&
+			reflect.DeepEqual(expectedSpd.Spec.BusinessIndicator, newSPD.Spec.BusinessIndicator) &&
+			reflect.DeepEqual(expectedSpd.Spec.SystemIndicator, newSPD.Spec.SystemIndicator) &&
+			reflect.DeepEqual(expectedSpd.Status.BusinessStatus, newSPD.Status.BusinessStatus) &&
+			reflect.DeepEqual(expectedSpd.Status.AggMetrics, newSPD.Status.AggMetrics)
+	}, 30*time.Second, 10*time.Millisecond, "all indicator fields must be published")
 	newSPD, err := controlCtx.Client.InternalClient.WorkloadV1alpha1().
 		ServiceProfileDescriptors("default").Get(ctx, "spd1", metav1.GetOptions{})
 	assert.NoError(t, err)
