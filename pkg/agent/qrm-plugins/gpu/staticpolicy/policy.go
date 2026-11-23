@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -681,11 +682,22 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 
 	p.Lock()
 	defer p.Unlock()
+
+	previousTopology, _ := p.DeviceTopologyRegistry.GetDeviceTopology(request.DeviceName)
+	if previousTopology == nil {
+		// Before the first inventory update, there are no known devices.
+		previousTopology = &machine.DeviceTopology{Devices: make(map[string]machine.DeviceInfo)}
+	} else {
+		previousTopology = previousTopology.Clone()
+	}
 	resp, err := customDevicePlugin.UpdateAllocatableAssociatedDevices(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("custom device plugin UpdateAllocatableAssociatedDevices failed with error: %v", err)
 	}
 	if err := p.rebuildAndStoreMachineState(); err != nil {
+		if rollbackErr := p.DeviceTopologyRegistry.SetDeviceTopology(request.DeviceName, previousTopology); rollbackErr != nil {
+			return nil, fmt.Errorf("%w; failed to restore previous device topology: %v", err, rollbackErr)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -699,7 +711,11 @@ func (p *StaticPolicy) rebuildAndStoreMachineState() error {
 		return nil // Initialization reads the updated topology registry.
 	}
 
-	machineState := stateImpl.GetMachineState()
+	previous := stateImpl.GetMachineState()
+	machineState := make(state.AllocationResourcesMap, len(previous))
+	for name, devices := range previous {
+		machineState[name] = devices
+	}
 	entries := stateImpl.GetPodResourceEntries()
 	for resourceName, generator := range p.DefaultResourceStateGeneratorRegistry.GetGenerators() {
 		name := v1.ResourceName(resourceName)
@@ -719,6 +735,7 @@ func (p *StaticPolicy) rebuildAndStoreMachineState() error {
 	}
 	stateImpl.SetMachineState(machineState, false)
 	if err := stateImpl.StoreState(); err != nil {
+		stateImpl.SetMachineState(previous, false)
 		return fmt.Errorf("persist GPU machine state: %w", err)
 	}
 	return nil

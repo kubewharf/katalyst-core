@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // Tests deliberately use the real custom/resource plugins and state implementations.
@@ -238,6 +239,32 @@ type reconciliationStoreTracker struct {
 
 func (s *reconciliationStoreTracker) StoreState() error { s.stores++; return s.State.StoreState() }
 
+func TestInventoryReconciliationFirstUpdateFailure(t *testing.T) {
+	t.Parallel()
+	p := makeTestStaticPolicy(t)
+	name := p.Conf.GPUDeviceNames[0]
+	p.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(name, machine.NewDeviceTopologyProvider())
+	beforeState := p.GetState().GetMachineState()
+	original, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(string(consts.ResourceGPUMemory))
+	require.True(t, ok)
+	failure := errors.New("first inventory generator failure")
+	p.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceGPUMemory),
+		reconciliationFailureGenerator{DefaultResourceStateGenerator: original, err: failure})
+	request := reconciliationInventory(name, "gpu-new")
+	_, err := p.UpdateAllocatableAssociatedDevices(context.Background(), request)
+	require.ErrorIs(t, err, failure)
+	require.Equal(t, beforeState, p.GetState().GetMachineState())
+	topology, err := p.DeviceTopologyRegistry.GetDeviceTopology(name)
+	require.NoError(t, err)
+	require.Empty(t, topology.Devices)
+	require.Zero(t, topology.UpdateTime)
+
+	p.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceGPUMemory), original)
+	_, err = p.UpdateAllocatableAssociatedDevices(context.Background(), request)
+	require.NoError(t, err)
+	require.Contains(t, p.GetState().GetMachineState()[gpuconsts.GPUDeviceType], "gpu-new")
+}
+
 func TestInventoryReconciliationGeneratorFailure(t *testing.T) {
 	t.Parallel()
 	p := makeTestStaticPolicy(t)
@@ -247,7 +274,12 @@ func TestInventoryReconciliationGeneratorFailure(t *testing.T) {
 	p.GetState().SetAllocationInfo(gpuconsts.GPUDeviceType, "owner", "c", &state.AllocationInfo{
 		TopologyAwareAllocations: map[string]state.Allocation{"gpu-lost": {Quantity: 1}},
 	}, false)
+	_, err = p.UpdateAllocatableAssociatedDevices(context.Background(), request)
+	require.NoError(t, err)
 	beforeState, beforeEntries := p.GetState().GetMachineState(), p.GetState().GetPodResourceEntries()
+	beforeTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(request.DeviceName)
+	require.NoError(t, err)
+	beforeTopology = beforeTopology.Clone()
 	tracked := &reconciliationStoreTracker{State: p.GetState()}
 	p.SetState(tracked)
 	original, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(string(consts.ResourceGPUMemory))
@@ -263,7 +295,8 @@ func TestInventoryReconciliationGeneratorFailure(t *testing.T) {
 	require.Zero(t, tracked.stores)
 	topology, err := p.DeviceTopologyRegistry.GetDeviceTopology(request.DeviceName)
 	require.NoError(t, err)
-	require.NotContains(t, topology.Devices, "gpu-lost") // Registry publication is not rolled back.
+	require.Equal(t, beforeTopology, topology)
+	require.NotContains(t, topology.Devices, "gpu-new")
 
 	p.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceGPUMemory), original)
 	_, err = p.UpdateAllocatableAssociatedDevices(context.Background(), request)
@@ -280,6 +313,8 @@ func TestInventoryReconciliationCheckpointFailure(t *testing.T) {
 	p.GetState().SetAllocationInfo(gpuconsts.GPUDeviceType, "owner", "c", &state.AllocationInfo{
 		TopologyAwareAllocations: map[string]state.Allocation{"gpu-lost": {Quantity: 1}},
 	}, false)
+	_, err = p.UpdateAllocatableAssociatedDevices(context.Background(), reconciliationInventory(p.Conf.GPUDeviceNames[0], "gpu-0", "gpu-lost"))
+	require.NoError(t, err)
 	// Use an isolated real checkpoint store, then make its directory unwriteable as a path.
 	directory := filepath.Join(t.TempDir(), "checkpoint")
 	persistent, err := state.NewCheckpointState(&statedirectory.StateDirectoryConfiguration{StateFileDirectory: directory}, p.Conf.QRMPluginsConfiguration,
@@ -295,12 +330,18 @@ func TestInventoryReconciliationCheckpointFailure(t *testing.T) {
 	require.NoError(t, os.WriteFile(directory, []byte("not a directory"), 0o600))
 	p.SetState(persistent)
 	beforeEntries := persistent.GetPodResourceEntries()
+	beforeState := persistent.GetMachineState()
+	beforeTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(p.Conf.GPUDeviceNames[0])
+	require.NoError(t, err)
+	beforeTopology = beforeTopology.Clone()
 	request := reconciliationInventory(p.Conf.GPUDeviceNames[0], "gpu-0", "gpu-new")
 	response, err := p.UpdateAllocatableAssociatedDevices(context.Background(), request)
 	require.ErrorContains(t, err, "persist GPU machine state")
 	require.Nil(t, response)
-	require.Contains(t, persistent.GetMachineState()[gpuconsts.GPUDeviceType], "gpu-new")
-	require.Contains(t, persistent.GetMachineState()[gpuconsts.GPUDeviceType], "gpu-lost")
+	require.Equal(t, beforeState, persistent.GetMachineState())
+	topology, err := p.DeviceTopologyRegistry.GetDeviceTopology(request.DeviceName)
+	require.NoError(t, err)
+	require.Equal(t, beforeTopology, topology)
 	require.Equal(t, beforeEntries, persistent.GetPodResourceEntries())
 	unchangedDisk, err := os.ReadFile(filepath.Join(backup, "test"))
 	require.NoError(t, err)
