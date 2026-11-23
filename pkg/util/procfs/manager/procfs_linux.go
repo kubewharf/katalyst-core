@@ -33,6 +33,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/procfs/common"
 )
 
+// VMCompactionProactivenessPath is the vm.compaction_proactiveness sysctl.
+// Override only before starting consumers; concurrent mutation is not supported.
+var VMCompactionProactivenessPath = "/proc/sys/vm/compaction_proactiveness"
+
 const (
 	IrqRootPath    = "/proc/irq"
 	InterruptsFile = "/proc/interrupts"

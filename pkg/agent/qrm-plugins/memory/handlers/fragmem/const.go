@@ -17,9 +17,6 @@ limitations under the License.
 package fragmem
 
 const (
-	// Constants for fragmem related kernel features
-	hostCompactProactivenessFile = "/proc/sys/vm/compaction_proactiveness"
-
 	fragScoreMin      = 60.0
 	fragScoreMax      = 95.0
 	minFragScoreGap   = 8

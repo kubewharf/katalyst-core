@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	procfsm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
 var (
@@ -169,7 +170,7 @@ func SetMemCompact(conf *coreconfig.Configuration,
 
 	// Step1, check proactive compaction.
 	// if proactive compaction feature enabled, then return.
-	if !checkCompactionProactivenessDisabled(hostCompactProactivenessFile) {
+	if !checkCompactionProactivenessDisabled(procfsm.VMCompactionProactivenessPath) {
 		general.Infof("proactive compaction enabled, then return")
 		return
 	}
