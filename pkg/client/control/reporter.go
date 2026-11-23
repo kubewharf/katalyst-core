@@ -68,11 +68,17 @@ type genericReporterPlugin struct {
 // NewGenericReporterPlugin creates a new generic reporter plugin.
 // It wraps the plugin with a registration mechanism, and sets up start, stop, and restart functionalities.
 func NewGenericReporterPlugin(name string, conf *config.Configuration, emitter metrics.MetricEmitter) (Reporter, error) {
+	return newGenericReporterPlugin(name, conf, emitter, skeleton.NewRegistrationPluginWrapper)
+}
+
+func newGenericReporterPlugin(name string, conf *config.Configuration, emitter metrics.MetricEmitter,
+	newWrapper func(skeleton.GenericPlugin, []string, skeleton.MetricCallback) (*skeleton.PluginRegistrationWrapper, error),
+) (Reporter, error) {
 	c := &genericReporterPlugin{
 		name: name, // Assign the provided name to the plugin instance.
 	}
 
-	rp, err := skeleton.NewRegistrationPluginWrapper(c, []string{conf.PluginRegistrationDir}, func(key string, value int64) {
+	rp, err := newWrapper(c, []string{conf.PluginRegistrationDir}, func(key string, value int64) {
 		_ = emitter.StoreInt64(key, value, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 			"pluginName": name,
 			"pluginType": registration.ReporterPlugin,
