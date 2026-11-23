@@ -17,6 +17,8 @@ limitations under the License.
 package native
 
 import (
+	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -219,6 +221,54 @@ func TestMultiplyResourceQuantity(t *testing.T) {
 			assert.Equal(t, c.want, quant.Equal(c.res))
 		})
 	}
+}
+
+func TestCalculateResourcePreservesPodAndResultOwnership(t *testing.T) {
+	t.Parallel()
+	for _, initMaximum := range []bool{false, true} {
+		pod := &v1.Pod{Spec: v1.PodSpec{Containers: []v1.Container{
+			{Resources: v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("1.0000000001Gi")}}},
+			{Resources: v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("1073741823.892625817")}}},
+		}}}
+		want := resource.MustParse("2Gi")
+		if initMaximum {
+			pod.Spec.InitContainers = []v1.Container{{Resources: v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("3.0000000001Gi")}}}}
+			want = resource.MustParse("3.0000000001Gi")
+		}
+		wire, err := json.Marshal(pod)
+		if !assert.NoError(t, err) || !assert.NoError(t, json.Unmarshal(wire, pod)) {
+			return
+		}
+		before := pod.DeepCopy()
+		for i := 0; i < 3; i++ {
+			result := CalculateResource(pod)
+			got := result[v1.ResourceMemory]
+			assert.True(t, got.Equal(want), "calculation %d", i)
+			got.Add(resource.MustParse("1Gi"))
+			assert.Equal(t, before, pod, "input and result quantities must not alias")
+		}
+	}
+}
+
+func TestCalculateResourceConcurrentReadOnly(t *testing.T) {
+	t.Parallel()
+	pod := &v1.Pod{Spec: v1.PodSpec{Containers: []v1.Container{
+		{Resources: v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("1.1Gi")}}},
+		{Resources: v1.ResourceRequirements{Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("1.1Gi")}}},
+	}}}
+	before := pod.DeepCopy()
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := 0; n < 10; n++ {
+				CalculateResource(pod)
+			}
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, before, pod)
 }
 
 func TestAggregateAvgQuantities(t *testing.T) {
