@@ -55,6 +55,7 @@ func GenerateMachineState(
 func GenerateMachineStateFromPodEntries(
 	podResourceEntries PodResourceEntries,
 	defaultMachineStateGenerators *DefaultResourceStateGeneratorRegistry,
+	previous AllocationResourcesMap,
 ) (AllocationResourcesMap, error) {
 	if defaultMachineStateGenerators == nil {
 		return nil, fmt.Errorf("cannot generate machine state from nil resourceStateGeneratorRegistry")
@@ -68,7 +69,7 @@ func GenerateMachineStateFromPodEntries(
 			continue
 		}
 
-		allocationMap, err := GenerateResourceStateFromPodEntries(podEntries, generator)
+		allocationMap, err := GenerateResourceStateFromPodEntries(podEntries, generator, previous[resourceName])
 		if err != nil {
 			return nil, fmt.Errorf("GenerateResourceStateFromPodEntries for resource %s failed with error: %v", resourceName, err)
 		}
@@ -97,35 +98,46 @@ func GenerateMachineStateFromPodEntries(
 	return machineState, nil
 }
 
-// GenerateResourceStateFromPodEntries returns an AllocationMap of a certain resource based on pod entries
+// GenerateResourceStateFromPodEntries rebuilds a resource from current topology and pod entries.
+// Missing devices remain while referenced by pod entries; previous supplies their capacity only.
 func GenerateResourceStateFromPodEntries(
 	podEntries PodEntries,
 	generator DefaultResourceStateGenerator,
+	previous AllocationMap,
 ) (AllocationMap, error) {
-	machineState, err := generator.GenerateDefaultResourceState()
+	devices, err := generator.GenerateDefaultResourceState()
 	if err != nil {
-		return nil, fmt.Errorf("GenerateDefaultResourceState failed with error: %v", err)
+		return nil, fmt.Errorf("GenerateDefaultResourceState failed with error: %w", err)
+	}
+	if devices == nil {
+		devices = make(AllocationMap)
 	}
 
-	for deviceID, allocationState := range machineState {
-		for podUID, containerEntries := range podEntries {
-			for containerName, allocationInfo := range containerEntries {
-				if containerName != "" && allocationInfo != nil {
-					allocation, ok := allocationInfo.TopologyAwareAllocations[deviceID]
-					if !ok {
+	for podUID, containers := range podEntries {
+		for containerName, info := range containers {
+			if containerName == "" || info == nil {
+				continue
+			}
+			for id, allocation := range info.TopologyAwareAllocations {
+				device := devices[id]
+				if device == nil {
+					old := previous[id]
+					if old == nil {
+						general.Warningf("device %s allocated to pod %s container %s is absent from current topology and previous state; skipping device", id, podUID, containerName)
 						continue
 					}
-					alloc := allocationInfo.Clone()
-					alloc.AllocatedAllocation = allocation.Clone()
-					alloc.TopologyAwareAllocations = map[string]Allocation{deviceID: allocation}
-					allocationState.SetAllocationInfo(podUID, containerName, alloc)
+					device = &AllocationState{Allocatable: old.Allocatable}
+					devices[id] = device
 				}
+
+				perDevice := info.Clone()
+				perDevice.AllocatedAllocation = allocation.Clone()
+				perDevice.TopologyAwareAllocations = map[string]Allocation{id: allocation}
+				device.SetAllocationInfo(podUID, containerName, perDevice)
 			}
 		}
-		machineState[deviceID] = allocationState
 	}
-
-	return machineState, nil
+	return devices, nil
 }
 
 type genericDefaultResourceStateGenerator struct {

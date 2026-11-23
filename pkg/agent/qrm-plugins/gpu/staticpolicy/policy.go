@@ -679,12 +679,49 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 		return nil, fmt.Errorf("no custom device plugin found for device %s", request.DeviceName)
 	}
 
+	p.Lock()
+	defer p.Unlock()
 	resp, err := customDevicePlugin.UpdateAllocatableAssociatedDevices(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("custom device plugin UpdateAllocatableAssociatedDevices failed with error: %v", err)
 	}
-
+	if err := p.rebuildAndStoreMachineState(); err != nil {
+		return nil, err
+	}
 	return resp, nil
+}
+
+// rebuildAndStoreMachineState reconciles resource states with the current topology.
+// The caller must hold the policy write lock.
+func (p *StaticPolicy) rebuildAndStoreMachineState() error {
+	stateImpl := p.GetState()
+	if stateImpl == nil {
+		return nil // Initialization reads the updated topology registry.
+	}
+
+	machineState := stateImpl.GetMachineState()
+	entries := stateImpl.GetPodResourceEntries()
+	for resourceName, generator := range p.DefaultResourceStateGeneratorRegistry.GetGenerators() {
+		name := v1.ResourceName(resourceName)
+		if generator == nil {
+			return fmt.Errorf("could not find generator for resource %s", name)
+		}
+		_, hasState := machineState[name]
+		_, hasEntries := entries[name]
+		if !generator.MustInitDefaultResourceState() && !hasState && !hasEntries {
+			continue
+		}
+		devices, err := state.GenerateResourceStateFromPodEntries(entries[name], generator, machineState[name])
+		if err != nil {
+			return fmt.Errorf("rebuild resource %s: %w", name, err)
+		}
+		machineState[name] = devices
+	}
+	stateImpl.SetMachineState(machineState, false)
+	if err := stateImpl.StoreState(); err != nil {
+		return fmt.Errorf("persist GPU machine state: %w", err)
+	}
+	return nil
 }
 
 func (p *StaticPolicy) GetAssociatedDeviceTopologyHints(
@@ -709,6 +746,9 @@ func (p *StaticPolicy) GetAssociatedDeviceTopologyHints(
 	if err := p.ensureState(req.DeviceName); err != nil {
 		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
+
+	p.RLock()
+	defer p.RUnlock()
 
 	customDevicePlugin := p.getCustomDevicePlugin(req.DeviceName)
 	if customDevicePlugin == nil {

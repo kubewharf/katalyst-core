@@ -23,14 +23,17 @@ import (
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
@@ -736,7 +739,7 @@ func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, resp)
 
-	// An empty device list is a valid inventory update.
+	// An empty inventory is valid (including when every device disappears).
 	noDeviceRequest := &pluginapi.UpdateAllocatableAssociatedDevicesRequest{
 		DeviceName: testCustomDevicePluginName,
 	}
@@ -1046,4 +1049,69 @@ func TestStaticPolicy_GetAssociatedDeviceTopologyHints_SuccessDoesNotEmitFailure
 
 	assert.Empty(t, emitter.storedInt64[util.MetricNameGetAssociatedDeviceTopologyHintsFailed],
 		"failure metric must not be emitted on the success path")
+}
+
+func TestStaticPolicy_GPUInventoryReconciliation(t *testing.T) {
+	t.Parallel()
+	for _, ownerResource := range []v1.ResourceName{
+		gpuconsts.GPUDeviceType, consts.ResourceGPUMemory, consts.ResourceMilliGPU,
+	} {
+		ownerResource := ownerResource
+		t.Run(string(ownerResource), func(t *testing.T) {
+			t.Parallel()
+			p := makeTestStaticPolicy(t)
+			update := func(count int) {
+				t.Helper()
+				req := &pluginapi.UpdateAllocatableAssociatedDevicesRequest{DeviceName: p.Conf.GPUDeviceNames[0]}
+				for i := 0; i < count; i++ {
+					req.Devices = append(req.Devices, &pluginapi.AssociatedDevice{ID: fmt.Sprintf("gpu-%d", i), Health: pluginapi.Healthy})
+				}
+				_, err := p.UpdateAllocatableAssociatedDevices(context.Background(), req)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			update(0)
+			update(8) // Repair initially empty maps.
+			for _, name := range []v1.ResourceName{gpuconsts.GPUDeviceType, consts.ResourceGPUMemory, consts.ResourceMilliGPU} {
+				assert.Len(t, p.GetState().GetMachineState()[name], 8)
+			}
+			for _, pod := range []string{"owner-a", "owner-b"} {
+				p.GetState().SetAllocationInfo(ownerResource, pod, "c", &state.AllocationInfo{
+					TopologyAwareAllocations: map[string]state.Allocation{"gpu-7": {Quantity: 1, NUMANodes: []int{1}}},
+				}, false)
+			}
+			update(4)
+			current := p.GetState().GetMachineState()
+			assert.Len(t, current[ownerResource], 5)
+			assert.NotContains(t, current[ownerResource], "gpu-6")
+			assert.Equal(t, float64(2), current[ownerResource]["gpu-7"].GetQuantityAllocated())
+
+			// Match the allocation path: record new owner, rebuild resource, commit.
+			p.GetState().SetAllocationInfo(ownerResource, "new-pod", "c", &state.AllocationInfo{
+				TopologyAwareAllocations: map[string]state.Allocation{"gpu-0": {Quantity: 1}},
+			}, false)
+			rebuilt, err := p.GenerateResourceStateFromPodEntries(string(ownerResource), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.GetState().SetResourceState(ownerResource, rebuilt, false)
+			assert.Equal(t, float64(2), rebuilt["gpu-7"].GetQuantityAllocated())
+			assert.Equal(t, float64(1), rebuilt["gpu-0"].GetQuantityAllocated())
+
+			// Removing an unrelated pod must not drop the still-owned lost GPU.
+			for _, pod := range []string{"new-pod", "owner-a"} {
+				_, err := p.RemovePod(context.Background(), &pluginapi.RemovePodRequest{PodUid: pod})
+				if err != nil {
+					t.Fatal(err)
+				}
+				assert.Contains(t, p.GetState().GetMachineState()[ownerResource], "gpu-7")
+			}
+			assert.Equal(t, float64(1), p.GetState().GetMachineState()[ownerResource]["gpu-7"].GetQuantityAllocated())
+			_, err = p.RemovePod(context.Background(), &pluginapi.RemovePodRequest{PodUid: "owner-b"})
+			assert.NoError(t, err)
+			assert.NotContains(t, p.GetState().GetMachineState()[ownerResource], "gpu-7")
+			update(4) // Repeated inventories remain valid.
+		})
+	}
 }

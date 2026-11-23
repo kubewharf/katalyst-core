@@ -268,7 +268,9 @@ func (s *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, e
 		return false, fmt.Errorf("[gpu_plugin] configured policy %q differs from state checkpoint policy %q", s.policyName, checkpoint.PolicyName)
 	}
 
-	machineState, err := GenerateMachineStateFromPodEntries(checkpoint.PodResourceEntries, s.defaultResourceStateGenerators)
+	machineState, err := GenerateMachineStateFromPodEntries(
+		checkpoint.PodResourceEntries, s.defaultResourceStateGenerators, checkpoint.MachineState,
+	)
 	if err != nil {
 		return false, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
