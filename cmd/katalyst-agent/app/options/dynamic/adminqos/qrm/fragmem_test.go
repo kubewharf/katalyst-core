@@ -36,10 +36,12 @@ func TestFragMemOptionsDefaultsAndFlags(t *testing.T) {
 	as.Equal("madvise", options.THPDefaultConfig)
 	as.Equal(85, options.THPHighOrderScoreThreshold)
 	as.Empty(options.THPDefragPolicy)
+	as.Empty(options.VMCompactionProactiveness)
 
 	defaultConf := dynamicqrm.NewFragMemConfiguration()
 	as.NoError(options.ApplyTo(defaultConf))
 	as.Empty(defaultConf.THPDefragPolicy)
+	as.Nil(defaultConf.VMCompactionProactiveness)
 
 	fss := cliflag.NamedFlagSets{}
 	options.AddFlags(&fss)
@@ -65,6 +67,61 @@ func TestFragMemOptionsDefaultsAndFlags(t *testing.T) {
 	as.Equal(apiconfig.THPModeAlways, conf.THPDefaultConfig)
 	as.Equal(90, conf.THPHighOrderScoreThreshold)
 	as.Equal(apiconfig.THPDefragPolicyDeferMadvise, conf.THPDefragPolicy)
+}
+
+func TestFragMemOptionsVMCompactionProactiveness(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		configured bool
+		want       int64
+		wantErr    bool
+	}{
+		{name: "omitted"},
+		{name: "empty", args: []string{"--qrm-memory-vm-compaction-proactiveness="}},
+		{name: "zero", args: []string{"--qrm-memory-vm-compaction-proactiveness=0"}, configured: true},
+		{name: "middle", args: []string{"--qrm-memory-vm-compaction-proactiveness=20"}, configured: true, want: 20},
+		{name: "maximum", args: []string{"--qrm-memory-vm-compaction-proactiveness=100"}, configured: true, want: 100},
+		{name: "trim whitespace", args: []string{"--qrm-memory-vm-compaction-proactiveness= 20 "}, configured: true, want: 20},
+		{name: "negative", args: []string{"--qrm-memory-vm-compaction-proactiveness=-1"}, wantErr: true},
+		{name: "above maximum", args: []string{"--qrm-memory-vm-compaction-proactiveness=101"}, wantErr: true},
+		{name: "fractional", args: []string{"--qrm-memory-vm-compaction-proactiveness=1.5"}, wantErr: true},
+		{name: "not a number", args: []string{"--qrm-memory-vm-compaction-proactiveness=invalid"}, wantErr: true},
+		{name: "whitespace", args: []string{"--qrm-memory-vm-compaction-proactiveness= "}, wantErr: true},
+		{name: "overflow", args: []string{"--qrm-memory-vm-compaction-proactiveness=9223372036854775808"}, wantErr: true},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			o := NewFragMemOptions()
+			fss := cliflag.NamedFlagSets{}
+			o.AddFlags(&fss)
+			require.Empty(t, fss.FlagSet("memory_resource_plugin").Lookup("qrm-memory-vm-compaction-proactiveness").DefValue)
+			require.NoError(t, fss.FlagSet("memory_resource_plugin").Parse(tc.args))
+
+			conf := dynamicqrm.NewFragMemConfiguration()
+			previous := int64(30)
+			conf.VMCompactionProactiveness = &previous
+			conf.MemFragScoreAsync = 42
+			before := *conf
+			err := o.ApplyTo(conf)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "must be an integer in [0, 100]")
+				require.Equal(t, before, *conf, "invalid options must not partially modify the configuration")
+				return
+			}
+			require.NoError(t, err)
+			if tc.configured {
+				require.NotNil(t, conf.VMCompactionProactiveness)
+				require.Equal(t, tc.want, *conf.VMCompactionProactiveness)
+			} else {
+				require.Nil(t, conf.VMCompactionProactiveness)
+			}
+		})
+	}
 }
 
 func TestFragMemOptionsApplyToRejectsInvalidDefragPolicy(t *testing.T) {

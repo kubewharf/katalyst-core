@@ -18,6 +18,7 @@ package qrm
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -51,6 +52,29 @@ func validateTHPDefragPolicy(policy apiconfig.THPDefragPolicy) error {
 	}
 }
 
+// ParseVMCompactionProactiveness parses an optional startup target.
+// An empty value leaves the host value unchanged unless configured by AQC.
+func ParseVMCompactionProactiveness(input string) (*int64, error) {
+	if input == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(strings.TrimSpace(input), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid vm.compaction_proactiveness %q: must be an integer in [0, 100]", input)
+	}
+	if err := validateVMCompactionProactiveness(value); err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
+func validateVMCompactionProactiveness(value int64) error {
+	if value < 0 || value > 100 {
+		return fmt.Errorf("invalid vm.compaction_proactiveness %d: must be an integer in [0, 100]", value)
+	}
+	return nil
+}
+
 type FragMemConfiguration struct {
 	EnableFragMem              bool
 	MemFragScoreAsync          int
@@ -60,6 +84,10 @@ type FragMemConfiguration struct {
 	// THPDefragPolicy is applied when non-empty and EnableFragMem is true, independently of THP mode tuning.
 	// An empty policy leaves the host's current defrag policy unchanged.
 	THPDefragPolicy apiconfig.THPDefragPolicy
+	// VMCompactionProactiveness sets vm.compaction_proactiveness in [0, 100],
+	// independently of EnableFragMem. Nil preserves the host value;
+	// the actual value is reported regardless.
+	VMCompactionProactiveness *int64
 }
 
 type THPStaticEnableConfiguration struct {
@@ -81,11 +109,20 @@ func getFragMemConfig(conf *crd.DynamicConfigCRD) *apiconfig.FragMemConfig {
 	return nil
 }
 
-// ValidateConfiguration checks an explicit AQC policy against the API enum.
-// Unlike CLI input, an explicit empty value is invalid; omission preserves the startup policy.
+// ValidateConfiguration checks explicit AQC settings before the configuration is applied.
+// An explicit empty THP policy is invalid; omitted fields preserve startup settings.
 func (c *FragMemConfiguration) ValidateConfiguration(conf *crd.DynamicConfigCRD) error {
-	if config := getFragMemConfig(conf); config != nil && config.THPDefragPolicy != nil {
-		return validateTHPDefragPolicy(*config.THPDefragPolicy)
+	if config := getFragMemConfig(conf); config != nil {
+		if config.THPDefragPolicy != nil {
+			if err := validateTHPDefragPolicy(*config.THPDefragPolicy); err != nil {
+				return err
+			}
+		}
+		if config.VMCompactionProactiveness != nil {
+			if err := validateVMCompactionProactiveness(*config.VMCompactionProactiveness); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -103,6 +140,10 @@ func (c *FragMemConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		}
 		if config.THPDefragPolicy != nil {
 			c.THPDefragPolicy = *config.THPDefragPolicy
+		}
+		if config.VMCompactionProactiveness != nil {
+			value := *config.VMCompactionProactiveness
+			c.VMCompactionProactiveness = &value
 		}
 		if config.THPHighOrderScoreThreshold != nil {
 			c.THPHighOrderScoreThreshold = int(*config.THPHighOrderScoreThreshold)

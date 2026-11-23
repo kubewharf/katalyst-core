@@ -469,6 +469,14 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Infof("setFragMem failed, err=%v", err)
 	}
 
+	// Observe vm.compaction_proactiveness even without a configured target or EnableFragMem.
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetVMCompactionProactiveness,
+		general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+		fragmem.SetVMCompactionProactiveness, 15*time.Second, healthCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("setVMCompactionProactiveness failed, err=%v", err)
+	}
+
 	// NumaMemCompact proactively compacts memory on idle NUMA nodes. It is a standalone feature,
 	// independent of fragmem, and both may take effect simultaneously. Its scanning period is
 	// configurable via the static flag; the dynamic EnableNumaMemCompact switch gates the work.

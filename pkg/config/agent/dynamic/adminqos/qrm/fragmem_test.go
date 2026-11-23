@@ -79,6 +79,7 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	staticTHP := apiconfig.THPModeAlways
 	staticTHPShm := apiconfig.THPShmModeForce
 	defragPolicy := apiconfig.THPDefragPolicyNever
+	proactiveness := int64(0)
 
 	conf := NewFragMemConfiguration()
 	conf.ApplyConfiguration(&crd.DynamicConfigCRD{
@@ -88,10 +89,11 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 					QRMPluginConfig: &apiconfig.QRMPluginConfig{
 						MemoryPluginConfig: &apiconfig.MemoryPluginConfig{
 							FragMemConfig: &apiconfig.FragMemConfig{
-								EnableFragMem:     &enable,
-								MemFragScoreAsync: &score,
-								THPDefaultConfig:  &mode,
-								THPDefragPolicy:   &defragPolicy,
+								EnableFragMem:             &enable,
+								MemFragScoreAsync:         &score,
+								THPDefaultConfig:          &mode,
+								THPDefragPolicy:           &defragPolicy,
+								VMCompactionProactiveness: &proactiveness,
 								THPStaticEnableConfig: &apiconfig.THPStaticEnableConfig{
 									Enable: &staticEnable,
 									THP:    &staticTHP,
@@ -115,4 +117,9 @@ func TestFragMemConfigurationApplyConfiguration(t *testing.T) {
 	as.True(conf.THPStaticEnableConfig.Enable)
 	as.Equal(apiconfig.THPModeAlways, conf.THPStaticEnableConfig.THP)
 	as.Equal(apiconfig.THPShmModeForce, conf.THPStaticEnableConfig.THPShm)
+	as.NotNil(conf.VMCompactionProactiveness)
+	as.Equal(int64(0), *conf.VMCompactionProactiveness)
+	as.NotSame(&proactiveness, conf.VMCompactionProactiveness)
+	proactiveness = 50
+	as.Equal(int64(0), *conf.VMCompactionProactiveness, "live configuration must not alias AQC fields")
 }

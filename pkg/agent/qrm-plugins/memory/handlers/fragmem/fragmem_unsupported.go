@@ -34,3 +34,8 @@ func SetMemTHP(conf *coreconfig.Configuration,
 	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
 	emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer) {
 }
+
+func SetVMCompactionProactiveness(conf *coreconfig.Configuration,
+	_ interface{}, _ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter, _ *metaserver.MetaServer) {
+}

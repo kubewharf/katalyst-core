@@ -237,6 +237,14 @@ func (m *manager) ApplyVMExtFragThresholdAtPath(path string, threshold int64) er
 	return m.applyVMInt64AtPath(path, threshold, "vm.extfrag_threshold")
 }
 
+// ApplyVMCompactionProactivenessAtPath applies a value in the kernel's supported range.
+func (m *manager) ApplyVMCompactionProactivenessAtPath(path string, proactiveness int64) error {
+	if proactiveness < 0 || proactiveness > 100 {
+		return fmt.Errorf("invalid vm.compaction_proactiveness %d: must be in [0, 100]", proactiveness)
+	}
+	return m.applyVMInt64AtPath(path, proactiveness, "vm.compaction_proactiveness")
+}
+
 func (m *manager) applyVMInt64AtPath(path string, value int64, knob string) error {
 	if path == "" {
 		return fmt.Errorf("invalid %s path", knob)

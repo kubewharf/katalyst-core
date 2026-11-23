@@ -31,6 +31,7 @@ type FragMemOptions struct {
 	THPDefaultConfig           string
 	THPHighOrderScoreThreshold int
 	THPDefragPolicy            string
+	VMCompactionProactiveness  string
 }
 
 func NewFragMemOptions() *FragMemOptions {
@@ -55,10 +56,16 @@ func (o *FragMemOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.THPHighOrderScoreThreshold, "disable THP when max highOrderScore > threshold")
 	fs.StringVar(&o.THPDefragPolicy, "qrm-memory-thp-defrag-policy",
 		o.THPDefragPolicy, "host THP defrag policy applied when FragMem is enabled (always/defer/defer+madvise/madvise/never); empty leaves the current policy unchanged unless configured by KCC")
+	fs.StringVar(&o.VMCompactionProactiveness, "qrm-memory-vm-compaction-proactiveness",
+		o.VMCompactionProactiveness, "vm.compaction_proactiveness (0-100), independent of FragMem enablement; empty leaves the host value unchanged unless configured by KCC. The current value is always reported as a metric")
 }
 
 func (o *FragMemOptions) ApplyTo(c *dynamicqrm.FragMemConfiguration) error {
 	defragPolicy, err := dynamicqrm.ParseTHPDefragPolicy(o.THPDefragPolicy)
+	if err != nil {
+		return err
+	}
+	compactionProactiveness, err := dynamicqrm.ParseVMCompactionProactiveness(o.VMCompactionProactiveness)
 	if err != nil {
 		return err
 	}
@@ -68,5 +75,6 @@ func (o *FragMemOptions) ApplyTo(c *dynamicqrm.FragMemConfiguration) error {
 	c.THPDefaultConfig = apiconfig.THPMode(strings.TrimSpace(strings.ToLower(o.THPDefaultConfig)))
 	c.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
 	c.THPDefragPolicy = defragPolicy
+	c.VMCompactionProactiveness = compactionProactiveness
 	return nil
 }

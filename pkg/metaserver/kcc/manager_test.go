@@ -598,6 +598,105 @@ func testDynamicConfigManagerFragMemDefragPolicy(t *testing.T, startupPolicy v1a
 	}
 }
 
+func TestDynamicConfigManager_updateConfigVMCompactionProactiveness(t *testing.T) {
+	t.Parallel()
+
+	zero, twenty, hundred := int64(0), int64(20), int64(100)
+	negative, excessive := int64(-1), int64(101)
+	for _, startup := range []*int64{nil, &zero, &twenty} {
+		name := "unset"
+		if startup != nil {
+			name = fmt.Sprint(*startup)
+		}
+		t.Run("startup "+name, func(t *testing.T) {
+			aqc := generateTestEvictionConfiguration(nil)
+			// A valid THP policy must not bypass proactiveness validation.
+			policy := v1alpha1.THPDefragPolicyNever
+			aqc.Spec.Config.QRMPluginConfig = &v1alpha1.QRMPluginConfig{
+				MemoryPluginConfig: &v1alpha1.MemoryPluginConfig{
+					FragMemConfig: &v1alpha1.FragMemConfig{THPDefragPolicy: &policy},
+				},
+			}
+			manager := constructTestDynamicConfigManager(t, "test-node", t.TempDir(), aqc)
+			manager.conf.GetDynamicConfiguration().FragMemConfiguration.VMCompactionProactiveness = startup
+			manager.defaultConfig = deepCopy(manager.conf.GetDynamicConfiguration())
+			loader := manager.configLoader.(*katalystCustomConfigLoader)
+			require.NoError(t, manager.updateConfig(context.Background()))
+			require.Equal(t, startup, manager.conf.GetDynamicConfiguration().FragMemConfiguration.VMCompactionProactiveness)
+
+			hookCalls := 0
+			manager.AddConfigHook(func(_ context.Context, _, _ *dynamic.Configuration) error {
+				hookCalls++
+				return nil
+			})
+			for _, tc := range []struct {
+				name      string
+				value     *int64
+				remove    string
+				want      *int64
+				wantErr   string
+				enable    bool
+				thpPolicy v1alpha1.THPDefragPolicy
+			}{
+				{name: "zero overrides startup while disabled", value: &zero, want: &zero},
+				{name: "maximum while enabled", value: &hundred, want: &hundred, enable: true},
+				{name: "negative rejects entire update", value: &negative, wantErr: "invalid vm.compaction_proactiveness"},
+				{name: "excessive rejects entire update", value: &excessive, wantErr: "invalid vm.compaction_proactiveness"},
+				{name: "invalid THP policy rejects valid target", value: &twenty, thpPolicy: "force", wantErr: "invalid THP defrag policy"},
+				{name: "omission restores startup", want: startup},
+				{name: "new AQC target", value: &hundred, want: &hundred},
+				{name: "removing FragMem restores startup", remove: "fragmem", want: startup},
+				{name: "zero again", value: &zero, want: &zero},
+				{name: "removing memory configuration restores startup", remove: "memory", want: startup},
+				{name: "maximum again", value: &hundred, want: &hundred},
+				{name: "removing QRM configuration restores startup", remove: "qrm", want: startup},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					next := aqc.DeepCopy()
+					fragMem := next.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig
+					fragMem.VMCompactionProactiveness = tc.value
+					fragMem.EnableFragMem = &tc.enable
+					if tc.thpPolicy != "" {
+						fragMem.THPDefragPolicy = &tc.thpPolicy
+					}
+					switch tc.remove {
+					case "fragmem":
+						next.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig = nil
+					case "memory":
+						next.Spec.Config.QRMPluginConfig.MemoryPluginConfig = nil
+					case "qrm":
+						next.Spec.Config.QRMPluginConfig = nil
+					}
+					_, err := loader.client.DynamicClient.Resource(schema.GroupVersionResource(testTargetGVR)).
+						Namespace(next.Namespace).Update(context.Background(), toTestUnstructured(next), metav1.UpdateOptions{})
+					require.NoError(t, err)
+					// Reload changed JSON without reusing the CNC hash cache.
+					manager.configLoader = NewKatalystCustomConfigLoader(loader.client, 0, loader.cncFetcher)
+					previous := manager.conf.GetDynamicConfiguration()
+					previousCRD := manager.lastDynamicConfigCRD
+					previousHookCalls := hookCalls
+					err = manager.updateConfig(context.Background())
+					if tc.wantErr != "" {
+						require.ErrorContains(t, err, tc.wantErr)
+						require.Same(t, previous, manager.conf.GetDynamicConfiguration())
+						require.Same(t, previousCRD, manager.lastDynamicConfigCRD)
+						require.Equal(t, previousHookCalls, hookCalls)
+						return
+					}
+					require.NoError(t, err)
+					got := manager.conf.GetDynamicConfiguration().FragMemConfiguration
+					require.Equal(t, tc.want, got.VMCompactionProactiveness)
+					require.Equal(t, tc.enable && tc.remove == "", got.EnableFragMem)
+					require.Equal(t, startup, manager.defaultConfig.FragMemConfiguration.VMCompactionProactiveness)
+					if tc.want != nil {
+						require.NotSame(t, tc.want, got.VMCompactionProactiveness)
+					}
+				})
+			}
+		})
+	}
+}
+
 func Test_getGVRToKindMap(t *testing.T) {
 	t.Parallel()
 
