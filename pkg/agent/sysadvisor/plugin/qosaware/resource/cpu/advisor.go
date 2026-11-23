@@ -267,47 +267,15 @@ func (cra *cpuResourceAdvisor) update() (*types.CPUAdvice, error) {
 	hardEnabled := dynamicConf.EnableReclaim &&
 		dynamicConf.EnableRampUpReclaimHardPartition &&
 		metadataSnapshot.rampUpDomains.Len() > 0
-	maxRampUpStep := cra.conf.CPUAdvisorConfiguration.MaxRampUpStep
-
-	// Per-scope reclaim constraint: derive the scope->NUMA mapping from the
-	// current region map, then activate only the scopes whose NUMAs host an
-	// active ramp-up domain. Observed reclaim is broken down by NUMA and
-	// aggregated per scope so each scope carries an independent ACK.
-	scopeNumas := cra.scopeNUMAMapping(dynamicConf.DisableDedicatedCoresOverlapReclaimedCores)
-	var (
-		reclaimConstraint   cputypes.ReclaimConstraint
-		reclaimCeilings     map[cputypes.ReclaimConstraintScope]*int
-		reclaimActiveScopes map[cputypes.ReclaimConstraintScope]bool
-		reclaimAccounting   map[cputypes.ReclaimConstraintScope]decidedScope
-		// liveDomainScopes carries the scopes that own a live ramp-up domain this
-		// cycle. reclaimActiveScopes (from constraint()) additionally folds in the
-		// draining scopes the guard still clamps; commit() must see the live active
-		// set so a draining scope is tagged phase=draining (not acked) and its
-		// desired is reset to steadyCap.
-		liveDomainScopes = map[cputypes.ReclaimConstraintScope]bool{}
-	)
-	// The guard runs whenever ramp-up hard partition is active OR whenever it still
-	// holds draining scope state (a scope that must step its ceiling back up to
-	// steadyCap after ramp-up exited). A scope with no active domain and no state
-	// collapses to ReclaimConstraintNone inside constraint().
-	if hardEnabled || cra.reclaimConstraintGuard.hasRetainedState() {
-		liveDomainScopes = cra.activeReclaimScopes(scopeNumas, metadataSnapshot.rampUpDomains)
-		observedByScope, observedOKByScope := cra.observedReclaimByScope(scopeNumas)
-		reclaimConstraint, reclaimCeilings, reclaimActiveScopes, reclaimAccounting = cra.reclaimConstraintGuard.constraint(
-			liveDomainScopes, observedByScope, observedOKByScope, maxRampUpStep, cra.cpusPerCore())
-	} else {
-		reclaimConstraint = cputypes.ReclaimConstraintNone
-	}
-
-	result, err := cra.updateWithIsolationGuardian(
+	result, cycle, err := cra.updateWithIsolationGuardian(
 		dynamicConf, hardEnabled, metadataSnapshot.steadyExclusiveNUMAs,
-		metadataSnapshot.rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes, true)
+		metadataSnapshot.rampUpDomains, true)
 	if err != nil {
 		if err == errIsolationSafetyCheckFailed {
 			klog.Warningf("[qosaware-cpu] failed to updateWithIsolationGuardian(true): %q", err)
-			result, err = cra.updateWithIsolationGuardian(
+			result, cycle, err = cra.updateWithIsolationGuardian(
 				dynamicConf, hardEnabled, metadataSnapshot.steadyExclusiveNUMAs,
-				metadataSnapshot.rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes, false)
+				metadataSnapshot.rampUpDomains, false)
 		}
 		if err != nil {
 			return nil, err
@@ -319,18 +287,18 @@ func (cra *cpuResourceAdvisor) update() (*types.CPUAdvice, error) {
 	cra.updateRegionStatus()
 	cra.emitMetrics(*result)
 	cra.reclaimConstraintGuard.commit(
-		liveDomainScopes,
-		reclaimCeilings,
-		reclaimAccounting,
+		cycle.live,
+		cycle.ceilings,
+		cycle.accounting,
 		result.ReclaimConstraintTargets,
-		cra.publishedReclaimByScope(result, scopeNumas),
-		scopeNumas,
+		cra.publishedReclaimByScope(result, cycle.members),
+		cycle.members,
 	)
 	updateSucceeded = true
 	general.InfoS("committed cpu reclaim constraint",
-		"constraint", reclaimConstraint,
-		"ceilings", reclaimCeilings,
-		"activeScopes", reclaimActiveScopes,
+		"constraint", cycle.constraint,
+		"ceilings", cycle.ceilings,
+		"activeScopes", cycle.active,
 		"excess", result.ReclaimConstraintExcess,
 		"hardEnabled", hardEnabled)
 	general.InfoS("finished", "duration", time.Since(startTime))
@@ -374,7 +342,7 @@ func (cra *cpuResourceAdvisor) cpusPerCore() int {
 // The mapping is read from the current regionMap; on the first cycle (empty
 // region map) only the global non-exclusive scope exists, which is a safe
 // passthrough baseline. Region names are sorted for deterministic iteration.
-func (cra *cpuResourceAdvisor) scopeNUMAMapping(disableDedicatedCoresOverlap bool) map[cputypes.ReclaimConstraintScope][]int {
+func (cra *cpuResourceAdvisor) scopeNUMAMapping(disableDedicatedCoresOverlap bool, rampUpDomains sets.Int) map[cputypes.ReclaimConstraintScope][]int {
 	mapping := make(map[cputypes.ReclaimConstraintScope][]int)
 	claimed := sets.NewInt()
 
@@ -386,7 +354,7 @@ func (cra *cpuResourceAdvisor) scopeNUMAMapping(disableDedicatedCoresOverlap boo
 
 	for _, name := range regionNames {
 		r := cra.regionMap[name]
-		if r.Type() != configapi.QoSRegionTypeDedicated || !r.IsNumaBinding() {
+		if (r.Type() != configapi.QoSRegionTypeDedicated && r.Type() != configapi.QoSRegionTypeShare) || !r.IsNumaBinding() {
 			continue
 		}
 		var scope cputypes.ReclaimConstraintScope
@@ -419,8 +387,14 @@ func (cra *cpuResourceAdvisor) scopeNUMAMapping(disableDedicatedCoresOverlap boo
 		}
 	}
 
-	// Every NUMA not claimed by a dedicated binding scope belongs to the
-	// global non-binding (faked) scope.
+	for _, numaID := range rampUpDomains.List() {
+		if numaID == commonstate.FakedNUMAID || claimed.Has(numaID) || !cra.metaServer.CPUDetails.NUMANodes().Contains(numaID) {
+			continue
+		}
+		claimed.Insert(numaID)
+		mapping[cputypes.NewNonExclusiveReclaimConstraintScope(numaID)] = []int{numaID}
+	}
+	// Only NUMAs without a current real publication owner back the fake scope.
 	globalScope := cputypes.NewNonExclusiveReclaimConstraintScope(commonstate.FakedNUMAID)
 	for _, numaID := range cra.metaServer.CPUDetails.NUMANodes().ToSliceInt() {
 		if claimed.Has(numaID) {
@@ -708,16 +682,24 @@ func (cra *cpuResourceAdvisor) restoreRegionAssignments(snapshot regionAssignmen
 
 // If updateWithIsolationGuardian fails with isolation enabled, we should try again with isolation disabled.
 // todo: we should re-design the mechanism of isolation instead of disabling this functionality
+// reclaimPublicationCycle carries the one branch's current publication domains
+// and pure guard decision. Only the successful branch is committed by update.
+type reclaimPublicationCycle struct {
+	members      map[cputypes.ReclaimConstraintScope][]int
+	live, active map[cputypes.ReclaimConstraintScope]bool
+	constraint   cputypes.ReclaimConstraint
+	ceilings     map[cputypes.ReclaimConstraintScope]*int
+	accounting   map[cputypes.ReclaimConstraintScope]decidedScope
+}
+
 func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(dynamicConf *dynamic.Configuration,
 	hardActive bool,
 	steadyExclusiveNUMAs sets.Int,
 	rampUpDomains sets.Int,
-	reclaimConstraint cputypes.ReclaimConstraint,
-	reclaimCeilings map[cputypes.ReclaimConstraintScope]*int,
-	reclaimActiveScopes map[cputypes.ReclaimConstraintScope]bool,
 	tryIsolation bool,
 ) (
 	*types.InternalCPUCalculationResult,
+	reclaimPublicationCycle,
 	error,
 ) {
 	startTime := time.Now()
@@ -731,32 +713,47 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(dynamicConf *dynamic.
 	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
 		klog.Errorf("[qosaware-cpu] skip update: reserve pool does not exist")
-		return nil, fmt.Errorf("reserve pool does not exist")
+		return nil, reclaimPublicationCycle{}, fmt.Errorf("reserve pool does not exist")
 	}
 
-	if err := cra.updateNumasAvailableResource(dynamicConf, hardActive, steadyExclusiveNUMAs, rampUpDomains); err != nil {
+	// The early call must not publish ramp-up targets: region/container membership
+	// for this cycle is not known yet, so a target computed here would be stale.
+	// Passing hardActive=false keeps it to availability/reserve only; the single
+	// authoritative target computation happens after updateAdvisorEssentials.
+	if err := cra.updateNumasAvailableResource(dynamicConf, false, steadyExclusiveNUMAs, rampUpDomains); err != nil {
 		klog.Errorf("[qosaware-cpu] update NUMA available resource failed: %v", err)
-		return nil, fmt.Errorf("failed to update NUMA available resource: %w", err)
+		return nil, reclaimPublicationCycle{}, fmt.Errorf("failed to update NUMA available resource: %w", err)
 	}
 	isolationExists := cra.setIsolatedContainers(tryIsolation)
 
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
 		klog.Errorf("[qosaware-cpu] assign containers to regions failed: %q", err)
-		return nil, fmt.Errorf("failed to assign containers to regions: %q", err)
+		return nil, reclaimPublicationCycle{}, fmt.Errorf("failed to assign containers to regions: %q", err)
 	}
 
 	cra.gcRegionMap()
-	cra.updateAdvisorEssentials(dynamicConf)
+	cycle := reclaimPublicationCycle{members: cra.scopeNUMAMapping(dynamicConf.DisableDedicatedCoresOverlapReclaimedCores, rampUpDomains), live: map[cputypes.ReclaimConstraintScope]bool{}}
+	cra.updateAdvisorEssentials(cycle.members)
+	if err := cra.updateRampUpReclaimCPUSetCap(dynamicConf, hardActive, steadyExclusiveNUMAs, rampUpDomains); err != nil {
+		return nil, reclaimPublicationCycle{}, err
+	}
+	if hardActive || cra.reclaimConstraintGuard.hasRetainedState() {
+		cycle.live = cra.activeReclaimScopes(cycle.members, rampUpDomains)
+		observed, readable := cra.observedReclaimByScope(cycle.members)
+		cycle.constraint, cycle.ceilings, cycle.active, cycle.accounting = cra.reclaimConstraintGuard.constraint(cycle.live, observed, readable, cra.conf.CPUAdvisorConfiguration.MaxRampUpStep, cra.cpusPerCore())
+	} else {
+		cycle.constraint = cputypes.ReclaimConstraintNone
+	}
 	if tryIsolation && isolationExists && !cra.checkIsolationSafety() {
 		klog.Errorf("[qosaware-cpu] failed to check isolation")
-		return nil, errIsolationSafetyCheckFailed
+		return nil, reclaimPublicationCycle{}, errIsolationSafetyCheckFailed
 	}
 
 	pinnedCPUSizeByNuma, pinnedCPUSizeByPackageByNuma, err := cra.getPinnedCPUSizes()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] failed to get pinned cpu sizes: %v", err)
-		return nil, err
+		return nil, reclaimPublicationCycle{}, err
 	}
 
 	// run an episode of provision and headroom policy update for each region
@@ -782,13 +779,13 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(dynamicConf *dynamic.
 
 	// assemble provision result from each region
 	calculationResult, err := cra.assembleProvision(
-		dynamicConf, rampUpDomains, reclaimConstraint, reclaimCeilings, reclaimActiveScopes)
+		dynamicConf, rampUpDomains, cycle.constraint, cycle.ceilings, cycle.active)
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %q", err)
-		return nil, fmt.Errorf("failed to assemble provisioner: %q", err)
+		return nil, reclaimPublicationCycle{}, fmt.Errorf("failed to assemble provisioner: %q", err)
 	}
 
-	return &calculationResult, nil
+	return &calculationResult, cycle, nil
 }
 
 func (cra *cpuResourceAdvisor) getPinnedCPUSizes() (map[int]int, map[string]map[int]int, error) {
@@ -1071,22 +1068,8 @@ func (cra *cpuResourceAdvisor) gcRegionMap() {
 // 1. non-binding numas, i.e. numas without numa binding containers
 // 2. binding numas of non numa binding regions
 // 3. region quantity of each numa
-func (cra *cpuResourceAdvisor) updateAdvisorEssentials(dynamicConf *dynamic.Configuration) {
-	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
-	// The overlap flags are deliberately not cached here; they are read straight
-	// from dynamicConf at each per-cycle injection point (SetEssentials,
-	// scopeNUMAMapping, ProvisionContext) so no stale advisor copy exists.
-
-	// update non-binding numas
-	for _, r := range cra.regionMap {
-		if !r.IsNumaBinding() {
-			continue
-		}
-		// ignore isolation region
-		if r.Type() == configapi.QoSRegionTypeDedicated || r.Type() == configapi.QoSRegionTypeShare {
-			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
-		}
-	}
+func (cra *cpuResourceAdvisor) updateAdvisorEssentials(members map[cputypes.ReclaimConstraintScope][]int) {
+	cra.nonBindingNumas = machine.NewCPUSet(members[cputypes.NewNonExclusiveReclaimConstraintScope(commonstate.FakedNUMAID)]...)
 
 	// reset region quantity
 	for _, numaID := range cra.metaServer.CPUDetails.NUMANodes().ToSliceInt() {

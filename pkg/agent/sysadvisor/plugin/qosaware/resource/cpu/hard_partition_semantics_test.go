@@ -120,7 +120,7 @@ func TestScopeNUMAMappingGlobalFallback(t *testing.T) {
 	regions := map[string]region.QoSRegion{}
 	cra := newScopeMappingAdvisor(t, []int{0, 1, 2, 3}, regions, false)
 
-	mapping := cra.scopeNUMAMapping(false)
+	mapping := cra.scopeNUMAMapping(false, nil)
 	global := provisionassembler.NewNonExclusiveReclaimConstraintScope(commonstate.FakedNUMAID)
 
 	require.Contains(t, mapping, global, "global scope must always exist")
@@ -148,7 +148,7 @@ func TestScopeNUMAMappingExclusiveDedicated(t *testing.T) {
 	t.Run("with overlap disabled => exclusive scope", func(t *testing.T) {
 		t.Parallel()
 		cra := newScopeMappingAdvisor(t, []int{0, 1}, regions, true)
-		mapping := cra.scopeNUMAMapping(true)
+		mapping := cra.scopeNUMAMapping(true, nil)
 
 		excl := provisionassembler.NewExclusiveReclaimConstraintScope("dedicated-excl-0")
 		global := provisionassembler.NewNonExclusiveReclaimConstraintScope(commonstate.FakedNUMAID)
@@ -162,7 +162,7 @@ func TestScopeNUMAMappingExclusiveDedicated(t *testing.T) {
 	t.Run("with overlap enabled => legacy-exclusive scope", func(t *testing.T) {
 		t.Parallel()
 		cra := newScopeMappingAdvisor(t, []int{0, 1}, regions, false)
-		mapping := cra.scopeNUMAMapping(false)
+		mapping := cra.scopeNUMAMapping(false, nil)
 
 		legacy := provisionassembler.NewLegacyExclusiveReclaimConstraintScope("dedicated-excl-0")
 		global := provisionassembler.NewNonExclusiveReclaimConstraintScope(commonstate.FakedNUMAID)
@@ -190,7 +190,7 @@ func TestScopeNUMAMappingSNBNonExclusive(t *testing.T) {
 		},
 	}
 	cra := newScopeMappingAdvisor(t, []int{0, 1, 2, 3}, regions, false)
-	mapping := cra.scopeNUMAMapping(false)
+	mapping := cra.scopeNUMAMapping(false, nil)
 
 	snb1 := provisionassembler.NewNonExclusiveReclaimConstraintScope(1)
 	snb2 := provisionassembler.NewNonExclusiveReclaimConstraintScope(2)
