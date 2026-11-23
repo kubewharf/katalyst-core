@@ -161,6 +161,32 @@ func TestReadTHPOrder(t *testing.T) {
 	assert.Equal(t, 10, order)
 }
 
+func TestReadNumaFragmentationSnapshot(t *testing.T) {
+	t.Parallel()
+	serializeCompactionTest(t)
+	root := withFakeProcFS(t)
+	oldPath := UnusableIndexFilePath
+	UnusableIndexFilePath = filepath.Join(root, "unusable_index")
+	t.Cleanup(func() { UnusableIndexFilePath = oldPath })
+	require.NoError(t, os.WriteFile(UnusableIndexFilePath, []byte("Node 0, zone Normal 0.1 0.25\nNode 1, zone Normal 0.1 invalid\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "buddyinfo"), []byte("Node 0, zone Normal 1 2 3\nNode 1, zone Normal 1 4 0\n"), 0o600))
+	snapshot := ReadNumaFragmentation([]int{0, 1, 2}, 1)
+	require.Len(t, snapshot, 3)
+	require.Equal(t, 0, snapshot[0].NUMAID)
+	require.NoError(t, snapshot[0].UnusableIndexErr)
+	require.Equal(t, 25.0, snapshot[0].UnusableIndex)
+	require.NoError(t, snapshot[0].FreeMemoryErr)
+	require.Equal(t, uint64(os.Getpagesize()*16), snapshot[0].FreeMemory)
+	require.Error(t, snapshot[1].UnusableIndexErr)
+	require.NoError(t, snapshot[1].FreeMemoryErr, "one bad metric must not suppress another")
+	require.Error(t, snapshot[2].UnusableIndexErr)
+	require.Error(t, snapshot[2].FreeMemoryErr)
+	require.NoError(t, os.Remove(UnusableIndexFilePath))
+	snapshot = ReadNumaFragmentation([]int{0}, 1)
+	require.ErrorIs(t, snapshot[0].UnusableIndexErr, os.ErrNotExist)
+	require.NoError(t, snapshot[0].FreeMemoryErr)
+}
+
 func TestReadNumaUnusableIndex(t *testing.T) {
 	t.Parallel()
 	serializeCompactionTest(t)
@@ -267,6 +293,7 @@ func TestSetHostMemCompact(t *testing.T) {
 
 	nodePath := hostMemNodePath + "0"
 	require.NoError(t, os.Mkdir(nodePath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(nodePath, "compact"), nil, 0o600))
 	require.NoError(t, setHostMemCompact(0))
 	content, err := os.ReadFile(filepath.Join(nodePath, "compact"))
 	require.NoError(t, err)
