@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -670,7 +671,7 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 	ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	general.InfofV(4, "called")
-	if request == nil || len(request.Devices) == 0 {
+	if request == nil {
 		return nil, fmt.Errorf("request is nil")
 	}
 
@@ -679,12 +680,65 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 		return nil, fmt.Errorf("no custom device plugin found for device %s", request.DeviceName)
 	}
 
+	p.Lock()
+	defer p.Unlock()
+
+	previousTopology, _ := p.DeviceTopologyRegistry.GetDeviceTopology(request.DeviceName)
+	if previousTopology == nil {
+		// Before the first inventory update, there are no known devices.
+		previousTopology = &machine.DeviceTopology{Devices: make(map[string]machine.DeviceInfo)}
+	} else {
+		previousTopology = previousTopology.Clone()
+	}
 	resp, err := customDevicePlugin.UpdateAllocatableAssociatedDevices(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("custom device plugin UpdateAllocatableAssociatedDevices failed with error: %v", err)
 	}
-
+	if err := p.rebuildAndStoreMachineState(); err != nil {
+		if rollbackErr := p.DeviceTopologyRegistry.SetDeviceTopology(request.DeviceName, previousTopology); rollbackErr != nil {
+			return nil, fmt.Errorf("%w; failed to restore previous device topology: %v", err, rollbackErr)
+		}
+		return nil, err
+	}
 	return resp, nil
+}
+
+// rebuildAndStoreMachineState reconciles resource states with the current topology.
+// The caller must hold the policy write lock.
+func (p *StaticPolicy) rebuildAndStoreMachineState() error {
+	stateImpl := p.GetState()
+	if stateImpl == nil {
+		return nil // Initialization reads the updated topology registry.
+	}
+
+	previous := stateImpl.GetMachineState()
+	machineState := make(state.AllocationResourcesMap, len(previous))
+	for name, devices := range previous {
+		machineState[name] = devices
+	}
+	entries := stateImpl.GetPodResourceEntries()
+	for resourceName, generator := range p.DefaultResourceStateGeneratorRegistry.GetGenerators() {
+		name := v1.ResourceName(resourceName)
+		if generator == nil {
+			return fmt.Errorf("could not find generator for resource %s", name)
+		}
+		_, hasState := machineState[name]
+		_, hasEntries := entries[name]
+		if !generator.MustInitDefaultResourceState() && !hasState && !hasEntries {
+			continue
+		}
+		devices, err := state.GenerateResourceStateFromPodEntries(entries[name], generator, machineState[name])
+		if err != nil {
+			return fmt.Errorf("rebuild resource %s: %w", name, err)
+		}
+		machineState[name] = devices
+	}
+	stateImpl.SetMachineState(machineState, false)
+	if err := stateImpl.StoreState(); err != nil {
+		stateImpl.SetMachineState(previous, false)
+		return fmt.Errorf("persist GPU machine state: %w", err)
+	}
+	return nil
 }
 
 func (p *StaticPolicy) GetAssociatedDeviceTopologyHints(
@@ -709,6 +763,9 @@ func (p *StaticPolicy) GetAssociatedDeviceTopologyHints(
 	if err := p.ensureState(req.DeviceName); err != nil {
 		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
+
+	p.RLock()
+	defer p.RUnlock()
 
 	customDevicePlugin := p.getCustomDevicePlugin(req.DeviceName)
 	if customDevicePlugin == nil {

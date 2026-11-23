@@ -105,8 +105,16 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, fmt.Errorf("invalid resource %s in state", resourceName)
 	}
 
-	// MachineState lookup: pass state-name identifiers.
-	accompanyResourceToDeviceRatio := machineState.GetRatioOfAccompanyResourceToTargetResource(accompanyResourceNameInState, resourceNameInState)
+	// Inventory ratios must use live topology instead of retained state entries.
+	accompanyTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(accompanyResourceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device topology for accompany resource %s: %w", accompanyResourceName, err)
+	}
+	targetTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(resourceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device topology for resource %s: %w", resourceName, err)
+	}
+	accompanyResourceToDeviceRatio := getCurrentDeviceRatio(accompanyTopology, targetTopology)
 
 	// Find out the number of target devices to be allocated proportionally to the accompany resource devices
 	devicesToBeAllocated, err := machineState.CalculateTargetDevicesToAllocate(accompanyResourceToDeviceRatio, len(accompanyAllocatedDeviceIDs))
@@ -147,18 +155,7 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		}, nil
 	}
 
-	// DeviceTopologyRegistry lookup: pass the raw resource name (not the state name).
-	var priorityDimensions []string
-	accompanyTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(accompanyResourceName)
-	if err != nil {
-		return &allocate.AllocationResult{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to get device topology for accompany resource %s: %v", accompanyResourceName, err),
-		}, fmt.Errorf("failed to get device topology for accompany resource %s: %w", accompanyResourceName, err)
-	}
-	if accompanyTopology != nil {
-		priorityDimensions = accompanyTopology.PriorityDimensions
-	}
+	priorityDimensions := accompanyTopology.PriorityDimensions
 
 	// If no priority dimensions are specified from accompany device, use NUMA as the default priority dimension.
 	if len(priorityDimensions) == 0 {
@@ -176,6 +173,14 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		maxAllocationPerDevice = int(math.Max(1/accompanyResourceToDeviceRatio, 1))
 	}
 	return s.allocateWithAffinity(ctx, accompanyAllocatedDeviceIDs, affinityDevices, priorityDimensions, availableDevices, allocatedDevices, devicesToBeAllocated, maxAllocationPerDevice, accompanyResourceName)
+}
+
+// getCurrentDeviceRatio returns the inventory ratio from the supplied topologies.
+func getCurrentDeviceRatio(accompanyTopology, targetTopology *machine.DeviceTopology) float64 {
+	if len(targetTopology.Devices) == 0 {
+		return 0
+	}
+	return float64(len(accompanyTopology.Devices)) / float64(len(targetTopology.Devices))
 }
 
 // allocateWithAffinity tries to allocate devices that have affinity with the allocated accompany devices.

@@ -128,6 +128,20 @@ func (s *testGPUState) GetMachineState() state.AllocationResourcesMap {
 	return cloneMachineState(s.machineState)
 }
 
+func (s *testGPUState) GetResourceCapacityState(resourceName v1.ResourceName) state.AllocationMap {
+	devices := s.machineState[resourceName]
+	if devices == nil {
+		return nil
+	}
+	capacities := make(state.AllocationMap, len(devices))
+	for id, device := range devices {
+		if device != nil {
+			capacities[id] = &state.AllocationState{Allocatable: device.Allocatable}
+		}
+	}
+	return capacities
+}
+
 func (s *testGPUState) GetPodResourceEntries() state.PodResourceEntries { return nil }
 
 func (s *testGPUState) GetPodEntries(_ v1.ResourceName) state.PodEntries { return nil }

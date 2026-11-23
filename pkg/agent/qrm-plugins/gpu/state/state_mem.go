@@ -179,6 +179,25 @@ func (s *gpuPluginState) GetMachineState() AllocationResourcesMap {
 	return s.machineState.Clone()
 }
 
+// GetResourceCapacityState copies device capacities without cloning allocation records.
+func (s *gpuPluginState) GetResourceCapacityState(resourceName v1.ResourceName) AllocationMap {
+	s.RLock()
+	defer s.RUnlock()
+
+	devices := s.machineState[resourceName]
+	if devices == nil {
+		return nil
+	}
+
+	capacities := make(AllocationMap, len(devices))
+	for id, device := range devices {
+		if device != nil {
+			capacities[id] = &AllocationState{Allocatable: device.Allocatable}
+		}
+	}
+	return capacities
+}
+
 func (s *gpuPluginState) GetPodResourceEntries() PodResourceEntries {
 	s.RLock()
 	defer s.RUnlock()
