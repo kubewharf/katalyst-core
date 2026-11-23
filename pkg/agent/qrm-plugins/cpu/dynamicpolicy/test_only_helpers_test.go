@@ -112,7 +112,7 @@ func (p *DynamicPolicy) validateHardPartitionBlockPlan(
 		domains.Insert(commonstate.FakedNUMAID)
 	}
 	return p.validateHardPartitionBlockPlanWithDynamicConfig(
-		resp, blockCPUSet, domains, dynamicConf)
+		resp, blockCPUSet, domains, nil, dynamicConf)
 }
 
 // validateHardPartitionReclaimDistribution adapts existing test fixtures to the production implementation.
@@ -128,7 +128,7 @@ func validateHardPartitionReclaimDistribution(
 		cpusPerCore = topology.CPUsPerCore()
 	}
 	return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
-		reclaim, eligible, nil, topology, excludedNUMAs, cpusPerCore, minimumPerNUMA)
+		reclaim, eligible, nil, topology, excludedNUMAs, cpusPerCore, minimumPerNUMA, nil)
 }
 
 // allocateNumaBindingCPUs adapts existing test fixtures to the production implementation.

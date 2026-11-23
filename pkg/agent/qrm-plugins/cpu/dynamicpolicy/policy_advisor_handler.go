@@ -751,8 +751,13 @@ func (p *DynamicPolicy) allocateByCPUAdvisorWithRevision(
 	if aErr != nil {
 		return fmt.Errorf("generateBlockCPUSet failed with error: %w", aErr)
 	}
+	balanceExemptNUMAs, exemptionErr := p.balanceExemptDomainsByNUMA(currentEntries, hardActiveDomains)
+	if exemptionErr != nil {
+		return fmt.Errorf("resolve ramp balance exemption: %w", exemptionErr)
+	}
+
 	if err := p.validateHardPartitionBlockPlanWithDynamicConfig(
-		resp, blockToCPUSet, hardActiveDomains, dynamicConf); err != nil {
+		resp, blockToCPUSet, hardActiveDomains, balanceExemptNUMAs, dynamicConf); err != nil {
 		return fmt.Errorf("validate hard-partition reclaim block plan failed: %w", err)
 	}
 
@@ -1750,6 +1755,7 @@ func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
 	resp *advisorapi.ListAndWatchResponse,
 	blockCPUSet advisorapi.BlockCPUSet,
 	hardActiveDomains sets.Int,
+	balanceExemptNUMAs sets.Int,
 	dynamicConf *dynamicconfig.Configuration,
 ) error {
 	hardActive := rampUpDomainsToLegacyHardActive(hardActiveDomains)
@@ -1807,6 +1813,9 @@ func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
 			return fmt.Errorf("hard-partition zero-quantity fake reclaim block %q is not empty",
 				fakeDescriptors[0].BlockID)
 		}
+		// A real NUMA whose reclaim is still ramping may sit below its steady
+		// share until the domain converges; the lifecycle-scoped exemption is computed by
+		// the caller so this validator stays side-effect free.
 		reclaim := machine.NewCPUSet()
 		eligible := machine.NewCPUSet()
 		for _, descriptor := range mandatory {
@@ -1822,7 +1831,7 @@ func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
 		cpusPerCore := p.machine.machineInfo.CPUTopology.CPUsPerCore()
 		return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
 			reclaim, eligible, nil, p.machine.machineInfo.CPUTopology, skipNUMAs,
-			cpusPerCore, minimumHardReclaimCoresPerNUMA*cpusPerCore)
+			cpusPerCore, minimumHardReclaimCoresPerNUMA*cpusPerCore, balanceExemptNUMAs)
 	}
 
 	if resp.DisableDedicatedCoresOverlapReclaimedCores {
@@ -1868,9 +1877,25 @@ func (p *DynamicPolicy) validateHardPartitionBlockPlanWithDynamicConfig(
 	return validateHardPartitionReclaimDistributionWithEffectiveCapacity(
 		blockCPUSet[fake.BlockID], fakeCapacity.rawEligible, fakeCapacity.effectiveByNUMA,
 		p.machine.machineInfo.CPUTopology, skipNUMAs, cpusPerCore,
-		minimumHardReclaimCoresPerNUMA*cpusPerCore)
+		minimumHardReclaimCoresPerNUMA*cpusPerCore, nil)
 }
 
+// balanceExemptDomainsByNUMA derives the exception from the same committed
+// ramp-up state used by the caller. It never advances history on a request or
+// retry; the existing allocation lifecycle remains the owner of RampUp.
+func (p *DynamicPolicy) balanceExemptDomainsByNUMA(entries state.PodEntries, activeDomains sets.Int) (sets.Int, error) {
+	if p.machine.machineInfo == nil || p.machine.machineInfo.CPUTopology == nil {
+		return nil, fmt.Errorf("ramp balance exemption requires CPU topology")
+	}
+	resolved, err := entries.ActiveRampUpDomains(p.machine.machineInfo.CPUTopology)
+	if err != nil {
+		return nil, err
+	}
+	return resolved.Intersection(activeDomains).Difference(sets.NewInt(commonstate.FakedNUMAID)), nil
+}
+
+// balanceExemptNUMAs exempts still-ramping real NUMAs from the cross-NUMA balance
+// comparison; their per-NUMA capacity, minimum and core-alignment checks stay.
 func validateHardPartitionReclaimDistributionWithEffectiveCapacity(
 	reclaim machine.CPUSet,
 	eligible machine.CPUSet,
@@ -1879,6 +1904,7 @@ func validateHardPartitionReclaimDistributionWithEffectiveCapacity(
 	excludedNUMAs sets.Int,
 	cpusPerCore int,
 	minimumPerNUMA int,
+	balanceExemptNUMAs sets.Int,
 ) error {
 	if topology == nil {
 		return fmt.Errorf("hard-partition reclaim validation requires CPU topology")
@@ -1936,7 +1962,9 @@ func validateHardPartitionReclaimDistributionWithEffectiveCapacity(
 		}
 		countByNUMA[numaID] = count
 		completeCapacityByNUMA[numaID] = completeCapacity
-		participatingNUMAs = append(participatingNUMAs, numaID)
+		if !balanceExemptNUMAs.Has(numaID) {
+			participatingNUMAs = append(participatingNUMAs, numaID)
+		}
 	}
 	if len(countByNUMA) == 0 && firstNonSkippedNUMA >= 0 {
 		return fmt.Errorf("hard-partition reclaim NUMA %d has 0 CPUs, minimum is %d",
