@@ -309,6 +309,11 @@ func TestDoMemTHPEnable(t *testing.T) {
 	setMemTHPTestMu.Lock()
 	defer setMemTHPTestMu.Unlock()
 
+	oldMinFreePath := minFreeKbytesPath
+	minFreeFile := createTempFile(t, "12345\n")
+	minFreeKbytesPath = minFreeFile
+	defer func() { minFreeKbytesPath = oldMinFreePath; _ = os.Remove(minFreeFile) }()
+
 	oldEnabledPath := thpEnabledPath
 	oldShmemPath := thpShmemEnabledPath
 	defer func() {
