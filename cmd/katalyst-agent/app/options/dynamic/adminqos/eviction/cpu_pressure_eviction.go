@@ -39,35 +39,37 @@ const (
 
 // CPUPressureEvictionOptions is the options of cpu pressure eviction
 type CPUPressureEvictionOptions struct {
-	EnableLoadEviction                bool
-	LoadUpperBoundRatio               float64
-	LoadLowerBoundRatio               float64
-	LoadThresholdMetPercentage        float64
-	LoadMetricRingSize                int
-	LoadEvictionCoolDownTime          time.Duration
-	EnableSuppressionEviction         bool
-	MaxSuppressionToleranceRate       float64
-	MinSuppressionToleranceDuration   time.Duration
-	GracePeriod                       int64
-	NumaCPUPressureEvictionOptions    NumaCPUPressureEvictionOptions
-	NumaSysCPUPressureEvictionOptions NumaSysCPUPressureEvictionOptions
+	EnableLoadEviction                         bool
+	LoadUpperBoundRatio                        float64
+	LoadLowerBoundRatio                        float64
+	LoadThresholdMetPercentage                 float64
+	LoadMetricRingSize                         int
+	LoadEvictionCoolDownTime                   time.Duration
+	EnableSuppressionEviction                  bool
+	MaxSuppressionToleranceRate                float64
+	MinSuppressionToleranceDuration            time.Duration
+	GracePeriod                                int64
+	NumaCPUPressureEvictionOptions             NumaCPUPressureEvictionOptions
+	NumaSysCPUPressureEvictionOptions          NumaSysCPUPressureEvictionOptions
+	SuppressionUsageCPUPressureEvictionOptions SuppressionUsageCPUPressureEvictionOptions
 }
 
 // NewCPUPressureEvictionOptions returns a new CPUPressureEvictionOptions
 func NewCPUPressureEvictionOptions() *CPUPressureEvictionOptions {
 	return &CPUPressureEvictionOptions{
-		EnableLoadEviction:                defaultEnableLoadEviction,
-		LoadUpperBoundRatio:               defaultLoadUpperBoundRatio,
-		LoadLowerBoundRatio:               defaultLoadLowerBoundRatio,
-		LoadThresholdMetPercentage:        defaultLoadThresholdMetPercentage,
-		LoadMetricRingSize:                defaultLoadMetricSize,
-		LoadEvictionCoolDownTime:          defaultLoadEvictionCoolDownTime,
-		EnableSuppressionEviction:         defaultEnableSuppressionEviction,
-		MaxSuppressionToleranceRate:       defaultMaxSuppressionToleranceRate,
-		MinSuppressionToleranceDuration:   defaultMinSuppressionToleranceDuration,
-		GracePeriod:                       defaultGracePeriod,
-		NumaCPUPressureEvictionOptions:    NewNumaCPUPressureEvictionOptions(),
-		NumaSysCPUPressureEvictionOptions: NewNumaSysCPUPressureEvictionOptions(),
+		EnableLoadEviction:                         defaultEnableLoadEviction,
+		LoadUpperBoundRatio:                        defaultLoadUpperBoundRatio,
+		LoadLowerBoundRatio:                        defaultLoadLowerBoundRatio,
+		LoadThresholdMetPercentage:                 defaultLoadThresholdMetPercentage,
+		LoadMetricRingSize:                         defaultLoadMetricSize,
+		LoadEvictionCoolDownTime:                   defaultLoadEvictionCoolDownTime,
+		EnableSuppressionEviction:                  defaultEnableSuppressionEviction,
+		MaxSuppressionToleranceRate:                defaultMaxSuppressionToleranceRate,
+		MinSuppressionToleranceDuration:            defaultMinSuppressionToleranceDuration,
+		GracePeriod:                                defaultGracePeriod,
+		NumaCPUPressureEvictionOptions:             NewNumaCPUPressureEvictionOptions(),
+		NumaSysCPUPressureEvictionOptions:          NewNumaSysCPUPressureEvictionOptions(),
+		SuppressionUsageCPUPressureEvictionOptions: NewSuppressionUsageCPUPressureEvictionOptions(),
 	}
 }
 
@@ -102,6 +104,7 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 			", the eviction or node taint will be triggered")
 	o.NumaCPUPressureEvictionOptions.AddFlags(fss)
 	o.NumaSysCPUPressureEvictionOptions.AddFlags(fss)
+	o.SuppressionUsageCPUPressureEvictionOptions.AddFlags(fss)
 }
 
 func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConfiguration) error {
@@ -120,6 +123,9 @@ func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConf
 		return err
 	}
 	if err := o.NumaSysCPUPressureEvictionOptions.ApplyTo(&c.NumaSysCPUPressureEvictionConfiguration); err != nil {
+		return err
+	}
+	if err := o.SuppressionUsageCPUPressureEvictionOptions.ApplyTo(&c.SuppressionUsageCPUPressureEvictionConfiguration); err != nil {
 		return err
 	}
 	return nil
