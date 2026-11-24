@@ -772,10 +772,15 @@ func runCPUSetTopologyAdjustmentWithResult(
 		iteration++
 		attemptInput := in
 		attemptInput.DesiredView = pristineDesired.DeepCopy()
+		attemptStarted := time.Now()
 		result, err := attempt(ctx, attemptInput, budget)
 		accumulateConvergenceResult(&cumulative, result)
-		general.InfofV(4, "cpuset_topology: adjustment attempt finished iteration=%d disposition=%d err=%v",
-			iteration, result.ReplanDisposition, err)
+		logAttempt := general.Infof
+		if err == nil {
+			logAttempt = func(format string, args ...interface{}) { general.InfofV(4, format, args...) }
+		}
+		logAttempt("cpuset_topology: adjustment attempt finished iteration=%d duration=%s disposition=%d cumulative_writes=%d context_err=%v error_type=%T",
+			iteration, time.Since(attemptStarted), result.ReplanDisposition, budget.CumulativeWrites(), ctx.Err(), err)
 		deadlinePrimary, deadlineHistory := err, lastStale
 		if deadlinePrimary == nil {
 			deadlinePrimary, deadlineHistory = lastStale, nil
