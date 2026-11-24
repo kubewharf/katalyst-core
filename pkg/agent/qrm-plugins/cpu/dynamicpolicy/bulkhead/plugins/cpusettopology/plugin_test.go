@@ -1372,6 +1372,8 @@ func TestCPUSetTopologyPluginDefaultAutoBudgetConverges96CPUHandoffAtPointZeroOn
 	cfg.BulkheadPrimaryRelPath = "primary"
 	cfg.BulkheadReclaimRelPaths = []string{"reclaim"}
 	cfg.TopologyDrainSelection.MaxCPUsDrainRatio = 0.01
+	// This test pins auto-round sizing, not the production wall-clock budget.
+	cfg.TopologyConvergenceBudget.DeadlineDuration = time.Minute
 	p := &CPUSetTopologyPlugin{cfg: *cfg, cgroup: cg}
 	fetcher := &strictSnapshotFetcher{}
 
