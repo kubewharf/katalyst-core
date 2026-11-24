@@ -120,7 +120,7 @@ func TestComputeEffectiveTargetsSystemSiblingFollowsNormalizedReclaimUnion(t *te
 	dag := mustPlanDAG(t, specs)
 	requiredByRel := RequiredCPUSetByRelFromNodeSpecs(specs)
 
-	effective, err := computeEffectiveTargets(dag, false, cpuDetails, nil, requiredByRel)
+	effective, _, err := computeEffectiveTargets(dag, false, cpuDetails, nil, requiredByRel)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestComputeEffectiveTargetsSystemSiblingV2EmptyPrimaryUnchanged(t *testing.
 		"kubepods/empty": machine.NewCPUSet(0, 1),
 	}
 
-	effective, err := computeEffectiveTargets(dag, true, nil, nil, requiredByRel)
+	effective, _, err := computeEffectiveTargets(dag, true, nil, nil, requiredByRel)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestBuildPhasePlanV1SystemSiblingSatisfiesEmptyTargetGate(t *testing.T) {
 	dag := mustPlanDAG(t, specs)
 	requiredByRel := RequiredCPUSetByRelFromNodeSpecs(specs)
 
-	effective, err := computeEffectiveTargets(dag, false, cpuDetails, nil, requiredByRel)
+	effective, _, err := computeEffectiveTargets(dag, false, cpuDetails, nil, requiredByRel)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}

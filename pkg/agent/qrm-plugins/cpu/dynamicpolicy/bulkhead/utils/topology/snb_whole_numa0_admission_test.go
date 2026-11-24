@@ -143,7 +143,7 @@ func TestSNBWholeNUMA0BorrowedReclaimDrainConverges(t *testing.T) {
 
 	dag, err := BuildDAG(fixture.specs)
 	require.NoError(t, err)
-	eff, err := computeEffectiveTargets(dag, false, details, pendingRequiredByRel, fixture.requiredByRel)
+	eff, _, err := computeEffectiveTargets(dag, false, details, pendingRequiredByRel, fixture.requiredByRel)
 	require.NoError(t, err)
 	for i := range fixture.specs {
 		fixture.specs[i].CPUs = eff[fixture.specs[i].Rel].Clone()
@@ -203,9 +203,10 @@ func TestSNBWholeNUMA0MultiNUMAContainmentAndBounds(t *testing.T) {
 	sharedNUMA0 := machine.MustParse("0-3,5-15,64-67,69-79")
 	pendingRequiredByRel := map[string]machine.CPUSet{"kubepods": sharedNUMA0.Clone()}
 
-	eff, err := computeEffectiveTargets(dag, false, details, pendingRequiredByRel, requiredByRel)
+	eff, adjustedRequiredByRel, err := computeEffectiveTargets(
+		dag, false, details, pendingRequiredByRel, requiredByRel,
+	)
 	require.NoError(t, err)
-	reconcileReclaimNUMABucketRequiredFloors(dag, eff, requiredByRel)
 
 	buckets := []string{"reclaimed/reclaimed-0", "reclaimed/reclaimed-1", "reclaimed/reclaimed-2", "reclaimed/reclaimed-3"}
 	expected := []string{"4,68", "20,84", "36,100", "52,116"}
@@ -220,9 +221,9 @@ func TestSNBWholeNUMA0MultiNUMAContainmentAndBounds(t *testing.T) {
 		require.True(t, got.IsSubsetOf(eff["reclaimed"]),
 			"bucket %s must be contained by its reclaim parent; got=%s", rel, got)
 		// Frozen floor must be a subset of the effective target.
-		require.True(t, requiredByRel[rel].IsSubsetOf(got),
+		require.True(t, adjustedRequiredByRel[rel].IsSubsetOf(got),
 			"bucket %s required floor must be subset of effective target; floor=%s eff=%s",
-			rel, requiredByRel[rel], got)
+			rel, adjustedRequiredByRel[rel], got)
 	}
 
 	// Sibling-disjoint / hard-overlap guard: all four buckets are pairwise disjoint

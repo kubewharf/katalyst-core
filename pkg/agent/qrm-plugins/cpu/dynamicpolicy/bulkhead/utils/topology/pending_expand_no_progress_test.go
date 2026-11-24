@@ -59,7 +59,7 @@ func TestSNBSeedLeafAdmissionCoversRequiredFloor(t *testing.T) {
 	}
 	dag, err := BuildDAG(fixture.specs)
 	require.NoError(t, err)
-	effective, err := computeEffectiveTargets(dag, false, fixture.cpuDetails, nil, requiredByRel, nil)
+	effective, _, err := computeEffectiveTargets(dag, false, fixture.cpuDetails, nil, requiredByRel, nil)
 	require.NoError(t, err)
 
 	// The DAG desired shape is the post-normalization physical target (the widened

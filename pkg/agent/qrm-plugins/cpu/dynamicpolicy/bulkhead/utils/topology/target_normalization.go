@@ -19,6 +19,7 @@ package topology
 import (
 	"strings"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -31,9 +32,9 @@ func desiredTargets(dag *TopoDAG) map[string]machine.CPUSet {
 	return effective
 }
 
-// computeEffectiveTargets returns, per controlled node, the cpuset that must be
-// enforced so the cgroup v1 parent-superset invariant holds while expected kube
-// cgroups and reclaim NUMA buckets converge.
+// computeEffectiveTargets returns the target and required-floor projections for
+// one round. It treats caller-owned maps as immutable so a failed or completed
+// attempt cannot change the inputs reused by a later round.
 //
 // The normalization order is fixed:
 //  1. initialize desired target from DAG nodes
@@ -44,24 +45,23 @@ func desiredTargets(dag *TopoDAG) map[string]machine.CPUSet {
 //  5. validate primary/reclaim no-overlap
 //  6. validate reclaim NUMA bucket sibling disjointness
 //  7. validate reclaim NUMA bucket target belongs to its NUMA node
-func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, cpuDetails machine.CPUDetails, pendingRequiredByRel map[string]machine.CPUSet, requiredByRel map[string]machine.CPUSet, protectedByRel ...map[string]machine.CPUSet) (map[string]machine.CPUSet, error) {
+func computeEffectiveTargets(dag *TopoDAG, allowEmptyTarget bool, cpuDetails machine.CPUDetails, pendingRequiredByRel map[string]machine.CPUSet, requiredByRel map[string]machine.CPUSet, protectedByRel ...map[string]machine.CPUSet) (map[string]machine.CPUSet, map[string]machine.CPUSet, error) {
+	adjustedRequiredByRel := model.CloneCPUSetMap(requiredByRel)
 	effective := desiredTargets(dag)
-	widenPrimaryTargetsWithScopedProtections(dag, effective, allowEmptyTarget, pendingRequiredByRel, requiredByRel, protectedByRel...)
+	widenPrimaryTargetsWithScopedProtections(dag, effective, allowEmptyTarget, pendingRequiredByRel, adjustedRequiredByRel, protectedByRel...)
 	normalizeReclaimTargetsByPrimary(dag, effective)
 	normalizeReclaimParentContainsNUMABuckets(dag, effective)
 	if err := validateNoPrimaryReclaimOverlap(dag, effective); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := validateReclaimNUMABucketSiblingsDisjoint(dag, effective); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := validateReclaimNUMABucketNUMABinding(dag, effective, cpuDetails); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	// Publish the adjusted floors only after every validation succeeds. Errors
-	// leave caller-owned floors unchanged, while successful rounds retain them.
-	reconcileReclaimNUMABucketRequiredFloors(dag, effective, requiredByRel)
-	return effective, nil
+	reconcileReclaimNUMABucketRequiredFloors(dag, effective, adjustedRequiredByRel)
+	return effective, adjustedRequiredByRel, nil
 }
 
 func widenPrimaryTargetsWithScopedProtections(dag *TopoDAG, effective map[string]machine.CPUSet, allowEmptyTarget bool, pendingRequiredByRel map[string]machine.CPUSet, requiredByRel map[string]machine.CPUSet, protectedByRel ...map[string]machine.CPUSet) {

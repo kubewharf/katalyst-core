@@ -3436,7 +3436,7 @@ func TestComputeEffectiveTargetsDoesNotProtectPodParentOrPodFullCPUSet(t *testin
 	if err != nil {
 		t.Fatalf("BuildDAG: %v", err)
 	}
-	effective, err := computeEffectiveTargets(dag, false, nil, nil, nil)
+	effective, _, err := computeEffectiveTargets(dag, false, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
@@ -3534,7 +3534,7 @@ func TestTopologyCoordinatorConvergePropagatesProtectedRelToPrimaryAndDeductsRec
 	if err != nil {
 		t.Fatalf("BuildDAG: %v", err)
 	}
-	effective, err := computeEffectiveTargets(dag, false, nil, nil, nil, map[string]machine.CPUSet{
+	effective, _, err := computeEffectiveTargets(dag, false, nil, nil, nil, map[string]machine.CPUSet{
 		"kubepods/podA": machine.NewCPUSet(2, 3),
 	})
 	if err != nil {

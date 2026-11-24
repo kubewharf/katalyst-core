@@ -109,7 +109,7 @@ func TestEffectiveTargetsFailurePreservesRequiredFloor(t *testing.T) {
 	info := details[2]
 	info.NUMANodeID = 1
 	details[2] = info
-	_, err = computeEffectiveTargets(dag, false, details, map[string]machine.CPUSet{"kubepods": machine.NewCPUSet(1)}, floors)
+	_, _, err = computeEffectiveTargets(dag, false, details, map[string]machine.CPUSet{"kubepods": machine.NewCPUSet(1)}, floors)
 	if err == nil {
 		t.Fatal("wrong NUMA binding should fail validation")
 	}
