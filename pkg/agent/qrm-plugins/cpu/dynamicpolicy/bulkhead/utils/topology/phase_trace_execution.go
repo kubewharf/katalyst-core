@@ -928,13 +928,20 @@ func (r *coordinatorRound) executeValidatedFrozenTrace(
 	defer ticket.ReleaseUnused()
 
 	writer := newSafeCPUSetWriter(r.driver, r.budget, res)
+	writer.stageDiagnostics = &res.stageDiagnostics
 	writer.adjustmentBudget = r.adjustmentBudget
 	writer.adjustmentReservation = adjustmentReservation
 	if r.recoveryContextFactory != nil {
 		writer.recoveryContextFactory = r.recoveryContextFactory
 	}
 	writer.dormantProofs = r.dormantProofs
+	preflightStarted := time.Now()
 	preflight, err := writer.preflightValidatedTraceOperations(ctx, validated)
+	res.stageDiagnostics.preflight += time.Since(preflightStarted)
+	res.stageDiagnostics.preflightCalls++
+	if err != nil {
+		res.stageDiagnostics.failureStage = "preflight"
+	}
 	if err != nil {
 		authorizePreWriteStaleReplan(res, err)
 		return outcome, err
@@ -951,6 +958,14 @@ func (r *coordinatorRound) executeValidatedFrozenTrace(
 		rollbackRetirements: append(
 			[]FrozenRollbackRetirement(nil), frozen.RollbackRetirements...),
 	}
+	forwardStarted := time.Now()
+	rollbackBefore := res.stageDiagnostics.rollback
+	finalBefore := res.stageDiagnostics.finalProof
+	defer func() {
+		res.stageDiagnostics.forward += time.Since(forwardStarted) -
+			(res.stageDiagnostics.rollback - rollbackBefore) -
+			(res.stageDiagnostics.finalProof - finalBefore)
+	}()
 	operationIndex := 0
 	for _, phase := range frozen.Phases {
 		for _, operation := range phase.Operations {
@@ -967,6 +982,7 @@ func (r *coordinatorRound) executeValidatedFrozenTrace(
 				res.Journal = append(res.Journal, applied)
 			}
 			if applyErr != nil {
+				res.stageDiagnostics.failureStage = "forward"
 				res.Failed++
 				return outcome, writer.failFrozenTrace(
 					ctx, applyErr, stack, ticket, res, journalStart, appliedStart)
@@ -985,7 +1001,12 @@ func (r *coordinatorRound) executeValidatedFrozenTrace(
 		}
 		finalize = finalizers[0]
 	}
+	finalStarted := time.Now()
 	finalization, err := finalize(ctx, frozen)
+	res.stageDiagnostics.finalProof += time.Since(finalStarted)
+	if err != nil {
+		res.stageDiagnostics.failureStage = "final_proof"
+	}
 	if err != nil {
 		res.Failed++
 		return outcome, writer.failFrozenTrace(
@@ -1479,7 +1500,15 @@ func (w safeCPUSetWriter) failFrozenTrace(
 		return newExecutionRollbackError(executionErr, recoveryErr)
 	}
 	defer cancelRecovery()
+	rollbackStarted := time.Now()
 	rollbackErr := w.rollbackTracePrefix(recoveryCtx, stack, ticket)
+	if w.stageDiagnostics != nil {
+		w.stageDiagnostics.rollback += time.Since(rollbackStarted)
+		w.stageDiagnostics.rollbackCalls++
+		if rollbackErr != nil {
+			w.stageDiagnostics.failureStage = "rollback"
+		}
+	}
 	if rollbackErr == nil {
 		res.Journal = res.Journal[:journalStart]
 		res.Applied = appliedStart
@@ -1697,7 +1726,11 @@ func (w safeCPUSetWriter) rollbackTracePrefix(
 		}
 	}
 	observationEpoch := w.adjustmentBudget.BeginSnapshotObservation()
+	verificationStarted := time.Now()
 	verificationErrors := w.verifyRolledBackPrefix(ctx, rollbackDriver, stack)
+	if w.stageDiagnostics != nil {
+		w.stageDiagnostics.rollbackVerification += time.Since(verificationStarted)
+	}
 	rollbackErrors = append(rollbackErrors, verificationErrors...)
 	if len(rollbackErrors) == 0 {
 		w.adjustmentBudget.ObserveCurrentSnapshot(observationEpoch)

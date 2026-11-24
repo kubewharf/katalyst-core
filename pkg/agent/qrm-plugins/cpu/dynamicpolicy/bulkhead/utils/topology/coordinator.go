@@ -240,6 +240,7 @@ type ConvergenceResult struct {
 	forwardWriteAttempts  int
 	rollbackWriteAttempts int
 	publicationAttempted  bool
+	stageDiagnostics      admissionStageDiagnostics
 }
 
 func (r *ConvergenceResult) recordForwardWriteAttempt() {
@@ -1224,6 +1225,10 @@ func (r *coordinatorRound) executeParentSafeAdmission(
 	// already contains the newly appeared holder.
 	const maxParentSafeChurnAbsorptions = 1
 
+	res.stageDiagnostics = admissionStageDiagnostics{started: time.Now()}
+	defer func() {
+		res.stageDiagnostics.log(ctx, err, res)
+	}()
 	baseSnapshot := base
 	var (
 		adjustmentReservation *AdjustmentWriteReservation
@@ -1287,7 +1292,14 @@ func (r *coordinatorRound) executeParentSafeAdmission(
 	}
 
 	for {
+		res.stageDiagnostics.failureStage = ""
+		compileStarted := time.Now()
 		validated, err := r.compileValidatedFixedPointTrace(ctx, baseSnapshot)
+		res.stageDiagnostics.compile += time.Since(compileStarted)
+		res.stageDiagnostics.compileCalls++
+		if err != nil {
+			res.stageDiagnostics.failureStage = "compile"
+		}
 		if err != nil {
 			return outcome, err
 		}
@@ -1296,15 +1308,30 @@ func (r *coordinatorRound) executeParentSafeAdmission(
 			return outcome, err
 		}
 
+		res.stageDiagnostics.traceID = trace.TraceID
+		res.stageDiagnostics.snapshotID = trace.InitialSnapshot.ID
+		res.stageDiagnostics.entries = len(trace.InitialSnapshot.Entries)
+		res.stageDiagnostics.operations = trace.OperationCount()
+		res.stageDiagnostics.phases = len(trace.Phases)
+		reserveStarted := time.Now()
 		maxRequiredWrites := 0
 		if r.admissionBudget != nil {
 			maxRequiredWrites = r.admissionBudget.MaxRequiredWrites
 		}
 		ticket, err := r.budget.reserveValidatedPhaseTrace(ctx, validated, maxRequiredWrites)
+		res.stageDiagnostics.reservation += time.Since(reserveStarted)
+		if err != nil {
+			res.stageDiagnostics.failureStage = "reservation"
+		}
 		if err != nil {
 			return outcome, err
 		}
+		reserveStarted = time.Now()
 		adjustmentReservation, err = r.adjustmentBudget.ReserveExecution(trace.Cost)
+		res.stageDiagnostics.reservation += time.Since(reserveStarted)
+		if err != nil {
+			res.stageDiagnostics.failureStage = "reservation"
+		}
 		if err != nil {
 			return outcome, err
 		}

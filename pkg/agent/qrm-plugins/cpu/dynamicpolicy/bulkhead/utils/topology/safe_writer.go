@@ -55,6 +55,7 @@ type safeCPUSetWriter struct {
 	res                    *ConvergenceResult
 	physicalWriteAttempts  *int
 	dormantProofs          map[string]DormantLeafProof
+	stageDiagnostics       *admissionStageDiagnostics
 }
 
 type stableLiveChildren struct {
