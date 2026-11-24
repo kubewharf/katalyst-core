@@ -417,7 +417,9 @@ func TestNormalPhaseFailureRestoresCompletePrefix(t *testing.T) {
 				plan.Operations[i].PlanID = plan.PlanID
 			}
 			result := &ConvergenceResult{}
-			err := newSafeCPUSetWriter(driver, NewBudgetTracker(ConvergenceBudget{}), result).execute(ctx, plan)
+			writer := newSafeCPUSetWriter(driver, NewBudgetTracker(ConvergenceBudget{}), result)
+			writer.recoveryContextFactory = deterministicRecoveryContext
+			err := writer.execute(ctx, plan)
 			expected := injected
 			if mode == "canceled" {
 				expected = context.Canceled
