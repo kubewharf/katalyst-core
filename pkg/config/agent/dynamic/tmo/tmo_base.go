@@ -36,6 +36,7 @@ const (
 	DefaultTMOPSIPolicyPSIAvg60Threshold               float64                = 0.1
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64                = 0.99
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64                = 0.6
+	DefaultTMOSwapFreeThresholdRatio                   float64                = 0.1
 	DefaultTMOReservedInactiveFile                     uint64                 = 0
 )
 
@@ -68,6 +69,7 @@ type TMODefaultConfigurations struct {
 	DefaultTMOPSIPolicyPSIAvg60Threshold               float64
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64
+	DefaultTMOSwapFreeThresholdRatio                   float64
 	DefaultTMOReservedInactiveFile                     uint64
 }
 
@@ -81,27 +83,30 @@ func NewTMODefaultConfigurations() *TMODefaultConfigurations {
 		DefaultTMOPSIPolicyPSIAvg60Threshold:               DefaultTMOPSIPolicyPSIAvg60Threshold,
 		DefaultTMORefaultPolicyReclaimAccuracyTarget:       DefaultTMORefaultPolicyReclaimAccuracyTarget,
 		DefaultTMORefaultPolicyReclaimScanEfficiencyTarget: DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
+		DefaultTMOSwapFreeThresholdRatio:                   DefaultTMOSwapFreeThresholdRatio,
 		DefaultTMOReservedInactiveFile:                     DefaultTMOReservedInactiveFile,
 	}
 }
 
 type TMOConfigDetail struct {
-	EnableTMO            bool
-	EnableSwap           bool
-	Interval             time.Duration
-	PolicyName           v1alpha1.TMOPolicyName
-	ReservedInactiveFile uint64
-	PSIPolicyConf        *PSIPolicyConf
-	RefaultPolicyConf    *RefaultPolicyConf
+	EnableTMO              bool
+	EnableSwap             bool
+	SwapFreeThresholdRatio float64
+	Interval               time.Duration
+	PolicyName             v1alpha1.TMOPolicyName
+	ReservedInactiveFile   uint64
+	PSIPolicyConf          *PSIPolicyConf
+	RefaultPolicyConf      *RefaultPolicyConf
 }
 
 func NewTMOConfigDetail(defaultConfigs *TMODefaultConfigurations) *TMOConfigDetail {
 	return &TMOConfigDetail{
-		EnableTMO:            defaultConfigs.DefaultEnableTMO,
-		EnableSwap:           defaultConfigs.DefaultEnableSwap,
-		Interval:             defaultConfigs.DefaultTMOInterval,
-		PolicyName:           defaultConfigs.DefaultTMOPolicyName,
-		ReservedInactiveFile: defaultConfigs.DefaultTMOReservedInactiveFile,
+		EnableTMO:              defaultConfigs.DefaultEnableTMO,
+		EnableSwap:             defaultConfigs.DefaultEnableSwap,
+		SwapFreeThresholdRatio: defaultConfigs.DefaultTMOSwapFreeThresholdRatio,
+		Interval:               defaultConfigs.DefaultTMOInterval,
+		PolicyName:             defaultConfigs.DefaultTMOPolicyName,
+		ReservedInactiveFile:   defaultConfigs.DefaultTMOReservedInactiveFile,
 		PSIPolicyConf: &PSIPolicyConf{
 			MaxProbe:          defaultConfigs.DefaultTMOMaxProbe,
 			PsiAvg60Threshold: defaultConfigs.DefaultTMOPSIPolicyPSIAvg60Threshold,
@@ -136,6 +141,9 @@ func ApplyTMOConfigDetail(tmoConfigDetail *TMOConfigDetail, tmoConfigDetailDynam
 	}
 	if tmoConfigDetailDynamic.EnableSwap != nil {
 		tmoConfigDetail.EnableSwap = *tmoConfigDetailDynamic.EnableSwap
+	}
+	if tmoConfigDetailDynamic.SwapFreeThresholdRatio != nil {
+		tmoConfigDetail.SwapFreeThresholdRatio = *tmoConfigDetailDynamic.SwapFreeThresholdRatio
 	}
 	if tmoConfigDetailDynamic.Interval != nil {
 		tmoConfigDetail.Interval = tmoConfigDetailDynamic.Interval.Duration

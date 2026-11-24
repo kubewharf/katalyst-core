@@ -34,6 +34,7 @@ type DefaultOptions struct {
 	DefaultTMOPSIPolicyPSIAvg60Threshold               float64
 	DefaultTMORefaultPolicyReclaimAccuracyTarget       float64
 	DefaultTMORefaultPolicyReclaimScanEfficiencyTarget float64
+	DefaultTMOSwapFreeThresholdRatio                   float64
 }
 
 func NewDefaultOptions() *DefaultOptions {
@@ -46,6 +47,7 @@ func NewDefaultOptions() *DefaultOptions {
 		DefaultTMOPSIPolicyPSIAvg60Threshold:               tmodynamicconf.DefaultTMOPSIPolicyPSIAvg60Threshold,
 		DefaultTMORefaultPolicyReclaimAccuracyTarget:       tmodynamicconf.DefaultTMORefaultPolicyReclaimAccuracyTarget,
 		DefaultTMORefaultPolicyReclaimScanEfficiencyTarget: tmodynamicconf.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
+		DefaultTMOSwapFreeThresholdRatio:                   tmodynamicconf.DefaultTMOSwapFreeThresholdRatio,
 	}
 }
 
@@ -68,6 +70,8 @@ func (o *DefaultOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"indicates the default desired level of precision or accuracy in offloaded pages")
 	fs.Float64Var(&o.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget, "default-refault-policy-reclaim-scan-efficiency-target", o.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget,
 		"indicates the default desired level of efficiency in scanning and identifying memory pages that can be offloaded.")
+	fs.Float64Var(&o.DefaultTMOSwapFreeThresholdRatio, "default-swap-free-threshold-ratio", o.DefaultTMOSwapFreeThresholdRatio,
+		"minimum free swap ratio required to continue TMO reclaim when swap is enabled")
 }
 
 func (o *DefaultOptions) ApplyTo(c *tmodynamicconf.TMODefaultConfigurations) error {
@@ -79,5 +83,6 @@ func (o *DefaultOptions) ApplyTo(c *tmodynamicconf.TMODefaultConfigurations) err
 	c.DefaultTMOPSIPolicyPSIAvg60Threshold = o.DefaultTMOPSIPolicyPSIAvg60Threshold
 	c.DefaultTMORefaultPolicyReclaimAccuracyTarget = o.DefaultTMORefaultPolicyReclaimAccuracyTarget
 	c.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget = o.DefaultTMORefaultPolicyReclaimScanEfficiencyTarget
+	c.DefaultTMOSwapFreeThresholdRatio = o.DefaultTMOSwapFreeThresholdRatio
 	return nil
 }

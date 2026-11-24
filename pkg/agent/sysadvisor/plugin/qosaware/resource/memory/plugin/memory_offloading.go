@@ -396,9 +396,47 @@ func (tmoEngine *tmoEngineInstance) GetCgpath() string {
 	return tmoEngine.cgpath
 }
 
+func (tmoEngine *tmoEngineInstance) shouldSkipSwapReclaim() (bool, error) {
+	if !tmoEngine.conf.EnableSwap {
+		return false, nil
+	}
+
+	if tmoEngine.metaServer == nil {
+		return false, errors.New("meta server is nil")
+	}
+
+	swapTotal, err := tmoEngine.metaServer.GetNodeMetric(consts.MetricMemSwapTotalSystem)
+	if err != nil {
+		return false, errors.Wrap(err, "get system swap total metric")
+	}
+
+	if swapTotal.Value <= 0 {
+		return false, nil
+	}
+
+	swapFree, err := tmoEngine.metaServer.GetNodeMetric(consts.MetricMemSwapFreeSystem)
+	if err != nil {
+		return false, errors.Wrap(err, "get system swap free metric")
+	}
+
+	if tmoEngine.conf.SwapFreeThresholdRatio < 0 || tmoEngine.conf.SwapFreeThresholdRatio > 1 {
+		return false, errors.Errorf("invalid swap free threshold ratio: %v", tmoEngine.conf.SwapFreeThresholdRatio)
+	}
+
+	swapFreeRatio := swapFree.Value / swapTotal.Value
+	if swapFreeRatio <= tmoEngine.conf.SwapFreeThresholdRatio {
+		general.InfoS("skip reclaim due to low swap free ratio", "swapFree", swapFree.Value,
+			"swapTotal", swapTotal.Value, "swapFreeRatio", swapFreeRatio, "threshold", tmoEngine.conf.SwapFreeThresholdRatio)
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func (tmoEngine *tmoEngineInstance) LoadConf(detail *tmo.TMOConfigDetail) {
 	tmoEngine.conf.EnableTMO = detail.EnableTMO
 	tmoEngine.conf.EnableSwap = detail.EnableSwap
+	tmoEngine.conf.SwapFreeThresholdRatio = detail.SwapFreeThresholdRatio
 	tmoEngine.conf.ReservedInactiveFile = detail.ReservedInactiveFile
 	tmoEngine.conf.Interval = detail.Interval
 	tmoEngine.conf.PolicyName = detail.PolicyName
@@ -433,6 +471,14 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 	// TODO: get result from qrm to make sure last offloading action finished
 	if fn, ok := tmoPolicyFuncs.Load(tmoEngine.conf.PolicyName); ok {
 		if policyFunc, ok := fn.(TmoPolicyFn); ok {
+			skipReclaim, err := tmoEngine.shouldSkipSwapReclaim()
+			if err != nil {
+				general.ErrorS(err, "Failed to check swap usage before reclaim")
+			} else if skipReclaim {
+				tmoEngine.offloadingTargetSize = 0
+				return
+			}
+
 			// If swap is not enabled and the cache size is close to the mapped file size,
 			// skip the reclaim process. This is a protective measure to avoid reclaiming
 			// potentially useful page cache when swap is disabled, as reclaiming might

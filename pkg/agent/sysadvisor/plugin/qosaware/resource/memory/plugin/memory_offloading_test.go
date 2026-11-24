@@ -31,7 +31,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	tmoconf "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	agentmetaserver "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	metric "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 var transparentMemoryOffloadingTestMutex sync.Mutex
@@ -243,6 +247,84 @@ func TestTmoEngineCalculateOffloadingTargetSize_SkipReservedInactiveFileClampWhe
 		memInactiveFile: 280,
 		cache:           1000,
 		mapped:          100,
+	}, nil).Build()
+
+	engine.CalculateOffloadingTargetSize()
+	assert.Equal(t, 128.0, engine.GetOffloadingTargetSize())
+}
+
+func TestTmoEngineCalculateOffloadingTargetSize_SkipWhenSwapFreeLow(t *testing.T) {
+	t.Parallel()
+	transparentMemoryOffloadingTestMutex.Lock()
+	defer transparentMemoryOffloadingTestMutex.Unlock()
+	defer mockey.UnPatchAll()
+
+	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
+	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
+	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
+		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		})
+
+	now := time.Now()
+	fetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+	fetcher.SetNodeMetric(consts.MetricMemSwapTotalSystem, utilmetric.MetricData{Value: 1000, Time: &now})
+	fetcher.SetNodeMetric(consts.MetricMemSwapFreeSystem, utilmetric.MetricData{Value: 100, Time: &now})
+
+	engine := &tmoEngineInstance{
+		metaServer: &metaserver.MetaServer{MetaAgent: &agentmetaserver.MetaAgent{MetricsFetcher: fetcher}},
+		conf: &tmoconf.TMOConfigDetail{
+			EnableTMO:              true,
+			EnableSwap:             true,
+			SwapFreeThresholdRatio: 0.1,
+			Interval:               0,
+			PolicyName:             v1alpha1.TMOPolicyNamePSI,
+		},
+		lastTime: time.Now().Add(-time.Second),
+	}
+
+	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
+		cache:  1000,
+		mapped: 100,
+	}, nil).Build()
+
+	engine.CalculateOffloadingTargetSize()
+	assert.Equal(t, 0.0, engine.GetOffloadingTargetSize())
+}
+
+func TestTmoEngineCalculateOffloadingTargetSize_DoNotSkipWhenSwapFreeEnough(t *testing.T) {
+	t.Parallel()
+	transparentMemoryOffloadingTestMutex.Lock()
+	defer transparentMemoryOffloadingTestMutex.Unlock()
+	defer mockey.UnPatchAll()
+
+	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
+	defer RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI, psiPolicyFunc)
+	RegisterTMOPolicyFunc(v1alpha1.TMOPolicyNamePSI,
+		func(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMOConfigDetail, emitter metrics.MetricEmitter) (error, float64) {
+			return nil, 128
+		})
+
+	now := time.Now()
+	fetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}).(*metric.FakeMetricsFetcher)
+	fetcher.SetNodeMetric(consts.MetricMemSwapTotalSystem, utilmetric.MetricData{Value: 1000, Time: &now})
+	fetcher.SetNodeMetric(consts.MetricMemSwapFreeSystem, utilmetric.MetricData{Value: 200, Time: &now})
+
+	engine := &tmoEngineInstance{
+		metaServer: &metaserver.MetaServer{MetaAgent: &agentmetaserver.MetaAgent{MetricsFetcher: fetcher}},
+		conf: &tmoconf.TMOConfigDetail{
+			EnableTMO:              true,
+			EnableSwap:             true,
+			SwapFreeThresholdRatio: 0.1,
+			Interval:               0,
+			PolicyName:             v1alpha1.TMOPolicyNamePSI,
+		},
+		lastTime: time.Now().Add(-time.Second),
+	}
+
+	mockey.Mock((*tmoEngineInstance).getStats).IncludeCurrentGoRoutine().Return(TmoStats{
+		cache:  1000,
+		mapped: 100,
 	}, nil).Build()
 
 	engine.CalculateOffloadingTargetSize()
