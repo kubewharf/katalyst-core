@@ -32,5 +32,5 @@ spec:
     evictionPluginsConfig:
       reclaimedResourcesEvictionPluginConfig:
         evictionThreshold:
-          "katalyst.kubewharf.io/reclaimed_millicpu": 10
-          "katalyst.kubewharf.io/reclaimed_memory": 10
+          "resource.katalyst.kubewharf.io/reclaimed_millicpu": 10
+          "resource.katalyst.kubewharf.io/reclaimed_memory": 10
