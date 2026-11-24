@@ -463,7 +463,10 @@ func (c TopologyCoordinator) convergeNormal(ctx context.Context, in CoordinatorI
 	}
 	protectedPending := pendingProtectionUnion(in.PendingProtections)
 	allowEmptyTarget := in.Cgroup.Version(ctx) == cgroupclient.CgroupVersionV2
-	effectiveTargets, err := computeEffectiveTargets(in.DAG, allowEmptyTarget, in.CPUDetails, pendingRequiredByRel, in.RequiredCPUSetByRel, in.ProtectedCPUSetByRel)
+	effectiveTargets, adjustedRequiredByRel, err := computeEffectiveTargets(
+		in.DAG, allowEmptyTarget, in.CPUDetails,
+		pendingRequiredByRel, in.RequiredCPUSetByRel, in.ProtectedCPUSetByRel,
+	)
 	if err != nil {
 		return *res, err
 	}
@@ -473,7 +476,11 @@ func (c TopologyCoordinator) convergeNormal(ctx context.Context, in CoordinatorI
 	}
 	defer snapshotDriver.Close()
 
-	round, initialSnapshot, err := c.buildNormalRoundState(ctx, in, budget, snapshotDriver, pendingRequiredByRel, protectedPending, allowEmptyTarget, effectiveTargets)
+	round, initialSnapshot, err := c.buildNormalRoundState(
+		ctx, in, budget, snapshotDriver,
+		pendingRequiredByRel, protectedPending, allowEmptyTarget,
+		effectiveTargets, adjustedRequiredByRel,
+	)
 	if err != nil {
 		return *res, err
 	}
@@ -566,12 +573,13 @@ func (c TopologyCoordinator) buildNormalRoundState(
 	protectedPending machine.CPUSet,
 	allowEmptyTarget bool,
 	effectiveTargets map[string]machine.CPUSet,
+	adjustedRequiredByRel map[string]machine.CPUSet,
 ) (*coordinatorRound, *CompleteSnapshot, error) {
 	round := newCoordinatorRoundWithBudget(in.DAG, in.Cgroup, in.CPUDetails, in.ReservedCPUSet, in.DrainSelection, budget)
 	round.adjustmentBudget = in.AdjustmentBudget
 	round.semanticTargetByRel = model.CloneCPUSetMap(effectiveTargets)
 	round.dynamicByRel = model.CloneCPUSetMap(in.ExpectedCPUSetByRel)
-	round.requiredByRel = model.CloneCPUSetMap(in.RequiredCPUSetByRel)
+	round.requiredByRel = model.CloneCPUSetMap(adjustedRequiredByRel)
 	round.objective = in.Objective.orFullDefault()
 	round.deferredByRel = model.CloneCPUSetMap(in.DeferredCPUSetByRel)
 	round.admissionBudget = in.AdmissionBudget

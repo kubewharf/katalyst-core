@@ -135,7 +135,7 @@ func TestSnapshotCollectsActivityForBucketThatBecomesEmptyAfterNormalization(t *
 		t.Fatalf("bucket activity = %+v, want proof collected before effective-target normalization", got)
 	}
 
-	effective, err := computeEffectiveTargets(
+	effective, _, err := computeEffectiveTargets(
 		dag, false,
 		machine.CPUDetails{0: {NUMANodeID: 0}, 1: {NUMANodeID: 1}},
 		nil, nil,

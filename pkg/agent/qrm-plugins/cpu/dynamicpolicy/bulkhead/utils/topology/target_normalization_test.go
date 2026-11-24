@@ -40,7 +40,7 @@ func TestComputeEffectiveTargetsCoversPrimaryOwnRequiredFloor(t *testing.T) {
 		"kubepods/seed": machine.NewCPUSet(0, 1, 2, 3),
 	}
 
-	effective, err := computeEffectiveTargets(dag, false, nil, nil, requiredByRel)
+	effective, _, err := computeEffectiveTargets(dag, false, nil, nil, requiredByRel)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestComputeEffectiveTargetsV2EmptyPrimaryUnchanged(t *testing.T) {
 		"kubepods/empty": machine.NewCPUSet(0, 1),
 	}
 
-	effective, err := computeEffectiveTargets(dag, true, nil, nil, requiredByRel)
+	effective, _, err := computeEffectiveTargets(dag, true, nil, nil, requiredByRel)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestComputeEffectiveTargetsReclaimRequiredFloorUnchanged(t *testing.T) {
 		"reclaim": machine.NewCPUSet(2, 3, 4, 5),
 	}
 
-	effective, err := computeEffectiveTargets(dag, false, nil, nil, requiredByRel)
+	effective, _, err := computeEffectiveTargets(dag, false, nil, nil, requiredByRel)
 	if err != nil {
 		t.Fatalf("computeEffectiveTargets: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestEffectiveTargetsScopePendingProtection(t *testing.T) {
 				t.Fatalf("pendingRequiredCPUSetByRel: %v", err)
 			}
 
-			effective, err := computeEffectiveTargets(dag, false, nil, required, nil, nil)
+			effective, _, err := computeEffectiveTargets(dag, false, nil, required, nil, nil)
 			if err != nil {
 				t.Fatalf("computeEffectiveTargets: %v", err)
 			}

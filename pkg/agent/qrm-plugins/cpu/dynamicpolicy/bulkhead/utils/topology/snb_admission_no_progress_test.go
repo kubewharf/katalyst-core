@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -88,6 +89,7 @@ func TestSNBSeedAdmissionReclaimsPendingCPUNoProgressRegression(t *testing.T) {
 
 	specs := snbAdmissionNodeSpecs()
 	requiredByRel := RequiredCPUSetByRelFromNodeSpecs(specs)
+	originalRequiredByRel := model.CloneCPUSetMap(requiredByRel)
 
 	dag, err := BuildDAG(specs)
 	require.NoError(t, err)
@@ -98,8 +100,12 @@ func TestSNBSeedAdmissionReclaimsPendingCPUNoProgressRegression(t *testing.T) {
 		"kubepods": machine.MustParse("1"),
 	}
 
-	effective, err := computeEffectiveTargets(dag, false, snbAdmissionCPUDetails(), pendingRequiredByRel, requiredByRel)
+	effective, adjustedRequiredByRel, err := computeEffectiveTargets(
+		dag, false, snbAdmissionCPUDetails(), pendingRequiredByRel, requiredByRel,
+	)
 	require.NoError(t, err)
+	require.Equal(t, originalRequiredByRel, requiredByRel,
+		"effective target calculation must not mutate caller-owned required floors")
 
 	// Primary absorbs the pending CPU; the bucket sheds it.
 	require.Equal(t, machine.MustParse("0-1"), effective["kubepods"],
@@ -112,7 +118,7 @@ func TestSNBSeedAdmissionReclaimsPendingCPUNoProgressRegression(t *testing.T) {
 	// The production-real green invariant: the reconciled bucket required floor
 	// must never demand a CPU the effective target has shed. ParentSafety owes
 	// the bucket floor minus the (already enforced) effective target.
-	bucketFloor := requiredByRel["reclaimed/reclaimed-0"]
+	bucketFloor := adjustedRequiredByRel["reclaimed/reclaimed-0"]
 	require.True(t, bucketFloor.IsSubsetOf(effective["reclaimed/reclaimed-0"]),
 		"reclaim bucket required floor must be a subset of its effective target; "+
 			"floor=%s effective=%s otherwise ParentSafety owes the pending CPU back and stalls",
@@ -208,7 +214,9 @@ func TestSNBMultiNUMAContainmentAndAllowedBound(t *testing.T) {
 	// Pending admission folds NUMA0 CPU 1 onto the primary.
 	pendingRequiredByRel := map[string]machine.CPUSet{"kubepods": machine.MustParse("1")}
 
-	effective, err := computeEffectiveTargets(dag, false, cpuDetails, pendingRequiredByRel, requiredByRel)
+	effective, adjustedRequiredByRel, err := computeEffectiveTargets(
+		dag, false, cpuDetails, pendingRequiredByRel, requiredByRel,
+	)
 	require.NoError(t, err)
 
 	b0 := effective["reclaimed/reclaimed-0"]
@@ -232,12 +240,12 @@ func TestSNBMultiNUMAContainmentAndAllowedBound(t *testing.T) {
 
 	// Reconciled floors respect the same containment: floors are subsets of the
 	// retained effective targets and stay inside the NUMA bounds.
-	require.True(t, requiredByRel["reclaimed/reclaimed-0"].IsSubsetOf(b0),
+	require.True(t, adjustedRequiredByRel["reclaimed/reclaimed-0"].IsSubsetOf(b0),
 		"reconciled NUMA0 floor must be a subset of the retained target")
-	require.True(t, requiredByRel["reclaimed/reclaimed-1"].IsSubsetOf(b1),
+	require.True(t, adjustedRequiredByRel["reclaimed/reclaimed-1"].IsSubsetOf(b1),
 		"reconciled NUMA1 floor must be a subset of the retained target")
-	require.True(t, requiredByRel["reclaimed/reclaimed-0"].IsSubsetOf(machine.MustParse("0-3")))
-	require.True(t, requiredByRel["reclaimed/reclaimed-1"].IsSubsetOf(machine.MustParse("4-7")))
+	require.True(t, adjustedRequiredByRel["reclaimed/reclaimed-0"].IsSubsetOf(machine.MustParse("0-3")))
+	require.True(t, adjustedRequiredByRel["reclaimed/reclaimed-1"].IsSubsetOf(machine.MustParse("4-7")))
 }
 
 func BenchmarkAdjustedReclaimProjection(b *testing.B) {
@@ -345,7 +353,7 @@ func TestSNBSharedRampUpReclaimAdditionDeferredConverges(t *testing.T) {
 
 	dag, err := BuildDAG(fixture.specs)
 	require.NoError(t, err)
-	eff, err := computeEffectiveTargets(dag, false, fixture.cpuDetails, pend, fixture.requiredByRel)
+	eff, _, err := computeEffectiveTargets(dag, false, fixture.cpuDetails, pend, fixture.requiredByRel)
 	require.NoError(t, err)
 	for i := range fixture.specs {
 		fixture.specs[i].CPUs = eff[fixture.specs[i].Rel].Clone()

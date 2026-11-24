@@ -73,7 +73,7 @@ func TestDormantOverlayNoFabricatedReclaimToPrimaryEdge(t *testing.T) {
 		4: {NUMANodeID: 2}, 5: {NUMANodeID: 2},
 		6: {NUMANodeID: 3}, 7: {NUMANodeID: 3},
 	}
-	semantic, err := computeEffectiveTargets(dag, false, cpuDetails, nil, nil, nil)
+	semantic, _, err := computeEffectiveTargets(dag, false, cpuDetails, nil, nil, nil)
 	require.NoError(t, err)
 
 	budget := NewBudgetTracker(ConvergenceBudget{})
