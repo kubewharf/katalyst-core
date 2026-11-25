@@ -295,22 +295,31 @@ func (p *BasePlugin) GenerateResourceStateFromPodEntries(
 	resourceName string,
 	podEntries state.PodEntries,
 ) (state.AllocationMap, error) {
-	if podEntries == nil {
-		podEntries = p.state.GetPodEntries(v1.ResourceName(resourceName))
-	}
-
 	generator, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(resourceName)
-	if !ok {
+	if !ok || generator == nil {
 		return nil, fmt.Errorf("could not find generator for resource %s", resourceName)
 	}
 
-	return state.GenerateResourceStateFromPodEntries(podEntries, generator)
+	name := v1.ResourceName(resourceName)
+	var previous state.AllocationMap
+	if stateImpl := p.GetState(); stateImpl != nil {
+		if podEntries == nil {
+			podEntries = stateImpl.GetPodEntries(name)
+		}
+		// Copy device capacities only; owners come from podEntries.
+		previous = stateImpl.GetResourceCapacityState(name)
+	} else if podEntries == nil {
+		return nil, fmt.Errorf("state is not initialized")
+	}
+	return state.GenerateResourceStateFromPodEntries(podEntries, generator, previous)
 }
 
 func (p *BasePlugin) GenerateMachineStateFromPodEntries(
 	podResourceEntries state.PodResourceEntries,
 ) (state.AllocationResourcesMap, error) {
-	return state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DefaultResourceStateGeneratorRegistry)
+	return state.GenerateMachineStateFromPodEntries(
+		podResourceEntries, p.DefaultResourceStateGeneratorRegistry, p.GetState().GetMachineState(),
+	)
 }
 
 // RegisterDeviceNames is used to map device name to device type, and map

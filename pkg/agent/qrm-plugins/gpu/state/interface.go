@@ -23,6 +23,9 @@ import (
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() AllocationResourcesMap
+	// GetResourceCapacityState copies device capacities for one resource, without pod entries.
+	// The snapshot is for rebuilding only, not replacing full state.
+	GetResourceCapacityState(resourceName v1.ResourceName) AllocationMap
 	GetPodResourceEntries() PodResourceEntries
 	GetPodEntries(resourceName v1.ResourceName) PodEntries
 	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo

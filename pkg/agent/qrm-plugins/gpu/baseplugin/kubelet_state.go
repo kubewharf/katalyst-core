@@ -240,7 +240,13 @@ func (p *BasePlugin) rebuildAndStoreGPUState(
 	podResourceEntries state.PodResourceEntries,
 	podEntries state.PodEntries,
 ) error {
-	rebuiltState, err := p.GenerateResourceStateFromPodEntries(gpuconsts.GPUDeviceType, podEntries)
+	generator, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(gpuconsts.GPUDeviceType)
+	if !ok || generator == nil {
+		return fmt.Errorf("could not find GPU device generator")
+	}
+	rebuiltState, err := state.GenerateResourceStateFromPodEntries(
+		podEntries, generator, stateImpl.GetMachineState()[gpuconsts.GPUDeviceType],
+	)
 	if err != nil {
 		return fmt.Errorf("rebuild GPU state after kubelet hydration failed: %w", err)
 	}

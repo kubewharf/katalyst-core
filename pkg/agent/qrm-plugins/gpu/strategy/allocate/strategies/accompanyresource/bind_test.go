@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -623,9 +625,15 @@ func TestBind(t *testing.T) {
 						},
 					}
 				}(),
-				DeviceTopologyRegistry: buildNoAffinityRegistry(),
-				DeviceReq:              &v1alpha1.DeviceRequest{},
-				GPUQRMPluginConfig:     &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
+				DeviceTopologyRegistry: func() *machine.DeviceTopologyRegistry {
+					registry := buildNoAffinityRegistry()
+					topology, _ := registry.GetDeviceTopology("rdma")
+					delete(topology.Devices, "r1") // This case has one current RDMA device.
+					_ = registry.SetDeviceTopology("rdma", topology)
+					return registry
+				}(),
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
@@ -899,6 +907,66 @@ func buildNoAffinityRegistry() *machine.DeviceTopologyRegistry {
 	_ = reg.SetDeviceTopology("gpu", gpuTopo)
 
 	return reg
+}
+
+func TestBindRetainedDevicesDoNotChangeInventoryRatio(t *testing.T) {
+	t.Parallel()
+	for _, retainedResource := range []string{gpuconsts.GPUDeviceType, gpuconsts.RDMADeviceType} {
+		retainedResource := retainedResource
+		t.Run(retainedResource, func(t *testing.T) {
+			t.Parallel()
+			registry := buildNumaAffinityRegistry(
+				map[string][]int{"r0": {0}, "r1": {1}, "r2": {2}, "r3": {3}},
+				map[string][]int{"g0": {0}, "g1": {1}, "g2": {2}, "g3": {3}},
+			)
+			machineState := state.AllocationResourcesMap{
+				gpuconsts.GPUDeviceType:  {"g0": {}, "g1": {}, "g2": {}, "g3": {}},
+				gpuconsts.RDMADeviceType: {"r0": preallocState("new-pod", "c"), "r1": {}, "r2": {}, "r3": {}},
+			}
+			ctx := &allocate.AllocationContext{
+				AccompanyResourceName: "rdma", ResourceName: "gpu",
+				ResourceReq:  &v1alpha1.ResourceRequest{PodUid: "new-pod", ContainerName: "c"},
+				DeviceReq:    &v1alpha1.DeviceRequest{},
+				MachineState: machineState, DeviceTopologyRegistry: registry,
+				DeviceNameToTypeMap: map[string]string{"gpu": gpuconsts.GPUDeviceType, "rdma": gpuconsts.RDMADeviceType},
+				Emitter:             metrics.DummyMetrics{},
+			}
+			strategy := &AccompanyResourceStrategy{}
+			baseline, err := strategy.Bind(ctx, []string{"g0", "g1", "g2", "g3"})
+			require.NoError(t, err)
+			require.True(t, baseline.Success)
+			require.ElementsMatch(t, []string{"g0"}, baseline.AllocatedDevices)
+
+			// Reconcile a real dropped allocation. It must remain in state for its
+			// old owner, but must not change the ratio used to admit a different pod.
+			rawName := "gpu"
+			if retainedResource == gpuconsts.RDMADeviceType {
+				rawName = "rdma"
+			}
+			previous := machineState[v1.ResourceName(retainedResource)].Clone()
+			previous["lost"] = &state.AllocationState{Allocatable: 1}
+			entries := state.PodEntries{"old-pod": {"c": {
+				TopologyAwareAllocations: map[string]state.Allocation{"lost": {Quantity: 1}},
+			}}}
+			if retainedResource == gpuconsts.RDMADeviceType {
+				entries["new-pod"] = state.ContainerEntries{"c": {
+					TopologyAwareAllocations: map[string]state.Allocation{"r0": {Quantity: 1}},
+				}}
+			}
+			generator := state.NewGenericDefaultResourceStateGenerator([]string{rawName}, registry, 1, true)
+			machineState[v1.ResourceName(retainedResource)], err = state.GenerateResourceStateFromPodEntries(entries, generator, previous)
+			require.NoError(t, err)
+			require.Len(t, machineState[v1.ResourceName(retainedResource)], 5)
+			require.Equal(t, float64(1), machineState[v1.ResourceName(retainedResource)]["lost"].Allocatable)
+			require.Equal(t, float64(1), machineState[v1.ResourceName(retainedResource)]["lost"].GetQuantityAllocated())
+
+			withRetained, err := strategy.Bind(ctx, []string{"g0", "g1", "g2", "g3"})
+			require.NoError(t, err)
+			require.True(t, withRetained.Success)
+			require.ElementsMatch(t, baseline.AllocatedDevices, withRetained.AllocatedDevices)
+			require.Contains(t, machineState[v1.ResourceName(retainedResource)], "lost")
+		})
+	}
 }
 
 // buildNumaAffinityRegistry builds a registry where RDMA and GPU devices have affinity based on NUMA nodes
