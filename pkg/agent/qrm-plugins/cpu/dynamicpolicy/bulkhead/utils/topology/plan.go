@@ -131,10 +131,11 @@ type PlanOperation struct {
 }
 
 type AdmissionSafetyInput struct {
-	PendingCPUSet        machine.CPUSet
-	PendingRequiredByRel map[string]machine.CPUSet
-	DeferredCPUSetByRel  map[string]machine.CPUSet
-	RequiredCPUSetByRel  map[string]machine.CPUSet
+	PendingCPUSet              machine.CPUSet
+	PendingRequiredByRel       map[string]machine.CPUSet
+	DeferredCPUSetByRel        map[string]machine.CPUSet
+	AdmissionSourceCPUSetByRel map[string]machine.CPUSet
+	RequiredCPUSetByRel        map[string]machine.CPUSet
 }
 
 // parentContainmentCPUs returns the observed cpuset of an operation's primary
@@ -210,7 +211,24 @@ func SplitPlanForAdmission(plan *PhasePlan, in AdmissionSafetyInput) (required, 
 				sourceOwnedPendingDrain = !removedPending.Intersection(owned).IsEmpty()
 			}
 		}
+		exactTarget, requiredSource := in.AdmissionSourceCPUSetByRel[operation.Rel]
+		if !requiredSource && !explicitlyDeferred {
+			for parent := operation.ParentRel; parent != "" && parent != "."; parent = filepath.Dir(parent) {
+				if cpus, ok := in.AdmissionSourceCPUSetByRel[parent]; ok {
+					exactTarget, requiredSource = cpus, true
+					break
+				}
+			}
+		}
+		dependencyRelease := machine.NewCPUSet()
+		if plan.Base != nil && requiredSource && !explicitlyDeferred {
+			dependencyRelease = plan.Base.Entries[operation.Rel].CPUs.Difference(exactTarget)
+		}
 		switch {
+		case !dependencyRelease.IsEmpty():
+			// Exact source/ancestor targets also depend on releasing CPUs not
+			// requested by pending. Include their non-empty relocation growth.
+			classes[i] = operationClass{required: true, requirement: OperationAdmissionSafetyRepair}
 		case operation.Direction == WriteShrink &&
 			sourceOwnedPendingDrain:
 			classes[i] = operationClass{required: true, requirement: OperationAdmissionSourceDrain}
@@ -1223,10 +1241,10 @@ func finalCPUSetForRel(
 	dynamicByRel map[string]machine.CPUSet,
 	desiredByRel map[string]machine.CPUSet,
 ) machine.CPUSet {
-	if explicit, ok := dynamicByRel[rel]; ok {
-		return explicit
-	}
 	for current := rel; current != ""; current = parentByRel[current] {
+		if explicit, ok := dynamicByRel[current]; ok {
+			return explicit
+		}
 		if node := dag.index[current]; node != nil {
 			return desiredByRel[node.Rel]
 		}

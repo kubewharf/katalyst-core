@@ -935,10 +935,11 @@ func (r *coordinatorRound) applyDrainPhases(
 		}
 		if r.objective == ConvergenceObjectiveParentSafe {
 			required, _, splitErr := SplitPlanForAdmission(&plan, AdmissionSafetyInput{
-				PendingCPUSet:        r.admissionSafetyCPUSet(),
-				PendingRequiredByRel: r.pendingRequiredByRel,
-				DeferredCPUSetByRel:  r.deferredByRel,
-				RequiredCPUSetByRel:  r.requiredByRel,
+				PendingCPUSet:              r.admissionSafetyCPUSet(),
+				PendingRequiredByRel:       r.pendingRequiredByRel,
+				DeferredCPUSetByRel:        r.deferredByRel,
+				AdmissionSourceCPUSetByRel: r.admissionSourceByRel,
+				RequiredCPUSetByRel:        r.requiredByRel,
 			})
 			if splitErr != nil {
 				return fresh, released, journal, splitErr
@@ -954,6 +955,7 @@ func (r *coordinatorRound) cloneForProjection() *coordinatorRound {
 	out.targetByRel = model.CloneCPUSetMap(r.targetByRel)
 	out.dynamicByRel = model.CloneCPUSetMap(r.dynamicByRel)
 	out.deferredByRel = model.CloneCPUSetMap(r.deferredByRel)
+	out.admissionSourceByRel = model.CloneCPUSetMap(r.admissionSourceByRel)
 	out.requiredByRel = model.CloneCPUSetMap(r.requiredByRel)
 	out.pendingRequiredByRel = model.CloneCPUSetMap(r.pendingRequiredByRel)
 	out.protectedPending = r.protectedPending.Clone()

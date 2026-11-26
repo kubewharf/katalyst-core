@@ -318,7 +318,10 @@ type CoordinatorInput struct {
 	ExpectedAbsentRels  map[string]struct{}
 	Objective           ConvergenceObjective
 	DeferredCPUSetByRel map[string]machine.CPUSet
-	AdmissionBudget     *AdmissionConvergenceBudget
+	// AdmissionSourceCPUSetByRel names exact, owner-validated transfer sources.
+	// Unlike RequiredCPUSetByRel these are release targets, not lower bounds.
+	AdmissionSourceCPUSetByRel map[string]machine.CPUSet
+	AdmissionBudget            *AdmissionConvergenceBudget
 
 	Budget ConvergenceBudget
 	// AdjustmentBudget is shared by every coordinator invocation belonging to
@@ -583,6 +586,7 @@ func (c TopologyCoordinator) buildNormalRoundState(
 	round.requiredByRel = model.CloneCPUSetMap(adjustedRequiredByRel)
 	round.objective = in.Objective.orFullDefault()
 	round.deferredByRel = model.CloneCPUSetMap(in.DeferredCPUSetByRel)
+	round.admissionSourceByRel = model.CloneCPUSetMap(in.AdmissionSourceCPUSetByRel)
 	round.admissionBudget = in.AdmissionBudget
 	round.allowEmptyTarget = allowEmptyTarget
 	round.protectedPending = protectedPending
@@ -1167,6 +1171,7 @@ type coordinatorRound struct {
 	dormantProofs          map[string]DormantLeafProof
 	dynamicByRel           map[string]machine.CPUSet
 	deferredByRel          map[string]machine.CPUSet
+	admissionSourceByRel   map[string]machine.CPUSet
 	requiredByRel          map[string]machine.CPUSet
 	deferredCleanupRels    map[string]struct{}
 	objective              ConvergenceObjective
@@ -1686,10 +1691,11 @@ func (r *coordinatorRound) buildPlan(ctx context.Context, kind PhaseKind, snapsh
 		// reads the same projection. A new round re-clones from the frozen input,
 		// so the adjustment never leaks across rounds.
 		required, deferred, splitErr := SplitPlanForAdmission(&plan, AdmissionSafetyInput{
-			PendingCPUSet:        r.admissionSafetyCPUSet(),
-			PendingRequiredByRel: r.pendingRequiredByRel,
-			DeferredCPUSetByRel:  r.deferredByRel,
-			RequiredCPUSetByRel:  requiredByRel,
+			PendingCPUSet:              r.admissionSafetyCPUSet(),
+			PendingRequiredByRel:       r.pendingRequiredByRel,
+			DeferredCPUSetByRel:        r.deferredByRel,
+			AdmissionSourceCPUSetByRel: r.admissionSourceByRel,
+			RequiredCPUSetByRel:        requiredByRel,
 		})
 		if splitErr != nil {
 			return PhasePlan{}, splitErr
