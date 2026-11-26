@@ -2890,6 +2890,39 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionRoundsMixedSMTSupplement
 //   - Core 0: {0, 8}, Core 1: {1, 9}, Core 2: {2, 10}, Core 3: {3, 11}.
 //
 // - NUMA 1: CPUs {4, 5, 6, 7} (Logic Cores) and {12, 13, 14, 15} (Siblings).
+func TestNUMABindingPlacementRetainsLegalHistory(t *testing.T) {
+	topology := mustGenerateDummyCPUTopology(16, 2, 2)
+	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+	p.config.reservedCPUs = machine.NewCPUSet()
+	dyn := p.config.dynamicConfig.GetDynamicConfiguration()
+	dyn.EnableReclaim = true
+	require.NoError(t, p.state.SetAllowSharedCoresOverlapReclaimedCores(false, false))
+	for _, pool := range []string{"binding", "package/binding"} {
+		for _, unavailable := range []machine.CPUSet{machine.NewCPUSet(), machine.NewCPUSet(2, 10)} {
+			history := machine.NewCPUSet(2, 10)
+			entries := state.PodEntries{pool: {commonstate.FakedContainerName: &state.AllocationInfo{
+				AllocationMeta: commonstate.GenerateGenericPoolAllocationMeta(pool), AllocationResult: history.Clone(),
+			}}}
+			require.NoError(t, p.state.SetPodEntries(entries, false))
+			quantities := map[string]map[int]int{pool: {0: 2}}
+			pinned := map[string]machine.CPUSet{}
+			if strings.HasPrefix(pool, "package/") {
+				pinned["package"] = topology.CPUDetails.CPUsInNUMANodes(0)
+			}
+			available := topology.CPUDetails.CPUs().Difference(unavailable)
+			pools, _, err := p.groupAndAllocatePoolsWithPlacement(quantities, nil, available, pinned, nil, dyn, entries, nil)
+			require.NoError(t, err)
+			require.Equal(t, 2, pools[pool].Size())
+			require.True(t, pools[pool].IsSubsetOf(available.Intersection(topology.CPUDetails.CPUsInNUMANodes(0))))
+			if unavailable.IsEmpty() {
+				require.True(t, history.Equals(pools[pool]), "legal history must not relocate: %s", pool)
+			}
+			require.True(t, history.Equals(entries[pool][commonstate.FakedContainerName].AllocationResult))
+		}
+	}
+}
+
 func TestDynamicPolicy_generateNUMABindingPoolsCPUSetInPlace(t *testing.T) {
 	t.Parallel()
 
@@ -2989,7 +3022,7 @@ func TestDynamicPolicy_generateNUMABindingPoolsCPUSetInPlace(t *testing.T) {
 
 			p.config.dynamicConfig.GetDynamicConfiguration().EnableReclaim = tt.enableReclaim
 
-			gotLeft, err := p.generateNUMABindingPoolsCPUSetInPlace(tt.args.poolsCPUSet, tt.args.poolsQuantityMap, tt.args.availableCPUs, p.config.dynamicConfig.GetDynamicConfiguration())
+			gotLeft, err := p.generateNUMABindingPoolsCPUSetInPlace(tt.args.poolsCPUSet, tt.args.poolsQuantityMap, tt.args.availableCPUs, p.config.dynamicConfig.GetDynamicConfiguration(), nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateNUMABindingPoolsCPUSetInPlace() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -8146,8 +8179,13 @@ func TestAdjustPoolsAndIsolatedEntriesWithRampUpFloorBackfillsDefaultShareResidu
 
 	share, err := p.state.GetPodEntries().GetCPUSetForPool(commonstate.PoolNameShare)
 	require.NoError(t, err)
-	require.True(t, share.Equals(machine.NewCPUSet(3, 4, 5)),
-		"share=%s want=3-5", share)
+	// The residual follows the actual stable placement, not a fresh selection.
+	snb, err := p.state.GetPodEntries().GetCPUSetForPool("snbpool")
+	require.NoError(t, err)
+	require.True(t, snb.Equals(machine.NewCPUSet(4)), "snb=%s must retain legal history", snb)
+	want := machine.NewCPUSet(2, 3, 4, 5).Difference(snb)
+	require.True(t, share.Equals(want), "share=%s want=%s", share, want)
+	require.True(t, share.Intersection(snb).IsEmpty(), "share must exclude the actual SNB pool")
 	require.False(t, share.Contains(1), "default share must exclude system cpu 1")
 }
 

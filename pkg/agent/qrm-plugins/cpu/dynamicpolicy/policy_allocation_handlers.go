@@ -1029,8 +1029,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	}
 	planningPolicy := p.newRampUpPlanningPolicy(planningState)
 	planningRevision := planningState.GetRevision()
-	err = planningPolicy.adjustAllocationEntriesWithRampUpFloorAtRevision(
-		basePodEntries, updatedMachineState, false, hardReclaimCPUs, false, planningRevision)
+	err = planningPolicy.adjustAllocationEntriesWithOptions(ctx, basePodEntries, updatedMachineState, false,
+		adjustAllocationOptions{expectedRevision: planningRevision, explicitRampUpFloor: hardReclaimCPUs, dynamicConfig: dynamicConf})
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s putContainersAndAdjustAllocationEntriesWithoutAllocation failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -1431,7 +1431,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUsWithSnapshot(numCPUs int, hint *p
 				eligibilityNUMAs = append(eligibilityNUMAs, uint64(numaID))
 			}
 		}
-		dedicatedEligiblePerNUMA, reclaimEligiblePerNUMA, err = p.numaBindingPartitionEligibility(machineState, pkgName, eligibilityNUMAs)
+		dedicatedEligiblePerNUMA, reclaimEligiblePerNUMA, err = p.numaBindingPartitionEligibility(machineState, pkgName, eligibilityNUMAs, dynamicConf)
 		if err != nil {
 			return machine.NewCPUSet(), machine.NewCPUSet(), nil, err
 		}
@@ -2108,6 +2108,7 @@ type adjustAllocationOptions struct {
 	explicitRampUpFloor machine.CPUSet
 	runCPUSetHandlers   bool
 	defaultShareMode    defaultShareMaterializationMode
+	dynamicConfig       *dynamicconfig.Configuration
 }
 
 func (p *DynamicPolicy) adjustAllocationEntries(
@@ -2283,7 +2284,10 @@ func (p *DynamicPolicy) adjustAllocationEntriesWithOptions(
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
-	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+	dynamicConf := opts.dynamicConfig
+	if dynamicConf == nil {
+		dynamicConf = p.config.dynamicConfig.GetDynamicConfiguration()
+	}
 
 	// Remove orphan non-resident pools from this adjustment's candidate before
 	// deriving pool quantities and materializing the default-share residual.
@@ -2655,9 +2659,11 @@ func (p *DynamicPolicy) groupAndAllocatePoolsWithPlacement(
 				}
 			}
 		}
+		placement := buildPoolPlacementSnapshot(entries, numaResourcePackagePinnedCPUSet,
+			packagePools, nil, packageAvailable, false)
 		if len(bindingPools) > 0 {
 			left, err := p.generateNUMABindingPoolsCPUSetInPlace(
-				poolsCPUSet, bindingPools, packageAvailable, dynamicConf)
+				poolsCPUSet, bindingPools, packageAvailable, dynamicConf, placement)
 			if err != nil {
 				return nil, nil, fmt.Errorf("allocate resource-package %q NUMA pools failed with error: %v", pkgName, err)
 			}
@@ -2669,8 +2675,9 @@ func (p *DynamicPolicy) groupAndAllocatePoolsWithPlacement(
 			if dynamicConf != nil && dynamicConf.EnableReclaim &&
 				!p.state.GetAllowSharedCoresOverlapReclaimedCores() &&
 				totalQuantity <= packageAvailable.Size() {
-				_, err = p.takeCPUsForPoolsInPlace(
-					nonBindingQuantities, poolsCPUSet, packageAvailable)
+				_, err = p.takeCPUsForPoolsInPlaceWithTiers(
+					nonBindingQuantities, poolsCPUSet, packageAvailable,
+					assemblePoolPreferredTiers(placement.ownByPool, placement.borrowedByPool), placement.ownByPool)
 			} else {
 				_, err = p.generateProportionalPoolsCPUSetInPlace(
 					nonBindingQuantities, poolsCPUSet, packageAvailable)
@@ -3674,9 +3681,15 @@ func (p *DynamicPolicy) getSharedNUMABindingRampUpCPUSet(
 
 func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[string]machine.CPUSet,
 	poolsQuantityMap map[string]map[int]int, availableCPUs machine.CPUSet,
-	dynamicConf *dynamicconfig.Configuration,
+	dynamicConf *dynamicconfig.Configuration, placement *poolPlacementSnapshot,
 ) (machine.CPUSet, error) {
 	numaToPoolQuantityMap := make(map[int]map[string]int)
+	var preferredTiers map[string][]machine.CPUSet
+	var ownHistory map[string]machine.CPUSet
+	if placement != nil {
+		preferredTiers = assemblePoolPreferredTiers(placement.ownByPool, placement.borrowedByPool)
+		ownHistory = placement.ownByPool
+	}
 	originalAvailableCPUSet := availableCPUs.Clone()
 	enableReclaim := dynamicConf != nil && dynamicConf.EnableReclaim
 
@@ -3707,7 +3720,8 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 		var tErr error
 		var leftCPUs machine.CPUSet
 		if numaPoolsTotalQuantity <= availableSize && enableReclaim && !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
-			leftCPUs, tErr = p.takeCPUsForPoolsInPlace(numaPoolsToQuantityMap, poolsCPUSet, numaAvailableCPUs)
+			leftCPUs, tErr = p.takeCPUsForPoolsInPlaceWithTiers(numaPoolsToQuantityMap, poolsCPUSet, numaAvailableCPUs,
+				preferredTiers, ownHistory)
 			if tErr != nil {
 				return originalAvailableCPUSet, fmt.Errorf("allocate cpus for numa_binding pools in NUMA: %d failed with error: %v",
 					numaID, tErr)
@@ -3855,7 +3869,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 
 	poolsCPUSet = make(map[string]machine.CPUSet)
 	var nbpErr error
-	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet, poolsQuantityMap, availableCPUs, dynamicConf)
+	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet, poolsQuantityMap, availableCPUs, dynamicConf, placement)
 	if nbpErr != nil {
 		err = fmt.Errorf("generateNUMABindingPoolsCPUSetInPlace failed with error: %v", nbpErr)
 		return
@@ -5537,6 +5551,7 @@ func (p *DynamicPolicy) numaBindingPartitionEligibility(
 	machineState state.NUMANodeMap,
 	resourcePackageName string,
 	hintNodes []uint64,
+	dynamicConf *dynamicconfig.Configuration,
 ) (map[int]machine.CPUSet, map[int]machine.CPUSet, error) {
 	rpPinnedCPUSet := make(map[string]machine.CPUSet)
 	for _, numaState := range machineState {
@@ -5554,7 +5569,7 @@ func (p *DynamicPolicy) numaBindingPartitionEligibility(
 		allPinnedCPUs = allPinnedCPUs.Union(pinnedCPUs)
 	}
 
-	selectorText := p.config.dynamicConfig.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector
+	selectorText := dynamicConf.DisableReclaimPinnedCPUSetResourcePackageSelector
 	disableReclaimSelector, err := general.ParseSelector(selectorText)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse disable-reclaim resource package selector: %w", err)
