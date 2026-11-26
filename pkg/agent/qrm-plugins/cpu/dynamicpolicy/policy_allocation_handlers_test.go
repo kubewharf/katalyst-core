@@ -2891,6 +2891,8 @@ func TestDynamicPolicy_selectNumaBindingReclaimPartitionRoundsMixedSMTSupplement
 //
 // - NUMA 1: CPUs {4, 5, 6, 7} (Logic Cores) and {12, 13, 14, 15} (Siblings).
 func TestNUMABindingPlacementRetainsLegalHistory(t *testing.T) {
+	t.Parallel()
+
 	topology := mustGenerateDummyCPUTopology(16, 2, 2)
 	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
 	require.NoError(t, err)
@@ -2921,6 +2923,18 @@ func TestNUMABindingPlacementRetainsLegalHistory(t *testing.T) {
 			require.True(t, history.Equals(entries[pool][commonstate.FakedContainerName].AllocationResult))
 		}
 	}
+}
+
+func TestEvenlyDistributedFullCoreHintsCheckEveryNUMA(t *testing.T) {
+	t.Parallel()
+
+	topology := mustGenerateDummyCPUTopology(16, 2, 2)
+	p, err := getTestDynamicPolicyWithInitialization(topology, t.TempDir())
+	require.NoError(t, err)
+	first := machine.NewCPUSet(0, 8)
+	second := machine.NewCPUSet(4, 12)
+	require.True(t, p.canDistributeEvenlyAcrossNuma([]int{0, 1}, 4, 2, first.Union(second), true))
+	require.False(t, p.canDistributeEvenlyAcrossNuma([]int{0, 1}, 4, 2, first.Union(machine.NewCPUSet(4)), true))
 }
 
 func TestDynamicPolicy_generateNUMABindingPoolsCPUSetInPlace(t *testing.T) {

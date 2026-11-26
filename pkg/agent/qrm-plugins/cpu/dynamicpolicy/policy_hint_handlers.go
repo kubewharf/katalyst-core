@@ -471,7 +471,9 @@ func (p *DynamicPolicy) canDistributeEvenlyAcrossNuma(numaNodesUsed []int, reque
 		availableCPUs := p.machine.machineInfo.CPUDetails.CPUsInNUMANodes(numaNode).Intersection(totalAvailableCPUs)
 		// If full PCPUs pairing is enabled, need to ensure that each numa node has enough cores to allocate fully
 		if fullPCPUsPairing {
-			return p.canFullPCPUsPairing(requestPerNuma, cpusPerCore, availableCPUs)
+			if !p.canFullPCPUsPairing(requestPerNuma, cpusPerCore, availableCPUs) {
+				return false
+			}
 		} else {
 			if availableCPUs.Size() < requestPerNuma {
 				general.Infof("Available CPUs %v size is smaller than cpu request per numa %v", availableCPUs, requestPerNuma)
