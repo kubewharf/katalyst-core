@@ -41,10 +41,10 @@ type pendingCPUPartition struct {
 	// enforceNUMAReclaimPresence rejects a derived partition that empties a NUMA
 	// which still has reclaim room. Advisor-authored blocks carry explicit per-NUMA
 	// reclaim targets, so their placement is not judged by this derivation guard.
-	enforceNUMAReclaimPresence   bool
-	enforceSteadyReclaim         bool
-	residualFloor                machine.CPUSet
-	dynamicConfig                *dynamicconfig.Configuration
+	enforceNUMAReclaimPresence bool
+	enforceSteadyReclaim       bool
+	residualFloor              machine.CPUSet
+	dynamicConfig              *dynamicconfig.Configuration
 }
 
 type preparedCPUPartition struct {

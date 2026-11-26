@@ -3099,17 +3099,17 @@ func (p *DynamicPolicy) commitPendingAdvisorState(
 		target = targets[0]
 	}
 	entries, _, err := p.commitPendingCPUPartitionForAdvisorTarget(pendingCPUPartition{
-		numaHeadroom:                 pending.numaHeadroom,
-		expectedRevision:             pending.preCommitRevision,
-		entries:                      pending.entries,
-		allowOverlap:                 pending.allowOverlap,
-		disableDedicated:             pending.disableDedicated,
-		persist:                      true,
-		source:                       "advisor apply",
-		requireCoreAlignedReclaim:    pending.disableDedicated,
-		enforceSteadyReclaim:         pending.enforceSteadyReclaim,
-		residualFloor:                pending.residualFloor,
-		dynamicConfig:                pending.dynamicConfig,
+		numaHeadroom:              pending.numaHeadroom,
+		expectedRevision:          pending.preCommitRevision,
+		entries:                   pending.entries,
+		allowOverlap:              pending.allowOverlap,
+		disableDedicated:          pending.disableDedicated,
+		persist:                   true,
+		source:                    "advisor apply",
+		requireCoreAlignedReclaim: pending.disableDedicated,
+		enforceSteadyReclaim:      pending.enforceSteadyReclaim,
+		residualFloor:             pending.residualFloor,
+		dynamicConfig:             pending.dynamicConfig,
 	}, target)
 	if err == nil {
 		pending.entries = entries

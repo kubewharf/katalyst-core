@@ -992,7 +992,10 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		if coversProtectedView {
 			effectiveReclaim = shadow.ReclaimEffective
 		}
-		handoffs := p.reclassifyAdmissionDeferredLeaves(ctx, in, effectiveReclaim, expectedRes)
+		handoffs, classifyErr := p.reclassifyAdmissionDeferredLeaves(ctx, in, effectiveReclaim, expectedRes)
+		if classifyErr != nil {
+			return classifyErr
+		}
 		if len(handoffs) != 0 {
 			handoffUnion := unionCPUSetByRel(handoffs)
 			shadow.NonReclaimPool = shadow.NonReclaimPool.Union(handoffUnion)
@@ -1020,6 +1023,8 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 		}
 	}
 	requiredCPUSetByRel := topology.RequiredCPUSetByRelFromNodeSpecs(specs)
+	// Only identity/owner-validated sources participate in synchronous transfer.
+	sourceCPUSetByRel := expectedRes.AdmissionSourceCPUSetByRel
 	general.InfofV(5, "cpuset_topology: apply start specs=%d siblings=%d expected_leaf_count=%d pending_count=%d protected_pending=%s protected_rel_count=%d",
 		len(specs), len(siblings), len(expectedRes.ExpectedByRel), len(protections),
 		protectedPending.String(), len(protectedByRel))
@@ -1043,19 +1048,21 @@ func (p *CPUSetTopologyPlugin) adjustOnceWithResult(
 	var finalAppliedView *model.AppliedView
 	convergenceBudget := adjustmentBudget.RemainingConvergenceBudget()
 	res, err := (topology.TopologyCoordinator{}).Converge(ctx, topology.CoordinatorInput{
-		DAG:                 dag,
-		Cgroup:              p.cgroup,
-		Mode:                topology.NormalModeGuardWithGate(p.sharedModeGate()),
-		Budget:              convergenceBudget,
-		AdjustmentBudget:    adjustmentBudget,
-		DrainSelection:      topologyDrainSelectionFromConfig(p.cfg.TopologyDrainSelection),
-		CPUDetails:          cpuDetails,
-		ReservedCPUSet:      reservedCPUSet,
-		InitialSnapshot:     adjustmentBudget.InitialSnapshot(),
-		ExpectedCPUSetByRel: expectedRes.ExpectedByRel,
-		RequiredCPUSetByRel: requiredCPUSetByRel,
-		Objective:           objective,
-		DeferredCPUSetByRel: expectedRes.DeferredLeafByRel,
+		DAG:                        dag,
+		Cgroup:                     p.cgroup,
+		Mode:                       topology.NormalModeGuardWithGate(p.sharedModeGate()),
+		Budget:                     convergenceBudget,
+		AdjustmentBudget:           adjustmentBudget,
+		DrainSelection:             topologyDrainSelectionFromConfig(p.cfg.TopologyDrainSelection),
+		CPUDetails:                 cpuDetails,
+		ReservedCPUSet:             reservedCPUSet,
+		InitialSnapshot:            adjustmentBudget.InitialSnapshot(),
+		ExpectedCPUSetByRel:        expectedRes.ExpectedByRel,
+		RequiredIdentityByRel:      expectedRes.RequiredIdentityByRel,
+		RequiredCPUSetByRel:        requiredCPUSetByRel,
+		Objective:                  objective,
+		DeferredCPUSetByRel:        expectedRes.DeferredLeafByRel,
+		AdmissionSourceCPUSetByRel: sourceCPUSetByRel,
 		AdmissionBudget: &topology.AdmissionConvergenceBudget{
 			MaxRequiredWrites: p.cfg.AdmissionMaxRequiredWrites,
 		},
@@ -2243,10 +2250,12 @@ type podLifecycleClassification struct {
 // written precisely) from admit-pending containers (PendingByPod, protected but
 // not written).
 type expectedCPUSetBuildResult struct {
-	ExpectedByRel     map[string]machine.CPUSet
-	CurrentByRel      map[string]machine.CPUSet
-	DeferredLeafByRel map[string]machine.CPUSet
-	PendingByPod      []pendingContainerCPUSet
+	ExpectedByRel              map[string]machine.CPUSet
+	CurrentByRel               map[string]machine.CPUSet
+	DeferredLeafByRel          map[string]machine.CPUSet
+	PendingByPod               []pendingContainerCPUSet
+	RequiredIdentityByRel      map[string]topology.CgroupIdentity
+	AdmissionSourceCPUSetByRel map[string]machine.CPUSet
 	// FreshPodsByUID is the single strict fresh pod snapshot obtained for the whole
 	// reset round (UID keyed). The ownership build sets it on the resolvable-outcomes
 	// path; the disabled reset entry backfills it on the empty-outcomes path so fresh
@@ -3284,22 +3293,22 @@ func (p *CPUSetTopologyPlugin) allowedPendingPodScopeCandidates(podUID string) m
 	return allowed
 }
 
-// reclassifyAdmissionDeferredLeaves removes only owner-proven leaf mismatches
-// from the synchronous admission objective. Admission performs no leaf writes;
-// the existing Full retry converges exact targets through TopologyCoordinator.
-// The returned rel-scoped CPUs are the reclaim-to-primary ingress proven by
-// the same authority checks, so the caller can plan the matching source drain
-// and ancestor closure without duplicating ownership logic.
+// reclassifyAdmissionDeferredLeaves defers only owner-proven leaf mismatches
+// unrelated to an admission transfer. Sources needed by the entering owner stay
+// synchronous, with their Pod ancestors fencing the complete container union.
+// The returned rel-scoped CPUs authorize the matching reclaim source drain.
 func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 	ctx context.Context,
 	in bulkheadapi.HandlerContext,
 	shadowReclaim machine.CPUSet,
 	expectedRes *expectedCPUSetBuildResult,
-) map[string]machine.CPUSet {
+) (map[string]machine.CPUSet, error) {
 	var handoffs map[string]machine.CPUSet
+	requiredScopes := make(map[string]machine.CPUSet)
+	releaseIdentityByRel := make(map[string]topology.CgroupIdentity)
 	if expectedRes == nil || len(expectedRes.ExpectedByRel) == 0 ||
 		in.State == nil || in.DesiredView == nil {
-		return handoffs
+		return handoffs, nil
 	}
 	proofByRel := make(map[string]containerLifecycleProof, len(expectedRes.LifecycleProofs.OrderedProofs))
 	for _, proof := range expectedRes.LifecycleProofs.OrderedProofs {
@@ -3337,18 +3346,11 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 			continue
 		}
 
-		// A strict grow may move CPUs out of the old Applied reclaim floor into
-		// the newly-desired primary owner. Those CPUs still appear in the
-		// applied-enforced shadow and Applied reclaim, even though the new Desired
-		// view has already assigned them to the target pool. Only that handoff
-		// subset may ride out the stale Applied view; the current leaf and every
-		// other target CPU keep the original reclaim, ownership and ambiguity gates.
-		handoff := machine.NewCPUSet()
-		if current.IsSubsetOf(target) {
-			handoff = target.Difference(current).
-				Intersection(shadowReclaim).
-				Intersection(applied.ReclaimEffective)
-		}
+		// Entering CPUs need the same reclaim authority for growth and relocation.
+		// Leaving CPUs are checked separately against the complete old owner below.
+		handoff := target.Difference(current).
+			Intersection(shadowReclaim).
+			Intersection(applied.ReclaimEffective)
 
 		projection := applied.PoolProjection
 		historicalOwner, ok := projection.CPUSetByIdentity[ownerID]
@@ -3397,17 +3399,62 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 		// sufficient. Superset cleanup and relocation release current-only CPUs;
 		// require the latest applied rel proof and same-owner projection to cover
 		// the complete current set before allowing unrelated admission to proceed.
-		if !current.Difference(target).IsEmpty() {
-			relProof, ok := applied.RelProofByRel[rel]
-			if !ok || !relProof.CPUSet.Equals(current) {
-				continue
-			}
-			if !current.IsSubsetOf(historicalOwner) {
-				continue
+		leaving := current.Difference(target)
+		required := !leaving.IsEmpty() && !handoff.IsEmpty()
+		if !required && !leaving.IsEmpty() {
+			for otherID, owner := range in.DesiredView.PoolOwners {
+				if otherID == ownerID {
+					continue
+				}
+				if !leaving.Intersection(owner.ExpectedCPUSet).IsEmpty() {
+					required = true
+					break
+				}
 			}
 		}
-		expectedRes.DeferredLeafByRel[rel] = target.Clone()
-		delete(expectedRes.ExpectedByRel, rel)
+		if !leaving.IsEmpty() {
+			relProof, ok := applied.RelProofByRel[rel]
+			if !ok || !relProof.CPUSet.Equals(current) || !current.IsSubsetOf(historicalOwner) {
+				if required {
+					return nil, fmt.Errorf("admission source %q lacks current same-owner release proof", rel)
+				}
+				continue
+			}
+			if relProof.Device != 0 && relProof.Inode != 0 {
+				releaseIdentityByRel[rel] = topology.CgroupIdentity{Device: relProof.Device, Inode: relProof.Inode}
+			}
+		}
+		if required {
+			// Fence the UID-bound Pod scope, not an arbitrary intermediate parent.
+			allowed := p.allowedPendingPodScopeCandidates(proof.PodUID)
+			scope := path.Dir(rel)
+			for scope != "." && scope != p.cfg.BulkheadPrimaryRelPath {
+				if _, ok := allowed[scope]; ok {
+					break
+				}
+				scope = path.Dir(scope)
+			}
+			if _, ok := allowed[scope]; !ok || scope == p.cfg.BulkheadPrimaryRelPath {
+				return nil, fmt.Errorf("admission source %q has no UID-bound Pod scope", rel)
+			}
+			podTarget := unionCPUSetByRel(in.DesiredView.ContainerCPUSetByPod[proof.PodUID])
+			if podTarget.IsEmpty() {
+				return nil, fmt.Errorf("admission source %q has empty Pod target", rel)
+			}
+			identity, ok := releaseIdentityByRel[rel]
+			if !ok {
+				return nil, fmt.Errorf("admission source %q lacks identity-bound release proof", rel)
+			}
+			if expectedRes.RequiredIdentityByRel == nil {
+				expectedRes.RequiredIdentityByRel = make(map[string]topology.CgroupIdentity)
+			}
+			expectedRes.RequiredIdentityByRel[rel] = identity
+			requiredScopes[rel] = target.Clone()
+			requiredScopes[scope] = requiredScopes[scope].Union(podTarget)
+		} else {
+			expectedRes.DeferredLeafByRel[rel] = target.Clone()
+			delete(expectedRes.ExpectedByRel, rel)
+		}
 		if !handoff.IsEmpty() {
 			if handoffs == nil {
 				handoffs = make(map[string]machine.CPUSet)
@@ -3415,7 +3462,45 @@ func (p *CPUSetTopologyPlugin) reclassifyAdmissionDeferredLeaves(
 			handoffs[rel] = handoff.Clone()
 		}
 	}
-	return handoffs
+	// An exact Pod fence can shrink only after every blocking resolved leaf
+	// releases its current CPUs outside that fence. Reuse the first pass's owner
+	// checks; a leaf that failed them must not gain authority through its ancestor.
+	for rel, proof := range proofByRel {
+		var fence machine.CPUSet
+		fenced := false
+		for parent := path.Dir(rel); parent != "."; parent = path.Dir(parent) {
+			if target, ok := requiredScopes[parent]; ok {
+				fence, fenced = target, true
+				break
+			}
+		}
+		if !fenced {
+			continue
+		}
+		current, ok := expectedRes.CurrentByRel[rel]
+		if !ok {
+			var err error
+			current, err = p.cgroup.ReadCPUSet(ctx, rel)
+			if err != nil {
+				return nil, fmt.Errorf("read admission fence descendant %q: %w", rel, err)
+			}
+		}
+		if current.IsSubsetOf(fence) {
+			continue
+		}
+		identity, ok := releaseIdentityByRel[rel]
+		if !ok {
+			return nil, fmt.Errorf("admission fence descendant %q lacks current identity-bound same-owner release proof", rel)
+		}
+		requiredScopes[rel] = proof.DesiredCPUSet.Clone()
+		expectedRes.RequiredIdentityByRel[rel] = identity
+		delete(expectedRes.DeferredLeafByRel, rel)
+	}
+	for rel, cpus := range requiredScopes {
+		expectedRes.ExpectedByRel[rel] = cpus
+	}
+	expectedRes.AdmissionSourceCPUSetByRel = requiredScopes
+	return handoffs, nil
 }
 
 func topologyCoversProtectedView(topology *machine.CPUTopology, view *model.DesiredView, protected machine.CPUSet) bool {

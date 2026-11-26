@@ -18,6 +18,7 @@ package cpusettopology
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -25,16 +26,281 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
 	bulkheadutils "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/utils"
+	cpustate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpusetutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/util"
 	bulkheadconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/bulkhead"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	metapod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	cgcommon "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+func TestAdmissionRelocationReleasesSourceBeforeDedicatedTakeover(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, pool, qos, failRel string
+		sidecar, movingSibling   bool
+	}{
+		{name: "binding", pool: "binding", qos: "shared_cores"},
+		{name: "package", pool: "package/binding", qos: "shared_cores"},
+		{name: "shared", pool: "share", qos: "shared_cores"},
+		{name: "dedicated", pool: "dedicated", qos: "dedicated_cores"},
+		{name: "sidecar", pool: "binding", qos: "shared_cores", sidecar: true},
+		{name: "leaf-failure", pool: "binding", qos: "shared_cores", failRel: "primary/podsource/source"},
+		{name: "ancestor-failure", pool: "binding", qos: "shared_cores", failRel: "primary/podsource"},
+		{name: "replacement", pool: "binding", qos: "shared_cores"},
+		{name: "runtime-rewrite", pool: "binding", qos: "shared_cores"},
+		{name: "missing-proof", pool: "binding", qos: "shared_cores"},
+		{name: "unproven-primary-source", pool: "binding", qos: "shared_cores"},
+		{name: "shared-takeover", pool: "binding", qos: "shared_cores"},
+		{name: "moving-sibling", pool: "binding", qos: "shared_cores", movingSibling: true},
+		{name: "sibling-missing-proof", pool: "binding", qos: "shared_cores", movingSibling: true},
+		{name: "sibling-replacement", pool: "binding", qos: "shared_cores", movingSibling: true},
+		{name: "sibling-write-failure", pool: "binding", qos: "shared_cores", movingSibling: true, failRel: "primary/podsource/helper"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			topo := &machine.CPUTopology{NumCPUs: 12, NumCores: 6, NumSockets: 2, NumNUMANodes: 2, CPUDetails: machine.CPUDetails{}}
+			for cpu := 0; cpu < 12; cpu++ {
+				topo.CPUDetails[cpu] = machine.CPUTopoInfo{NUMANodeID: cpu / 6, SocketID: cpu / 6, CoreID: cpu / 2}
+			}
+			old, target, raw := machine.MustParse("4-5"), machine.MustParse("2-3"), machine.MustParse("0-3,6-7")
+			if tc.name == "unproven-primary-source" || tc.name == "shared-takeover" || tc.movingSibling {
+				// Destination already belongs to primary, so no reclaim handoff
+				// should accidentally make an unproven source executable.
+				raw = machine.MustParse("0-1,6-7")
+			}
+			all := topo.CPUDetails.CPUs()
+			s := cpustate.NewCPUPluginState(topo)
+			allocation := &cpustate.AllocationInfo{
+				AllocationMeta:   commonstate.AllocationMeta{PodUid: "source", PodNamespace: "default", PodName: "source", ContainerName: "main", OwnerPoolName: tc.pool, QoSLevel: tc.qos},
+				AllocationResult: target.Clone(),
+			}
+			if err := s.SetAllocationInfo("source", "main", allocation); err != nil {
+				t.Fatal(err)
+			}
+			ownerID, ok := bulkheadutils.LeafPoolIdentityForAllocation(allocation)
+			if !ok {
+				t.Fatal("invalid test owner")
+			}
+			desired := model.NewDesiredView()
+			desired.DesiredReclaimEffective = machine.MustParse("0-1,6-7")
+			desired.DesiredNonReclaimPool = all.Difference(desired.DesiredReclaimEffective)
+			desired.ReclaimEffective = desired.DesiredReclaimEffective.Clone()
+			desired.NonReclaimPool = desired.DesiredNonReclaimPool.Clone()
+			desired.SharePoolMap[tc.pool] = target.Clone()
+			desired.Dedicated = old.Clone()
+			desired.PoolOwners[ownerID] = model.DesiredPoolOwner{ProofPodUID: "source", ExpectedCPUSet: target.Clone(), ContainerCPUSetByName: map[string]machine.CPUSet{"main": target.Clone()}}
+			pendingOwner := model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindDedicated, PodNamespace: "default", PodName: "pending"}
+			if tc.name == "shared-takeover" {
+				pendingOwner = model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "other-share"}
+				desired.Dedicated = machine.NewCPUSet()
+				desired.SharePoolMap["other-share"] = old.Clone()
+			}
+			desired.PoolOwners[pendingOwner] = model.DesiredPoolOwner{ProofPodUID: "pending", ExpectedCPUSet: old.Clone()}
+			desired.ContainerCPUSetByPod["source"] = map[string]machine.CPUSet{"main": target.Clone()}
+			desired.ContainerCPUSetByPod["pending"] = map[string]machine.CPUSet{"main": old.Clone()}
+			applied := desired.ToAppliedView()
+			applied.NonReclaimPool = all.Difference(raw)
+			applied.ReclaimEffective = raw.Clone()
+			applied.PoolProjection.CPUSetByIdentity[ownerID] = old.Clone()
+			applied.PoolProjection.CPUSetByIdentity[model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindReclaim}] = raw.Clone()
+			if tc.name == "unproven-primary-source" || tc.name == "shared-takeover" || tc.movingSibling {
+				applied.PoolProjection.CPUSetByIdentity[ownerID] = old.Union(target)
+			}
+			identity := pluginFakeIdentity("primary/podsource/source")
+			applied.RelProofByRel["primary/podsource/source"] = model.CgroupRelProof{Device: identity.Device, Inode: identity.Inode, CPUSet: old.Clone()}
+			cg := &fakeCgroupClient{existing: map[string]bool{}, cpus: map[string]machine.CPUSet{
+				"primary": all.Difference(raw), "reclaim": raw.Clone(), "primary/podsource": old.Clone(),
+				"primary/podsource/source": old.Clone(), "primary/podsource/sandbox": old.Clone(), "primary/podpending": old.Clone(),
+			}, children: map[string][]string{"primary": {"podsource", "podpending"}, "primary/podsource": {"source", "sandbox"}}}
+			pods := []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("source")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+					Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed, ContainerStatuses: []v1.ContainerStatus{{Name: "main", ContainerID: "containerd://source"}}},
+				},
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pending")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}}, Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed}},
+			}
+			podTarget := target.Clone()
+			if tc.sidecar {
+				helper := machine.MustParse("8-9")
+				podTarget = podTarget.Union(helper)
+				desired.ContainerCPUSetByPod["source"]["helper"] = helper
+				desired.PoolOwners[model.CPUSetPoolIdentity{Kind: model.CPUSetPoolKindShare, Name: "helper"}] = model.DesiredPoolOwner{ExpectedCPUSet: helper}
+				cg.cpus["primary/podsource"] = old.Union(helper)
+				cg.cpus["primary/podsource/helper"] = helper
+				cg.children["primary/podsource"] = append(cg.children["primary/podsource"], "helper")
+				pods[0].Spec.Containers = append(pods[0].Spec.Containers, v1.Container{Name: "helper"})
+				pods[0].Status.ContainerStatuses = append(pods[0].Status.ContainerStatuses, v1.ContainerStatus{Name: "helper", ContainerID: "containerd://helper"})
+			}
+			if tc.movingSibling {
+				helperOld := machine.MustParse("8-9")
+				helperAllocation := allocation.Clone()
+				helperAllocation.ContainerName = "helper"
+				if err := s.SetAllocationInfo("source", "helper", helperAllocation); err != nil {
+					t.Fatal(err)
+				}
+				desired.ContainerCPUSetByPod["source"]["helper"] = target.Clone()
+				oldDesired := desired.DeepCopy()
+				delete(oldDesired.PoolOwners, pendingOwner)
+				oldDesired.PoolOwners[ownerID] = model.DesiredPoolOwner{ExpectedCPUSet: old.Union(target).Union(helperOld)}
+				applied.PoolProjection = buildAppliedPoolProjection(model.AppliedViewLevelParentSafe, oldDesired, applied)
+				if !applied.PoolProjection.CPUSetByIdentity[ownerID].Equals(old.Union(target).Union(helperOld)) ||
+					!applied.PoolProjection.AmbiguousCPUs.IsEmpty() {
+					t.Fatal("invalid historical owner projection")
+				}
+				helperIdentity := pluginFakeIdentity("primary/podsource/helper")
+				applied.RelProofByRel["primary/podsource/helper"] = model.CgroupRelProof{
+					Device: helperIdentity.Device, Inode: helperIdentity.Inode, CPUSet: helperOld.Clone(),
+				}
+				if tc.name == "sibling-missing-proof" {
+					delete(applied.RelProofByRel, "primary/podsource/helper")
+				}
+				if tc.name == "sibling-replacement" {
+					proof := applied.RelProofByRel["primary/podsource/helper"]
+					proof.Inode++
+					applied.RelProofByRel["primary/podsource/helper"] = proof
+				}
+				cg.cpus["primary/podsource"] = old.Union(helperOld)
+				cg.cpus["primary/podsource/helper"] = helperOld.Clone()
+				cg.children["primary/podsource"] = append(cg.children["primary/podsource"], "helper")
+				pods[0].Spec.Containers = append(pods[0].Spec.Containers, v1.Container{Name: "helper"})
+				pods[0].Status.ContainerStatuses = append(pods[0].Status.ContainerStatuses,
+					v1.ContainerStatus{Name: "helper", ContainerID: "containerd://helper"})
+				// The same pool's unrelated Pod must not join this Pod's fence closure.
+				unrelated := allocation.Clone()
+				unrelated.PodUid, unrelated.PodName = "unrelated", "unrelated"
+				if err := s.SetAllocationInfo("unrelated", "main", unrelated); err != nil {
+					t.Fatal(err)
+				}
+				desired.ContainerCPUSetByPod["unrelated"] = map[string]machine.CPUSet{"main": target.Clone()}
+				unrelatedIdentity := pluginFakeIdentity("primary/podunrelated/unrelated")
+				applied.RelProofByRel["primary/podunrelated/unrelated"] = model.CgroupRelProof{
+					Device: unrelatedIdentity.Device, Inode: unrelatedIdentity.Inode, CPUSet: helperOld.Clone(),
+				}
+				cg.cpus["primary/podunrelated"] = helperOld.Clone()
+				cg.cpus["primary/podunrelated/unrelated"] = helperOld.Clone()
+				cg.children["primary"] = append(cg.children["primary"], "podunrelated")
+				cg.children["primary/podunrelated"] = []string{"unrelated"}
+				pods = append(pods, &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("unrelated")},
+					Spec:       v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+					Status:     v1.PodStatus{QOSClass: v1.PodQOSGuaranteed, ContainerStatuses: []v1.ContainerStatus{{Name: "main", ContainerID: "containerd://unrelated"}}},
+				})
+			}
+			for rel := range cg.cpus {
+				cg.existing[rel] = true
+			}
+			before := model.CloneCPUSetMap(cg.cpus)
+			failure := errors.New("source release rejected")
+			cg.writeCPUHook = func(rel string, count int) error {
+				if rel == tc.failRel && count == 2 {
+					return failure
+				}
+				return nil
+			}
+			if tc.name == "replacement" {
+				applied.RelProofByRel["primary/podsource/source"] = model.CgroupRelProof{Device: identity.Device, Inode: identity.Inode + 1, CPUSet: old.Clone()}
+			}
+			if tc.name == "missing-proof" || tc.name == "unproven-primary-source" {
+				delete(applied.RelProofByRel, "primary/podsource/source")
+			}
+			p := &CPUSetTopologyPlugin{
+				cfg: bulkheadconfig.BulkheadConfiguration{
+					BulkheadPrimaryRelPath:  "primary",
+					BulkheadReclaimRelPaths: []string{"reclaim"}, BulkheadReclaimNumaPrefixes: []string{"reclaim/numa-"},
+				}, cgroup: cg,
+				resolveContainerRel: func(uid, cid string) (string, error) { return "primary/pod" + uid + "/" + cid, nil },
+			}
+			runtimeRewrites := 0
+			if tc.name == "runtime-rewrite" {
+				cg.afterApply = func(rel string, _ *cgcommon.CPUSetData) {
+					if rel == "primary/podsource" && cg.cpus[rel].Equals(podTarget) {
+						// A v1 stale container mask is rejected by the tightened Pod
+						// parent. Do not model QRM's lease as serializing this writer.
+						runtimeRewrites++
+						if old.IsSubsetOf(cg.cpus[rel]) {
+							cg.cpus["primary/podsource/source"] = old.Clone()
+						}
+					}
+				}
+			}
+			var result bulkheadapi.TopologyResult
+			err := p.runNormalAdjustment(context.Background(), bulkheadapi.HandlerContext{
+				CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
+					State: s, Mode: cpusetutil.CPUSetAdjustmentModeAdmission, Topology: topo,
+					MetaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{PodFetcher: &metapod.PodFetcherStub{PodList: pods}}},
+				},
+				DesiredView: desired, AppliedView: applied, ProjectPendingToDesiredNonReclaim: true,
+			}, func(got bulkheadapi.TopologyResult) { result = got })
+			if tc.name == "replacement" || tc.name == "missing-proof" || tc.name == "unproven-primary-source" ||
+				tc.name == "sibling-missing-proof" || tc.name == "sibling-replacement" {
+				if err == nil || result.AppliedView != nil || len(cg.writeOrder) != 0 {
+					t.Fatalf("replaced source accepted: err=%v writes=%v", err, cg.writeOrder)
+				}
+				return
+			}
+			if tc.failRel != "" {
+				if !errors.Is(err, failure) || result.AppliedView != nil {
+					t.Fatalf("failed release published: err=%v result=%+v", err, result)
+				}
+				for rel, cpus := range before {
+					if !cg.cpus[rel].Equals(cpus) {
+						t.Fatalf("rollback mismatch %s=%s want=%s", rel, cg.cpus[rel], cpus)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.AppliedView == nil {
+				t.Fatal("missing physical proof")
+			}
+			if !cg.cpus["primary/podsource"].Equals(podTarget) {
+				t.Fatalf("Pod fence=%s want=%s", cg.cpus["primary/podsource"], podTarget)
+			}
+			for _, rel := range []string{"primary/podsource/source", "primary/podsource/sandbox"} {
+				want := target
+				if tc.sidecar && rel == "primary/podsource/sandbox" {
+					want = podTarget
+				}
+				if !cg.cpus[rel].Equals(want) {
+					t.Fatalf("source not released/fenced before takeover: %s=%s want=%s", rel, cg.cpus[rel], want)
+				}
+			}
+			if tc.movingSibling {
+				if !cg.cpus["primary/podsource/helper"].Equals(target) {
+					t.Fatal("necessary sibling release was deferred")
+				}
+				if !cg.cpus["primary/podunrelated/unrelated"].Equals(machine.MustParse("8-9")) {
+					t.Fatal("unrelated Pod joined the exact fence closure")
+				}
+				for _, rel := range cg.writeOrder {
+					if rel == "primary/podunrelated/unrelated" {
+						t.Fatal("unrelated Pod leaf was written")
+					}
+				}
+			}
+			if tc.sidecar && !cg.cpus["primary/podsource/helper"].Equals(machine.MustParse("8-9")) {
+				t.Fatal("sibling target changed")
+			}
+			if tc.name == "runtime-rewrite" && runtimeRewrites == 0 {
+				t.Fatal("stale runtime writer was not exercised")
+			}
+			if !result.AppliedView.ReclaimEffective.Intersection(target).IsEmpty() {
+				t.Fatal("destination remains reclaimed")
+			}
+		})
+	}
+}
 
 // TestAdmissionRetainsResolvedTransientOwner exercises the physical DAG and its
 // final snapshot, not only the partition helper. The active SNB leaf already has
@@ -57,25 +323,35 @@ func TestAdmissionRetainsResolvedTransientOwner(t *testing.T) {
 	applied := desired.ToAppliedView()
 	cg := &fakeCgroupClient{
 		existing: map[string]bool{"primary": true, "reclaim": true, "primary/active": true, "kubepods/podpending": true},
-		cpus: map[string]machine.CPUSet{"primary": desired.NonReclaimPool.Clone(), "reclaim": desired.ReclaimEffective.Clone(),
-			"primary/active": protected.Clone(), "kubepods/podpending": machine.MustParse("4-5")},
+		cpus: map[string]machine.CPUSet{
+			"primary": desired.NonReclaimPool.Clone(), "reclaim": desired.ReclaimEffective.Clone(),
+			"primary/active": protected.Clone(), "kubepods/podpending": machine.MustParse("4-5"),
+		},
 		children: map[string][]string{"primary": {"active"}},
 	}
 	p := &CPUSetTopologyPlugin{
-		cfg: bulkheadconfig.BulkheadConfiguration{BulkheadPrimaryRelPath: "primary", BulkheadReclaimRelPaths: []string{"reclaim"},
-			BulkheadReclaimNumaPrefixes: []string{"reclaim/numa-"}}, cgroup: cg,
+		cfg: bulkheadconfig.BulkheadConfiguration{
+			BulkheadPrimaryRelPath: "primary", BulkheadReclaimRelPaths: []string{"reclaim"},
+			BulkheadReclaimNumaPrefixes: []string{"reclaim/numa-"},
+		}, cgroup: cg,
 		resolveContainerRel: func(string, string) (string, error) { return "primary/active", nil },
 	}
 	pods := []*v1.Pod{
-		{ObjectMeta: metav1.ObjectMeta{UID: types.UID("active")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
-			Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed, ContainerStatuses: []v1.ContainerStatus{{Name: "main", ContainerID: "containerd://active"}}}},
-		{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pending")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
-			Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed}},
+		{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID("active")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+			Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed, ContainerStatuses: []v1.ContainerStatus{{Name: "main", ContainerID: "containerd://active"}}},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID("pending")}, Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+			Status: v1.PodStatus{QOSClass: v1.PodQOSGuaranteed},
+		},
 	}
 	var result bulkheadapi.TopologyResult
 	err := p.runNormalAdjustment(context.Background(), bulkheadapi.HandlerContext{
-		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{Mode: cpusetutil.CPUSetAdjustmentModeAdmission, Topology: topo,
-			MetaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{PodFetcher: &metapod.PodFetcherStub{PodList: pods}}}},
+		CPUSetAdjustmentHandlerCtx: cpusetutil.CPUSetAdjustmentHandlerCtx{
+			Mode: cpusetutil.CPUSetAdjustmentModeAdmission, Topology: topo,
+			MetaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{PodFetcher: &metapod.PodFetcherStub{PodList: pods}}},
+		},
 		DesiredView: desired, AppliedView: applied, ProjectPendingToDesiredNonReclaim: true,
 	}, func(got bulkheadapi.TopologyResult) { result = got })
 	if err != nil {

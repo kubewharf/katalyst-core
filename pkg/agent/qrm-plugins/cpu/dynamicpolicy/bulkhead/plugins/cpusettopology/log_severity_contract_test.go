@@ -22,7 +22,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	bulkheadapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/api"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/bulkhead/model"
@@ -130,10 +129,12 @@ func TestSuccessfulAdmissionLogSeverityContract(t *testing.T) {
 		sink := &recordingLogSink{verbosity: verbosity}
 		p := &CPUSetTopologyPlugin{
 			cfg: bulkheadconfig.BulkheadConfiguration{
-				BulkheadPrimaryRelPath:     "primary",
-				BulkheadReclaimRelPaths:    []string{"reclaim"},
-				AdmissionSafeDuration:      time.Second,
+				BulkheadPrimaryRelPath:  "primary",
+				BulkheadReclaimRelPaths: []string{"reclaim"},
+				// This fixture verifies log severity, not admission timing.
+				AdmissionSafeDuration:      0,
 				AdmissionMaxRequiredWrites: 8,
+				TopologyConvergenceBudget:  bulkheadconfig.ConvergenceBudget{DeadlineDuration: -1},
 			},
 			cgroup:  cg,
 			logSink: sink,
