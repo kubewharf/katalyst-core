@@ -43,15 +43,18 @@ const (
 // ContainerInfo contains container information for sysadvisor plugins
 type ContainerInfo struct {
 	// Metadata unchanged during container's lifecycle
-	PodUID              string
-	PodNamespace        string
-	PodName             string
-	ContainerName       string
-	ContainerType       v1alpha1.ContainerType
-	ContainerIndex      int
-	Labels              map[string]string
-	Annotations         map[string]string
-	QoSLevel            string
+	PodUID         string
+	PodNamespace   string
+	PodName        string
+	ContainerName  string
+	ContainerType  v1alpha1.ContainerType
+	ContainerIndex int
+	Labels         map[string]string
+	Annotations    map[string]string
+	QoSLevel       string
+	// NativeQoSClass is the native kubernetes QoS class of the pod, i.e. Guaranteed,
+	// Burstable or BestEffort. TMO narrows the shared_cores config with it.
+	NativeQoSClass      string
 	CPURequest          float64
 	CPULimit            float64
 	MemoryRequest       float64

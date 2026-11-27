@@ -28,7 +28,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -526,6 +528,36 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 	}
 }
 
+// TMOEffectiveQoSLevel returns the qos level used to select the TMO reclaim configuration,
+// together with whether TMO is applicable to this container at all.
+//
+// the rules are:
+//   - reclaimed_cores and system_cores are identified by their own cgroups, and are passed
+//     through untouched;
+//   - pods declared as dedicated_cores keep dedicated_cores, whatever native QoS class they
+//     are assigned;
+//   - pods declared as shared_cores are narrowed by their native QoS class: Burstable or BestEffort
+//     reuses shared_cores config; Guaranteed is treated as dedicated_cores;
+//   - other unknown combinations are not applicable.
+func TMOEffectiveQoSLevel(declaredQoSLevel, nativeQoSClass string) (string, bool) {
+	switch declaredQoSLevel {
+	case katalystapiconsts.PodAnnotationQoSLevelReclaimedCores,
+		katalystapiconsts.PodAnnotationQoSLevelSystemCores,
+		katalystapiconsts.PodAnnotationQoSLevelDedicatedCores:
+		return declaredQoSLevel, true
+	case katalystapiconsts.PodAnnotationQoSLevelSharedCores:
+		switch nativeQoSClass {
+		case string(corev1.PodQOSBurstable):
+			return katalystapiconsts.PodAnnotationQoSLevelSharedCores, true
+		case string(corev1.PodQOSBestEffort):
+			return katalystapiconsts.PodAnnotationQoSLevelSharedCores, true
+		case string(corev1.PodQOSGuaranteed):
+			return katalystapiconsts.PodAnnotationQoSLevelDedicatedCores, true
+		}
+	}
+	return "", false
+}
+
 func NewTransparentMemoryOffloading(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
 	return &transparentMemoryOffloading{
 		conf:                conf,
@@ -541,7 +573,8 @@ func NewTransparentMemoryOffloading(conf *config.Configuration, extraConfig inte
 }
 
 func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureStatus) error {
-	if tmo.conf.GetDynamicConfiguration().BlockConfig != nil {
+	dynamicConf := tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration
+	if dynamicConf.BlockConfig != nil {
 		RegisterTMOBlockFunc(FromDynamicConfigTMOBlockFnName, TMOBlockFnFromDynamicConfig)
 	}
 	podContainerNamesMap := make(map[katalystcoreconsts.PodContainerName]bool)
@@ -565,32 +598,63 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			}
 		}
 
+		// narrow the declared qos level with the native kubernetes QoS class, and use the
+		// effective level for both the qos level config and the pool name config, so that
+		// a shared_cores container which is Guaranteed will not fall back to the shared pool.
+		// BestEffort containers are allowed to reuse shared_cores config.
+		nativeQoSClass := string(v1qos.GetPodQOS(pod))
+		effectiveQoSLevel, tmoApplicable := TMOEffectiveQoSLevel(qos, nativeQoSClass)
+		poolQoSLevel := qos
+		if tmoApplicable {
+			poolQoSLevel = effectiveQoSLevel
+		}
+
 		cpuEnhancement := tmo.conf.QoSConfiguration.GetQoSEnhancementKVs(pod, map[string]string{}, katalystapiconsts.PodAnnotationCPUEnhancementKey)
-		poolName := commonstate.GetSpecifiedPoolName(qos, cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet])
-		general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
+		poolName := commonstate.GetSpecifiedPoolName(poolQoSLevel, cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet])
+		general.Infof("Get pool name %s for pod uid: %s, declaredQoSLevel: %s, nativeQoSClass: %s, effectiveQoSLevel: %s, tmoApplicable: %v",
+			poolName, pod.UID, qos, nativeQoSClass, effectiveQoSLevel, tmoApplicable)
 
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			containerInfo := &types.ContainerInfo{
-				PodUID:        string(pod.UID),
-				PodName:       pod.Name,
-				ContainerName: containerStatus.Name,
-				Labels:        pod.Labels,
-				Annotations:   pod.Annotations,
-				QoSLevel:      qos,
+				PodUID:         string(pod.UID),
+				PodNamespace:   pod.Namespace,
+				PodName:        pod.Name,
+				ContainerName:  containerStatus.Name,
+				Labels:         pod.Labels,
+				Annotations:    pod.Annotations,
+				QoSLevel:       qos,
+				NativeQoSClass: nativeQoSClass,
 			}
-			podContainerName := native.GeneratePodContainerName(containerInfo.PodName, containerInfo.ContainerName)
+			// Key engines by pod UID so same-named pods in different namespaces cannot collide.
+			podContainerName := native.GeneratePodContainerName(containerInfo.PodUID, containerInfo.ContainerName)
 			podContainerNamesMap[podContainerName] = true
-			_, exist := tmo.containerTmoEngines[podContainerName]
-			if !exist {
-				tmo.containerTmoEngines[podContainerName] = NewTmoEngineInstance(containerInfo, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
+			engine, exist := tmo.containerTmoEngines[podContainerName]
+			if exist {
+				previous := engine.GetContainerInfo()
+				// A changed identity or QoS must not inherit reclaim history from the old engine.
+				exist = previous != nil && previous.PodUID == containerInfo.PodUID &&
+					previous.PodNamespace == containerInfo.PodNamespace && previous.PodName == containerInfo.PodName &&
+					previous.ContainerName == containerInfo.ContainerName && previous.QoSLevel == containerInfo.QoSLevel &&
+					previous.NativeQoSClass == containerInfo.NativeQoSClass
 			}
+			if !exist {
+				engine = NewTmoEngineInstance(containerInfo, tmo.metaServer, tmo.emitter, dynamicConf)
+				tmo.containerTmoEngines[podContainerName] = engine
+			} else {
+				// Refresh mutable pod metadata while preserving this container's reclaim history.
+				*engine.GetContainerInfo() = *containerInfo
+			}
+			// Rebuild configuration from current defaults on every round. Omitted QoS,
+			// pool or service entries must not retain values from a previous round.
+			engine.LoadConf(tmoconf.NewTMOConfigDetail(dynamicConf.DefaultConfigurations))
 
-			// load QoSLevelConfig
-			if helper.IsValidQosLevel(containerInfo.QoSLevel) {
-				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().QoSLevelConfigs[katalystapiconsts.QoSLevel(containerInfo.QoSLevel)]; exist {
+			// load QoSLevelConfig with the effective qos level, which narrows
+			// shared_cores containers by their native kubernetes QoS class.
+			if tmoApplicable && helper.IsValidQosLevel(effectiveQoSLevel) {
+				if tmoConfigDetail, exist := dynamicConf.QoSLevelConfigs[katalystapiconsts.QoSLevel(effectiveQoSLevel)]; exist {
 					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
 					general.Infof("Load QosLevel %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
-						containerInfo.QoSLevel, podContainerName,
+						effectiveQoSLevel, podContainerName,
 						tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
 						tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
 						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
@@ -600,7 +664,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 
 			// PoolName Override QosLevel Config
 			if poolName != commonstate.EmptyOwnerPoolName {
-				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().PoolNameConfigs[poolName]; exist {
+				if tmoConfigDetail, exist := dynamicConf.PoolNameConfigs[poolName]; exist {
 					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
 					general.Infof("Load Pool %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
 						poolName, podContainerName,
@@ -613,13 +677,8 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				general.Infof("Pool name is empty for pod %s, skip load pool name config", pod.Name)
 			}
 
-			// disable TMO if the Pod is numa exclusive and is not reclaimable
+			// Resolve reclaim eligibility now and enforce it after service configuration.
 			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)
-			if !enableReclaim {
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = false
-				general.Infof("container with podContainerName: %s is required to disable TMO since it is not reclaimable", podContainerName)
-			}
 
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
@@ -646,11 +705,19 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				return true
 			})
 			for tmoBlockFnName, tmoBlockFn := range funcs {
-				if tmoBlockFn(containerInfo, tmo.extraConf, tmo.conf.GetDynamicConfiguration().BlockConfig) {
+				if tmoBlockFn(containerInfo, tmo.extraConf, dynamicConf.BlockConfig) {
 					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 					tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = false
 					general.Infof("container with podContainerName: %s is required to disable TMO by TMOBlockFn: %s", podContainerName, tmoBlockFnName)
 				}
+			}
+
+			// Enforce eligibility after all overrides, including service-level configuration.
+			if !tmoApplicable || !enableReclaim {
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = false
+				general.Infof("Disable TMO for podContainerName: %s, tmoApplicable: %v, enableReclaim: %v",
+					podContainerName, tmoApplicable, enableReclaim)
 			}
 
 			general.Infof("Final TMO configs for podContainerName: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", podContainerName,
