@@ -183,6 +183,11 @@ func ApplyVMExtFragThresholdAtPath(path string, threshold int64) error {
 	return GetProcFSManager().ApplyVMExtFragThresholdAtPath(path, threshold)
 }
 
+// ApplyVMCompactionProactivenessAtPath writes vm.compaction_proactiveness only when it changes.
+func ApplyVMCompactionProactivenessAtPath(path string, proactiveness int64) error {
+	return GetProcFSManager().ApplyVMCompactionProactivenessAtPath(path, proactiveness)
+}
+
 // ApplyTransparentHugepageEnabledAtPath writes the given THP mode into the given path.
 // Typical path is TransparentHugepageEnabledPath.
 func ApplyTransparentHugepageEnabledAtPath(path, mode string) error {

@@ -50,6 +50,8 @@ const (
 	TransparentHugepageEnabledPath = "/sys/kernel/mm/transparent_hugepage/enabled"
 	// TransparentHugepageShmemEnabledPath is a kernel sysfs interface to configure THP behavior for tmpfs/shmem.
 	TransparentHugepageShmemEnabledPath = "/sys/kernel/mm/transparent_hugepage/shmem_enabled"
+	// TransparentHugepageDefragPath is a kernel sysfs interface to configure THP defragmentation behavior.
+	TransparentHugepageDefragPath = "/sys/kernel/mm/transparent_hugepage/defrag"
 )
 
 type manager struct {
@@ -233,6 +235,14 @@ func (m *manager) ApplyVMWatermarkBoostFactorAtPath(path string, boostFactor int
 // ApplyVMExtFragThresholdAtPath writes vm.extfrag_threshold to the given sysctl file path.
 func (m *manager) ApplyVMExtFragThresholdAtPath(path string, threshold int64) error {
 	return m.applyVMInt64AtPath(path, threshold, "vm.extfrag_threshold")
+}
+
+// ApplyVMCompactionProactivenessAtPath applies a value in the kernel's supported range.
+func (m *manager) ApplyVMCompactionProactivenessAtPath(path string, proactiveness int64) error {
+	if proactiveness < 0 || proactiveness > 100 {
+		return fmt.Errorf("invalid vm.compaction_proactiveness %d: must be in [0, 100]", proactiveness)
+	}
+	return m.applyVMInt64AtPath(path, proactiveness, "vm.compaction_proactiveness")
 }
 
 func (m *manager) applyVMInt64AtPath(path string, value int64, knob string) error {

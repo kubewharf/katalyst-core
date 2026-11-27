@@ -29,5 +29,6 @@ const (
 )
 
 const (
-	metricNameMemoryCompaction = "async_handler_memory_compaction"
+	metricNameMemoryCompaction          = "async_handler_memory_compaction"
+	metricNameVMCompactionProactiveness = "async_handler_vm_compaction_proactiveness"
 )

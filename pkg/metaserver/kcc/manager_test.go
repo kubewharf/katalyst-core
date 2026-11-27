@@ -454,15 +454,25 @@ func Test_applyDynamicConfig(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			applyDynamicConfig(tt.args.currentConfig, tt.args.dynamicConf)
+			require.NoError(t, applyDynamicConfig(tt.args.currentConfig, tt.args.dynamicConf))
 			got := tt.args.currentConfig
 			require.True(t, tt.want(got))
 		})
 	}
 }
 
-func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T) {
+func TestDynamicConfigManager_updateConfigFragMemDefragPolicy(t *testing.T) {
 	t.Parallel()
+
+	for _, startupPolicy := range []v1alpha1.THPDefragPolicy{"", v1alpha1.THPDefragPolicyMadvise} {
+		t.Run(fmt.Sprintf("startup policy %q", startupPolicy), func(t *testing.T) {
+			testDynamicConfigManagerFragMemDefragPolicy(t, startupPolicy)
+		})
+	}
+}
+
+func testDynamicConfigManagerFragMemDefragPolicy(t *testing.T, startupPolicy v1alpha1.THPDefragPolicy) {
+	t.Helper()
 
 	nodeName := "test-node"
 	dir := t.TempDir()
@@ -492,6 +502,7 @@ func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T)
 	conf.GetDynamicConfiguration().FragMemConfiguration.MemFragScoreAsync = 80
 	conf.GetDynamicConfiguration().FragMemConfiguration.THPDefaultConfig = v1alpha1.THPModeMadvise
 	conf.GetDynamicConfiguration().FragMemConfiguration.THPHighOrderScoreThreshold = 85
+	conf.GetDynamicConfiguration().FragMemConfiguration.THPDefragPolicy = startupPolicy
 
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
@@ -516,6 +527,174 @@ func TestDynamicConfigManager_updateConfigPreservesFragMemDefaults(t *testing.T)
 	require.Equal(t, 80, got.MemFragScoreAsync)
 	require.Equal(t, v1alpha1.THPModeMadvise, got.THPDefaultConfig)
 	require.Equal(t, 85, got.THPHighOrderScoreThreshold)
+	require.Equal(t, startupPolicy, got.THPDefragPolicy)
+
+	hookCalls := 0
+	manager.AddConfigHook(func(_ context.Context, _, _ *dynamic.Configuration) error {
+		hookCalls++
+		return nil
+	})
+	tests := []struct {
+		name          string
+		policy        v1alpha1.THPDefragPolicy
+		omitPolicy    bool
+		removeFragMem bool
+		disable       bool
+		want          v1alpha1.THPDefragPolicy
+		wantErr       bool
+	}{
+		{name: "always overrides CLI", policy: v1alpha1.THPDefragPolicyAlways, want: v1alpha1.THPDefragPolicyAlways},
+		{name: "defer overrides CLI", policy: v1alpha1.THPDefragPolicyDefer, want: v1alpha1.THPDefragPolicyDefer},
+		{name: "defer madvise overrides CLI", policy: v1alpha1.THPDefragPolicyDeferMadvise, want: v1alpha1.THPDefragPolicyDeferMadvise},
+		{name: "madvise", policy: v1alpha1.THPDefragPolicyMadvise, want: v1alpha1.THPDefragPolicyMadvise},
+		{name: "never", policy: v1alpha1.THPDefragPolicyNever, want: v1alpha1.THPDefragPolicyNever},
+		{name: "invalid policy rejects entire update", policy: "force", disable: true, wantErr: true},
+		{name: "empty explicit policy rejected", policy: "", wantErr: true},
+		{name: "AQC enum is case sensitive", policy: "Always", wantErr: true},
+		{name: "AQC enum rejects whitespace", policy: " defer ", wantErr: true},
+		{name: "omitted policy restores CLI", omitPolicy: true, want: startupPolicy},
+		{name: "policy can update while FragMem disabled", policy: v1alpha1.THPDefragPolicyNever, disable: true, want: v1alpha1.THPDefragPolicyNever},
+		{name: "removing FragMem restores CLI", removeFragMem: true, want: startupPolicy},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next := adminQoSConfiguration.DeepCopy()
+			fragMem := next.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig
+			enabled := !tt.disable
+			fragMem.EnableFragMem = &enabled
+			if !tt.omitPolicy {
+				fragMem.THPDefragPolicy = &tt.policy
+			}
+			if tt.removeFragMem {
+				next.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig = nil
+			}
+			_, err := clientSet.DynamicClient.Resource(schema.GroupVersionResource(testTargetGVR)).
+				Namespace(next.Namespace).Update(context.Background(), toTestUnstructured(next), metav1.UpdateOptions{})
+			require.NoError(t, err)
+			// Start each load without a cached CNC hash so the updated JSON is decoded.
+			manager.configLoader = NewKatalystCustomConfigLoader(clientSet, 0, cncFetcher)
+			previousConfig := manager.conf.GetDynamicConfiguration()
+			previousCRD := manager.lastDynamicConfigCRD
+			previousHookCalls := hookCalls
+
+			err = manager.updateConfig(context.Background())
+			if tt.wantErr {
+				require.ErrorContains(t, err, "invalid THP defrag policy")
+				require.Same(t, previousConfig, manager.conf.GetDynamicConfiguration())
+				require.Same(t, previousCRD, manager.lastDynamicConfigCRD)
+				require.Equal(t, previousHookCalls, hookCalls, "invalid input must be rejected before hooks run")
+				return
+			}
+			require.NoError(t, err)
+			got := manager.conf.GetDynamicConfiguration().FragMemConfiguration
+			require.Equal(t, tt.want, got.THPDefragPolicy)
+			require.Equal(t, enabled && !tt.removeFragMem, got.EnableFragMem)
+			require.Equal(t, 80, got.MemFragScoreAsync)
+			require.Equal(t, v1alpha1.THPModeMadvise, got.THPDefaultConfig)
+			require.Equal(t, 85, got.THPHighOrderScoreThreshold)
+			require.Nil(t, got.THPStaticEnableConfig)
+			require.Equal(t, startupPolicy, manager.defaultConfig.FragMemConfiguration.THPDefragPolicy)
+		})
+	}
+}
+
+func TestDynamicConfigManager_updateConfigVMCompactionProactiveness(t *testing.T) {
+	t.Parallel()
+
+	zero, twenty, hundred := int64(0), int64(20), int64(100)
+	negative, excessive := int64(-1), int64(101)
+	for _, startup := range []*int64{nil, &zero, &twenty} {
+		name := "unset"
+		if startup != nil {
+			name = fmt.Sprint(*startup)
+		}
+		t.Run("startup "+name, func(t *testing.T) {
+			aqc := generateTestEvictionConfiguration(nil)
+			// A valid THP policy must not bypass proactiveness validation.
+			policy := v1alpha1.THPDefragPolicyNever
+			aqc.Spec.Config.QRMPluginConfig = &v1alpha1.QRMPluginConfig{
+				MemoryPluginConfig: &v1alpha1.MemoryPluginConfig{
+					FragMemConfig: &v1alpha1.FragMemConfig{THPDefragPolicy: &policy},
+				},
+			}
+			manager := constructTestDynamicConfigManager(t, "test-node", t.TempDir(), aqc)
+			manager.conf.GetDynamicConfiguration().FragMemConfiguration.VMCompactionProactiveness = startup
+			manager.defaultConfig = deepCopy(manager.conf.GetDynamicConfiguration())
+			loader := manager.configLoader.(*katalystCustomConfigLoader)
+			require.NoError(t, manager.updateConfig(context.Background()))
+			require.Equal(t, startup, manager.conf.GetDynamicConfiguration().FragMemConfiguration.VMCompactionProactiveness)
+
+			hookCalls := 0
+			manager.AddConfigHook(func(_ context.Context, _, _ *dynamic.Configuration) error {
+				hookCalls++
+				return nil
+			})
+			for _, tc := range []struct {
+				name      string
+				value     *int64
+				remove    string
+				want      *int64
+				wantErr   string
+				enable    bool
+				thpPolicy v1alpha1.THPDefragPolicy
+			}{
+				{name: "zero overrides startup while disabled", value: &zero, want: &zero},
+				{name: "maximum while enabled", value: &hundred, want: &hundred, enable: true},
+				{name: "negative rejects entire update", value: &negative, wantErr: "invalid vm.compaction_proactiveness"},
+				{name: "excessive rejects entire update", value: &excessive, wantErr: "invalid vm.compaction_proactiveness"},
+				{name: "invalid THP policy rejects valid target", value: &twenty, thpPolicy: "force", wantErr: "invalid THP defrag policy"},
+				{name: "omission restores startup", want: startup},
+				{name: "new AQC target", value: &hundred, want: &hundred},
+				{name: "removing FragMem restores startup", remove: "fragmem", want: startup},
+				{name: "zero again", value: &zero, want: &zero},
+				{name: "removing memory configuration restores startup", remove: "memory", want: startup},
+				{name: "maximum again", value: &hundred, want: &hundred},
+				{name: "removing QRM configuration restores startup", remove: "qrm", want: startup},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					next := aqc.DeepCopy()
+					fragMem := next.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig
+					fragMem.VMCompactionProactiveness = tc.value
+					fragMem.EnableFragMem = &tc.enable
+					if tc.thpPolicy != "" {
+						fragMem.THPDefragPolicy = &tc.thpPolicy
+					}
+					switch tc.remove {
+					case "fragmem":
+						next.Spec.Config.QRMPluginConfig.MemoryPluginConfig.FragMemConfig = nil
+					case "memory":
+						next.Spec.Config.QRMPluginConfig.MemoryPluginConfig = nil
+					case "qrm":
+						next.Spec.Config.QRMPluginConfig = nil
+					}
+					_, err := loader.client.DynamicClient.Resource(schema.GroupVersionResource(testTargetGVR)).
+						Namespace(next.Namespace).Update(context.Background(), toTestUnstructured(next), metav1.UpdateOptions{})
+					require.NoError(t, err)
+					// Reload changed JSON without reusing the CNC hash cache.
+					manager.configLoader = NewKatalystCustomConfigLoader(loader.client, 0, loader.cncFetcher)
+					previous := manager.conf.GetDynamicConfiguration()
+					previousCRD := manager.lastDynamicConfigCRD
+					previousHookCalls := hookCalls
+					err = manager.updateConfig(context.Background())
+					if tc.wantErr != "" {
+						require.ErrorContains(t, err, tc.wantErr)
+						require.Same(t, previous, manager.conf.GetDynamicConfiguration())
+						require.Same(t, previousCRD, manager.lastDynamicConfigCRD)
+						require.Equal(t, previousHookCalls, hookCalls)
+						return
+					}
+					require.NoError(t, err)
+					got := manager.conf.GetDynamicConfiguration().FragMemConfiguration
+					require.Equal(t, tc.want, got.VMCompactionProactiveness)
+					require.Equal(t, tc.enable && tc.remove == "", got.EnableFragMem)
+					require.Equal(t, startup, manager.defaultConfig.FragMemConfiguration.VMCompactionProactiveness)
+					if tc.want != nil {
+						require.NotSame(t, tc.want, got.VMCompactionProactiveness)
+					}
+				})
+			}
+		})
+	}
 }
 
 func Test_getGVRToKindMap(t *testing.T) {

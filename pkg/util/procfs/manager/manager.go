@@ -56,6 +56,7 @@ type ProcFSManager interface {
 	ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error
 	ApplyVMWatermarkBoostFactorAtPath(path string, boostFactor int64) error
 	ApplyVMExtFragThresholdAtPath(path string, threshold int64) error
+	ApplyVMCompactionProactivenessAtPath(path string, proactiveness int64) error
 	ApplyTransparentHugepageEnabledAtPath(path, mode string) error
 }
 
