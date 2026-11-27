@@ -17,11 +17,12 @@ limitations under the License.
 package resource_portrait
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/h2non/gock"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 )
@@ -71,8 +72,6 @@ func TestGeneratePredictionInput(t *testing.T) {
 
 func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 	t.Parallel()
-
-	defer gock.Off()
 
 	type fields struct {
 		Address  string
@@ -236,13 +235,19 @@ func TestPredictionAlgorithmProvider_Predict(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// http resp mock
-			gock.New(tt.fields.Address).
-				Post("/openapi/tsa/predict").
-				Reply(200).
-				JSON(tt.fields.RespJson)
+			// Each parallel case owns its server and response. No process-wide
+			// transport or mock registry is shared between cases.
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != resourcePortraitRequestPathPrediction {
+					http.Error(w, "unexpected prediction request", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.fields.RespJson))
+			}))
+			t.Cleanup(server.Close)
 
-			p, _ := NewAlgorithmProvider(tt.fields.Address, ResourcePortraitMethodPredict)
+			p, _ := NewAlgorithmProvider(server.URL, ResourcePortraitMethodPredict)
 			p.SetConfig(tt.fields.Cfg)
 			p.SetMetrics(tt.fields.Metrics)
 			timeseries, data, err := p.Call()

@@ -1204,7 +1204,8 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 			assertor.NoError(err)
 			conf := generateTestConfiguration(t)
 
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
 			targetHandler := kcctarget.NewKatalystCustomConfigTargetHandler(
 				ctx,
 				genericContext.Client,
@@ -1232,6 +1233,22 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 
 			genericContext.StartInformer(ctx)
 			go targetHandler.Run()
+			// HasSynced covers the KCC informer, not completion of target-accessor
+			// registration. Start reconciliation only after the seeded targets are
+			// readable so initial cleanup cannot discard their existing CNC state.
+			assertor.Eventually(func() bool {
+				accessor, ok := targetHandler.GetTargetAccessorByGVR(crd.AdminQoSConfigurationGVR)
+				if !ok {
+					return false
+				}
+				for _, target := range tt.args.kccTargetList {
+					object := target.(metav1.Object)
+					if _, err := accessor.Get(object.GetNamespace(), object.GetName()); err != nil {
+						return false
+					}
+				}
+				return true
+			}, 5*time.Second, 10*time.Millisecond)
 			go targetController.Run()
 
 			synced := cache.WaitForCacheSync(targetController.ctx.Done(), targetController.syncedFunc...)
