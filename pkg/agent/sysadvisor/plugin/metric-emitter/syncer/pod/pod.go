@@ -183,7 +183,7 @@ func (p *MetricSyncerPod) syncChanel() {
 					MetricName:    rawMetricName,
 				}, rChan)
 
-				klog.Infof("register raw pod metric: %v for pod/container: %v/%v, key %v",
+				klog.Infof("register raw pod metric: %v for pod/container: %v/%v, key %q",
 					rawMetricName, podList[i].Name, container.Name, key)
 				keys = append(keys, key)
 			}
@@ -202,7 +202,7 @@ func (p *MetricSyncerPod) syncChanel() {
 		}
 
 		for _, key := range pChanel.keys {
-			klog.Infof("deregister, key %v", key)
+			klog.Infof("deregister, key %q", key)
 			p.metaServer.MetricsFetcher.DeRegisterNotifier(metrictypes.MetricsScopeContainer, key)
 		}
 		close(pChanel.rChan)
