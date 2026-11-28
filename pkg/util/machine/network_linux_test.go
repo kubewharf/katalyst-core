@@ -3438,3 +3438,31 @@ func Test_netnsExit(t *testing.T) {
 		})
 	})
 }
+
+// Test_getInterfaceIndexFillsHardwareAddr verifies that getInterfaceIndex copies
+// the interface MAC address into InterfaceInfo.HardwareAddr alongside the ifindex.
+func Test_getInterfaceIndexFillsHardwareAddr(t *testing.T) {
+	PatchConvey("Test getInterfaceIndex fills HardwareAddr", t, func() {
+		ifaces, err := net.Interfaces()
+		So(err, ShouldBeNil)
+		So(len(ifaces), ShouldBeGreaterThan, 0)
+
+		// prefer a non-loopback interface, fall back to the first one
+		var target net.Interface
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagLoopback == 0 {
+				target = iface
+				break
+			}
+		}
+		if target.Name == "" {
+			target = ifaces[0]
+		}
+
+		info := &InterfaceInfo{Name: target.Name}
+		getInterfaceIndex("", info)
+
+		So(info.IfIndex, ShouldEqual, target.Index)
+		So([]byte(info.HardwareAddr), ShouldResemble, []byte(target.HardwareAddr))
+	})
+}

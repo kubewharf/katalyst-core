@@ -134,6 +134,8 @@ type InterfaceInfo struct {
 	Enable bool
 	// Addr address of this interface, which includes ipv4 and ipv6.
 	Addr *IfaceAddr
+	// HardwareAddr is the MAC address of this interface.
+	HardwareAddr net.HardwareAddr
 	// pci address(BDF) of this interface
 	PCIAddr string // used to locate nic's irq line in some special scnerios
 }
