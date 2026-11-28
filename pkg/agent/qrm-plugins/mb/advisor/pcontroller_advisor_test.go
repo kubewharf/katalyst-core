@@ -149,6 +149,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 							target: 24000,
 						},
 						ccdCapMB: 45000, // current dedicated group ccd cap
+						recover:  &fullCapRecover{},
 					},
 				},
 			},
@@ -181,6 +182,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 							target: 24000,
 						},
 						ccdCapMB: 15000,
+						recover:  &fullCapRecover{},
 					},
 				},
 			},
@@ -230,6 +232,7 @@ func TestPControllerAdvisor_GetPlan_May_Update_CCDCap(t *testing.T) {
 							target: 24000,
 						},
 						ccdCapMB: 21312,
+						recover:  &fullCapRecover{},
 					},
 				},
 			},
@@ -335,7 +338,7 @@ func TestPControllerAdvisor_GetSuppressedCCDs(t *testing.T) {
 
 	pCtrl := &pControllerAdvisor{
 		inner: mockInner,
-		lastCCDLimitSuppression: map[int]map[string]map[int]string{
+		ccdLimitSuppression: map[int]map[string]map[int]string{
 			0: {"dedicated": {4: "ccd_limit"}},
 		},
 	}

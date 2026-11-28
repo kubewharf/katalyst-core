@@ -34,9 +34,11 @@ import (
 )
 
 const (
-	tolerationTime = 3 * time.Second
-	rootGroup      = "root"
-	maxCCDTotalMB  = 60 * 1024
+	// increase toleration threshold as previous 3 seconds lead to quite some portion of skipped cycles
+	tolerationTime = 4 * time.Second
+
+	rootGroup     = "root"
+	maxCCDTotalMB = 60 * 1024
 )
 
 // localIsVictimAndTotalIsAllRead indicates special settings of resctrl controlling reg1 & reg2 which yield
