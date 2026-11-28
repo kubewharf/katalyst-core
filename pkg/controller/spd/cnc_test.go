@@ -18,6 +18,7 @@ package spd
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -369,7 +370,8 @@ func Test_cncCacheController_Run(t *testing.T) {
 				DynamicGVResources: []string{"statefulsets.v1.apps"},
 			}
 
-			ctx := context.TODO()
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
 			controlCtx, err := katalystbase.GenerateFakeGenericContext([]runtime.Object{tt.fields.pod},
 				[]runtime.Object{tt.fields.spd, tt.fields.cnc}, []runtime.Object{tt.fields.workload})
 			assert.NoError(t, err)
@@ -378,12 +380,21 @@ func Test_cncCacheController_Run(t *testing.T) {
 				spdConfig, generic.NewQoSConfiguration(), struct{}{})
 			assert.NoError(t, err)
 
+			cncInformer := controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs().Informer()
 			controlCtx.StartInformer(ctx)
 			go spdController.Run()
-			synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
-			assert.True(t, synced)
+			syncCtx, stopSync := context.WithTimeout(ctx, 10*time.Second)
+			defer stopSync()
+			syncFuncs := append([]cache.InformerSynced{cncInformer.HasSynced}, spdController.syncedFunc...)
+			if !cache.WaitForCacheSync(syncCtx.Done(), syncFuncs...) {
+				t.Fatal("controller input caches did not synchronize")
+			}
 			spdController.cncCacheController.clearUnusedConfig()
-			time.Sleep(1 * time.Second)
+			assert.Eventually(t, func() bool {
+				newCNC, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().
+					Get(ctx, tt.fields.cnc.Name, metav1.GetOptions{})
+				return err == nil && reflect.DeepEqual(tt.wantCNC, newCNC)
+			}, 10*time.Second, 10*time.Millisecond, "CNC did not reach the expected configuration")
 
 			newCNC, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().
 				Get(ctx, tt.fields.cnc.Name, metav1.GetOptions{})
