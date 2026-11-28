@@ -55,6 +55,10 @@ func (f *fakeState) GetPodEntries() state.PodEntries {
 	return f.podEntries
 }
 
+func (f *fakeState) GetAdvisorStateSnapshot() (state.PodEntries, state.NUMANodeMap, uint64) {
+	return f.podEntries.Clone(), f.machineState.Clone(), f.GetRevision()
+}
+
 func (f *fakeState) GetAllocationInfo(podUID string, containerName string) *state.AllocationInfo {
 	if f.allocations == nil {
 		return nil
@@ -66,17 +70,31 @@ func (f *fakeState) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return f.allowOverlap
 }
 
-func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) {
+func (f *fakeState) GetDisableDedicatedCoresOverlapReclaimedCores() bool {
+	return false
+}
+
+func (f *fakeState) GetRevision() uint64 {
+	return 0
+}
+
+func (f *fakeState) SetWritePermit(state.WriteGate) {}
+
+func (f *fakeState) SetDisableDedicatedCoresOverlapReclaimedCores(_, _ bool) error { return nil }
+
+func (f *fakeState) SetMachineState(numaNodeMap state.NUMANodeMap, _ bool) error {
 	f.machineState = numaNodeMap
+	return nil
 }
 
-func (f *fakeState) SetNUMAHeadroom(_ map[int]float64, _ bool) {}
+func (f *fakeState) SetNUMAHeadroom(_ map[int]float64, _ bool) error { return nil }
 
-func (f *fakeState) SetPodEntries(podEntries state.PodEntries, _ bool) {
+func (f *fakeState) SetPodEntries(podEntries state.PodEntries, _ bool) error {
 	f.podEntries = podEntries
+	return nil
 }
 
-func (f *fakeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, _ bool) {
+func (f *fakeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *state.AllocationInfo, _ bool) error {
 	if f.allocations == nil {
 		f.allocations = map[string]map[string]*state.AllocationInfo{}
 	}
@@ -84,22 +102,33 @@ func (f *fakeState) SetAllocationInfo(podUID string, containerName string, alloc
 		f.allocations[podUID] = map[string]*state.AllocationInfo{}
 	}
 	f.allocations[podUID][containerName] = allocationInfo
+	return nil
 }
 
-func (f *fakeState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, _ bool) {
+func (f *fakeState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, _ bool) error {
 	f.allowOverlap = allowSharedCoresOverlapReclaimedCores
+	return nil
 }
 
-func (f *fakeState) Delete(podUID string, containerName string, _ bool) {
+func (f *fakeState) Commit(update state.StateUpdate, options state.CommitOptions, permits ...*state.WritePermit) error {
+	f.podEntries = update.PodEntries
+	f.machineState = update.MachineState
+	f.allowOverlap = update.AllowSharedCoresOverlapReclaimedCores
+	return nil
+}
+
+func (f *fakeState) Delete(podUID string, containerName string, _ bool) error {
 	if f.allocations != nil {
 		delete(f.allocations[podUID], containerName)
 	}
+	return nil
 }
 
-func (f *fakeState) ClearState() {
+func (f *fakeState) ClearState() error {
 	f.machineState = nil
 	f.podEntries = nil
 	f.allocations = nil
+	return nil
 }
 
 func (f *fakeState) StoreState() error {

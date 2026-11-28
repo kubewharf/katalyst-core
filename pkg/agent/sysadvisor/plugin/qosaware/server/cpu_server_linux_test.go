@@ -22,7 +22,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"net"
 	"strings"
 	"testing"
@@ -34,14 +33,16 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 func TestCPUServerUpdate(t *testing.T) {
@@ -51,11 +52,6 @@ func TestCPUServerUpdate(t *testing.T) {
 	tmp, err := json.Marshal(&cgResource)
 	assert.NoError(t, err)
 	defaultCgroupConfig := string(tmp)
-
-	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
-	klog.InitFlags(flagSet)
-	_ = flagSet.Parse([]string{"--v", "6"})
-	defer klog.InitFlags(nil)
 
 	type testCase struct {
 		name      string
@@ -1080,8 +1076,7 @@ func TestCPUServerUpdate(t *testing.T) {
 		{
 			name: "reclaim pool overlap shared pool[1]",
 			provision: types.InternalCPUCalculationResult{
-				AllowSharedCoresOverlapReclaimedCores: true,
-				TimeStamp:                             time.Now(),
+				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
 					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
@@ -1098,7 +1093,6 @@ func TestCPUServerUpdate(t *testing.T) {
 				},
 			},
 			wantRes: &cpuadvisor.ListAndWatchResponse{
-				AllowSharedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
@@ -1226,8 +1220,7 @@ func TestCPUServerUpdate(t *testing.T) {
 		{
 			name: "reclaim pool overlap shared pool[2]",
 			provision: types.InternalCPUCalculationResult{
-				AllowSharedCoresOverlapReclaimedCores: true,
-				TimeStamp:                             time.Now(),
+				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: {Size: 4, Quota: common.CPUQuotaUnlimit}},
 					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: {Size: 4, Quota: common.CPUQuotaUnlimit}},
@@ -1244,7 +1237,6 @@ func TestCPUServerUpdate(t *testing.T) {
 				},
 			},
 			wantRes: &cpuadvisor.ListAndWatchResponse{
-				AllowSharedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
@@ -1381,15 +1373,13 @@ func TestCPUServerUpdate(t *testing.T) {
 		{
 			name: "reclaim pool with isolated pool",
 			provision: types.InternalCPUCalculationResult{
-				AllowSharedCoresOverlapReclaimedCores: true,
-				TimeStamp:                             time.Now(),
+				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim:                     {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
 					commonstate.PoolNamePrefixIsolation + "-test-1": {-1: {Size: 4, Quota: common.CPUQuotaUnlimit}},
 				},
 			},
 			wantRes: &cpuadvisor.ListAndWatchResponse{
-				AllowSharedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
@@ -1593,6 +1583,29 @@ func TestCPUServerUpdate(t *testing.T) {
 			testFunc := testFunc
 			t.Run(tt.name+"_"+apiMode, func(t *testing.T) {
 				t.Parallel()
+
+				// cs.assembleCgroupConfig reads the process-global reclaim
+				// consumer registry, and the wantRes below asserts on the
+				// /kubepods/besteffort* entries derived from it. Serialize
+				// against sibling parallel tests in this package (see
+				// serverGlobalRegistryMu in cpu_server_test.go) and register
+				// a single consumer for the duration of this subtest.
+				serverGlobalRegistryMu.Lock()
+				defer serverGlobalRegistryMu.Unlock()
+				reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
+				c := config.NewConfiguration()
+				c.BaseConfiguration.ReclaimRelativeRootCgroupPath = "/kubepods/besteffort"
+				c.BaseConfiguration.GenericReclaimedResourcePercentage = 100
+				machineInfo := &machine.KatalystMachineInfo{
+					CPUTopology: &machine.CPUTopology{
+						CPUDetails: machine.CPUDetails{
+							0: machine.CPUTopoInfo{NUMANodeID: 0},
+							1: machine.CPUTopoInfo{NUMANodeID: 1},
+						},
+					},
+				}
+				require.NoError(t, reclaim.RegisterNamedGenericConsumer(reclaim.GenericConsumerName, c, machineInfo))
+				defer reclaim.UnregisterConsumer(reclaim.GenericConsumerName)
 
 				advisor := &mockCPUResourceAdvisor{
 					provision: &tt.provision,

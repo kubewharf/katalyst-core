@@ -32,7 +32,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyNUMADedicated struct {
@@ -96,21 +95,11 @@ func (p *PolicyNUMADedicated) Update() error {
 			return err
 		}
 
-		// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-		// so we split cpu usage evenly across the binding numas of container.
-		if p.bindingNumas.Size() > 0 {
-			cpuSize := 0
-			for _, numaID := range p.bindingNumas.ToSliceInt() {
-				cpuSize += ci.TopologyAwareAssignments[numaID].Size()
-			}
-			cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)
-			if cpuAssignmentCPUs != 0 {
-				containerEstimation = containerEstimation * float64(cpuSize) / float64(cpuAssignmentCPUs)
-			} else {
-				// handle the case that cpuAssignmentCPUs is 0
-				klog.Warningf("[qosaware-cpu-numa-exclusive] cpuAssignmentCPUs is 0 for container %s/%s", ci.PodUID, ci.ContainerName)
-				containerEstimation = 0
-			}
+		var zeroAssignment bool
+		containerEstimation, zeroAssignment = helper.SplitCPUByBindingNUMAs(containerEstimation, p.bindingNumas, ci)
+		if zeroAssignment {
+			general.Warningf("[qosaware-cpu-numa-exclusive] cpuAssignmentCPUs is 0 for container %s/%s", ci.PodUID, ci.ContainerName)
+			containerEstimation = 0
 		}
 
 		cpuEstimation += containerEstimation
@@ -125,7 +114,7 @@ func (p *PolicyNUMADedicated) Update() error {
 		general.Errorf("get pps failed: %v, %v", podUID, err)
 		return err
 	}
-	p.headroom = originHeadroom * (score - spd.MinPerformanceScore) / (spd.MaxPerformanceScore - spd.MinPerformanceScore)
+	p.headroom = scaleHeadroomByPerformance(originHeadroom, score)
 
 	klog.Infof("[qosaware-cpu-numa-exclusive] region %v cpuEstimation %v with reservedForAllocate %v reservedForReclaim %v"+
 		" originHeadroom %v headroom %v score %v #container %v", p.regionName, cpuEstimation, p.ReservedForAllocate,
@@ -136,4 +125,14 @@ func (p *PolicyNUMADedicated) Update() error {
 
 func (p *PolicyNUMADedicated) GetHeadroom() (float64, error) {
 	return p.headroom, nil
+}
+
+// scaleHeadroomByPerformance scales the raw headroom by the performance score and
+// clamps the result to be non-negative. The linear factor extrapolates below
+// spd.MinPerformanceScore when the score falls out of the valid range; without
+// the clamp that extrapolation would yield a negative headroom, which is
+// meaningless (headroom cannot supply negative spare CPUs).
+func scaleHeadroomByPerformance(originHeadroom, score float64) float64 {
+	factor := (score - spd.MinPerformanceScore) / (spd.MaxPerformanceScore - spd.MinPerformanceScore)
+	return math.Max(originHeadroom*factor, 0)
 }

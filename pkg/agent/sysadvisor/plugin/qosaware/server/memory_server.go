@@ -255,6 +255,13 @@ type memoryInternalResult struct {
 }
 
 func (ms *memoryServer) updateAdvisor(ctx context.Context, supportedWantedFeatureGates map[string]*advisorsvc.FeatureGate) (*memoryInternalResult, error) {
+	// update feature gates in meta cache so downstream consumers (e.g. headroom reporter)
+	// can observe the negotiated set that QRM Memory plugin advertised.
+	if err := ms.metaCache.SetSupportedWantedFeatureGates(finders.FeatureGateTypeMemory, supportedWantedFeatureGates); err != nil {
+		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
+		return nil, fmt.Errorf("set feature gates failed: %w", err)
+	}
+
 	advisorRespRaw, err := ms.resourceAdvisor.UpdateAndGetAdvice(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get memory advice failed: %w", err)
@@ -294,7 +301,8 @@ func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAn
 	return nil
 }
 
-// assmble per-numa headroom
+// assembleHeadroom emits per-NUMA reclaim memory headroom (in bytes) on a
+// single CalculationInfo.
 func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
@@ -306,21 +314,19 @@ func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	for numaID, res := range numaAllocatable {
 		numaHeadroom[numaID] = res.Value()
 	}
-	data, err := json.Marshal(numaHeadroom)
+	numaData, err := json.Marshal(numaHeadroom)
 	if err != nil {
 		general.ErrorS(err, "marshal numa headroom failed")
 		return nil
 	}
 
-	calculationResult := &advisorsvc.CalculationResult{
-		Values: map[string]string{
-			string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
-		},
-	}
-
 	return &advisorsvc.CalculationInfo{
-		CgroupPath:        "",
-		CalculationResult: calculationResult,
+		CgroupPath: "",
+		CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{
+				string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(numaData),
+			},
+		},
 	}
 }
 
@@ -382,9 +388,9 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		}
 	}
 
-	extraNumaHeadroom := ms.assembleHeadroom()
-	if extraNumaHeadroom != nil {
-		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadroom)
+	extraHeadroom := ms.assembleHeadroom()
+	if extraHeadroom != nil {
+		resp.ExtraEntries = append(resp.ExtraEntries, extraHeadroom)
 	}
 
 	return &resp

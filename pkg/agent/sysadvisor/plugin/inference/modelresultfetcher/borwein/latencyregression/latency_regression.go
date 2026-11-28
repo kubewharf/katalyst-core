@@ -151,14 +151,18 @@ func MatchSlotOffset(nodeAvgNet float64, clusterStrategy ClusterStrategy, indica
 	return 0
 }
 
-func MatchSpecialTimes(clusterSpecialTimeStrategy ClusterSpecialTimeStrategy, indicator string) (float64, bool) {
+// MatchSpecialTimes looks up the special-time offset for the given indicator,
+// using now as the current time. now is injected by the caller so the match is
+// deterministic and independent of the machine's wall clock and timezone;
+// production passes time.Now.
+func MatchSpecialTimes(clusterSpecialTimeStrategy ClusterSpecialTimeStrategy, indicator string, now time.Time) (float64, bool) {
 	specialTimeSlots, ok := clusterSpecialTimeStrategy[indicator]
 	if !ok {
 		return 0, false
 	}
 
 	for _, specialTime := range specialTimeSlots {
-		offset, match := InSpecialTime(specialTime)
+		offset, match := InSpecialTime(specialTime, now)
 		if !match {
 			continue
 		}
@@ -168,13 +172,15 @@ func MatchSpecialTimes(clusterSpecialTimeStrategy ClusterSpecialTimeStrategy, in
 	return 0, false
 }
 
-func InSpecialTime(specialTime StrategySpecialTimeSlot) (float64, bool) {
+// InSpecialTime reports whether now falls inside the specialTime slot's time
+// range, expressed in now's location. now is injected by the caller so the
+// result is deterministic; production passes time.Now.
+func InSpecialTime(specialTime StrategySpecialTimeSlot, now time.Time) (float64, bool) {
 	if len(specialTime.TimeRange) != 2 {
 		return 0, false
 	}
 
 	layout := "15:04"
-	now := time.Now()
 	loc := now.Location()
 
 	start, err := time.ParseInLocation(layout, specialTime.TimeRange[0], loc)

@@ -150,10 +150,22 @@ func (s CPUSet) Contains(cpu int) bool {
 	return found
 }
 
-// Equals returns true if the supplied set contains exactly the same elements
-// as this set (s IsSubsetOf s2 and s2 IsSubsetOf s).
+// Equals reports whether two CPU sets have the same representation and elements.
+// In particular, it distinguishes an uninitialized set from an initialized empty
+// set. Use ElementsEqual only when the caller has already validated representation
+// state and needs pure set-content equality.
 func (s CPUSet) Equals(s2 CPUSet) bool {
 	return reflect.DeepEqual(s.elems, s2.elems)
+}
+
+// ElementsEqual reports whether two CPU sets contain the same CPU elements. It
+// intentionally ignores initialization state, so an uninitialized set and an
+// initialized empty set are element-equal.
+func (s CPUSet) ElementsEqual(s2 CPUSet) bool {
+	if s.Size() != s2.Size() {
+		return false
+	}
+	return s.IsSubsetOf(s2)
 }
 
 // Filter returns a new CPU set that contains all elements from this
@@ -203,6 +215,28 @@ func (s CPUSet) Union(s2 CPUSet) CPUSet {
 		s3.Add(cpu)
 	}
 	return s3
+}
+
+// AddSet inserts every element of s2 into s, mutating s in place without
+// allocating a new CPU set. It is the zero-allocation counterpart of Union for
+// callers that already own s and grow it incrementally. The caller must have
+// initialized s (for example via NewCPUSet); a zero CPUSet is left untouched.
+func (s CPUSet) AddSet(s2 CPUSet) {
+	if s.elems == nil {
+		return
+	}
+	for cpu := range s2.elems {
+		s.elems[cpu] = struct{}{}
+	}
+}
+
+// Each calls fn for every element in s without allocating a slice. Iteration
+// order is the map iteration order (unsorted); callers that need a stable
+// order should use ToSliceInt.
+func (s CPUSet) Each(fn func(cpu int)) {
+	for cpu := range s.elems {
+		fn(cpu)
+	}
 }
 
 // UnionAll returns a new CPU set that contains all elements from this

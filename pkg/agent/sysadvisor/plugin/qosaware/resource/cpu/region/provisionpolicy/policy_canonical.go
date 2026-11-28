@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -116,9 +117,23 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 			var containerEstimation float64
 			if ci.IsDedicatedNumaBinding() && !enableReclaim {
 				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
-					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
-					containerEstimation = float64(p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(bindingNumas.ToSliceNoSortInt()...))
-					klog.Infof("[qosaware-cpu-canonical] container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
+					if ci.IsNumaExclusive() {
+						// Exclusive NUMA-binding: the container owns its assigned
+						// CPUs on the exclusive NUMA(s), so estimate from the actual
+						// placement size. The per-NUMA split below localizes this to
+						// the current region's NUMA automatically (this NUMA's cpuset
+						// divided by the total cross-NUMA cpuset).
+						containerEstimation = float64(machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments))
+					} else {
+						// Non-exclusive NUMA-binding dedicated shares the NUMA with
+						// other workloads; placement size does not reflect demand, so
+						// use the container CPU request. The split below distributes
+						// it across NUMAs proportional to placement, preventing double
+						// counting when a container spans multiple per-NUMA regions.
+						containerEstimation = ci.CPURequest
+					}
+					klog.Infof("[qosaware-cpu-canonical] container %s/%s estimation %.2f exclusive=%v",
+						ci.PodName, ci.ContainerName, containerEstimation, ci.IsNumaExclusive())
 				} else {
 					containerEstimation = 0
 				}
@@ -130,21 +145,11 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 				}
 			}
 
-			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-			// so we split cpu usage evenly across the binding numas of container.
-			if p.bindingNumas.Size() > 0 {
-				cpuSize := 0
-				for _, numaID := range p.bindingNumas.ToSliceInt() {
-					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
-				}
-				cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)
-				if cpuAssignmentCPUs != 0 {
-					containerEstimation = containerEstimation * float64(cpuSize) / float64(cpuAssignmentCPUs)
-				} else {
-					// handle the case that cpuAssignmentCPUs is 0
-					klog.Warningf("[qosaware-cpu-canonical] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
-					containerEstimation = 0
-				}
+			var zeroAssignment bool
+			containerEstimation, zeroAssignment = helper.SplitCPUByBindingNUMAs(containerEstimation, p.bindingNumas, ci)
+			if zeroAssignment {
+				general.Warningf("[qosaware-cpu-canonical] cpuAssignmentCPUs is 0 for %v/%v", podUID, containerName)
+				containerEstimation = 0
 			}
 
 			cpuEstimation += containerEstimation

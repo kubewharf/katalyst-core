@@ -25,8 +25,18 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
+
+func TestMain(m *testing.M) {
+	oldTestMode := cgroups.TestMode
+	cgroups.TestMode = true
+	code := m.Run()
+	cgroups.TestMode = oldTestMode
+	os.Exit(code)
+}
 
 func TestNewManager(t *testing.T) {
 	t.Parallel()
@@ -49,6 +59,90 @@ func TestNewManager(t *testing.T) {
 				t.Errorf("NewManager() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_manager_GetHierarchicalNumaMemoryUsage(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	content := "anon N0=100 N1=200\nfile N0=30 N1=40\nunevictable N0=5 N1=6\n"
+	if err := os.WriteFile(filepath.Join(dir, "memory.numa_stat"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write memory.numa_stat: %v", err)
+	}
+
+	got, err := NewManager().GetHierarchicalNumaMemoryUsage(dir, 0)
+	if err != nil {
+		t.Fatalf("GetHierarchicalNumaMemoryUsage() error = %v", err)
+	}
+	want := map[int]uint64{0: 135, 1: 246}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetHierarchicalNumaMemoryUsage() = %v, want %v", got, want)
+	}
+}
+
+func Test_manager_GetHierarchicalNumaMemoryUsageRejectsMissingAnonOrFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	// unevictable is optional, but anon/file are required inputs.
+	content := "anon N0=100\nunevictable N0=5\n"
+	if err := os.WriteFile(filepath.Join(dir, "memory.numa_stat"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write memory.numa_stat: %v", err)
+	}
+
+	if _, err := NewManager().GetHierarchicalNumaMemoryUsage(dir, 0); err == nil {
+		t.Fatal("GetHierarchicalNumaMemoryUsage() expected error")
+	}
+}
+
+func Test_manager_GetHierarchicalNumaMemoryUsageTreatsMissingUnevictableAsZero(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	content := "anon N0=100 N1=200\nfile N0=30 N1=40\n"
+	if err := os.WriteFile(filepath.Join(dir, "memory.numa_stat"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write memory.numa_stat: %v", err)
+	}
+
+	got, err := NewManager().GetHierarchicalNumaMemoryUsage(dir, 0)
+	if err != nil {
+		t.Fatalf("GetHierarchicalNumaMemoryUsage() error = %v", err)
+	}
+	want := map[int]uint64{0: 130, 1: 240}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetHierarchicalNumaMemoryUsage() = %v, want %v", got, want)
+	}
+}
+
+func Test_manager_ApplyCPUSetWritesEmptyValues(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cpuset.cpus"), []byte("0-3"), 0o644); err != nil {
+		t.Fatalf("write cpuset.cpus: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cpuset.mems"), []byte("0-1"), 0o644); err != nil {
+		t.Fatalf("write cpuset.mems: %v", err)
+	}
+
+	m := NewManager()
+	if err := m.ApplyCPUSet(dir, &common.CPUSetData{CPUs: "", WriteEmptyCPUs: true}); err != nil {
+		t.Fatalf("ApplyCPUSet WriteEmptyCPUs: %v", err)
+	}
+	if err := m.ApplyCPUSet(dir, &common.CPUSetData{Mems: "", WriteEmptyMems: true}); err != nil {
+		t.Fatalf("ApplyCPUSet WriteEmptyMems: %v", err)
+	}
+
+	if got, err := os.ReadFile(filepath.Join(dir, "cpuset.cpus")); err != nil {
+		t.Fatalf("read cpuset.cpus: %v", err)
+	} else if string(got) != "" {
+		t.Fatalf("cpuset.cpus = %q, want empty", string(got))
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "cpuset.mems")); err != nil {
+		t.Fatalf("read cpuset.mems: %v", err)
+	} else if string(got) != "" {
+		t.Fatalf("cpuset.mems = %q, want empty", string(got))
 	}
 }
 

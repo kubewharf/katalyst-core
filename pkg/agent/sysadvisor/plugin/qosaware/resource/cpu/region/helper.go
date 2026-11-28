@@ -18,10 +18,12 @@ package region
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
-// GetResourcePackageName returns resource package name from container info
+// GetResourcePackageName returns the resource package name from container info.
+//
+// Deprecated: retained as a compatibility wrapper for potential out-of-repo
+// callers. Internal code should call ci.GetResourcePackageName() directly.
 func GetResourcePackageName(ci *types.ContainerInfo) string {
-	return resourcepackage.GetResourcePackageName(ci.Annotations)
+	return ci.GetResourcePackageName()
 }
