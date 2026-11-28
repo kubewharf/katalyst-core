@@ -54,6 +54,8 @@ func CalculateResource(pod *v1.Pod) v1.ResourceList {
 
 	for _, c := range pod.Spec.Containers {
 		for resourceName, quantity := range c.Resources.Requests {
+			// Quantity may contain a shared decimal pointer; never mutate cached Pod data.
+			quantity = quantity.DeepCopy()
 			if q, ok := resources[resourceName]; ok {
 				quantity.Add(q)
 			}
@@ -66,7 +68,7 @@ func CalculateResource(pod *v1.Pod) v1.ResourceList {
 			if q, ok := resources[resourceName]; ok && quantity.Cmp(q) <= 0 {
 				continue
 			}
-			resources[resourceName] = quantity
+			resources[resourceName] = quantity.DeepCopy()
 		}
 	}
 	return resources

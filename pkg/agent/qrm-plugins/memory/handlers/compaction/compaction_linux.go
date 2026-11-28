@@ -32,11 +32,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
+	// GlobalNUMAID selects whole-node compaction through procfs, not a NUMA node.
+	GlobalNUMAID = -1
+
 	// commandKcompactd is the comm prefix of the per-NUMA kcompactd kernel threads
 	// ("kcompactd<numaID>", e.g. kcompactd0).
 	commandKcompactd = "kcompactd"
@@ -69,7 +73,7 @@ var (
 	numaKcompactdPid   = make(map[int]int)
 	numaKcompactdPidMu sync.RWMutex
 
-	// CompactMemoryNodeFn triggers node-level memory compaction and returns any sysfs write error.
+	// CompactMemoryNodeFn triggers per-NUMA sysfs or global procfs compaction and returns the write error.
 	// It is a variable so that tests can observe compaction attempts without touching sysfs.
 	CompactMemoryNodeFn = setHostMemCompact
 
@@ -81,12 +85,14 @@ var (
 	numaCompactingMu sync.Mutex
 )
 
-// tryAcquireNumaCompacting attempts to mark numaID as being compacted. It returns true if the
-// caller acquired it (no compaction was in progress for that node), and false if another compaction
-// is already running for numaID and the caller should skip.
+// tryAcquireNumaCompacting marks a per-NUMA or global compaction atomically.
+// Different NUMA nodes may proceed together; global compaction conflicts with every node.
 func tryAcquireNumaCompacting(numaID int) bool {
 	numaCompactingMu.Lock()
 	defer numaCompactingMu.Unlock()
+	if _, global := numaCompacting[GlobalNUMAID]; global || (numaID == GlobalNUMAID && len(numaCompacting) > 0) {
+		return false
+	}
 	if _, ok := numaCompacting[numaID]; ok {
 		return false
 	}
@@ -101,10 +107,23 @@ func releaseNumaCompacting(numaID int) {
 	delete(numaCompacting, numaID)
 }
 
-// setHostMemCompact triggers node-level memory compaction via sysfs and returns any write error.
+// setHostMemCompact writes once to the selected kernel compaction knob.
 func setHostMemCompact(node int) error {
 	targetFile := hostMemNodePath + strconv.Itoa(node) + "/compact"
-	return os.WriteFile(targetFile, []byte("1"), 0o644)
+	if node == GlobalNUMAID {
+		targetFile = filepath.Join(ProcFSRoot, "sys/vm/compact_memory")
+	}
+	// Both kernel knobs must already exist; never create or truncate a substitute.
+	file, err := os.OpenFile(targetFile, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.WriteString("1")
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	return closeErr
 }
 
 func calculateTHPOrder(basePageSize int, thpSize uint64) (int, error) {
@@ -159,8 +178,11 @@ func ReadNumaUnusableIndex(numaID, order int) (float64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read %s: %w", UnusableIndexFilePath, err)
 	}
+	return parseNumaUnusableIndex(string(data), numaID, order)
+}
 
-	for _, line := range strings.Split(string(data), "\n") {
+func parseNumaUnusableIndex(data string, numaID, order int) (float64, error) {
+	for _, line := range strings.Split(data, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 || fields[0] != "Node" || fields[2] != "zone" || fields[3] != "Normal" {
 			continue
@@ -203,8 +225,15 @@ func ReadNumaFreeMemorySizeAtOrAboveOrder(numaID, minOrder int) (uint64, error) 
 	if err != nil {
 		return 0, fmt.Errorf("read %s: %w", buddyInfoPath, err)
 	}
+	return parseNumaFreeMemory(string(data), numaID, minOrder)
+}
 
-	for _, line := range strings.Split(string(data), "\n") {
+func parseNumaFreeMemory(data string, numaID, minOrder int) (uint64, error) {
+	buddyInfoPath := filepath.Join(ProcFSRoot, "buddyinfo")
+	if minOrder < 0 {
+		return 0, fmt.Errorf("invalid negative order %d", minOrder)
+	}
+	for _, line := range strings.Split(data, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 || fields[0] != "Node" || fields[2] != "zone" || fields[3] != "Normal" {
 			continue
@@ -234,6 +263,41 @@ func ReadNumaFreeMemorySizeAtOrAboveOrder(numaID, minOrder int) (uint64, error) 
 	}
 
 	return 0, fmt.Errorf("NUMA %d Normal zone not found in %s", numaID, buddyInfoPath)
+}
+
+// NumaFragmentation keeps independent metric failures in one observation snapshot.
+type NumaFragmentation struct {
+	NUMAID           int
+	UnusableIndex    float64
+	UnusableIndexErr error
+	FreeMemory       uint64
+	FreeMemoryErr    error
+}
+
+// ReadNumaFragmentation reads each kernel file once for all requested NUMA nodes.
+func ReadNumaFragmentation(numaIDs []int, order int) []NumaFragmentation {
+	indexData, indexErr := os.ReadFile(UnusableIndexFilePath)
+	buddyPath := filepath.Join(ProcFSRoot, "buddyinfo")
+	buddyData, buddyErr := os.ReadFile(buddyPath)
+	if indexErr != nil {
+		indexErr = fmt.Errorf("read %s: %w", UnusableIndexFilePath, indexErr)
+	}
+	if buddyErr != nil {
+		buddyErr = fmt.Errorf("read %s: %w", buddyPath, buddyErr)
+	}
+	indexText, buddyText := string(indexData), string(buddyData)
+	results := make([]NumaFragmentation, 0, len(numaIDs))
+	for _, id := range numaIDs {
+		result := NumaFragmentation{NUMAID: id, UnusableIndexErr: indexErr, FreeMemoryErr: buddyErr}
+		if indexErr == nil {
+			result.UnusableIndex, result.UnusableIndexErr = parseNumaUnusableIndex(indexText, id, order)
+		}
+		if buddyErr == nil {
+			result.FreeMemory, result.FreeMemoryErr = parseNumaFreeMemory(buddyText, id, order)
+		}
+		results = append(results, result)
+	}
+	return results
 }
 
 // discoverNumaKcompactdPids walks ProcFSRoot and records, per NUMA node, the pid of its kcompactd
@@ -320,6 +384,20 @@ func readPidState(pid int) (string, bool) {
 // compaction, i.e. it is in the R (running) or D (uninterruptible sleep) state. When the pid is
 // unknown or its state cannot be read, it conservatively returns false so compaction is allowed.
 func IsNumaKcompactdBusy(numaID int) bool {
+	if numaID == GlobalNUMAID {
+		numaKcompactdPidMu.RLock()
+		ids := make([]int, 0, len(numaKcompactdPid))
+		for id := range numaKcompactdPid {
+			ids = append(ids, id)
+		}
+		numaKcompactdPidMu.RUnlock()
+		for _, id := range ids {
+			if IsNumaKcompactdBusy(id) {
+				return true
+			}
+		}
+		return false
+	}
 	numaKcompactdPidMu.RLock()
 	pid, ok := numaKcompactdPid[numaID]
 	numaKcompactdPidMu.RUnlock()
@@ -341,28 +419,58 @@ func IsNumaKcompactdBusy(numaID int) bool {
 // each plugin can use its own metric name and tags. The per-NUMA kcompactd pids are discovered
 // lazily on first use (and retried until found), so callers do not have to prime them before the scan loop.
 func TryCompactNUMANode(numaID int) bool {
-	// Guard against concurrent compaction of the same node (e.g. two plugins sharing this helper):
-	// if another caller is already compacting numaID, skip rather than duplicate the work.
+	return CompactNUMANode(numaID).State == CompactionWriteReturned
+}
+
+// CompactionState describes the outcome of one attempt, not its fragmentation benefit.
+type CompactionState string
+
+const (
+	CompactionNUMABusy      CompactionState = "numa_busy"
+	CompactionKcompactdBusy CompactionState = "kcompactd_busy"
+	CompactionWriteFailed   CompactionState = "write_failed"
+	CompactionWriteReturned CompactionState = "write_returned"
+)
+
+// CompactionResult preserves the write error and duration. Cost is nil when no write was attempted.
+type CompactionResult struct {
+	State CompactionState
+	Err   error
+	Cost  *time.Duration
+}
+
+// CompactMemory performs one whole-node compaction with the shared guard and
+// kcompactd checks. It does not synthesize per-NUMA outcomes from the global write.
+func CompactMemory() CompactionResult {
+	return CompactNUMANode(GlobalNUMAID)
+}
+
+// CompactNUMANode shares the compaction guard and kcompactd checks with existing callers.
+// GlobalNUMAID performs one procfs write and excludes every per-NUMA attempt; an active
+// per-NUMA attempt also excludes global compaction. Global scope checks all discovered
+// kcompactd threads. Unknown/unreadable state retains the existing allow-attempt behavior.
+// A returned write does not guarantee complete compaction or a fragmentation improvement.
+func CompactNUMANode(numaID int) CompactionResult {
 	if !tryAcquireNumaCompacting(numaID) {
 		general.Infof("skip NUMA %d: a compaction is already in progress", numaID)
-		return false
+		return CompactionResult{State: CompactionNUMABusy}
 	}
 	defer releaseNumaCompacting(numaID)
 
-	// Make sure the per-NUMA kcompactd pids are known before consulting their state. This is a
-	// no-op once the pids have been discovered.
 	ensureNumaKcompactdPids()
-
 	if IsNumaKcompactdBusy(numaID) {
 		general.Infof("skip NUMA %d: kcompactd is busy (R/D state)", numaID)
-		return false
+		return CompactionResult{State: CompactionKcompactdBusy}
 	}
 
-	if err := CompactMemoryNodeFn(numaID); err != nil {
+	start := time.Now()
+	err := CompactMemoryNodeFn(numaID)
+	cost := time.Since(start)
+	if err != nil {
 		general.Errorf("compact NUMA %d failed: %v", numaID, err)
-		return false
+		return CompactionResult{State: CompactionWriteFailed, Err: err, Cost: &cost}
 	}
-	return true
+	return CompactionResult{State: CompactionWriteReturned, Cost: &cost}
 }
 
 // ResetKcompactdPidsForTest clears the discovered kcompactd pid cache so tests can start from a

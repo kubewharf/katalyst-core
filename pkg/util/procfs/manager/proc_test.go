@@ -28,6 +28,17 @@ import (
 
 var mu = sync.Mutex{}
 
+func TestVMCompactionProactivenessPath(t *testing.T) {
+	t.Parallel()
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "/proc/sys/vm/compaction_proactiveness", VMCompactionProactivenessPath)
+	old := VMCompactionProactivenessPath
+	defer func() { VMCompactionProactivenessPath = old }()
+	VMCompactionProactivenessPath = "/private/test/compaction_proactiveness"
+	assert.Equal(t, "/private/test/compaction_proactiveness", VMCompactionProactivenessPath)
+}
+
 func TestGetCPUInfo(t *testing.T) {
 	t.Parallel()
 	mu.Lock()
