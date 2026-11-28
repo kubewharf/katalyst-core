@@ -18,14 +18,42 @@ package allocator
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
+
+type fakeRDTManager struct {
+	mbaCalls map[string]map[int]int
+	mbaErr   error
+}
+
+func (f *fakeRDTManager) CheckSupportRDT() (bool, error)        { return false, nil }
+func (f *fakeRDTManager) InitRDT() error                        { return nil }
+func (f *fakeRDTManager) ApplyTasks(string, []string) error     { return nil }
+func (f *fakeRDTManager) ApplyCAT(string, map[int]uint64) error { return nil }
+func (f *fakeRDTManager) ApplyMBA(clos string, mba map[int]int) error {
+	if f.mbaCalls == nil {
+		f.mbaCalls = make(map[string]map[int]int)
+	}
+	f.mbaCalls[clos] = mba
+	return f.mbaErr
+}
+
+func (f *fakeRDTManager) RunClosResourceUpdate(_ string, update func() (bool, error)) error {
+	_, err := update()
+	return err
+}
+func (f *fakeRDTManager) InvalidateClos(string) {}
+
+var _ rdt.RDTManager = &fakeRDTManager{}
 
 func Test_isValidPath(t *testing.T) {
 	t.Parallel()
@@ -67,7 +95,6 @@ func Test_resctrlAllocator_AllocateGroupPlan(t *testing.T) {
 	t.Parallel()
 
 	dummyFS := afero.NewMemMapFs()
-	_ = afero.WriteFile(dummyFS, "/sys/fs/resctrl/shared-50/schemata", []byte("ddd"), 0o644)
 
 	type args struct {
 		ctrlGroup string
@@ -79,9 +106,9 @@ func Test_resctrlAllocator_AllocateGroupPlan(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "non existent group leads to failure",
+			name: "invalid group leads to failure",
 			args: args{
-				ctrlGroup: "nonexistent",
+				ctrlGroup: "invalid/group",
 				plan:      plan.GroupCCDPlan{0: 5_000, 1: 4_500},
 			},
 			wantErr: true,
@@ -99,7 +126,7 @@ func Test_resctrlAllocator_AllocateGroupPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := &resctrlAllocator{fs: dummyFS}
+			r := &resctrlAllocator{fs: dummyFS, rdtManager: &fakeRDTManager{}}
 			if err := r.allocateGroupPlan(tt.args.ctrlGroup, tt.args.plan); (err != nil) != tt.wantErr {
 				t.Errorf("Allocate() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -109,12 +136,10 @@ func Test_resctrlAllocator_AllocateGroupPlan(t *testing.T) {
 
 func Test_resctrlAllocator_Allocate(t *testing.T) {
 	t.Parallel()
-	testFS := afero.NewMemMapFs()
-	_ = afero.WriteFile(testFS, "/sys/fs/resctrl/shared-50/schemata", []byte("ddd"), 0o644)
-	_ = afero.WriteFile(testFS, "/sys/fs/resctrl/shared-30/schemata", []byte("ddd"), 0o644)
 
 	type fields struct {
-		fs afero.Fs
+		fs         afero.Fs
+		rdtManager rdt.RDTManager
 	}
 	type args struct {
 		ctx  context.Context
@@ -125,12 +150,13 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 		fields  fields
 		args    args
 		wantErr bool
-		want    map[string]string
+		want    map[string]map[int]int
 	}{
 		{
 			name: "happy path",
 			fields: fields{
-				fs: testFS,
+				fs:         afero.NewMemMapFs(),
+				rdtManager: &fakeRDTManager{},
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -142,9 +168,9 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 				},
 			},
 			wantErr: false,
-			want: map[string]string{
-				"shared-50": "MB:0=32;2=36;\n",
-				"shared-30": "MB:1=48;2=24;\n",
+			want: map[string]map[int]int{
+				"shared-50": {0: 32, 2: 36},
+				"shared-30": {1: 48, 2: 24},
 			},
 		},
 	}
@@ -152,21 +178,28 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := &resctrlAllocator{
-				fs: tt.fields.fs,
-			}
+			r := &resctrlAllocator{fs: tt.fields.fs, rdtManager: tt.fields.rdtManager}
 			if err := r.Allocate(tt.args.ctx, tt.args.plan); (err != nil) != tt.wantErr {
 				t.Errorf("Allocate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			for path, content := range tt.want {
-				buff, err := afero.ReadFile(r.fs, "/sys/fs/resctrl/"+path+"/schemata")
-				assert.NoError(t, err)
-				t.Logf("content got: %s", string(buff))
-				assert.Equal(t, content, string(buff))
-			}
+			assert.Equal(t, tt.want, tt.fields.rdtManager.(*fakeRDTManager).mbaCalls)
 		})
 	}
+}
+
+func Test_resctrlAllocator_AllocateReturnsRDTManagerError(t *testing.T) {
+	t.Parallel()
+
+	applyErr := errors.New("apply mba failed")
+	manager := &fakeRDTManager{mbaErr: applyErr}
+	allocator := &resctrlAllocator{fs: afero.NewMemMapFs(), rdtManager: manager}
+
+	err := allocator.Allocate(context.Background(), &plan.MBPlan{
+		MBGroups: map[string]plan.GroupCCDPlan{"shared": {0: 4_000}},
+	})
+	require.ErrorIs(t, err, applyErr)
+	require.Equal(t, map[string]map[int]int{"shared": {0: 32}}, manager.mbaCalls)
 }
 
 func Test_resctrlAllocator_getResetPlan(t *testing.T) {

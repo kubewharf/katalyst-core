@@ -653,7 +653,10 @@ func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 	grpcServer := grpc.NewServer()
 	advisorsvc.RegisterQRMServiceServer(grpcServer, p)
 
-	exitCh := make(chan struct{})
+	// Buffered so the Serve goroutine can always signal back without a receiver:
+	// when stopCh fires we call grpcServer.Stop() and return before reading
+	// exitCh, an unbuffered send would park the Serve goroutine forever.
+	exitCh := make(chan struct{}, 1)
 	go func() {
 		general.Infof("starting memory plugin checkpoint grpc server at socket: %s", p.memoryPluginSocketAbsPath)
 		if err := grpcServer.Serve(sock); err != nil {

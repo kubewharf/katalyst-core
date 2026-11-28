@@ -29,3 +29,9 @@ func readCPUListMask(path string) (machine.CPUSet, error) {
 	}
 	return parseCPUListMask(content)
 }
+
+// newCPUListManager is a test-only thin wrapper over newCPUListManagerWithUpdater
+// with a nil updater.
+func newCPUListManager(root string) *cpuListManager {
+	return newCPUListManagerWithUpdater(root, nil)
+}
