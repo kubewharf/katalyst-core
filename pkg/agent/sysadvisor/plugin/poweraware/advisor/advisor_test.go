@@ -18,6 +18,7 @@ package advisor
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -128,6 +129,17 @@ func (d *dummySpecFetcher) GetPowerSpec(ctx context.Context) (*spec.PowerSpec, e
 	}
 }
 
+// defaultHealthState returns a healthState with default errorCounters for testing.
+func defaultHealthState() *healthState {
+	return &healthState{
+		errorCounters: map[string]*int64{
+			"spec_read":  new(int64),
+			"power_read": new(int64),
+			"reconcile":  new(int64),
+		},
+	}
+}
+
 func Test_powerAwareAdvisor_run_normal(t *testing.T) {
 	t.Parallel()
 	// make sure advisor run gets power spec, gets actual power status, and takes action in order
@@ -142,6 +154,7 @@ func Test_powerAwareAdvisor_run_normal(t *testing.T) {
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		reconciler:  depPowerCapper,
+		state:       defaultHealthState(),
 	}
 
 	ctx := context.TODO()
@@ -172,6 +185,7 @@ func Test_powerAwareAdvisor_run_abort_on_spec_fetcher_error(t *testing.T) {
 		emitter:     &metrics.DummyMetrics{},
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
+		state:       defaultHealthState(),
 	}
 
 	ctx := context.TODO()
@@ -197,6 +211,7 @@ func Test_powerAwareAdvisor_run_return_on_None_alert(t *testing.T) {
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		powerCapper: depInitResetter,
+		state:       defaultHealthState(),
 	}
 
 	ctx := context.TODO()
@@ -226,6 +241,7 @@ func Test_powerAwareAdvisor_run_return_on_Pause_op(t *testing.T) {
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		powerCapper: depInitResetter,
+		state:       defaultHealthState(),
 	}
 
 	ctx := context.TODO()
@@ -255,6 +271,7 @@ func Test_powerAwareAdvisor_Run_does_Init_Cleanup(t *testing.T) {
 		emitter:     &metrics.DummyMetrics{},
 		powerReader: depPowerReader,
 		podEvictor:  depPodEvictor,
+		state:       defaultHealthState(),
 	}
 
 	err := advisor.Init()
@@ -267,5 +284,41 @@ func Test_powerAwareAdvisor_Run_does_Init_Cleanup(t *testing.T) {
 	}
 	if !depPodEvictor.calledInit {
 		t.Errorf("expected power evict init called called; got %v", depPodEvictor.calledInit)
+	}
+}
+
+func Test_healthState_resets_error_counters(t *testing.T) {
+	t.Parallel()
+
+	var ecSpec int64
+	atomic.AddInt64(&ecSpec, 3)
+	var ecPower int64
+	atomic.AddInt64(&ecPower, 1)
+
+	s := defaultHealthState()
+	s.errorCounters = map[string]*int64{
+		"spec_read":  &ecSpec,
+		"power_read": &ecPower,
+		"reconcile":  new(int64),
+	}
+
+	statuses := s.healthStatus()
+
+	if statuses["spec_read"] != "nok" {
+		t.Errorf("spec_read = %s, want nok", statuses["spec_read"])
+	}
+	if statuses["power_read"] != "nok" {
+		t.Errorf("power_read = %s, want nok", statuses["power_read"])
+	}
+	if statuses["reconcile"] != "ok" {
+		t.Errorf("reconcile = %s, want ok", statuses["reconcile"])
+	}
+
+	statuses2 := s.healthStatus()
+	if statuses2["spec_read"] != "ok" {
+		t.Errorf("spec_read = %s, want ok after reset", statuses2["spec_read"])
+	}
+	if statuses2["power_read"] != "ok" {
+		t.Errorf("power_read = %s, want ok after reset", statuses2["power_read"])
 	}
 }
