@@ -563,6 +563,7 @@ func TestUpdate(t *testing.T) {
 		metricsFetcherSynced *bool
 		wantAdviceResult     *types.InternalMemoryCalculationResult
 		wantErr              bool
+		wantErrContains      string
 	}{
 		{
 			name:                 "metaCache not synced",
@@ -1431,6 +1432,13 @@ func TestUpdate(t *testing.T) {
 		},
 		{
 			name: "set reclaimed group memory limit(failed)",
+			zoneInfos: []machine.NormalZoneInfo{
+				{Node: 0, Low: (20 << 30) / 4096, Free: (60 << 30) / 4096},
+				{Node: 1, Low: (20 << 30) / 4096, Free: (60 << 30) / 4096},
+				{Node: 2, Low: (20 << 30) / 4096, Free: (60 << 30) / 4096},
+				{Node: 3, Low: (20 << 30) / 4096, Free: (60 << 30) / 4096},
+			},
+			wantErrContains: "missing hierarchical NUMA usage",
 			pools: map[string]*types.PoolInfo{
 				commonstate.PoolNameReserve: {
 					PoolName: commonstate.PoolNameReserve,
@@ -4650,6 +4658,9 @@ func TestUpdate(t *testing.T) {
 			result, err := advisor.update()
 			if tt.wantErr {
 				assert.Error(t, err)
+				if tt.wantErrContains != "" {
+					assert.ErrorContains(t, err, tt.wantErrContains)
+				}
 			} else {
 				assert.NoError(t, err)
 			}

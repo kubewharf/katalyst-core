@@ -59,9 +59,11 @@ func newFakeNUMAHardAssembler(
 	conf.GetDynamicConfiguration().ReclaimedCPUMaxRatio = 0
 
 	cpuDetails := machine.CPUDetails{}
+	cpuID := 0
 	for numaID, size := range numaAvailable {
-		for cpuID := 0; cpuID < size; cpuID++ {
+		for localCPU := 0; localCPU < size; localCPU++ {
 			cpuDetails[cpuID] = machine.CPUTopoInfo{NUMANodeID: numaID}
+			cpuID++
 		}
 	}
 	metaServer := &metaserver.MetaServer{
@@ -106,6 +108,15 @@ func newFakeNUMAHardAssembler(
 		ReclaimActiveScopes:      map[ReclaimConstraintScope]bool{scope: true},
 		ReclaimCeilings:          map[ReclaimConstraintScope]*int{scope: ptrToInt(effectiveTarget)},
 	}
+}
+
+func TestFakeNUMATopologyPreservesBackingCapacity(t *testing.T) {
+	t.Parallel()
+	pa := newFakeNUMAHardAssembler(t, []int{0, 1}, map[int]int{0: 24, 1: 16}, nil, 8, false)
+	topo := pa.metaServer.CPUTopology
+	require.Equal(t, 40, topo.NumCPUs)
+	require.Equal(t, 24, topo.CPUDetails.CPUsInNUMANodes(0).Size())
+	require.Equal(t, 16, topo.CPUDetails.CPUsInNUMANodes(1).Size())
 }
 
 // assembleFakeNUMAHardScope assembles only the global (FakedNUMAID) scope.
@@ -252,7 +263,9 @@ func TestFakeNUMAHardPublishDeltaIsZero(t *testing.T) {
 
 	result := assembleFakeNUMAHardScope(t, pa)
 	require.Equal(t, 8, result.PoolEntries[commonstate.PoolNameReclaim][commonstate.FakedNUMAID].Size)
-	require.Equal(t, int64(0), emitter.values[metricReclaimPublishDelta],
+	value, emitted := emitter.values[metricReclaimPublishDelta]
+	require.True(t, emitted, "publish_delta metric must be emitted")
+	require.Equal(t, int64(0), value,
 		"publish_delta must be 0 once the double-deduction is removed")
 }
 
@@ -402,7 +415,9 @@ func TestFakeNUMAHardOverlapPublishesEntryTargetMinusOverlap(t *testing.T) {
 			require.Equal(t, tc.wantEntry, entry, "non-overlap entry = target - overlap")
 			require.Equal(t, 8, entry+overlapMeta, "publish conservation: entry + overlap must equal the effective target")
 
-			require.Equal(t, int64(0), emitter.values[metricReclaimPublishDelta],
+			value, emitted := emitter.values[metricReclaimPublishDelta]
+			require.True(t, emitted, "publish_delta metric must be emitted")
+			require.Equal(t, int64(0), value,
 				"publish_delta = entry + overlap - target must be 0")
 			_, violationEmitted := emitter.values[metricReclaimInvariantViolationTotal]
 			require.False(t, violationEmitted,
@@ -421,17 +436,15 @@ func TestFakeNUMAHardOverlapPublishesEntryTargetMinusOverlap(t *testing.T) {
 func assembleHardScopeWithShareBackfill(t *testing.T, pa *provisionTestFixture) *types.InternalCPUCalculationResult {
 	t.Helper()
 	result := assembleFakeNUMAHardScope(t, pa)
+	result.DefaultShareBackfill.Enabled = pa.conf.GetDynamicConfiguration().FillDefaultSharePoolWithNonReclaimCPUs
 	require.NoError(t, pa.finalizeDefaultShareBackfill(pa.ctx(), NewRegionMapHelper(pa.regionMap), result))
 	return result
 }
 
-// TestFakeNUMACeilingLoweringConservesReclaimAndShare is the measured conservation
-// gate: when the constrained reclaim ceiling is lowered, the cores released from the
-// reclaim pool must be absorbed by the default share pool one-for-one, i.e.
-// Δreclaim + Δshare == 0. This is asserted across two real assembler runs (ceiling
-// 14 -> 8) and cross-checked against the finalizeDefaultShareBackfill diagnostics
-// (Raw/Final/Released), not derived from the formula alone.
-func TestFakeNUMACeilingLoweringConservesReclaimAndShare(t *testing.T) {
+// TestFakeNUMACeilingLoweringPreservesShareUpperBound verifies released-budget
+// accounting while the default share publication remains an allocatable upper
+// bound. QRM materializes the exact residual from its CPUSet snapshot.
+func TestFakeNUMACeilingLoweringPreservesShareUpperBound(t *testing.T) {
 	t.Parallel()
 
 	backing := []int{0, 1}
@@ -440,16 +453,12 @@ func TestFakeNUMACeilingLoweringConservesReclaimAndShare(t *testing.T) {
 	publish := func(ceiling int) (reclaim, share int, bf types.DefaultShareBackfillDiagnostics) {
 		pa := newFakeNUMAHardAssembler(t, backing,
 			map[int]int{0: 24, 1: 24}, reserved, ceiling, false)
+		pa.conf.GetDynamicConfiguration().FillDefaultSharePoolWithNonReclaimCPUs = true
 		res := assembleHardScopeWithShareBackfill(t, pa)
 		reclaim = res.PoolEntries[commonstate.PoolNameReclaim][commonstate.FakedNUMAID].Size
-		// This harness assembles the FakedNUMAID scope directly, so the production
-		// AssembleProvision path (which materializes PoolEntries[share][FakedNUMAID]
-		// under FillDefaultSharePoolWithNonReclaimCPUs) does not run and that entry is
-		// structurally 0. The share-side quantity that actually moves one-for-one with
-		// reclaim here is the ReleasedReclaimSize: the cores cut out of the reclaim
-		// pool and handed to the default-share backfill. It is the equivalent measure
-		// of "how much the share pool absorbed" for the conservation gate.
-		share = res.DefaultShareBackfill.ReleasedReclaimSize
+		shareEntry, ok := res.PoolEntries[commonstate.PoolNameShare][commonstate.FakedNUMAID]
+		require.True(t, ok, "backfill finalizer must publish a default share entry")
+		share = shareEntry.Size
 		return reclaim, share, res.DefaultShareBackfill
 	}
 
@@ -465,25 +474,20 @@ func TestFakeNUMACeilingLoweringConservesReclaimAndShare(t *testing.T) {
 	require.Equal(t, bfHigh.RawReclaimSize, bfHigh.FinalReclaimSize+bfHigh.ReleasedReclaimSize)
 	require.Equal(t, bfLow.RawReclaimSize, bfLow.FinalReclaimSize+bfLow.ReleasedReclaimSize)
 
-	// Measured Δreclaim + Δshare == 0. Lowering the ceiling 14 -> 8 shrinks the
-	// published reclaim by 6 (Final 14 -> 8); those exact 6 cores appear in the
-	// ReleasedReclaimSize pool (34 -> 40), which is the source the default share
-	// backfill absorbs. Raw is the constant total, so Final + Released is invariant.
-	deltaReclaim := bfLow.FinalReclaimSize - bfHigh.FinalReclaimSize        // -6
-	deltaReleased := bfLow.ReleasedReclaimSize - bfHigh.ReleasedReclaimSize // +6
-	require.Equal(t, -6, deltaReclaim, "published reclaim shrinks by exactly the ceiling delta")
-	require.Equal(t, +6, deltaReleased, "the same cores move into the share-backfill released pool")
-	require.Equal(t, 0, deltaReclaim+deltaReleased, "Δreclaim + Δshare(released) must balance to zero")
-	require.Equal(t, bfHigh.RawReclaimSize, bfLow.RawReclaimSize, "raw total is held constant across the step")
+	// Reclaim and released-budget diagnostics are checked separately from the
+	// default share PoolEntry published by finalizeDefaultShareBackfill.
+	deltaReclaim := bfLow.FinalReclaimSize - bfHigh.FinalReclaimSize
+	deltaReleased := bfLow.ReleasedReclaimSize - bfHigh.ReleasedReclaimSize
+	require.Equal(t, -6, deltaReclaim)
+	require.Equal(t, 6, deltaReleased)
+	require.Equal(t, 0, deltaReclaim+deltaReleased)
+	require.Equal(t, bfHigh.RawReclaimSize, bfLow.RawReclaimSize)
 
-	// Direct pool-level conservation on the share side, previously discarded with
-	// `_`. Lowering the ceiling releases cores out of the reclaim pool; the share
-	// pool must absorb them one-for-one: reclaimHigh-reclaimLow == shareLow-shareHigh.
-	reclaimReleased := reclaimHigh - reclaimLow
-	shareAbsorbed := shareLow - shareHigh
-	require.Equalf(t, reclaimReleased, shareAbsorbed,
-		"share pool did not absorb the cores released by reclaim: reclaimHigh=%d reclaimLow=%d shareHigh=%d shareLow=%d releasedFromReclaim=%d absorbedByShare=%d diff=%d",
-		reclaimHigh, reclaimLow, shareHigh, shareLow, reclaimReleased, shareAbsorbed, shareAbsorbed-reclaimReleased)
+	// SysAdvisor publishes the unchanged upper bound; QRM owns residual materialization.
+	require.Equal(t, 48, shareHigh)
+	require.Equal(t, 48, shareLow)
+	require.Equal(t, shareHigh, bfHigh.DefaultShareFinal)
+	require.Equal(t, shareLow, bfLow.DefaultShareFinal)
 }
 
 // TestRealNUMANormalizedPublishDeltaIsZero proves the corrected delta baseline on
@@ -557,8 +561,14 @@ func TestRealNUMANormalizedPublishDeltaIsZero(t *testing.T) {
 		"odd target 3 must be whole-core rounded to 2 on SMT2")
 	require.Equal(t, 23, result.PoolEntries["dedicated-pod"][0].Size,
 		"the released core moves to the dedicated pool")
-	require.Equal(t, 0, int(emitter.values[metricReclaimPublishDelta]),
+	value, emitted := emitter.values[metricReclaimPublishDelta]
+	require.True(t, emitted, "publish_delta metric must be emitted")
+	require.Equal(t, int64(0), value,
 		"publish_delta must be 0 against the normalized baseline, not 2-3=-1")
+	require.Equal(t, 2, result.DefaultShareBackfill.FinalReclaimSize,
+		"reclaim diagnostics must describe the whole-core normalized publication")
+	require.Equal(t, result.DefaultShareBackfill.RawReclaimSize,
+		result.DefaultShareBackfill.FinalReclaimSize+result.DefaultShareBackfill.ReleasedReclaimSize)
 }
 
 // TestEmptyRegionHardCapClampsToCeilingAndRecordsTarget is the P3-B RED probe:
@@ -597,7 +607,8 @@ func TestEmptyRegionHardCapClampsToCeilingAndRecordsTarget(t *testing.T) {
 	// cpusPerCore=1 keeps the whole-core joint normalization out of scope: the
 	// bug being pinned is the constraint clamp, not SMT rounding.
 	metaServer := nonExclusiveTestMetaServer(numaAvailable, 1)
-	pa := NewProvisionAssemblerCommon(conf, nil, metaReader, metaServer, metrics.DummyMetrics{}).(*ProvisionAssemblerCommon)
+	emitter := newRecordingInt64Emitter()
+	pa := NewProvisionAssemblerCommon(conf, nil, metaReader, metaServer, emitter).(*ProvisionAssemblerCommon)
 
 	scope := NewNonExclusiveReclaimConstraintScope(0)
 	fx := &provisionTestFixture{
@@ -631,6 +642,13 @@ func TestEmptyRegionHardCapClampsToCeilingAndRecordsTarget(t *testing.T) {
 	// fix the early-return published 8 verbatim.
 	require.Equal(t, 3, result.PoolEntries[commonstate.PoolNameReclaim][0].Size,
 		"empty-region hard publish must clamp the raw cap to the rate-limited ceiling")
+
+	value, emitted := emitter.values[metricReclaimPublishDelta]
+	require.True(t, emitted, "empty-region publication must emit publish_delta")
+	require.Equal(t, int64(0), value)
+	require.Equal(t, 8, result.DefaultShareBackfill.RawReclaimSize)
+	require.Equal(t, 3, result.DefaultShareBackfill.FinalReclaimSize)
+	require.Equal(t, 5, result.DefaultShareBackfill.ReleasedReclaimSize)
 
 	// Descriptive contract the guard commit consumes. The canonical scope key is
 	// the same string ApplyReclaimConstraint keys on.

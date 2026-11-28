@@ -117,6 +117,62 @@ func newTestCPUServer(t *testing.T, advisor subResourceAdvisor, podList []*v1.Po
 	return cpuServer
 }
 
+func TestCPUServerReclaimOverlapAliasesDescribeOnePhysicalBlock(t *testing.T) {
+	t.Parallel()
+	cache := metacache.NewDummyMetaCacheImp()
+	cs := &cpuServer{baseServer: &baseServer{metaCache: cache}}
+	result := &types.InternalCPUCalculationResult{
+		PoolEntries: map[string]map[int]types.CPUResource{
+			commonstate.PoolNameReclaim: {0: {Size: 2}},
+			commonstate.PoolNameShare:   {0: {Size: 6}},
+			"dedicated":                 {0: {Size: 8}},
+		},
+		PoolOverlapInfo: map[string]map[int]map[string]int{
+			commonstate.PoolNameReclaim: {0: {commonstate.PoolNameShare: 2}},
+		},
+		PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+			commonstate.PoolNameReclaim: {0: {"dedicated": {"main": 4, "sidecar": 4}}},
+		},
+	}
+	entries := map[string]*cpuadvisor.CalculationEntries{}
+	blocks := NewBlockSet()
+	for _, name := range []string{"main", "sidecar"} {
+		ci := &types.ContainerInfo{
+			PodUID: "dedicated", ContainerName: name,
+			QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+			Annotations: map[string]string{
+				consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+			},
+			TopologyAwareAssignments: types.TopologyAwareAssignment{0: machine.MustParse("0-7")},
+		}
+		require.NoError(t, cs.assembleDedicatedNUMABindingPodEntries(result, entries, blocks, "dedicated", ci))
+	}
+	cs.assemblePoolEntries(result, entries, blocks)
+	reclaim, ok := getNumaCalculationResult(entries, commonstate.PoolNameReclaim, commonstate.FakedContainerName, 0)
+	require.True(t, ok)
+	physical := map[string]uint64{}
+	for _, block := range reclaim.Blocks {
+		physical[block.BlockId] = block.Result
+	}
+	var size uint64
+	for _, value := range physical {
+		size += value
+	}
+	require.Equal(t, uint64(8), size, "entry 2 + shared overlap 2 + dedicated physical overlap 4")
+	require.Len(t, physical, 3, "main and sidecar aliases must not duplicate the dedicated overlap")
+	for _, name := range []string{"main", "sidecar"} {
+		dedicated, exists := getNumaCalculationResult(entries, "dedicated", name, 0)
+		require.True(t, exists)
+		overlapped := 0
+		for _, block := range dedicated.Blocks {
+			if _, exists := physical[block.BlockId]; exists {
+				overlapped += int(block.Result)
+			}
+		}
+		require.Equal(t, 4, overlapped)
+	}
+}
+
 func TestCPUServerStartAndStop(t *testing.T) {
 	t.Parallel()
 

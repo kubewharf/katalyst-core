@@ -285,7 +285,6 @@ func (cra *cpuResourceAdvisor) update() (*types.CPUAdvice, error) {
 	cra.lastCommittedConf = dynamicConf
 	cra.advisorUpdated = true
 	cra.updateRegionStatus()
-	cra.emitMetrics(*result)
 	cra.reclaimConstraintGuard.commit(
 		cycle.live,
 		cycle.ceilings,
@@ -294,6 +293,7 @@ func (cra *cpuResourceAdvisor) update() (*types.CPUAdvice, error) {
 		cra.publishedReclaimByScope(result, cycle.members),
 		cycle.members,
 	)
+	cra.emitMetrics(*result)
 	updateSucceeded = true
 	general.InfoS("committed cpu reclaim constraint",
 		"constraint", cycle.constraint,
@@ -493,6 +493,18 @@ func (cra *cpuResourceAdvisor) publishedReclaimByScope(
 			continue
 		}
 		published[scope] += entry.Size
+		for _, size := range result.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID) {
+			published[scope] += size
+		}
+		// Containers of the same dedicated Pod refer to one physical block.
+		// Count that block once, matching the CPU server's block joining.
+		for _, containers := range result.GetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, numaID) {
+			size := 0
+			for _, overlap := range containers {
+				size = general.Max(size, overlap)
+			}
+			published[scope] += size
+		}
 	}
 	return published
 }
@@ -621,7 +633,7 @@ func (cra *cpuResourceAdvisor) rampUpReclaimDomainsForContainer(ci *types.Contai
 				ci.PodUID, ci.ContainerName, placement)
 		}
 		if hint := ci.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint]; hint != "" {
-			hintNUMAs, err := machine.Parse(hint)
+			hintNUMAs, err := commonstate.ParseNUMAHint(hint)
 			if err != nil || hintNUMAs.IsEmpty() {
 				return nil, fmt.Errorf("invalid distributed ramp-up NUMA hint %q: %v", hint, err)
 			}
@@ -739,7 +751,9 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(dynamicConf *dynamic.
 		return nil, reclaimPublicationCycle{}, err
 	}
 	if hardActive || cra.reclaimConstraintGuard.hasRetainedState() {
-		cycle.live = cra.activeReclaimScopes(cycle.members, rampUpDomains)
+		if hardActive {
+			cycle.live = cra.activeReclaimScopes(cycle.members, rampUpDomains)
+		}
 		observed, readable := cra.observedReclaimByScope(cycle.members)
 		cycle.constraint, cycle.ceilings, cycle.active, cycle.accounting = cra.reclaimConstraintGuard.constraint(cycle.live, observed, readable, cra.conf.CPUAdvisorConfiguration.MaxRampUpStep, cra.cpusPerCore())
 	} else {

@@ -160,6 +160,10 @@ func (ai *AllocationInfo) RampUpReclaimDomains(topology *machine.CPUTopology) (s
 		return sets.NewInt(commonstate.FakedNUMAID), nil
 	}
 
+	if topology == nil {
+		return nil, fmt.Errorf("cannot resolve binding ramp-up reclaim domain without topology")
+	}
+
 	placementNUMASet := ai.GetAllocationResultNUMASet()
 	if placementNUMASet.IsEmpty() {
 		// The allocation has not been materialized yet. If it carries an
@@ -200,7 +204,7 @@ func (ai *AllocationInfo) RampUpReclaimDomains(topology *machine.CPUTopology) (s
 				ai.PodNamespace, ai.PodName, ai.ContainerName, placementNUMASet.String())
 		}
 		if hint := ai.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint]; hint != "" {
-			hintNUMAs, err := machine.Parse(hint)
+			hintNUMAs, err := commonstate.ParseNUMAHint(hint)
 			if err != nil || hintNUMAs.IsEmpty() {
 				return nil, fmt.Errorf("invalid distributed ramp-up NUMA hint %q: %v", hint, err)
 			}

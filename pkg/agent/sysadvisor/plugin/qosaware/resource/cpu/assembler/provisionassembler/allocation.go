@@ -133,6 +133,18 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 					MemberNUMAs: memberNUMAs,
 				}, constraintExcess)
 			result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, size, -1)
+			result.DefaultShareBackfill.RawReclaimSize += rawSize
+			result.DefaultShareBackfill.FinalReclaimSize += size
+			result.DefaultShareBackfill.ReleasedReclaimSize += general.Max(0, rawSize-size)
+			if pa.emitter != nil {
+				_ = pa.emitter.StoreInt64(metricReclaimPublishDelta, 0, metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "numa_id", Val: fmt.Sprintf("%d", numaID)})
+			}
+			general.InfoS("assemble reclaim pool entry",
+				"numaID", numaID, "desired", desiredReclaimed, "effectiveTarget", size,
+				"floor", reservedForReclaim, "publishedEntry", size,
+				"memberNUMAs", memberNUMAs, "reclaimedCoresQuota", -1,
+				"publishDelta", 0, "invariant", "ok")
 		}
 		return nil
 	}
@@ -546,16 +558,6 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			Ceiling:     ctx.ReclaimCeilings[constraintScope],
 			MemberNUMAs: memberNUMAs,
 		}, constraintExcess)
-	clamp.FinalSize = reclaimedCoresSize
-	clamp.FinalLimit = reclaimedCoresQuota
-	clamp.ReleasedSize = general.Max(0, clamp.RawSize-clamp.FinalSize)
-	// accumulate the default share backfill diagnostics for this scope
-	// once; released cores from exclusive NUMA scopes are intentionally
-	// excluded and must not be counted here.
-	result.DefaultShareBackfill.RawReclaimSize += clamp.RawSize
-	result.DefaultShareBackfill.FinalReclaimSize += clamp.FinalSize
-	result.DefaultShareBackfill.ReleasedReclaimSize += clamp.ReleasedSize
-
 	overlapBudget := reclaimedCoresSize
 	if effectiveHard {
 		overlapBudget = general.Max(overlapBudget-reservedForReclaim, 0)
@@ -666,6 +668,14 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			}
 		}
 	}
+	// Account for the final physical target after overlap and whole-core normalization.
+	clamp.FinalSize = nonOverlapReclaimedCoresSize + overlapReclaimedCoresSize
+	clamp.FinalLimit = reclaimedCoresQuota
+	clamp.ReleasedSize = general.Max(0, clamp.RawSize-clamp.FinalSize)
+	result.DefaultShareBackfill.RawReclaimSize += clamp.RawSize
+	result.DefaultShareBackfill.FinalReclaimSize += clamp.FinalSize
+	result.DefaultShareBackfill.ReleasedReclaimSize += clamp.ReleasedSize
+
 	// Final-state invariant check and observability. This runs after every
 	// adjustment (ratio clamp, live floor, constraint clamp, overlap metadata and
 	// whole-core joint normalization) and is emitted as a single log line and
