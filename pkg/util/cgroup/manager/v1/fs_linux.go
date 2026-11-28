@@ -158,7 +158,7 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 }
 
 func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error {
-	if len(data.CPUs) != 0 {
+	if len(data.CPUs) != 0 || data.WriteEmptyCPUs {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus", data.CPUs); err != nil {
 			return err
 		} else if applied {
@@ -177,7 +177,7 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 		}
 	}
 
-	if len(data.Mems) != 0 {
+	if len(data.Mems) != 0 || data.WriteEmptyMems {
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.mems", data.Mems); err != nil {
 			return err
 		} else if applied {
@@ -191,6 +191,24 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 
 func (m *manager) ApplyCPUSetPartition(_ string, _ common.CPUSetPartitionFlag) error {
 	return fmt.Errorf("cgroupv1 does not support cpuset partition feature")
+}
+
+// ApplySchedLoadBalance writes cpuset.sched_load_balance under absCgroupPath.
+// The flag toggles whether the kernel scheduler performs load balancing over
+// the cpuset; a zero value opts a cgroup out of balancing so that pinned tasks
+// stay on the CPUs assigned to it.
+func (m *manager) ApplySchedLoadBalance(absCgroupPath string, enabled bool) error {
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.sched_load_balance", value); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV1] apply cpuset.sched_load_balance successfully, cgroupPath: %s, data: %v, old data: %v\n",
+			absCgroupPath, value, oldData)
+	}
+	return nil
 }
 
 func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
@@ -251,15 +269,9 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 }
 
 func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
-	const fileName = "memory.numa_stat"
-	content, err := libcgroups.ReadFile(absCgroupPath, fileName)
+	numaStat, err := common.ReadCgroupNumaStat(absCgroupPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", fileName, err)
-	}
-
-	numaStat, err := common.ParseCgroupNumaValue(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse numa stat: %w", err)
+		return nil, err
 	}
 
 	pageSize := uint64(syscall.Getpagesize())
@@ -289,6 +301,28 @@ func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNum
 		}
 	}
 
+	return result, nil
+}
+
+func (m *manager) GetHierarchicalNumaMemoryUsage(absCgroupPath string, pageSize uint64) (map[int]uint64, error) {
+	if pageSize == 0 {
+		return nil, fmt.Errorf("page size must be positive")
+	}
+
+	numaStat, err := common.ReadCgroupNumaStat(absCgroupPath)
+	if err != nil {
+		return nil, err
+	}
+
+	hierarchicalTotal, ok := numaStat["hierarchical_total"]
+	if !ok {
+		return nil, fmt.Errorf("hierarchical_total is missing from memory.numa_stat")
+	}
+
+	result := make(map[int]uint64, len(hierarchicalTotal))
+	for numaID, pages := range hierarchicalTotal {
+		result[numaID] = pages * pageSize
+	}
 	return result, nil
 }
 

@@ -22,7 +22,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"net"
 	"strings"
 	"testing"
@@ -34,7 +33,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -51,11 +49,6 @@ func TestCPUServerUpdate(t *testing.T) {
 	tmp, err := json.Marshal(&cgResource)
 	assert.NoError(t, err)
 	defaultCgroupConfig := string(tmp)
-
-	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
-	klog.InitFlags(flagSet)
-	_ = flagSet.Parse([]string{"--v", "6"})
-	defer klog.InitFlags(nil)
 
 	type testCase struct {
 		name      string

@@ -994,12 +994,12 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 	// set swap max before trigger memory offloading
 	swapMax := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeySwapMax)]
 	if swapMax == consts.ControlKnobON {
-		err := cgroupmgr.SetSwapMaxWithAbsolutePathRecursive(absCGPath)
+		err := p.cgroupOps.setSwapMaxRecursive(absCGPath)
 		if err != nil {
 			general.Infof("Failed to set swap max, err: %v", err)
 		}
 	} else {
-		err := cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive(absCGPath)
+		err := p.cgroupOps.disableSwapMaxRecursive(absCGPath)
 		if err != nil {
 			general.Infof("Failed to disable swap, err: %v", err)
 		}
@@ -1010,22 +1010,25 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 		return nil
 	}
 
-	_, mems, err := cgroupmgr.GetEffectiveCPUSetWithAbsolutePath(absCGPath)
+	_, mems, err := p.cgroupOps.getEffectiveCPUSet(absCGPath)
 	if err != nil {
 		return fmt.Errorf("GetEffectiveCPUSetWithAbsolutePath failed with error: %v", err)
 	}
 	general.Infof("dyingMemcgReclaimWithAbsolutePath mems: %v", mems)
 
 	// start an asynchronous work to execute dying memcg reclaim
-	err = p.defaultAsyncLimitedWorkers.AddWork(
-		&asyncworker.Work{
-			Name:        dyingMemcgReclaimWorkName,
-			UID:         uuid.NewUUID(),
-			Fn:          cgroupmgr.DyingMemcgReclaimWithAbsolutePath,
-			Params:      []interface{}{absCGPath, emitter, entryName, subEntryName, mems},
-			DeliveredAt: time.Now(),
-		}, asyncworker.DuplicateWorkPolicyOverride,
-	)
+	work := &asyncworker.Work{
+		Name:        dyingMemcgReclaimWorkName,
+		UID:         uuid.NewUUID(),
+		Fn:          cgroupmgr.DyingMemcgReclaimWithAbsolutePath,
+		Params:      []interface{}{absCGPath, emitter, entryName, subEntryName, mems},
+		DeliveredAt: time.Now(),
+	}
+	addWork := p.addAsyncWorkFn
+	if addWork == nil {
+		addWork = p.defaultAsyncLimitedWorkers.AddWork
+	}
+	err = addWork(work, asyncworker.DuplicateWorkPolicyOverride)
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s cgroup: %s failed with error: %v", dyingMemcgReclaimWorkName, entryName, subEntryName, absCGPath, err)
 	}

@@ -36,6 +36,10 @@ func (f *FakeCgroupManager) ApplyCPUSetPartition(absCgroupPath string, partition
 	return nil
 }
 
+func (f *FakeCgroupManager) ApplySchedLoadBalance(absCgroupPath string, enabled bool) error {
+	return nil
+}
+
 func (f *FakeCgroupManager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
 	return nil
 }
@@ -61,6 +65,10 @@ func (f *FakeCgroupManager) GetMemory(absCgroupPath string) (*common.MemoryStats
 }
 
 func (f *FakeCgroupManager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
+	return nil, nil
+}
+
+func (f *FakeCgroupManager) GetHierarchicalNumaMemoryUsage(absCgroupPath string, pageSize uint64) (map[int]uint64, error) {
 	return nil, nil
 }
 

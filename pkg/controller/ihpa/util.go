@@ -166,9 +166,11 @@ func calculateCronReplicas(min *int32, max int32, timeBounds []v1alpha2.TimeBoun
 }
 
 func isTimeBoundValid(now, start, end time.Time) bool {
-	_, offset := now.Zone()
-	now = now.Add(time.Duration(offset) * time.Second)
-
+	// now, start and end are absolute instants; comparing them directly via
+	// After/Before is timezone independent. Shifting now by the local UTC offset
+	// (as was done historically) corrupts the comparison in any non-UTC zone
+	// (e.g. UTC+8), pushing now far beyond end and silently disabling every
+	// time-bound, so cron-derived Min/Max replicas were never applied.
 	klog.V(5).InfoS("[ihpa] time bound", "now", now, "start", start, "end", end)
 	if start.IsZero() && end.IsZero() {
 		return true

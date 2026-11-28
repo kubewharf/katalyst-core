@@ -24,7 +24,30 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	resctrlutil "github.com/kubewharf/katalyst-core/pkg/util/resctrl"
 )
+
+func TestAllocationMetaToClosAssignmentMeta(t *testing.T) {
+	t.Parallel()
+
+	meta := AllocationMeta{
+		QoSLevel:      "shared_cores",
+		OwnerPoolName: "share",
+	}
+
+	require.Equal(t, resctrlutil.ClosAssignmentMeta{
+		QoSLevel:  "shared_cores",
+		OwnerPool: "share",
+	}, meta.ToClosAssignmentMeta())
+}
+
+func TestAllocationMetaCloneRetainsNativeQOSClass(t *testing.T) {
+	t.Parallel()
+
+	original := &AllocationMeta{NativeQOSClass: "Guaranteed"}
+
+	require.Equal(t, original.NativeQOSClass, original.Clone().NativeQOSClass)
+}
 
 func TestAllocationMetaGetters(t *testing.T) {
 	t.Parallel()

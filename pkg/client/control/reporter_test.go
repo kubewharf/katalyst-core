@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytedance/mockey"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
@@ -682,23 +681,22 @@ func TestNewGenericReporterPlugin(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		mockey.PatchConvey(tt.name, t, func() {
-			// Arrange
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mockEmitter := metrics.DummyMetrics{}
 			conf := config.NewConfiguration()
 			conf.PluginRegistrationDir = tt.registrationDir
 
-			mockey.Mock(skeleton.NewRegistrationPluginWrapper).To(func(plugin skeleton.GenericPlugin, pluginsRegistrationDirs []string,
+			newWrapper := func(plugin skeleton.GenericPlugin, pluginsRegistrationDirs []string,
 				metricCallback skeleton.MetricCallback,
 			) (*skeleton.PluginRegistrationWrapper, error) {
 				assert.Equal(t, []string{tt.registrationDir}, pluginsRegistrationDirs)
 				metricCallback("", 1)
-				return &skeleton.PluginRegistrationWrapper{},
-					tt.newWrapperErr
-			}).Build()
+				return &skeleton.PluginRegistrationWrapper{}, tt.newWrapperErr
+			}
 
-			// Act
-			reporter, err := NewGenericReporterPlugin(tt.pluginName, conf, mockEmitter)
+			reporter, err := newGenericReporterPlugin(tt.pluginName, conf, mockEmitter, newWrapper)
 
 			// Assert
 			if tt.expectErr {

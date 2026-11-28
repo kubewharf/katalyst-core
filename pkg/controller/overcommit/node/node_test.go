@@ -383,7 +383,20 @@ func TestReconcile(t *testing.T) {
 				err = controlCtx.Client.InternalClient.OvercommitV1alpha1().NodeOvercommitConfigs().Delete(ctx, config, metav1.DeleteOptions{})
 				assert.NoError(t, err)
 			}
-			time.Sleep(6 * time.Second)
+			assert.Eventually(t, func() bool {
+				for nodeName, annotations := range tc.result {
+					node, err := nocController.nodeLister.Get(nodeName)
+					if err != nil {
+						return false
+					}
+					for key, value := range annotations {
+						if node.Annotations[key] != value {
+							return false
+						}
+					}
+				}
+				return true
+			}, 30*time.Second, 10*time.Millisecond, "reconciled annotations must reach the expected state")
 
 			for nodeName, annotations := range tc.result {
 				for k, v := range annotations {
