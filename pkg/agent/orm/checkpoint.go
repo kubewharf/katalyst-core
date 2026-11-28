@@ -64,7 +64,9 @@ func (m *ManagerImpl) readCheckpoint() error {
 	allocatedResourceNames := m.podResources.allAllocatedResourceNames()
 
 	for _, allocatedResourceName := range allocatedResourceNames.UnsortedList() {
-		m.endpoints[allocatedResourceName] = endpoint.EndpointInfo{E: endpoint.NewStoppedEndpointImpl(allocatedResourceName), Opts: nil}
+		if _, exists := m.endpoints[allocatedResourceName]; !exists {
+			m.endpoints[allocatedResourceName] = endpoint.EndpointInfo{E: endpoint.NewStoppedEndpointImpl(allocatedResourceName)}
+		}
 	}
 
 	m.mutex.Unlock()

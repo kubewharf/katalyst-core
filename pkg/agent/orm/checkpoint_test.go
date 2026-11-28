@@ -18,10 +18,13 @@ package orm
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/orm/endpoint"
@@ -57,4 +60,42 @@ func TestCheckpoint(t *testing.T) {
 	assert.NoError(t, err)
 	podSet := m.podResources.pods()
 	assert.Equal(t, podSet, sets.NewString("testPod"))
+}
+
+func TestReadCheckpointPreservesRegisteredEndpoint(t *testing.T) {
+	t.Parallel()
+
+	dir, err := os.MkdirTemp("/tmp", "orm-checkpoint-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(dir)
+	require.NoError(t, err)
+	m := &ManagerImpl{
+		endpoints:         make(map[string]endpoint.EndpointInfo),
+		podResources:      newPodResourcesChk(),
+		checkpointManager: checkpointManager,
+	}
+	m.podResources.insert("testPod", "testContainer", "cpu", generateCpuSetCpusAllocationInfo())
+	m.podResources.insert("testPod", "testContainer", "memory", &pluginapi.ResourceAllocationInfo{AllocatedQuantity: 1})
+	require.NoError(t, m.writeCheckpoint())
+	m.podResources = newPodResourcesChk()
+
+	socket := filepath.Join(dir, "cpu.sock")
+	stub := endpoint.NewResourcePluginStub(socket, "cpu", false)
+	require.NoError(t, stub.Start())
+	t.Cleanup(func() { assert.NoError(t, stub.Stop()) })
+	require.NoError(t, m.RegisterPlugin("cpu", socket, []string{pluginapi.Version}))
+	registered := m.endpoints["cpu"]
+	t.Cleanup(registered.E.Stop)
+
+	require.NoError(t, m.readCheckpoint())
+
+	require.Same(t, registered.E, m.endpoints["cpu"].E)
+	require.Same(t, registered.Opts, m.endpoints["cpu"].Opts)
+	require.False(t, m.endpoints["cpu"].E.IsStopped())
+	memory, exists := m.endpoints["memory"]
+	require.True(t, exists)
+	require.True(t, memory.E.IsStopped())
+	require.Nil(t, memory.Opts)
 }
