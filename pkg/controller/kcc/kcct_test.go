@@ -17,7 +17,10 @@ limitations under the License.
 package kcc
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -28,6 +31,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/client/control"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	controllerconfig "github.com/kubewharf/katalyst-core/pkg/config/controller"
+	kccutil "github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -440,6 +448,390 @@ func Test_updateValidTargetResourceStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_getCNCUpdateScope(t *testing.T) {
+	t.Parallel()
+
+	newCNC := func() *v1alpha1.CustomNodeConfig {
+		return &v1alpha1.CustomNodeConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "node-1",
+				Labels:          map[string]string{"zone": "a"},
+				ResourceVersion: "1",
+			},
+			Status: v1alpha1.CustomNodeConfigStatus{
+				KatalystCustomConfigList: []v1alpha1.TargetConfig{
+					{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "old"},
+					{ConfigType: crd.AuthConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "same"},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		mutate   func(*v1alpha1.CustomNodeConfig)
+		wantAll  bool
+		wantGVRs []metav1.GroupVersionResource
+	}{
+		{
+			name: "one config hash changed",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				cnc.Status.KatalystCustomConfigList[0].Hash = "new"
+			},
+			wantGVRs: []metav1.GroupVersionResource{crd.AdminQoSConfigurationGVR},
+		},
+		{
+			name: "config list reordered",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				cnc.Status.KatalystCustomConfigList[0], cnc.Status.KatalystCustomConfigList[1] = cnc.Status.KatalystCustomConfigList[1], cnc.Status.KatalystCustomConfigList[0]
+			},
+		},
+		{
+			name: "unrelated status changed",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				cnc.Status.ServiceProfileConfigList = []v1alpha1.TargetConfig{
+					{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "profile", Hash: "new"},
+				}
+			},
+		},
+		{
+			name: "unregistered config changed",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				cnc.Status.KatalystCustomConfigList = append(cnc.Status.KatalystCustomConfigList, v1alpha1.TargetConfig{
+					ConfigType: metav1.GroupVersionResource{Group: "test.katalyst.kubewharf.io", Version: "v1alpha1", Resource: "testconfigurations"},
+					Hash:       "new",
+				})
+			},
+		},
+		{
+			name: "labels changed",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				cnc.Labels["zone"] = "b"
+			},
+			wantAll: true,
+		},
+		{
+			name: "deletion timestamp set",
+			mutate: func(cnc *v1alpha1.CustomNodeConfig) {
+				now := metav1.Now()
+				cnc.DeletionTimestamp = &now
+			},
+			wantAll: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			oldCNC := newCNC()
+			newCNC := oldCNC.DeepCopy()
+			newCNC.ResourceVersion = "2"
+			tt.mutate(newCNC)
+
+			gotAll, gotGVRs := getCNCUpdateScope(oldCNC, newCNC, func(gvr metav1.GroupVersionResource) bool {
+				return gvr == crd.AdminQoSConfigurationGVR || gvr == crd.AuthConfigurationGVR
+			})
+			assert.Equal(t, tt.wantAll, gotAll)
+			assert.ElementsMatch(t, tt.wantGVRs, gotGVRs)
+		})
+	}
+}
+
+func Test_calculateTargetStatusCounts(t *testing.T) {
+	t.Parallel()
+
+	target := util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "global"},
+	}))
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	cncs := []*v1alpha1.CustomNodeConfig{
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "current"}}}},
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "current"}}}},
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "old"}}}},
+	}
+	counts := calculateTargetStatusCounts(
+		crd.AdminQoSConfigurationGVR,
+		cncs,
+		[]util.KCCTargetResource{target},
+		map[string]string{targetKey: "current"},
+		map[string]int{targetKey: 1},
+		map[string][]int{targetKey: {0, 2}},
+		[]cncAppliedState{
+			{namespace: "default", name: "global", hash: "current", found: true},
+			{namespace: "default", name: "global", hash: "current", found: true},
+			{namespace: "default", name: "global", hash: "old", found: true},
+		},
+	)
+
+	assert.Equal(t, targetStatusCounts{
+		targetNodes:        2,
+		canaryNodes:        1,
+		updatedTargetNodes: 1,
+		updatedNodes:       2,
+	}, counts[targetKey])
+}
+
+func Test_calculateTargetStatusCountsMatchesLegacy(t *testing.T) {
+	t.Parallel()
+
+	targets := []util.KCCTargetResource{
+		util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "target-a"},
+		})),
+		util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "target-b"},
+		})),
+	}
+	targetAKey := native.GenerateUniqObjectNameKey(targets[0])
+	targetBKey := native.GenerateUniqObjectNameKey(targets[1])
+	hashes := map[string]string{targetAKey: "hash-a", targetBKey: "hash-b"}
+	canaryCutoffPoints := map[string]int{targetAKey: 2, targetBKey: 2}
+	targetCNCIndexes := map[string][]int{targetAKey: {0, 4}, targetBKey: {1, 2, 3}}
+	cncs := []*v1alpha1.CustomNodeConfig{
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "target-a", Hash: "hash-a"},
+		}}},
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "target-a", Hash: "hash-a"},
+		}}},
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "target-b", Hash: "hash-b"},
+		}}},
+		{Status: v1alpha1.CustomNodeConfigStatus{KatalystCustomConfigList: []v1alpha1.TargetConfig{
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "target-b", Hash: "old"},
+		}}},
+		{},
+	}
+	appliedStates := make([]cncAppliedState, len(cncs))
+	for i, cnc := range cncs {
+		appliedStates[i] = getCNCAppliedState(cnc, crd.AdminQoSConfigurationGVR)
+	}
+
+	got := calculateTargetStatusCounts(crd.AdminQoSConfigurationGVR, cncs, targets, hashes, canaryCutoffPoints, targetCNCIndexes, appliedStates)
+	for _, target := range targets {
+		targetKey := native.GenerateUniqObjectNameKey(target)
+		targetIndexSet := sets.NewInt(targetCNCIndexes[targetKey]...)
+		want := targetStatusCounts{
+			targetNodes: int32(len(targetCNCIndexes[targetKey])),
+			canaryNodes: int32(canaryCutoffPoints[targetKey]),
+		}
+		for i, cnc := range cncs {
+			if kccutil.IsCNCUpdated(cnc, crd.AdminQoSConfigurationGVR, target, hashes[targetKey]) {
+				want.updatedNodes++
+				if targetIndexSet.Has(i) {
+					want.updatedTargetNodes++
+				}
+			}
+		}
+		assert.Equal(t, want, got[targetKey])
+	}
+}
+
+func Test_getCNCAppliedState(t *testing.T) {
+	t.Parallel()
+
+	cnc := &v1alpha1.CustomNodeConfig{Status: v1alpha1.CustomNodeConfigStatus{
+		KatalystCustomConfigList: []v1alpha1.TargetConfig{
+			{ConfigType: crd.AuthConfigurationGVR, ConfigNamespace: "default", ConfigName: "auth", Hash: "auth-hash"},
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "aqc-hash"},
+		},
+	}}
+	assert.Equal(t, cncAppliedState{
+		namespace: "default",
+		name:      "global",
+		hash:      "aqc-hash",
+		found:     true,
+	}, getCNCAppliedState(cnc, crd.AdminQoSConfigurationGVR))
+	assert.Equal(t, cncAppliedState{}, getCNCAppliedState(cnc, crd.IRQTuningConfigurationGVR))
+}
+
+func Test_getCNCAppliedStateUsesAnyMatchingDuplicate(t *testing.T) {
+	t.Parallel()
+
+	cnc := &v1alpha1.CustomNodeConfig{Status: v1alpha1.CustomNodeConfigStatus{
+		KatalystCustomConfigList: []v1alpha1.TargetConfig{
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "old", Hash: "old"},
+			{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "current"},
+		},
+	}}
+	target := util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "global"},
+	}))
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	state := getCNCAppliedState(cnc, crd.AdminQoSConfigurationGVR)
+	counts := calculateTargetStatusCounts(
+		crd.AdminQoSConfigurationGVR,
+		[]*v1alpha1.CustomNodeConfig{cnc},
+		[]util.KCCTargetResource{target},
+		map[string]string{targetKey: "current"},
+		map[string]int{targetKey: 1},
+		map[string][]int{targetKey: {0}},
+		[]cncAppliedState{state},
+	)
+
+	assert.True(t, kccutil.IsCNCUpdated(cnc, crd.AdminQoSConfigurationGVR, target, "current"))
+	assert.Equal(t, int32(1), counts[targetKey].updatedNodes)
+	assert.Equal(t, int32(1), counts[targetKey].updatedTargetNodes)
+}
+
+func benchmarkTargetStatusData() ([]*v1alpha1.CustomNodeConfig, util.KCCTargetResource, map[string]string, map[string][]int) {
+	const cncCount = 13550
+	target := util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "global"},
+	}))
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	cncs := make([]*v1alpha1.CustomNodeConfig, cncCount)
+	targetIndexes := make([]int, cncCount)
+	for i := range cncs {
+		cncs[i] = &v1alpha1.CustomNodeConfig{Status: v1alpha1.CustomNodeConfigStatus{
+			KatalystCustomConfigList: []v1alpha1.TargetConfig{
+				{ConfigType: crd.AuthConfigurationGVR, ConfigNamespace: "default", ConfigName: "auth", Hash: "hash"},
+				{ConfigType: crd.AdminQoSConfigurationGVR, ConfigNamespace: "default", ConfigName: "global", Hash: "hash"},
+				{ConfigType: crd.TransparentMemoryOffloadingConfigurationGVR, ConfigNamespace: "default", ConfigName: "tmo", Hash: "hash"},
+				{ConfigType: crd.StrategyGroupGVR, ConfigNamespace: "default", ConfigName: "strategy", Hash: "hash"},
+				{ConfigType: crd.IRQTuningConfigurationGVR, ConfigNamespace: "default", ConfigName: "irq", Hash: "hash"},
+				{ConfigType: metav1.GroupVersionResource{Group: "test.katalyst.kubewharf.io", Version: "v1alpha1", Resource: "testconfigurations"}, ConfigNamespace: "default", ConfigName: "test", Hash: "hash"},
+			},
+		}}
+		targetIndexes[i] = i
+	}
+	return cncs, target, map[string]string{targetKey: "hash"}, map[string][]int{targetKey: targetIndexes}
+}
+
+func BenchmarkTargetStatusCalculation(b *testing.B) {
+	cncs, target, hashes, targetCNCIndexes := benchmarkTargetStatusData()
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	targetResources := []util.KCCTargetResource{target}
+	canaryCutoffPoints := map[string]int{targetKey: len(cncs)}
+
+	b.Run("repeated-list-scan", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			for _, cnc := range cncs {
+				_ = kccutil.IsCNCUpdated(cnc, crd.AdminQoSConfigurationGVR, target, hashes[targetKey])
+			}
+			for _, cnc := range cncs {
+				_ = kccutil.IsCNCUpdated(cnc, crd.AdminQoSConfigurationGVR, target, hashes[targetKey])
+			}
+		}
+	})
+
+	b.Run("single-applied-state-scan", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			appliedStates := make([]cncAppliedState, len(cncs))
+			for i, cnc := range cncs {
+				appliedStates[i] = getCNCAppliedState(cnc, crd.AdminQoSConfigurationGVR)
+			}
+			_ = calculateTargetStatusCounts(crd.AdminQoSConfigurationGVR, cncs, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, appliedStates)
+		}
+	})
+}
+
+func TestNewKatalystCustomConfigTargetControllerRejectsInvalidRateLimit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("QPS", func(t *testing.T) {
+		t.Parallel()
+
+		config := controllerconfig.NewKCCConfig()
+		config.CNCUpdateQPS = 0
+		_, err := NewKatalystCustomConfigTargetController(
+			context.Background(), nil, nil, config, nil, nil, nil, nil, nil,
+		)
+		assert.EqualError(t, err, "CNC update QPS must be greater than 0")
+	})
+
+	t.Run("burst", func(t *testing.T) {
+		t.Parallel()
+
+		config := controllerconfig.NewKCCConfig()
+		config.CNCUpdateBurst = 0
+		_, err := NewKatalystCustomConfigTargetController(
+			context.Background(), nil, nil, config, nil, nil, nil, nil, nil,
+		)
+		assert.EqualError(t, err, "CNC update burst must be greater than 0")
+	})
+}
+
+func Test_rateLimitedRequeueDelay(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, time.Second, rateLimitedRequeueDelay(100, 50))
+	assert.Equal(t, 500*time.Millisecond, rateLimitedRequeueDelay(100, 100))
+}
+
+type failingCNCControl struct {
+	control.DummyCNCControl
+}
+
+func (f failingCNCControl) PatchCNCStatus(_ context.Context, _ string, _, _ *v1alpha1.CustomNodeConfig) (*v1alpha1.CustomNodeConfig, error) {
+	return nil, errors.New("patch failed")
+}
+
+func Test_updateCNCsRefreshesAppliedStateOnPatchSuccess(t *testing.T) {
+	t.Parallel()
+
+	target := util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "global"},
+	}))
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	cnc := &v1alpha1.CustomNodeConfig{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	appliedStates := []cncAppliedState{{namespace: "default", name: "global", hash: "old", found: true}}
+	controller := &KatalystCustomConfigTargetController{
+		ctx:            context.Background(),
+		cncControl:     control.DummyCNCControl{},
+		metricsEmitter: metrics.DummyMetrics{},
+		cncUpdateQPS:   controllerconfig.NewKCCConfig().CNCUpdateQPS,
+		cncUpdateBurst: controllerconfig.NewKCCConfig().CNCUpdateBurst,
+	}
+
+	rateLimited, gotErrors := controller.updateCNCs(
+		crd.AdminQoSConfigurationGVR,
+		[]util.KCCTargetResource{target},
+		map[string]string{targetKey: "new"},
+		map[string]int{targetKey: 1},
+		map[string][]int{targetKey: {0}},
+		[]*v1alpha1.CustomNodeConfig{cnc},
+		appliedStates,
+	)
+
+	assert.False(t, rateLimited)
+	assert.Empty(t, gotErrors)
+	assert.Equal(t, "new", appliedStates[0].hash)
+}
+
+func Test_updateCNCsPreservesAppliedStateOnPatchFailure(t *testing.T) {
+	t.Parallel()
+
+	target := util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "global"},
+	}))
+	targetKey := native.GenerateUniqObjectNameKey(target)
+	cnc := &v1alpha1.CustomNodeConfig{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}}
+	appliedStates := []cncAppliedState{{namespace: "default", name: "global", hash: "old", found: true}}
+	controller := &KatalystCustomConfigTargetController{
+		ctx:            context.Background(),
+		cncControl:     failingCNCControl{},
+		metricsEmitter: metrics.DummyMetrics{},
+		cncUpdateQPS:   controllerconfig.NewKCCConfig().CNCUpdateQPS,
+		cncUpdateBurst: controllerconfig.NewKCCConfig().CNCUpdateBurst,
+	}
+
+	rateLimited, gotErrors := controller.updateCNCs(
+		crd.AdminQoSConfigurationGVR,
+		[]util.KCCTargetResource{target},
+		map[string]string{targetKey: "new"},
+		map[string]int{targetKey: 1},
+		map[string][]int{targetKey: {0}},
+		[]*v1alpha1.CustomNodeConfig{cnc},
+		appliedStates,
+	)
+
+	assert.False(t, rateLimited)
+	assert.Len(t, gotErrors, 1)
+	assert.Equal(t, "old", appliedStates[0].hash)
 }
 
 func Test_checkLabelSelectorOverlap(t *testing.T) {
