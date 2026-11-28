@@ -30,10 +30,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/reclaim"
 )
 
 type PolicyNUMAAware struct {
@@ -46,19 +46,35 @@ type PolicyNUMAAware struct {
 
 	conf *config.Configuration
 
-	numaBindingReclaimRelativeRootCgroupPaths map[int]string
+	reclaimRelativeRootCgroupPaths            []string
+	numaBindingReclaimRelativeRootCgroupPaths map[int][]string
+
+	// reclaimPercentageFn overrides the global-registry-based percentage lookup.
+	// Defaults to reclaim.GetReclaimedPercentageByPath; tests inject a fake.
+	reclaimPercentageFn func(*dynamic.Configuration, string) float64
+}
+
+// SetReclaimPathsForTest overrides the reclaim cgroup paths. Test-only.
+func (p *PolicyNUMAAware) SetReclaimPathsForTest(parent []string, numaBinding map[int][]string) {
+	p.reclaimRelativeRootCgroupPaths = parent
+	p.numaBindingReclaimRelativeRootCgroupPaths = numaBinding
+}
+
+// SetReclaimPercentageFnForTest overrides the reclaim percentage lookup. Test-only.
+func (p *PolicyNUMAAware) SetReclaimPercentageFnForTest(fn func(*dynamic.Configuration, string) float64) {
+	p.reclaimPercentageFn = fn
 }
 
 func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
 ) HeadroomPolicy {
 	p := PolicyNUMAAware{
-		PolicyBase:         NewPolicyBase(metaReader, metaServer),
-		numaMemoryHeadroom: make(map[int]resource.Quantity),
-		updateStatus:       types.PolicyUpdateFailed,
-		conf:               conf,
-		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		PolicyBase:                     NewPolicyBase(metaReader, metaServer),
+		numaMemoryHeadroom:             make(map[int]resource.Quantity),
+		updateStatus:                   types.PolicyUpdateFailed,
+		conf:                           conf,
+		reclaimRelativeRootCgroupPaths: reclaim.AggregateCgroupPaths(),
+		numaBindingReclaimRelativeRootCgroupPaths: reclaim.AggregateNumaBindingCgroupPaths(),
 	}
 
 	return &p
@@ -258,28 +274,68 @@ func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, map[int]resource.Qua
 	return p.memoryHeadroom, p.numaMemoryHeadroom, nil
 }
 
+// sumCgroupMetric returns the sum of the given metric across the provided
+// cgroup paths. Memory limit metrics are weighted by each reclaim consumer's
+// configured percentage because memory-guard writes the full reclaim budget to
+// every consumer root. Other metrics remain plain sums.
+// Paths whose metric cannot be read are skipped with an info
+// log so that a single missing cgroup does not fail the whole query.
+// The bool return is true only when at least one path yielded a value;
+// callers use it to distinguish "aggregate found" from "no data at all".
+func (p *PolicyNUMAAware) sumCgroupMetric(paths []string, metric string) (float64, bool) {
+	total := 0.0
+	found := false
+	for _, cgroupPath := range paths {
+		data, err := p.metaServer.GetCgroupMetric(cgroupPath, metric)
+		if err != nil {
+			general.Infof("skip missing reclaim cgroup metric for %s: %v", cgroupPath, err)
+			continue
+		}
+		value := data.Value
+		if metric == consts.MetricMemLimitCgroup {
+			pctFn := p.reclaimPercentageFn
+			if pctFn == nil {
+				pctFn = reclaim.GetReclaimedPercentageByPath
+			}
+			value *= pctFn(p.conf.GetDynamicConfiguration(), cgroupPath) / 100
+		}
+		total += value
+		found = true
+	}
+	if !found {
+		return 0, false
+	}
+	return total, true
+}
+
 func (p *PolicyNUMAAware) getReclaimMemoryLimit(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs machine.CPUSet) (map[int]float64, error) {
 	numaReclaimMemoryLimit := make(map[int]float64, actualNUMABindingNUMAs.Size()+nonActualNUMABindingNUMAs.Size())
+
 	for _, numaID := range actualNUMABindingNUMAs.ToSliceNoSortInt() {
-		cgroupPath := p.numaBindingReclaimRelativeRootCgroupPaths[numaID]
-		data, err := p.metaServer.GetCgroupMetric(cgroupPath, consts.MetricMemLimitCgroup)
-		if err != nil {
-			return nil, fmt.Errorf("get cgroup %s metric failed: %v", cgroupPath, err)
+		if limit, ok := p.sumCgroupMetric(p.numaBindingReclaimRelativeRootCgroupPaths[numaID], consts.MetricMemLimitCgroup); ok {
+			numaReclaimMemoryLimit[numaID] = limit
 		}
-
-		numaReclaimMemoryLimit[numaID] = data.Value
 	}
 
-	cgroupMetric, err := p.metaServer.GetCgroupMetric(p.conf.ReclaimRelativeRootCgroupPath, consts.MetricMemLimitCgroup)
-	if err != nil {
-		return nil, err
+	totalParentLimit, parentFound := p.sumCgroupMetric(p.reclaimRelativeRootCgroupPaths, consts.MetricMemLimitCgroup)
+	if !parentFound {
+		return nil, fmt.Errorf("no reclaim parent cgroup metric available among %v", p.reclaimRelativeRootCgroupPaths)
 	}
-	reclaimMemoryLimit := cgroupMetric.Value
 
 	if !nonActualNUMABindingNUMAs.IsEmpty() {
-		reclaimMemoryLimitPerNUMA := reclaimMemoryLimit / float64(nonActualNUMABindingNUMAs.Size())
+		// The reclaim parent cgroup carries only a single aggregate memory.max
+		// (no per-NUMA memory.max exists for a non-NUMA-binding cgroup), so the
+		// aggregate is split evenly as the baseline per-NUMA limit.
+		reclaimMemoryLimitPerNUMA := totalParentLimit / float64(nonActualNUMABindingNUMAs.Size())
 		for _, numaID := range nonActualNUMABindingNUMAs.ToSliceNoSortInt() {
 			numaReclaimMemoryLimit[numaID] = reclaimMemoryLimitPerNUMA
+			// Constrain the evenly-split baseline down to the actual per-NUMA
+			// reclaim cgroup memory limit when it is materialized on this NUMA.
+			// This is fail-closed: an unreadable per-NUMA limit leaves the
+			// baseline untouched rather than inflating the constraint.
+			if limit, ok := p.sumCgroupMetric(p.numaBindingReclaimRelativeRootCgroupPaths[numaID], consts.MetricMemLimitCgroup); ok {
+				numaReclaimMemoryLimit[numaID] = math.Min(numaReclaimMemoryLimit[numaID], limit)
+			}
 		}
 	}
 

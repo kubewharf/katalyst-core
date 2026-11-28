@@ -18,12 +18,16 @@ package commonstate
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"strconv"
+	"strings"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
@@ -97,6 +101,31 @@ func GenerateGenericPoolAllocationMeta(poolName string) AllocationMeta {
 		PodUid:        poolName, // The unique identifier for the pool (reusing poolName).
 		OwnerPoolName: poolName, // The name of the pool itself.
 	}
+}
+
+// ParseNUMAHint validates every ID or inclusive range before parsing the hint.
+// A malformed token must not disappear from an otherwise valid NUMA set.
+func ParseNUMAHint(hint string) (machine.CPUSet, error) {
+	if hint == "" {
+		return machine.NewCPUSet(), fmt.Errorf("empty NUMA hint")
+	}
+	for _, token := range strings.Split(hint, ",") {
+		bounds := strings.Split(token, "-")
+		if len(bounds) != 1 && len(bounds) != 2 {
+			return machine.NewCPUSet(), fmt.Errorf("invalid NUMA hint token %q", token)
+		}
+		first, err := strconv.Atoi(bounds[0])
+		if err != nil || first < 0 {
+			return machine.NewCPUSet(), fmt.Errorf("invalid NUMA hint token %q", token)
+		}
+		if len(bounds) == 2 {
+			last, err := strconv.Atoi(bounds[1])
+			if err != nil || last < first {
+				return machine.NewCPUSet(), fmt.Errorf("invalid NUMA hint range %q", token)
+			}
+		}
+	}
+	return machine.Parse(hint)
 }
 
 func LoadExtraControlKnobConfigs(extraControlKnobConfigAbsPath string) (ExtraControlKnobConfigs, error) {

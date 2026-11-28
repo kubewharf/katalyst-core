@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -36,12 +37,21 @@ import (
 )
 
 func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) (machine.CPUSet, []*types.ContainerInfo, error) {
+	return GetAvailableNUMAsAndReclaimedCoresWithDynamicConfiguration(
+		conf, conf.GetDynamicConfiguration(), metaReader, metaServer)
+}
+
+func GetAvailableNUMAsAndReclaimedCoresWithDynamicConfiguration(conf *config.Configuration, dynamicConf *dynamic.Configuration,
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer,
+) (machine.CPUSet, []*types.ContainerInfo, error) {
 	var errList []error
 
 	availNUMAs := metaServer.CPUDetails.NUMANodes()
 	reclaimedCoresContainers := make([]*types.ContainerInfo, 0)
 
-	dynamicConf := conf.GetDynamicConfiguration()
+	if dynamicConf == nil {
+		return machine.CPUSet{}, nil, fmt.Errorf("dynamic configuration is nil")
+	}
 
 	metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
 		ctx := context.Background()
@@ -74,12 +84,15 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 
 		if !reclaimEnable {
 			memset := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
-			if memset.IsEmpty() && !containerInfo.RampUp {
+			level := PodDisableReclaimLevel(ctx, metaServer, podUID)
+			requireMemset := level == v1alpha1.DisableReclaimLevelNUMA ||
+				level == v1alpha1.DisableReclaimLevelSocket ||
+				(level == v1alpha1.DisableReclaimLevelPod && containerInfo.IsDedicatedNumaExclusive())
+			if memset.IsEmpty() && requireMemset && !containerInfo.RampUp {
 				errList = append(errList, fmt.Errorf("container(%v/%v) TopologyAwareAssignments is empty", containerInfo.PodName, containerName))
 				return true
 			}
 
-			level := PodDisableReclaimLevel(ctx, metaServer, podUID)
 			switch level {
 			case v1alpha1.DisableReclaimLevelNUMA:
 				availNUMAs = availNUMAs.Difference(memset)

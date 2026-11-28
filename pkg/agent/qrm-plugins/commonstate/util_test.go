@@ -24,6 +24,30 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
+func TestParseNUMAHint(t *testing.T) {
+	t.Parallel()
+	for _, hint := range []string{"", "0,", "0,1-2-3", "0,2-1", "-1", "0,-1", "0,invalid", "0, 1"} {
+		hint := hint
+		t.Run("invalid/"+hint, func(t *testing.T) {
+			t.Parallel()
+			set, err := ParseNUMAHint(hint)
+			if err == nil || !set.IsEmpty() {
+				t.Fatalf("invalid hint %q must return an error and no partial set: %v, %v", hint, set, err)
+			}
+		})
+	}
+	for hint, want := range map[string]string{"0": "0", "0-2": "0-2", "0,2-3": "0,2-3", "0,0,1": "0-1"} {
+		hint, want := hint, want
+		t.Run("valid/"+hint, func(t *testing.T) {
+			t.Parallel()
+			set, err := ParseNUMAHint(hint)
+			if err != nil || set.String() != want {
+				t.Fatalf("hint %q: want %q, got %v, %v", hint, want, set, err)
+			}
+		})
+	}
+}
+
 func TestGetSpecifiedPoolName(t *testing.T) {
 	t.Parallel()
 

@@ -5766,6 +5766,11 @@ func TestGetResourcesAllocation(t *testing.T) {
 	_, err = dynamicPolicy.Allocate(context.Background(), req)
 	as.Nil(err)
 
+	ready := dynamicPolicy.state.GetAllocationInfo(req.PodUid, testName)
+	as.NotNil(ready)
+	ready.InitTimestamp = time.Now().Add(-time.Hour).Format(util.QRMTimeFormat)
+	dynamicPolicy.state.SetAllocationInfo(req.PodUid, testName, ready, true)
+
 	resp1, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
 
