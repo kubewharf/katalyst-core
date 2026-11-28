@@ -64,6 +64,41 @@ import (
 	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
+// Test adapters preserve legacy inputs without widening the production entry points.
+func (p *DynamicPolicy) generateBlockCPUSet(
+	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
+	hardActive bool,
+) (advisorapi.BlockCPUSet, error) {
+	domains := sets.NewInt()
+	if hardActive {
+		domains.Insert(commonstate.FakedNUMAID)
+	}
+	dynamicConf := p.config.dynamicConfig.GetDynamicConfiguration()
+	frozenReclaim := frozenReclaimPlacementConstraint{}
+	defaultShareMode := defaultShareMaterializationModeFor(dynamicConf, frozenReclaim, resp)
+	blockCPUSet, _, err := p.generateBlockCPUSetWithCheckpointTransitionForAttempt(
+		resp, featureGates, domains, dynamicConf, frozenReclaim,
+		defaultShareMode != defaultShareMaterializationDisabled)
+	return blockCPUSet, err
+}
+
+func (p *DynamicPolicy) applyBlocksWithDynamicConfig(
+	blockCPUSet advisorapi.BlockCPUSet,
+	resp *advisorapi.ListAndWatchResponse,
+	allowSharedCoresOverlapReclaimedCores bool,
+	hardActive bool,
+	dynamicConf *dynamicconfig.Configuration,
+) (*pendingAdvisorState, error) {
+	defaultShareMode := defaultShareMaterializationDisabled
+	if dynamicConf != nil && dynamicConf.FillDefaultSharePoolWithNonReclaimCPUs {
+		defaultShareMode = defaultShareMaterializationNormal
+	}
+	return p.applyBlocksWithDefaultShareMode(
+		blockCPUSet, resp, allowSharedCoresOverlapReclaimedCores, hardActive, dynamicConf,
+		defaultShareMode)
+}
+
 func TestConvertGetAdviceResponsePropagatesDedicatedReclaimDisjoint(t *testing.T) {
 	t.Parallel()
 

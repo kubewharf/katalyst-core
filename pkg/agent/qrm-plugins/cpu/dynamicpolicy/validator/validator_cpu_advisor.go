@@ -90,15 +90,10 @@ func (c *CPUAdvisorValidator) ValidateRequest(req *advisorapi.GetAdviceRequest) 
 	return nil
 }
 
-func (c *CPUAdvisorValidator) Validate(resp *advisorapi.ListAndWatchResponse) error {
-	return c.validate(resp, false)
-}
-
-func (c *CPUAdvisorValidator) ValidateWithDefaultShareUpperBound(resp *advisorapi.ListAndWatchResponse) error {
-	return c.validate(resp, true)
-}
-
-func (c *CPUAdvisorValidator) validate(resp *advisorapi.ListAndWatchResponse, defaultShareUpperBound bool) error {
+func (c *CPUAdvisorValidator) Validate(
+	resp *advisorapi.ListAndWatchResponse,
+	defaultShareUpperBound bool,
+) error {
 	if resp == nil {
 		return fmt.Errorf("got nil cpu advisor resp")
 	}

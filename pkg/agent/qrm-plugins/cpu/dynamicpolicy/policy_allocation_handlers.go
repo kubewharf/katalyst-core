@@ -2817,7 +2817,9 @@ type defaultShareMaterializationPlan struct {
 type defaultShareMaterializationMode uint8
 
 const (
-	defaultShareMaterializationNormal defaultShareMaterializationMode = iota
+	defaultShareMaterializationDisabled defaultShareMaterializationMode = iota
+	defaultShareMaterializationNormal
+	defaultShareMaterializationFrozenResidual
 	defaultShareMaterializationRecovery
 )
 
@@ -2977,7 +2979,9 @@ func materializeDefaultShareCPUSetForMode(expectedQuantity int, availableCPUs ma
 ) (machine.CPUSet, error) {
 	fixed := unionPoolCPUSet(pools, commonstate.PoolNameShare).Union(unionIsolatedCPUSet(isolated))
 	residual := availableCPUs.Difference(fixed)
-	if residual.Size() > expectedQuantity && mode != defaultShareMaterializationRecovery {
+	quantityIsAdvisory := mode == defaultShareMaterializationFrozenResidual ||
+		mode == defaultShareMaterializationRecovery
+	if residual.Size() > expectedQuantity && !quantityIsAdvisory {
 		return machine.NewCPUSet(), &DefaultShareResidualQuantityError{
 			AdvisedQuantity: expectedQuantity,
 			ResidualSize:    residual.Size(),
@@ -3004,16 +3008,6 @@ func materializeDefaultShareCPUSetForMode(expectedQuantity int, availableCPUs ma
 
 // finalizeDefaultShareEntryForMode reads post-revise pool allocations so reclaim
 // and isolation changes are reflected in the final residual.
-func (p *DynamicPolicy) finalizeDefaultShareEntry(
-	newPodEntries state.PodEntries,
-	ownershipEntries state.PodEntries,
-	expectedQuantity int, candidate machine.CPUSet,
-) error {
-	return p.finalizeDefaultShareEntryForMode(
-		newPodEntries, ownershipEntries, expectedQuantity, candidate,
-		defaultShareMaterializationNormal)
-}
-
 func (p *DynamicPolicy) finalizeDefaultShareEntryForMode(
 	newPodEntries state.PodEntries,
 	ownershipEntries state.PodEntries,
