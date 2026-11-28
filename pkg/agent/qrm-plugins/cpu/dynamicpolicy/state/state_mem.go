@@ -252,61 +252,33 @@ func (s *cpuPluginState) SetDisableDedicatedCoresOverlapReclaimedCores(disableDe
 	return nil
 }
 
-// CommitAdvisorState atomically replaces the state fields produced by one advisor response.
-func (s *cpuPluginState) CommitAdvisorState(
-	podEntries PodEntries,
-	machineState NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	_ bool,
-	permits ...*WritePermit,
-) error {
+func (s *cpuPluginState) Commit(update StateUpdate, options CommitOptions, permits ...*WritePermit) error {
 	s.Lock()
 	defer s.Unlock()
 
+	if options.ExpectedRevision != nil && s.revision != *options.ExpectedRevision {
+		return fmt.Errorf("%w: expected=%d actual=%d", ErrStaleStateRevision, *options.ExpectedRevision, s.revision)
+	}
 	if s.revision == math.MaxUint64 {
 		return fmt.Errorf("%w: current=%d", ErrStateRevisionOverflow, s.revision)
+	}
+	if len(permits) > 1 {
+		return fmt.Errorf("Commit received %d write permits", len(permits))
 	}
 	var permit *WritePermit
-	if len(permits) > 0 {
+	if len(permits) == 1 {
 		permit = permits[0]
 	}
-	if err := s.permitWrite("CommitAdvisorState", permit); err != nil {
+	if err := s.permitWrite("Commit", permit); err != nil {
 		return err
 	}
-	s.podEntries = podEntries.Clone()
-	s.machineState = machineState.Clone()
-	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
-	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
-	s.revision++
-	return nil
-}
-
-// CommitAdvisorStateIfRevision atomically replaces advisor-derived state only
-// when the caller's snapshot revision still matches current state.
-func (s *cpuPluginState) CommitAdvisorStateIfRevision(
-	expectedRevision uint64,
-	podEntries PodEntries,
-	machineState NUMANodeMap,
-	allowSharedCoresOverlapReclaimedCores bool,
-	disableDedicatedCoresOverlapReclaimedCores bool,
-	_ bool,
-	permits ...*WritePermit,
-) error {
-	s.Lock()
-	defer s.Unlock()
-
-	if s.revision != expectedRevision {
-		return fmt.Errorf("%w: expected=%d actual=%d", ErrStaleStateRevision, expectedRevision, s.revision)
+	s.podEntries = update.PodEntries.Clone()
+	s.machineState = update.MachineState.Clone()
+	s.allowSharedCoresOverlapReclaimedCores = update.AllowSharedCoresOverlapReclaimedCores
+	s.disableDedicatedCoresOverlapReclaimedCores = update.DisableDedicatedCoresOverlapReclaimedCores
+	if update.NUMAHeadroom != nil {
+		s.numaHeadroom = general.DeepCopyIntToFloat64Map(update.NUMAHeadroom)
 	}
-	if s.revision == math.MaxUint64 {
-		return fmt.Errorf("%w: current=%d", ErrStateRevisionOverflow, s.revision)
-	}
-
-	s.podEntries = podEntries.Clone()
-	s.machineState = machineState.Clone()
-	s.allowSharedCoresOverlapReclaimedCores = allowSharedCoresOverlapReclaimedCores
-	s.disableDedicatedCoresOverlapReclaimedCores = disableDedicatedCoresOverlapReclaimedCores
 	s.revision++
 	return nil
 }

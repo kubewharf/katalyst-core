@@ -71,8 +71,11 @@ type CPUSetAdjustmentHandlerCtx struct {
 	CommitIfGenerationCurrent func(generation uint64, commit func()) bool
 	// Mode is fail-safe: an unset mode is interpreted as Periodic/full
 	// convergence by consumers and never enables admission-only relaxation.
-	Mode              CPUSetAdjustmentMode
-	ScheduleFullRetry func(CPUSetAdjustmentRetryReason)
+	Mode CPUSetAdjustmentMode
+	// ReconcileCanonicalPartition binds this round to an advisor post-commit
+	// target. A previous admission AppliedView is evidence, not its final target.
+	ReconcileCanonicalPartition bool
+	ScheduleFullRetry           func(CPUSetAdjustmentRetryReason)
 	// CommitOverride carries topology-safe commit inputs produced by adjustment handlers.
 	// Callers consume it before committing advisor state.
 	CommitOverride *CPUSetAdjustmentCommitOverride

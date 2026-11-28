@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -91,10 +92,8 @@ func (p *NativePolicy) clearResidualState() {
 			return
 		}
 
-		p.state.SetPodEntries(podEntries, false)
-		p.state.SetMachineState(updatedMachineState, false)
-		if err := p.state.StoreState(); err != nil {
-			general.ErrorS(err, "store state failed")
+		if err := p.state.Commit(state.StateUpdate{PodEntries: podEntries, MachineState: updatedMachineState, AllowSharedCoresOverlapReclaimedCores: p.state.GetAllowSharedCoresOverlapReclaimedCores(), DisableDedicatedCoresOverlapReclaimedCores: p.state.GetDisableDedicatedCoresOverlapReclaimedCores()}, state.CommitOptions{Persist: true}); err != nil {
+			general.ErrorS(err, "commit residual state cleanup failed")
 		}
 	}
 }

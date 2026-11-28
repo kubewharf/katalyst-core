@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bytedance/mockey"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
@@ -253,7 +254,6 @@ func TestDyingMemcgReclaimWithAbsolutePath(t *testing.T) {
 		t.Parallel()
 		mu.Lock()
 		defer mu.Unlock()
-		defer mockey.UnPatchAll()
 
 		tmpDir, err := os.MkdirTemp("", "dying-memcg")
 		assert.NoError(t, err)
@@ -263,22 +263,32 @@ func TestDyingMemcgReclaimWithAbsolutePath(t *testing.T) {
 		err = os.WriteFile(reclaimFile, []byte(""), 0o600)
 		assert.NoError(t, err)
 
-		fakeManager := &FakeCgroupManager{}
 		callCount := 0
 		offloadCount := 0
 
-		mockey.Mock(GetManager).IncludeCurrentGoRoutine().Return(fakeManager).Build()
-		mockey.Mock((*FakeCgroupManager).GetCgroupNrDyingDescendants).IncludeCurrentGoRoutine().To(func(_ *FakeCgroupManager, _ string) (int, error) {
+		// Inject fakes directly instead of monkey-patching GetManager /
+		// MemoryOffloadingWithAbsolutePath; also stub the 5s sleep so the test
+		// is fast and does not depend on -gcflags=all=-N -l.
+		oldNr, oldOff, oldSleep := dyingMemcgNrDyingDescendants, dyingMemcgOffloading, dyingMemcgSleep
+		defer func() {
+			dyingMemcgNrDyingDescendants = oldNr
+			dyingMemcgOffloading = oldOff
+			dyingMemcgSleep = oldSleep
+		}()
+
+		dyingMemcgNrDyingDescendants = func(_ string) (int, error) {
 			callCount++
 			if callCount == 1 {
 				return DyingMemcgThreshold + 10, nil
 			}
 			return DyingMemcgThreshold - 10, nil
-		}).Build()
-		mockey.Mock(MemoryOffloadingWithAbsolutePath).IncludeCurrentGoRoutine().To(func(_ context.Context, _ string, _ int64, _ machine.CPUSet) error {
+		}
+		dyingMemcgOffloading = func(_ context.Context, _ string, _ int64, _ machine.CPUSet) error {
 			offloadCount++
 			return nil
-		}).Build()
+		}
+		dyingMemcgSleep = func(_ time.Duration) {}
+
 		err = DyingMemcgReclaimWithAbsolutePath(context.TODO(), tmpDir, metrics.DummyMetrics{}, "entry", "container", machine.NewCPUSet(0))
 		assert.NoError(t, err)
 		assert.Equal(t, 2, callCount)

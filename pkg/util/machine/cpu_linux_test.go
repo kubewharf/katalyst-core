@@ -21,8 +21,6 @@ package machine
 
 import (
 	"fmt"
-	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,26 +35,90 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+// fakeSysfsFixture is an isolated sysfs/cpuinfo tree built under a t.TempDir()
+// for CPU topology and flags tests. It overrides the package-level path vars so
+// the code under test reads from the fixture instead of the host /sys and
+// /proc, which makes these tests deterministic and host-independent.
+type fakeSysfsFixture struct {
+	root     string // temp root; cpuRoot/nodeRoot/cpuinfo live under it
+	cpuRoot  string // <root>/cpu, stands in for cpuSysDir
+	nodeRoot string // <root>/node, stands in for nodeSysDir
+	cpuinfo  string // <root>/cpuinfo, stands in for cpuInfoPath
+}
+
+// newFakeSysfsFixture creates the fixture tree and points cpuSysDir, nodeSysDir
+// and cpuInfoPath at it; the original values are restored on test cleanup.
+func newFakeSysfsFixture(t *testing.T) *fakeSysfsFixture {
+	t.Helper()
+	fx := &fakeSysfsFixture{root: t.TempDir()}
+	fx.cpuRoot = filepath.Join(fx.root, "cpu")
+	fx.nodeRoot = filepath.Join(fx.root, "node")
+	fx.cpuinfo = filepath.Join(fx.root, "cpuinfo")
+	So(os.MkdirAll(fx.cpuRoot, 0o755), ShouldBeNil)
+	So(os.MkdirAll(fx.nodeRoot, 0o755), ShouldBeNil)
+
+	origCPU, origNode, origInfo := cpuSysDir, nodeSysDir, cpuInfoPath
+	cpuSysDir, nodeSysDir, cpuInfoPath = fx.cpuRoot, fx.nodeRoot, fx.cpuinfo
+	t.Cleanup(func() { cpuSysDir, nodeSysDir, cpuInfoPath = origCPU, origNode, origInfo })
+	return fx
+}
+
+// writeNodeCPUList writes nodeN/cpulist under the fixture node root.
+func (fx *fakeSysfsFixture) writeNodeCPUList(t *testing.T, nodeID int, list string) {
+	t.Helper()
+	dir := filepath.Join(fx.nodeRoot, fmt.Sprintf("node%d", nodeID))
+	So(os.MkdirAll(dir, 0o755), ShouldBeNil)
+	So(os.WriteFile(filepath.Join(dir, "cpulist"), []byte(list), 0o644), ShouldBeNil)
+}
+
+// writeCPUTopo writes cpuN/topology/thread_siblings_list and, when packageID is
+// non-empty, cpuN/topology/physical_package_id under the fixture cpu root.
+func (fx *fakeSysfsFixture) writeCPUTopo(t *testing.T, cpuID int64, threadSiblings, packageID string) {
+	t.Helper()
+	dir := filepath.Join(fx.cpuRoot, fmt.Sprintf("cpu%d", cpuID), "topology")
+	So(os.MkdirAll(dir, 0o755), ShouldBeNil)
+	So(os.WriteFile(filepath.Join(dir, "thread_siblings_list"), []byte(threadSiblings), 0o644), ShouldBeNil)
+	if packageID != "" {
+		So(os.WriteFile(filepath.Join(dir, "physical_package_id"), []byte(packageID), 0o644), ShouldBeNil)
+	}
+}
+
+// writeCacheSharedCPUs writes cpuN/cache/index3/shared_cpu_list (AMD L3 view).
+func (fx *fakeSysfsFixture) writeCacheSharedCPUs(t *testing.T, cpuID int64, list string) {
+	t.Helper()
+	dir := filepath.Join(fx.cpuRoot, fmt.Sprintf("cpu%d", cpuID), "cache", "index3")
+	So(os.MkdirAll(dir, 0o755), ShouldBeNil)
+	So(os.WriteFile(filepath.Join(dir, "shared_cpu_list"), []byte(list), 0o644), ShouldBeNil)
+}
+
+// writeCPUOnline writes cpuN/online with the given online value (1/0).
+func (fx *fakeSysfsFixture) writeCPUOnline(t *testing.T, cpuID int64, online int) {
+	t.Helper()
+	dir := filepath.Join(fx.cpuRoot, fmt.Sprintf("cpu%d", cpuID))
+	So(os.MkdirAll(dir, 0o755), ShouldBeNil)
+	So(os.WriteFile(filepath.Join(dir, "online"), []byte(strconv.Itoa(online)), 0o644), ShouldBeNil)
+}
+
+// writeCPUInfo writes the fake /proc/cpuinfo content used by GetCPUFlags.
+func (fx *fakeSysfsFixture) writeCPUInfo(t *testing.T, content string) {
+	t.Helper()
+	So(os.WriteFile(fx.cpuinfo, []byte(content), 0o644), ShouldBeNil)
+}
+
 func Test_GetCPUInfoWithTopo(t *testing.T) {
 	mockey.PatchConvey("Test GetCPUInfoWithTopo", t, func() {
-		mockey.Mock(os.Stat).Return(nil, nil).Build()
 		mockey.Mock(getCPUArchitecture).Return(cpuArchAMD64, nil).Build()
-		mockey.PatchConvey("Scenario 1: Successfully obtaining Intel CPU topology", func() {
-			// Arrange: Simulate an Intel CPU environment
-			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
-			// There is a node0 directory under simulation /sys/devices/system/node
-			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
-			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
 
-			mockIntelDomain := &LLCDomain{
-				PhyCores: []PhyCore{
-					{CPUs: []int64{0, 2}}, // Physical core 0, including logical core 0 and 2
-					{CPUs: []int64{1, 3}}, // Physical core 1, containing logical core 1 and 3
-				},
-			}
-			mockey.Mock(getNumaTopo).Return(mockIntelDomain, nil).Build()
-			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
-			mockey.Mock(GetCPUOnlineStatus).Return(true, nil).Build()
+		mockey.PatchConvey("Scenario 1: Successfully obtaining Intel CPU topology", func() {
+			// Arrange: build an isolated sysfs fixture describing an Intel CPU with
+			// SMT enabled (cpu0+2 share a core, cpu1+3 share a core).
+			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
+			fx := newFakeSysfsFixture(t)
+			fx.writeNodeCPUList(t, 0, "0-3")
+			fx.writeCPUTopo(t, 0, "0,2", "0")
+			fx.writeCPUTopo(t, 1, "1,3", "0")
+			fx.writeCPUTopo(t, 2, "0,2", "")
+			fx.writeCPUTopo(t, 3, "1,3", "")
 
 			// Act: call the function to be tested
 			info, err := GetCPUInfoWithTopo()
@@ -75,25 +137,16 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 		})
 
 		mockey.PatchConvey("Scenario 2: Successfully obtaining AMD CPU topology", func() {
+			// Arrange: AMD fixture where L3 cache (index3) is shared per CCD.
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.AMD)
-			// There is a node0 directory under simulation /sys/devices/system/node
-			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
-			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
-
-			// Simulate the return result of getAMDNumaTopo, including a CCD
-			mockAmdNuma := &AMDNuma{
-				CCDs: []*LLCDomain{
-					{
-						PhyCores: []PhyCore{
-							{CPUs: []int64{0, 8}},
-							{CPUs: []int64{1, 9}},
-						},
-					},
-				},
-			}
-			mockey.Mock(getAMDNumaTopo).Return(mockAmdNuma, nil).Build()
-			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
-			mockey.Mock(GetCPUOnlineStatus).Return(true, nil).Build()
+			fx := newFakeSysfsFixture(t)
+			fx.writeNodeCPUList(t, 0, "0,1,8,9")
+			fx.writeCPUTopo(t, 0, "0,8", "0")
+			fx.writeCPUTopo(t, 1, "1,9", "0")
+			fx.writeCPUTopo(t, 8, "0,8", "")
+			fx.writeCPUTopo(t, 9, "1,9", "")
+			fx.writeCacheSharedCPUs(t, 0, "0,8")
+			fx.writeCacheSharedCPUs(t, 1, "1,9")
 
 			// Act: call the function to be tested
 			info, err := GetCPUInfoWithTopo()
@@ -110,28 +163,27 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 		})
 
 		mockey.PatchConvey("Scenario 3: Successfully obtaining arm64 CPU topology", func() {
+			// Arrange: arm64 fixture with one thread per core.
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.VendorUnknown)
 			mockey.Mock(getCPUArchitecture).Return(cpuArchARM64, nil).Build()
-			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
-			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
+			fx := newFakeSysfsFixture(t)
+			fx.writeNodeCPUList(t, 0, "0,1")
+			fx.writeCPUTopo(t, 0, "0", "0")
+			fx.writeCPUTopo(t, 1, "1", "0")
 
-			genericNuma := &LLCDomain{
+			info, err := GetCPUInfoWithTopo()
+
+			expectedNuma := &LLCDomain{
 				PhyCores: []PhyCore{
 					{CPUs: []int64{0}},
 					{CPUs: []int64{1}},
 				},
 			}
-			mockey.Mock(getNumaTopo).Return(genericNuma, nil).Build()
-			mockey.Mock(GetCPUPackageID).Return(-1, nil).Build()
-			mockey.Mock(GetCPUOnlineStatus).Return(true, nil).Build()
-
-			info, err := GetCPUInfoWithTopo()
-
 			So(err, ShouldBeNil)
 			So(info, ShouldNotBeNil)
 			So(info.CPUVendor, ShouldEqual, cpuid.VendorUnknown)
 			So(info.Sockets[0].NumaIDs, ShouldResemble, []int{0})
-			So(info.Sockets[0].Numas[0], ShouldResemble, genericNuma)
+			So(info.Sockets[0].Numas[0], ShouldResemble, expectedNuma)
 			So(info.Sockets[0].CPUs, ShouldResemble, []int64{0, 1})
 			So(info.CPU2Socket, ShouldResemble, map[int64]int{0: 0, 1: 0})
 			So(info.CPUOnline, ShouldResemble, map[int64]bool{0: true, 1: true})
@@ -149,32 +201,25 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 
 		mockey.PatchConvey("Scenario 5: Failed to read the node directory", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
-			expectedErr := errors.New("permission denied")
-			mockey.Mock(os.ReadDir).Return(nil, expectedErr).Build()
+			// Point nodeSysDir at a directory that does not exist so the real
+			// os.ReadDir fails, instead of relying on mockey to patch it.
+			fx := newFakeSysfsFixture(t)
+			nodeSysDir = filepath.Join(fx.root, "missing-node")
 
 			// Act: call the function to be tested
 			info, err := GetCPUInfoWithTopo()
 
 			So(info, ShouldBeNil)
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, expectedErr.Error())
 		})
 
 		mockey.PatchConvey("Scenario 6: The offline CPU exists when obtaining the CPU's online status", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
-			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
-			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
-			mockIntelDomain := &LLCDomain{
-				PhyCores: []PhyCore{{CPUs: []int64{0, 1}}},
-			}
-			mockey.Mock(getNumaTopo).Return(mockIntelDomain, nil).Build()
-			mockey.Mock(GetCPUPackageID).Return(0, nil).Build()
-			mockey.Mock(GetCPUOnlineStatus).To(func(cpuID int64) (bool, error) {
-				if cpuID == 1 {
-					return false, nil
-				}
-				return true, nil
-			}).Build()
+			fx := newFakeSysfsFixture(t)
+			fx.writeNodeCPUList(t, 0, "0,1")
+			fx.writeCPUTopo(t, 0, "0", "0")
+			fx.writeCPUTopo(t, 1, "1", "0")
+			fx.writeCPUOnline(t, 1, 0) // cpu1 is offline
 
 			// Act: call the function to be tested
 			info, err := GetCPUInfoWithTopo()
@@ -186,22 +231,18 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 
 		mockey.PatchConvey("Scenario 7: Failed to obtain CPU Package ID", func() {
 			mockey.MockValue(&cpuid.CPU.VendorID).To(cpuid.Intel)
-			mockNode0 := &mockDirEntry{entryName: "node0", isDir: true}
-			mockey.Mock(os.ReadDir).Return([]fs.DirEntry{mockNode0}, nil).Build()
-			mockIntelDomain := &LLCDomain{
-				PhyCores: []PhyCore{{CPUs: []int64{0}}},
-			}
-			mockey.Mock(getNumaTopo).Return(mockIntelDomain, nil).Build()
-
-			expectedErr := errors.New("failed to read package id")
-			mockey.Mock(GetCPUPackageID).Return(-1, expectedErr).Build()
+			// Provide topology dir but no physical_package_id, so the real
+			// GetCPUPackageID fails when reading the file.
+			fx := newFakeSysfsFixture(t)
+			fx.writeNodeCPUList(t, 0, "0")
+			fx.writeCPUTopo(t, 0, "0", "")
 
 			// Act: call the function to be tested
 			info, err := GetCPUInfoWithTopo()
 
 			So(info, ShouldBeNil)
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, expectedErr.Error())
+			So(err.Error(), ShouldContainSubstring, "failed to GetCPUPackageID(0)")
 		})
 	})
 }
@@ -1124,11 +1165,12 @@ func Test_GetCPUFlags(t *testing.T) {
 	mockey.PatchConvey("Test GetCPUFlags", t, func() {
 		// Scenario 1: Successfully obtain the cpu flag
 		mockey.PatchConvey("successfully obtain the cpu flag", func() {
-			// Analog ReadFile successfully reads the contents of the file containing flags.
-			mockCPUInfo := "processor\t: 0\n" +
-				"vendor_id\t: GenuineIntel\n" +
-				"flags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov"
-			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+			// Write a fake /proc/cpuinfo into the fixture and point cpuInfoPath at
+			// it, so GetCPUFlags reads the controlled content instead of host.
+			fx := newFakeSysfsFixture(t)
+			fx.writeCPUInfo(t, "processor\t: 0\n"+
+				"vendor_id\t: GenuineIntel\n"+
+				"flags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov")
 
 			flags, err := GetCPUFlags()
 			So(err, ShouldBeNil)
@@ -1138,25 +1180,24 @@ func Test_GetCPUFlags(t *testing.T) {
 
 		// Scenario 2: Failed to read the file
 		mockey.PatchConvey("Failed to read the file", func() {
-			// Analog ReadFile returns an error.
-			mockErr := errors.New("permission denied")
-			mockey.Mock(ioutil.ReadFile).Return(nil, mockErr).Build()
+			// Point cpuInfoPath at a path that does not exist so the real
+			// ioutil.ReadFile fails.
+			fx := newFakeSysfsFixture(t)
+			missing := filepath.Join(fx.root, "missing-cpuinfo")
+			cpuInfoPath = missing
 
 			flags, err := GetCPUFlags()
 			So(flags, ShouldBeNil)
 			So(err, ShouldNotBeNil)
-			expectedErrMsg := fmt.Sprintf("could not read file %s", cpuInfoPath)
-			So(err.Error(), ShouldContainSubstring, expectedErrMsg)
-			So(err.Error(), ShouldContainSubstring, mockErr.Error())
+			So(err.Error(), ShouldContainSubstring, fmt.Sprintf("could not read file %s", missing))
 		})
 
 		// Scenario 3: The flags line is not found in the file
 		mockey.PatchConvey("The flags line is not found in the file", func() {
-			// Analog ReadFile successfully reads the contents of the file containing no flags line.
-			mockCPUInfo := "processor\t: 0\n" +
-				"vendor_id\t: GenuineIntel\n" +
-				"model name\t: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz"
-			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+			fx := newFakeSysfsFixture(t)
+			fx.writeCPUInfo(t, "processor\t: 0\n"+
+				"vendor_id\t: GenuineIntel\n"+
+				"model name\t: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz")
 
 			flags, err := GetCPUFlags()
 			So(flags, ShouldBeNil)
@@ -1166,11 +1207,10 @@ func Test_GetCPUFlags(t *testing.T) {
 
 		// Scenario 4: The flags line content in the file is empty
 		mockey.PatchConvey("The flags line content in the file is empty", func() {
-			// Analog ReadFile successfully reads the contents of the file containing empty flags line.
-			mockCPUInfo := "processor\t: 0\n" +
-				"vendor_id\t: GenuineIntel\n" +
-				"flags\t\t: "
-			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+			fx := newFakeSysfsFixture(t)
+			fx.writeCPUInfo(t, "processor\t: 0\n"+
+				"vendor_id\t: GenuineIntel\n"+
+				"flags\t\t: ")
 
 			flags, err := GetCPUFlags()
 			So(flags, ShouldBeNil)
@@ -1180,11 +1220,10 @@ func Test_GetCPUFlags(t *testing.T) {
 
 		// Scenario 5: The flags line in the file is incorrectly formatted (no colon)
 		mockey.PatchConvey("The flags line in the file is not formatted correctly", func() {
-			// Analog ReadFile successfully reads the contents of the file containing flags line not formatted correctly.
-			mockCPUInfo := "processor\t: 0\n" +
-				"vendor_id\t: GenuineIntel\n" +
-				"flags fpu vme de"
-			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+			fx := newFakeSysfsFixture(t)
+			fx.writeCPUInfo(t, "processor\t: 0\n"+
+				"vendor_id\t: GenuineIntel\n"+
+				"flags fpu vme de")
 
 			flags, err := GetCPUFlags()
 
