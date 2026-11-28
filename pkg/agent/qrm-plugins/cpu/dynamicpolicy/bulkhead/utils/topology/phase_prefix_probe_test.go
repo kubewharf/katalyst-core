@@ -62,6 +62,8 @@ func TestPhaseWriterAncestorActivationRestoresWrittenPrefix(t *testing.T) {
 		return nil
 	}
 	writer := newSafeCPUSetWriter(f.driver, NewBudgetTracker(ConvergenceBudget{}), nil)
+	// This probe checks prefix restoration; recovery expiry has separate coverage.
+	writer.recoveryContextFactory = deterministicRecoveryContext
 	writer.dormantProofs = m.DormantProofs
 	err = writer.execute(context.Background(), plan)
 	require.ErrorIs(t, err, ErrCoordinatorPlanStale)
