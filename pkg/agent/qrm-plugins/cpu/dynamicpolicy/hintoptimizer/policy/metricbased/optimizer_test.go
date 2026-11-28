@@ -416,7 +416,8 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 	t.Parallel()
 
-	// cpuTopology, _ := machine.GenerateDummyCPUTopology(8, 1, 2) // 2 NUMA nodes, 4 CPUs each
+	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 1, 2)
+	require.NoError(t, err)
 	machineState := state.NUMANodeMap{
 		0: &state.NUMANodeState{DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3)},
 		1: &state.NUMANodeState{DefaultCPUSet: machine.NewCPUSet(4, 5, 6, 7)},
@@ -552,8 +553,21 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			stateImpl, err := state.NewCheckpointState(
+				&statedirectory.StateDirectoryConfiguration{StateFileDirectory: t.TempDir()},
+				"test",
+				"test",
+				cpuTopology,
+				false,
+				state.GenerateMachineStateFromPodEntries,
+				metrics.DummyMetrics{},
+			)
+			require.NoError(t, err)
+			stateImpl.SetReservedCPUs(tt.fields.reservedCPUs)
+
 			o := &metricBasedHintOptimizer{
 				mutex:             sync.RWMutex{},
+				state:             stateImpl,
 				numaMetrics:       tt.fields.numaMetrics,
 				reservedCPUs:      tt.fields.reservedCPUs,
 				metricSampleTime:  10 * time.Minute,
